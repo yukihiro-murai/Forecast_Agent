@@ -234,6 +234,7 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
