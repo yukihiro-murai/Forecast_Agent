@@ -256,22 +256,27 @@ function setupForecastBook() {
     SHEETS.PROCESS_STATUS
   ];
 
-  resetWorkbookSheets_(ss, order);
+  try {
+    resetWorkbookSheets_(ss, order);
 
-  buildGUIDE_();
-  buildCONFIG_();
-  buildSALES_();
-  buildFACTORS_PRODUCT_();
-  buildFACTORS_CLIENT_();
-  buildOPINIONS_();
-  buildDEV_();
-  buildPhase1Sheets_();
-  buildOUTPUT_();
-  applyTabColors_();
-  hideNonUserSheets_();
-  ss.setActiveSheet(ss.getSheetByName(SHEETS.GUIDE));
+    buildGUIDE_();
+    buildCONFIG_();
+    buildSALES_();
+    buildFACTORS_PRODUCT_();
+    buildFACTORS_CLIENT_();
+    buildOPINIONS_();
+    buildDEV_();
+    buildPhase1Sheets_();
+    buildOUTPUT_();
+    applyTabColors_();
+    hideNonUserSheets_();
+    const guide = ss.getSheetByName(SHEETS.GUIDE);
+    if (guide) ss.setActiveSheet(guide);
 
-  showInitialSetupDialog_();
+    showInitialSetupDialog_();
+  } catch (e) {
+    ui.alert('初期セットアップでエラー', `${e && e.message ? e.message : e}`);
+  }
 }
 
 function resetWorkbookSheets_(ss, order) {
@@ -294,9 +299,20 @@ function resetWorkbookSheets_(ss, order) {
     const sh = ss.getSheetByName(name);
     if (!sh) return;
     try { sh.showSheet(); } catch (e) { /* noop */ }
-    ss.setActiveSheet(sh);
-    ss.moveActiveSheet(idx + 1);
+    safeMoveSheet_(ss, sh, idx + 1);
   });
+}
+
+function safeMoveSheet_(ss, sh, targetIndex) {
+  if (!sh) return;
+  const max = ss.getSheets().length;
+  const idx = Math.min(Math.max(1, targetIndex), max);
+  try {
+    ss.setActiveSheet(sh);
+    ss.moveActiveSheet(idx);
+  } catch (e) {
+    // 並び替えに失敗しても初期セットアップ全体は継続する
+  }
 }
 
 function openGuideSheet_() {
