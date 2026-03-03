@@ -237,17 +237,17 @@ function setupForecastBook() {
     SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
+    SHEETS.ACTUAL_EVAL_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV,
-    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.AI_RESEARCH_PASTE,
     SHEETS.OUTPUT,
     SHEETS.FORECAST_REPORT,
     SHEETS.DASHBOARD,
-    SHEETS.ACTUAL_EVAL_MONTHLY,
     SHEETS.EVAL_LOG,
     SHEETS.EVAL_INSIGHTS,
     SHEETS.AI_RESEARCH_STRUCTURED,
@@ -275,39 +275,28 @@ function setupForecastBook() {
 }
 
 function resetWorkbookSheets_(ss, order) {
-  let tmpName = '__SETUP_TMP__';
-  if (ss.getSheetByName(tmpName)) tmpName = `__SETUP_TMP__${Date.now()}`;
-  const tmp = ss.insertSheet(tmpName);
+  const required = new Set(order);
 
-  const all = ss.getSheets().slice();
-  all.forEach(sh => {
-    if (sh.getSheetId() === tmp.getSheetId()) return;
+  order.forEach(name => {
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
+  });
+
+  ss.getSheets().forEach(sh => {
+    if (required.has(sh.getName())) return;
     try {
       ss.deleteSheet(sh);
     } catch (e) {
-      // 予期せぬ保護等で削除できない場合は後段で上書き対象から除外
+      try { sh.hideSheet(); } catch (err) { /* noop */ }
     }
   });
 
-  const remain = ss.getSheets();
-  remain.forEach(sh => {
-    if (sh.getSheetId() !== tmp.getSheetId()) {
-      try { ss.deleteSheet(sh); } catch (e) { /* noop */ }
-    }
-  });
-
-  tmp.clear();
-  tmp.clearFormats();
-  tmp.setName(order[0]);
-  ss.setActiveSheet(tmp);
-  ss.moveActiveSheet(1);
-
-  for (let i = 1; i < order.length; i++) {
-    let sh = ss.getSheetByName(order[i]);
-    if (!sh) sh = ss.insertSheet(order[i], i);
+  order.forEach((name, idx) => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    try { sh.showSheet(); } catch (e) { /* noop */ }
     ss.setActiveSheet(sh);
-    ss.moveActiveSheet(i + 1);
-  }
+    ss.moveActiveSheet(idx + 1);
+  });
 }
 
 function openGuideSheet_() {
@@ -2912,9 +2901,9 @@ function applyTabColors_() {
   const colorGuide = '#666666';
 
   const manual = [SHEETS.FACTORS_PRODUCT, SHEETS.FACTORS_CLIENT, SHEETS.OPINIONS, SHEETS.DEV, SHEETS.AI_RESEARCH_PASTE];
-  const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
+  const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
   const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
-  const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
+  const evalSheets = [SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
 
   manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
