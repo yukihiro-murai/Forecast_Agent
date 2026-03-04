@@ -1,8 +1,8 @@
 /***************************************
- * Forecast Agent v1.1
+ * Forecast Agent v1.2
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
- * v1.1（今回反映）
+ * v1.2（今回反映）
  * - 未確定月補完：月別（同月）トレンドで補完し、補完後に途中実績より下がらない
  * - 未確定月判定：実行日ベースで可変（当月以降=未確定 / 前月まで=確定）
  * - FACTORS/OPINIONS/DEV_SPOT：必要情報が揃った行のみ計算に使用
@@ -11,7 +11,7 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 const MENU_NAME = 'Forecast Agent';
 
 /***************************************
@@ -241,7 +241,7 @@ function setupForecastBook() {
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
-        SHEETS.OUTPUT,
+    SHEETS.OUTPUT,
     SHEETS.FORECAST_REPORT,
     SHEETS.DASHBOARD,
     SHEETS.ACTUAL_EVAL_MONTHLY,
@@ -278,39 +278,43 @@ function setupForecastBook() {
 }
 
 function resetWorkbookSheets_(ss, order) {
-  const required = new Set(order);
+  var required = {};
+  for (var i = 0; i < order.length; i++) required[order[i]] = true;
 
-  order.forEach(name => {
-    if (!ss.getSheetByName(name)) ss.insertSheet(name);
-  });
-}
+  for (var j = 0; j < order.length; j++) {
+    if (!ss.getSheetByName(order[j])) ss.insertSheet(order[j]);
+  }
 
-  ss.getSheets().forEach(sh => {
-    if (required.has(sh.getName())) return;
+  var current = ss.getSheets();
+  for (var k = 0; k < current.length; k++) {
+    var sh = current[k];
+    if (required[sh.getName()]) continue;
     try {
       ss.deleteSheet(sh);
     } catch (e) {
-      try { sh.hideSheet(); } catch (err) { /* noop */ }
+      try { sh.hideSheet(); } catch (ignore) {}
     }
-  });
+  }
 
-  order.forEach((name, idx) => {
-    const sh = ss.getSheetByName(name);
-    if (!sh) return;
-    try { sh.showSheet(); } catch (e) { /* noop */ }
-    safeMoveSheet_(ss, sh, idx + 1);
-  });
+  for (var x = 0; x < order.length; x++) {
+    var target = ss.getSheetByName(order[x]);
+    if (!target) continue;
+    try { target.showSheet(); } catch (e2) {}
+    safeMoveSheet_(ss, target, x + 1);
+  }
 }
 
 function safeMoveSheet_(ss, sh, targetIndex) {
   if (!sh) return;
-  const max = ss.getSheets().length;
-  const idx = Math.min(Math.max(1, targetIndex), max);
   try {
+    var max = ss.getSheets().length;
+    var idx = targetIndex;
+    if (idx < 1) idx = 1;
+    if (idx > max) idx = max;
     ss.setActiveSheet(sh);
     ss.moveActiveSheet(idx);
   } catch (e) {
-    // 並び替えに失敗しても初期セットアップ全体は継続する
+    // 並び替え失敗時は継続
   }
 }
 
