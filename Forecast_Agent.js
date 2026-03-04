@@ -590,8 +590,17 @@ function importPastSalesToSalesTab() {
   sales.getRange(1, 1).setValue('Category');
   sales.getRange(1, 2, 1, totalMonths).setValues([headerMonths]);
 
-  const productNames = Array.from(map.keys()).sort();
-  const out = productNames.map(name => [name, ...map.get(name)]);
+  const base = new Array(totalMonths).fill(0);
+  const spot = new Array(totalMonths).fill(0);
+  map.forEach((arr, name) => {
+    const key = String(name || '').toUpperCase();
+    if (key.includes('SPOT')) {
+      for (let i = 0; i < totalMonths; i++) spot[i] += Number(arr[i] || 0);
+    } else {
+      for (let i = 0; i < totalMonths; i++) base[i] += Number(arr[i] || 0);
+    }
+  });
+  const out = [['BASE', ...base], ['SPOT', ...spot]];
   sales.getRange(2, 1, out.length, 1 + totalMonths).setValues(out);
 
   // 客観（黄色）
@@ -1198,19 +1207,18 @@ function buildGUIDE_() {
     ['A-予測', 'A-4 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
     ['A-予測', 'A-5 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-6 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-7 AI調査テンプレートを生成', '生成された内容をGemへ貼り付け、返却TSVを AI_RESEARCH_PROMPT!D2 に貼り付け。'],
+    ['A-予測', 'A-7 AI調査テンプレートを生成', '生成された内容をAIツールへ貼り付け、返却TSVを AI_RESEARCH_PROMPT!D2 に貼り付け。'],
     ['A-予測', 'A-8 予測を実行', 'OUTPUT / FORECAST_REPORT を更新。'],
     ['A-予測', 'A-9 ダッシュボード更新', 'DASHBOARD を更新。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
-  sh.getRange(12, 1, 1, 3).setValues([['分類', 'Forecast Agentボタンの手順', 'ボタン説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const bRows = [
     ['B-事後検証', 'B-1 検証用に実績データを取り込み', '実績を ACTUAL_EVAL_MONTHLY に取り込み（BASE/SPOT判定つき）。'],
     ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
     ['B-事後検証', 'B-3 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
+  sh.getRange(12, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
   sh.getRange(16, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
@@ -1322,10 +1330,10 @@ function buildFACTORS_PRODUCT_() {
   sh.getRange('D:D').setNumberFormat('@').setHorizontalAlignment('right');
 
   sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
-  sh.getRange(1, 2).setNote('SALESにあるProductNameと一致させます（③で自動展開）。');
+  sh.getRange(1, 2).setNote('SALES_INPUT_MONTHLYから取得した製品一覧に合わせて自動展開されます。');
   sh.getRange(1, 3).setNote('この日付「以降」に影響が出る想定で入力します。');
-  sh.getRange(1, 4).setNote('増減率（%）です。例：-30% = 今後30%減りそう。\n※入力値はそのまま直に固定反映せず、シミュレーション内で扱われます。');
-  sh.getRange(1, 5).setNote('根拠を短く（例：プロモ終了、競合参入、学会など）。');
+  sh.getRange(1, 4).setNote('増減率（%）です。例：-30% = 今後30%減りそう。\n入力は 0%/±5%刻みを推奨。');
+  sh.getRange(1, 5).setNote('根拠を短く（例：競合参入、契約更改、規制変更）。\nこの列は予測根拠の説明に使われます。');
 
   sh.setFrozenRows(1);
 }
@@ -1349,7 +1357,7 @@ function buildFACTORS_CLIENT_() {
   sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
   sh.getRange(1, 2).setNote('この日付「以降」に影響が出る想定で入力します。');
   sh.getRange(1, 3).setNote('増減率（%）です。例：-10% = 予算圧縮で10%減りそう。\n※入力値はそのまま直に固定反映せず、シミュレーション内で扱われます。');
-  sh.getRange(1, 4).setNote('根拠を短く（例：予算圧縮、体制変更など）。');
+  sh.getRange(1, 4).setNote('根拠を短く（例：予算圧縮、体制変更など）。\n未入力だと判断根拠が追跡しづらくなります。');
 
   sh.setFrozenRows(1);
 }
@@ -1375,7 +1383,7 @@ function buildOPINIONS_() {
   sh.getRange(1, 2).setNote('この日付「以降」に意見の影響が出る想定で入力します。');
   sh.getRange(1, 3).setNote('増減率（%）です。例：+20% = 今後20%増えそう。\n※意見はそのまま固定反映されず、シミュレーションでランダムに活用されます。');
   sh.getRange(1, 4).setNote('信頼度（0..1）。1に近いほど「この意見を強く信用してよい」として影響が強まります。');
-  sh.getRange(1, 5).setNote('所感を短く（例：プロモ減、資材整理、体制変更など）。');
+  sh.getRange(1, 5).setNote('所感を短く（例：プロモ減、資材整理、体制変更など）。\nここは必ず入力してください。');
 
   sh.getRange('D2:D').setDataValidation(SpreadsheetApp.newDataValidation().requireNumberBetween(0, 1).build());
   sh.setFrozenRows(1);
@@ -3054,7 +3062,7 @@ function showPromptPreviewDialog_(rows) {
     <h3>AIプロンプト（コピーして利用）</h3>
     <div style="font-size:12px;color:#444;margin-bottom:8px;line-height:1.6;">
       1) 下のプロンプトをコピーしてAIツールに貼り付けて実行してください。<br>
-      2) 返ってきたTSVを <b>${pasteTarget}</b> シートの A2 セルへ貼り付けてください。<br>
+      2) 返ってきたTSVを <b>${pasteTarget}</b> へ貼り付けてください。<br>
       3) その後 A-8 を実行すると予測に反映されます。
     </div>
     <textarea id="p" style="width:100%;height:260px">${escapeHtml_(prompt)}</textarea>
