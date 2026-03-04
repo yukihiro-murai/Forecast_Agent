@@ -1,18 +1,52 @@
 /***************************************
- * Forecast Agent v1.0
+ * Forecast Agent v1.1
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
- * v1.0（今回反映）
+ * v1.1（今回反映）
  * - 未確定月補完：月別（同月）トレンドで補完し、補完後に途中実績より下がらない
  * - 未確定月判定：実行日ベースで可変（当月以降=未確定 / 前月まで=確定）
- * - FACTORS/OPINIONS/DEV：必要情報が揃った行のみ計算に使用
+ * - FACTORS/OPINIONS/DEV_SPOT：必要情報が揃った行のみ計算に使用
  * - 入力異常検出：変な入力があれば実行前にエラー表示して停止
  * - OUTPUT：B=ネガ / C=中立 / D=ポジ、配色も統一（表＆グラフ）
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 const MENU_NAME = 'Forecast Agent';
+
+/***************************************
+ * 運用コメント（Phase移行基準・実務ルール）
+ *
+ * [Phase1 -> Phase2 移行の目安]
+ * 1) 最低3か月、月次運用が安定して継続されていること
+ *    - ①②⑤⑥⑦の実行漏れがなく、PROCESS_STATUSが継続的に success
+ * 2) 精度KPIが最低基準を満たすこと
+ *    - 全体sMAPE <= 30%（目安）
+ *    - 実測がネガ〜ポジ帯に入る割合 >= 70%（目安）
+ * 3) データ品質が担保されること
+ *    - SALES_INPUT_MONTHLY / ACTUAL_EVAL_MONTHLY の欠損・異常値が許容範囲
+ * 4) 現場利用が定着していること
+ *    - GUIDEに沿った操作で、担当者が自力運用できる
+ *
+ * [Phase2で優先的に着手する内容]
+ * - 重み更新の高度化（クライアント別最適化）
+ * - シミュレーション高度化（分位点回帰との比較導入）
+ * - モデル監視（ドリフト検知、エラー分類の定例化）
+ *
+ * [月次運用ルール（推奨順）]
+ * 1) ②予測入力売上を取り込み
+ * 2) （必要時）④AI調査テンプレート生成→AI結果貼付
+ * 3) ⑤予測実行（単一クライアント）
+ * 4) ⑦ダッシュボード更新
+ * 5) 実績確定後に③検証実績取り込み→⑥予測検証レポート更新
+ *
+ * [運用時の注意]
+ * - 本ツールは「確認→修正→再実行」を前提とする（一発確定しない）
+ * - OUTPUTは要点表示、詳細根拠はFORECAST_REPORT/FORECAST_SNAPSHOTで確認
+ * - AI結果は補助情報。relevance_scoreや値域チェックに通らない情報は反映しない
+ * - 初期セットアップは全タブ再作成（既存タブ削除）なので本番時は必ず注意喚起
+ * - 重大な仕様変更を行った場合は、GUIDEとCHANGELOG（運用記録）を同時更新
+ ***************************************/
 
 const SHEETS = {
   GUIDE: 'GUIDE',
@@ -21,8 +55,26 @@ const SHEETS = {
   FACTORS_PRODUCT: 'FACTORS_PRODUCT',
   FACTORS_CLIENT: 'FACTORS_CLIENT',
   OPINIONS: 'OPINIONS',
-  DEV: 'DEV',
-  OUTPUT: 'OUTPUT'
+  DEV_SPOT: 'DEV_SPOT',
+  OUTPUT: 'OUTPUT',
+  SALES_INPUT_MONTHLY: 'SALES_INPUT_MONTHLY',
+  ACTUAL_EVAL_MONTHLY: 'ACTUAL_EVAL_MONTHLY',
+  AI_RESEARCH_PROMPT: 'AI_RESEARCH_PROMPT',
+  AI_RESEARCH_STRUCTURED: 'AI_RESEARCH_STRUCTURED',
+  RUN_LOG: 'RUN_LOG',
+  FORECAST_SNAPSHOT: 'FORECAST_SNAPSHOT',
+  EVAL_LOG: 'EVAL_LOG',
+  EVAL_COMPARE_MONTHLY: 'EVAL_COMPARE_MONTHLY',
+  EVAL_INSIGHTS: 'EVAL_INSIGHTS',
+  OVERRIDE_LOG: 'OVERRIDE_LOG',
+  WEIGHT_UPDATE_LOG: 'WEIGHT_UPDATE_LOG',
+  SPIKE_LOG: 'SPIKE_LOG',
+  PROCESS_STATUS: 'PROCESS_STATUS',
+  CLIENT_PARAMS: 'CLIENT_PARAMS',
+  DETERMINISTIC_FACTORS: 'DETERMINISTIC_FACTORS',
+  FORECAST_REPORT: 'FORECAST_REPORT',
+  DASHBOARD: 'DASHBOARD',
+  CHANGELOG: 'CHANGELOG'
 };
 
 // 入力セル背景
@@ -49,6 +101,7 @@ const EXTERNAL_SHEET_SUFFIX = '_actual_value';
 // 外部シート列（1-index）
 const EXT_COL_CLIENT = 41;        // AO
 const EXT_COL_CATEGORY = 50;      // AX（製品名）
+const EXT_COL_SERVICE_CATEGORY = 46; // AT（サービスカテゴリ）
 const EXT_COL_DATE_PRIMARY = 57;  // BE
 const EXT_COL_DATE_SECONDARY = 56;// BD
 const EXT_COL_AMOUNT = 66;        // BN
@@ -85,13 +138,20 @@ const CHART_HEIGHT_ROWS = 22;
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu(MENU_NAME)
-    .addItem('① 初期セットアップ', 'setupForecastBook')
-    .addItem('② 過去売上データを反映', 'importPastSalesToSalesTab')
-    .addItem('③ 製品動向を入力', 'openProductTrendEntryDialog')
-    .addItem('④ クライアント動向を入力', 'openClientTrendEntryDialog')
-    .addItem('⑤ メーカー担当者意見を入力', 'openOpinionsEntryDialog')
-    .addItem('⑥ スポット開発の見込みを入力', 'openDevEntryDialog')
-    .addItem('⑦ 予測を出力（再実行した場合は最新情報で上書き）', 'executeForecastUsingConfig')
+    .addItem('A-1 初期セットアップ', 'setupForecastBook')
+    .addSeparator()
+    .addItem('A-2 売上データの取り込み', 'importSalesInputMonthly')
+    .addItem('A-3 製品ごとの動向を入力', 'openProductTrendEntryDialog')
+    .addItem('A-4 クライアント動向を入力', 'openClientTrendEntryDialog')
+    .addItem('A-5 担当者意見を入力', 'openOpinionsEntryDialog')
+    .addItem('A-6 開発/スポット要因を入力', 'openDevEntryDialog')
+    .addItem('A-7 AI調査テンプレートを生成', 'generateAIResearchTemplate')
+    .addItem('A-8 予測を実行', 'runPhase1Forecast')
+    .addItem('A-9 ダッシュボード更新', 'updatePhase1Dashboard')
+    .addSeparator()
+    .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
+    .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
+    .addItem('B-3 検証インサイトを更新', 'updatePhase1LearningInsights')
     .addToUi();
 }
 
@@ -161,35 +221,95 @@ function onEdit(e) {
 /** ====== ① 初期セットアップ ====== */
 function setupForecastBook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+
+  const res = ui.alert(
+    '初期セットアップ（全上書き）',
+    '初期セットアップで全て上書きされますがよろしいですか？\n\n※既存のシートタブは削除されます。',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (res !== ui.Button.OK) return;
 
   const order = [
     SHEETS.GUIDE,
     SHEETS.CONFIG,
+    SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
-    SHEETS.DEV,
-    SHEETS.OUTPUT
+    SHEETS.DEV_SPOT,
+        SHEETS.OUTPUT,
+    SHEETS.FORECAST_REPORT,
+    SHEETS.DASHBOARD,
+    SHEETS.ACTUAL_EVAL_MONTHLY,
+    SHEETS.EVAL_COMPARE_MONTHLY,
+    SHEETS.EVAL_LOG,
+    SHEETS.EVAL_INSIGHTS,
+    SHEETS.AI_RESEARCH_STRUCTURED,
+    SHEETS.RUN_LOG,
+    SHEETS.FORECAST_SNAPSHOT,
+    SHEETS.PROCESS_STATUS
   ];
 
-  order.forEach((name, idx) => {
-    let sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name, idx);
-    ss.setActiveSheet(sh);
-    ss.moveActiveSheet(idx + 1);
+  try {
+    resetWorkbookSheets_(ss, order);
+
+    buildGUIDE_();
+    buildCONFIG_();
+    buildSALES_();
+    buildFACTORS_PRODUCT_();
+    buildFACTORS_CLIENT_();
+    buildOPINIONS_();
+    buildDEV_();
+    buildPhase1Sheets_();
+    buildOUTPUT_();
+    applyTabColors_();
+    hideNonUserSheets_();
+    const guide = ss.getSheetByName(SHEETS.GUIDE);
+    if (guide) ss.setActiveSheet(guide);
+
+    showInitialSetupDialog_();
+  } catch (e) {
+    ui.alert('初期セットアップでエラー', `${e && e.message ? e.message : e}`);
+  }
+}
+
+function resetWorkbookSheets_(ss, order) {
+  const required = new Set(order);
+
+  order.forEach(name => {
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
 
-  buildGUIDE_();
-  buildCONFIG_();
-  buildSALES_();
-  buildFACTORS_PRODUCT_();
-  buildFACTORS_CLIENT_();
-  buildOPINIONS_();
-  buildDEV_();
-  buildOUTPUT_();
+  ss.getSheets().forEach(sh => {
+    if (required.has(sh.getName())) return;
+    try {
+      ss.deleteSheet(sh);
+    } catch (e) {
+      try { sh.hideSheet(); } catch (err) { /* noop */ }
+    }
+  });
 
-  showInitialSetupDialog_();
+  order.forEach((name, idx) => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    try { sh.showSheet(); } catch (e) { /* noop */ }
+    safeMoveSheet_(ss, sh, idx + 1);
+  });
+}
+
+function safeMoveSheet_(ss, sh, targetIndex) {
+  if (!sh) return;
+  const max = ss.getSheets().length;
+  const idx = Math.min(Math.max(1, targetIndex), max);
+  try {
+    ss.setActiveSheet(sh);
+    ss.moveActiveSheet(idx);
+  } catch (e) {
+    // 並び替えに失敗しても初期セットアップ全体は継続する
+  }
 }
 
 /** 初期設定ダイアログ（メーカー選択＋予測年度＋担当者） */
@@ -320,7 +440,7 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
 
   // GUIDE更新（更新履歴は保持されます）
   buildGUIDE_();
-  ss.setActiveSheet(cfg);
+  ss.setActiveSheet(ss.getSheetByName(SHEETS.GUIDE));
 }
 
 /**
@@ -401,11 +521,11 @@ function importPastSalesToSalesTab() {
 
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
 
-  // 予測FY=2026なら → 2022,2023,2024,2025
-  const years = [fy - 4, fy - 3, fy - 2, fy - 1];
+  // 予測FY=2026なら → 2023,2024,2025,2026
+  const years = [fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -465,20 +585,19 @@ function importPastSalesToSalesTab() {
     headerMonths.push(fmtYM_(d)); // yyyy/MM
   }
 
-  sales.getRange(1, 1).setValue('ProductName');
-  sales.getRange(1, 2).setValue('(reserved)');
-  sales.getRange(1, 3, 1, totalMonths).setValues([headerMonths]);
+  sales.getRange(1, 1).setValue('Category');
+  sales.getRange(1, 2, 1, totalMonths).setValues([headerMonths]);
 
   const productNames = Array.from(map.keys()).sort();
-  const out = productNames.map(name => [name, '', ...map.get(name)]);
-  sales.getRange(2, 1, out.length, 2 + totalMonths).setValues(out);
+  const out = productNames.map(name => [name, ...map.get(name)]);
+  sales.getRange(2, 1, out.length, 1 + totalMonths).setValues(out);
 
   // 客観（黄色）
-  sales.getRange(2, 3, out.length, totalMonths).setBackground(COLOR_OBJECTIVE);
+  sales.getRange(2, 2, out.length, totalMonths).setBackground(COLOR_OBJECTIVE);
 
   sales.setFrozenRows(1);
-  sales.setFrozenColumns(2);
-  sales.autoResizeColumns(1, 2);
+  sales.setFrozenColumns(1);
+  sales.autoResizeColumns(1, 1);
 
   // 取り込み完了後にSALESを開く
   ss.setActiveSheet(sales);
@@ -609,25 +728,25 @@ function openDevEntryDialog() {
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
   const defaultDate = new Date(fy, 3, 1);
 
-  const sh = ss.getSheetByName(SHEETS.DEV);
+  const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
   ensureDevTemplate_(sh, people, defaultDate);
 
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    '⑥ スポット開発（スポットイベント）を入力',
+    '⑥ 開発/スポット要因を入力',
     [
-      'DEV を入力してください（青色のセルが対象です）。',
-      'スポット開発案件だけでなく、スポットイベント（例：法改定による差し替え等）もここに入力してください。',
+      'DEV_SPOT を入力してください（青色のセルが対象です）。',
+      '開発案件だけでなく、スポット要因（例：法改定による差し替え等）もここに入力してください。',
       '',
       '入力手順：',
       '1) A列：担当者を選択',
       '2) B列：売上が立つ日付（この日付の月に反映）',
-      '3) C列：案件名/イベント名',
+      '3) C列：案件名/スポット要因名',
       '4) D列：金額（円）',
       '5) E列：確度（0..1）',
       '',
-      '※ DEVは「金額×確度」で固定加算されます（運用のシミュレーションには混ぜません）。'
+      '※ DEV_SPOTは「金額×確度」で固定加算されます（運用のシミュレーションには混ぜません）。'
     ]
   );
 }
@@ -711,6 +830,7 @@ function executeForecastUsingConfig() {
   if (res !== ui.Button.OK) return;
 
   toastProgress_(ss, 'STEP1/6: SALES合算 → 未確定月を月別トレンドで補完（補完後に下がらない）…', 7);
+  syncSalesFromSalesInput_(fy, client);
   const result = runForecastFYCore_(fy, client);
 
   toastProgress_(ss, 'STEP6/6: OUTPUTへ書き出し（表＋グラフ）…', 6);
@@ -742,7 +862,7 @@ function runForecastFYCore_(fy, clientName) {
   const aggY_raw = sumAcrossProducts_(salesData.monthlyByProduct);
 
   // 未確定月補完（当月以降は未確定扱い／月別トレンド／補完後に途中実績より下がらない）
-  const seriesStart = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const seriesStart = new Date(fy - 3, 3, 1); // fy-3/04/01
   const adj = adjustForUnclosedMonths_(aggY_raw, seriesStart);
   const aggY_adj = adj.series;
 
@@ -862,17 +982,23 @@ function writeOutputFY_(result) {
   sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
   sh.setFrozenRows(2);
 
-  // 上部：担当者所感要約
-  sh.getRange(3, 1).setValue('担当者所感（OPINION）');
-  sh.getRange(3, 1).setFontWeight('bold');
-  sh.getRange(3, 2).setValue(result.opinionsSummaryTop || '（未入力）');
+  // 上部サマリー（要点表示）
+  sh.getRange(3, 1).setValue('予測の見方（要点）').setFontWeight('bold');
+  sh.getRange(3, 2).setValue('中立(P50)=中心値 / ネガ(P10)=下振れ目安 / ポジ(P90)=上振れ目安。\n予測根拠は「トレンド＋季節性＋シミュレーション」で算出しています。');
   sh.getRange(3, 2, 1, 5).merge();
   sh.getRange(3, 2).setWrap(true);
+
+  // 上部：担当者所感要約
+  sh.getRange(4, 1).setValue('担当者所感（OPINION）');
+  sh.getRange(4, 1).setFontWeight('bold');
+  sh.getRange(4, 2).setValue(result.opinionsSummaryTop || '（未入力）');
+  sh.getRange(4, 2, 1, 5).merge();
+  sh.getRange(4, 2).setWrap(true);
 
   // 既存チャート削除（重なり防止）
   sh.getCharts().forEach(c => sh.removeChart(c));
 
-  let row = 5;
+  let row = 6;
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
@@ -904,12 +1030,12 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1, 1, 6).merge();
   row++;
 
-  sh.getRange(row, 1).setValue('※「運用(Ops)」はトレンド＋季節性から推定し、レンジは残差/シミュレーションで作ります。「開発/イベント(Dev)」は固定額（確度で調整）を加算します。');
+  sh.getRange(row, 1).setValue('※「運用(Ops)」はトレンド＋季節性から推定し、レンジは残差/シミュレーションで作ります。「開発/スポット(Dev)」は固定額（確度で調整）を加算します。');
   sh.getRange(row, 1, 1, 6).merge();
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10);
   row++;
 
-  const hdr = ['Month', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', '開発/イベント（Dev固定）', 'Total P50（客観のみ）', 'Total P50（混合）', 'OPINIONS要約'];
+  const hdr = ['Month', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', '開発/スポット（Dev固定）', 'Total P50（客観のみ）', 'Total P50（混合）', 'OPINIONS要約'];
   sh.getRange(row, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
 
@@ -1047,85 +1173,74 @@ function writeSectionBlock_(sh, startRow, opt) {
 function buildGUIDE_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = getOrCreateSheet_(ss, SHEETS.GUIDE);
-
-  // 更新履歴（管理者追記）を退避（GUIDE再生成でも保持）
-  const LOG_TITLE_ROW = 23;
-  const LOG_HEADER_ROW = 24;
-  const LOG_ENTRY_START = 25;
-  const LOG_ENTRY_ROWS = 20;
-  const LOG_COLS = 3;
-
-  let existingLog = [];
-  try {
-    existingLog = sh.getRange(LOG_ENTRY_START, 1, LOG_ENTRY_ROWS, LOG_COLS).getValues();
-  } catch (e) {
-    existingLog = [];
-  }
-
   sh.clear({ contentsOnly: true });
   sh.clearFormats();
+  sh.setColumnWidth(1, 130);
+  sh.setColumnWidth(2, 340);
+  sh.setColumnWidth(3, 540);
 
-  sh.setColumnWidth(1, 560);
-  sh.setColumnWidth(2, 260);
-  sh.setColumnWidth(3, 260);
+  const C_A = '#d9e8fb';
+  const C_B = '#d9ead3';
+  const C_AUTO = '#d9e8fb';
+  const C_USER = '#fff2cc';
+  const C_OUT = '#f4cccc';
+  const C_VER = '#d9ead3';
 
-  sh.getRange(1, 1).setValue(`売上予測ツール 使い方（v${VERSION}）`);
-  sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
+  sh.getRange(1, 1).setValue(`売上予測ツール ガイド（v${VERSION}）`).setFontSize(16).setFontWeight('bold');
+  sh.getRange(2, 1, 1, 3).setValues([['分類', 'Forecast Agentボタンの手順', 'ボタン説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
 
-  sh.getRange(3, 1).setValue('最短の手順（順番に実行してください）');
-  sh.getRange(3, 1).setFontWeight('bold');
-
-  const steps = [
-    ['①', '初期セットアップ', 'メーカー・予測FY・担当者を設定（CONFIGに保存）'],
-    ['②', '過去売上データを反映', '外部実績から過去4年(48ヶ月)を集計してSALESへ反映'],
-    ['③', '製品動向を入力', 'FACTORS_PRODUCTを整形 → シート上で直接入力'],
-    ['④', 'クライアント動向を入力', 'FACTORS_CLIENTを整形 → シート上で直接入力'],
-    ['⑤', 'メーカー担当者意見を入力', 'OPINIONSを整形（全員分行を作成）→ 直接入力（必須）'],
-    ['⑥', 'スポット開発の見込みを入力', 'DEVを整形 → 直接入力（スポットイベントもここ）'],
-    ['⑦', '予測を出力', '最新入力でOUTPUTを上書き生成']
+  const aRows = [
+    ['A-予測', 'A-1 初期セットアップ', '初回のみ。クライアント/FY/担当者を設定。'],
+    ['A-予測', 'A-2 売上データの取り込み', '対象クライアントの案件一覧を SALES_INPUT_MONTHLY へ取り込み、同時に SALES を48か月横持ち（BASE/SPOT 2行）で更新。'],
+    ['A-予測', 'A-3 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
+    ['A-予測', 'A-4 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
+    ['A-予測', 'A-5 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
+    ['A-予測', 'A-6 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
+    ['A-予測', 'A-7 AI調査テンプレートを生成', '生成された内容をGemへ貼り付け、返却TSVを AI_RESEARCH_PROMPT!D2 に貼り付け。'],
+    ['A-予測', 'A-8 予測を実行', 'OUTPUT / FORECAST_REPORT を更新。'],
+    ['A-予測', 'A-9 ダッシュボード更新', 'DASHBOARD を更新。']
   ];
+  sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
-  sh.getRange(4, 1, 1, 3).setValues([['順番', 'Forecast Agent メニュー', '目的']])
-    .setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(5, 1, steps.length, 3).setValues(steps);
-  sh.getRange(5, 1, steps.length, 1).setHorizontalAlignment('center');
-
-  sh.getRange(13, 1).setValue('入力の安心ポイント');
-  sh.getRange(13, 1).setFontWeight('bold');
-
-  sh.getRange(14, 1).setValue('皆さんの率直なご意見が必要です。\n特定の意見に偏らないよう調整されますので、正解かどうかや結果を気にせず、安心して入力してください。');
-  sh.getRange(14, 1).setWrap(true);
-
-  sh.getRange(17, 1).setValue('ポイント');
-  sh.getRange(17, 1).setFontWeight('bold');
-
-  const tips = [
-    '・③④⑤の「Step(増減率%)」は “その日付以降にどれくらい増減しそうか” の目安です（例：-30% = 今後30%減）。',
-    '・⑤の意見は、そのまま固定反映せずシミュレーション内で活用されます（安心して率直に）。',
-    '・⑥DEVは「割合」ではなく「固定額で増える」もの（スポット開発/スポットイベント）を入れる場所です。',
-    '・未確定月（当月以降）は途中実績の影響を受けないよう、月別トレンドで補完して学習します（補完後に下がりません）。'
+  sh.getRange(12, 1, 1, 3).setValues([['分類', 'Forecast Agentボタンの手順', 'ボタン説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const bRows = [
+    ['B-事後検証', 'B-1 検証用に実績データを取り込み', '実績を ACTUAL_EVAL_MONTHLY に取り込み（BASE/SPOT判定つき）。'],
+    ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
+    ['B-事後検証', 'B-3 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(18, 1, tips.length, 1).setValues(tips.map(x => [x]));
+  sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
-  // 更新履歴（管理者が追記）
-  sh.getRange(LOG_TITLE_ROW, 1).setValue('更新履歴（管理者が追記）').setFontWeight('bold');
-  sh.getRange(LOG_HEADER_ROW, 1, 1, LOG_COLS)
-    .setValues([['日付', 'Version', '内容']])
-    .setBackground(COLOR_HEADER)
-    .setFontWeight('bold');
+  sh.getRange(16, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const links = [
+    ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
+    ['自動入力用', SHEETS.SALES_INPUT_MONTHLY, '予測入力（月次案件一覧）'],
+    ['自動入力用', SHEETS.SALES, '予測用集計（48ヶ月横持ち / BASE・SPOT）'],
+    ['自動入力用', SHEETS.AI_RESEARCH_PROMPT, 'AI調査テンプレート兼貼り付け'],
+    ['ユーザ入力用', SHEETS.FACTORS_PRODUCT, '製品要因入力'],
+    ['ユーザ入力用', SHEETS.FACTORS_CLIENT, 'クライアント要因入力'],
+    ['ユーザ入力用', SHEETS.OPINIONS, '担当者意見入力'],
+    ['ユーザ入力用', SHEETS.DEV_SPOT, '開発/スポット要因入力'],
+    ['出力用', SHEETS.OUTPUT, '予測出力'],
+    ['出力用', SHEETS.FORECAST_REPORT, '予測レポート'],
+    ['出力用', SHEETS.DASHBOARD, 'ダッシュボード'],
+    ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
+    ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
+    ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
+    ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト']
+  ];
+  setGuideLinkTable_(sh, 17, links);
 
-  const restore = (existingLog && existingLog.length)
-    ? existingLog
-    : Array.from({ length: LOG_ENTRY_ROWS }, () => ['', '', '']);
-
-  sh.getRange(LOG_ENTRY_START, 1, LOG_ENTRY_ROWS, LOG_COLS).setValues(restore);
-  sh.getRange(LOG_ENTRY_START, 3, LOG_ENTRY_ROWS, 1).setWrap(true);
-
-  // 目立ちすぎないよう小さめ
-  sh.getRange(LOG_TITLE_ROW, 1, 1 + 1 + LOG_ENTRY_ROWS, LOG_COLS).setFontSize(10);
+  const last = 17 + links.length;
+  sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
+  sh.getRange(last + 3, 1, 4, 1).setValues([
+    ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
+    ['・手入力シートはヘッダコメントを参照し、何を入力すると何に影響するかを確認してください。'],
+    ['・A-8 実行時に未入力や型不正がある場合はエラー表示して停止します。'],
+    ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
+  ]);
 
   ss.setActiveSheet(sh);
-  ss.moveActiveSheet(1);
+  safeMoveSheet_(ss, sh, 1);
 }
 
 function buildCONFIG_() {
@@ -1170,22 +1285,20 @@ function buildSALES_() {
   sh.clear({ contentsOnly: true });
   sh.clearFormats();
 
-  // 48ヶ月分（C〜AX=48列）を扱うため列数を確保
-  ensureSheetHasColumns_(sh, 2 + 48);
+  // 48ヶ月分（B〜AW=48列）
+  ensureSheetHasColumns_(sh, 1 + 48);
 
-  sh.setColumnWidth(1, 240);
-  sh.setColumnWidth(2, 120);
-  for (let c = 3; c <= 50; c++) sh.setColumnWidth(c, 110);
+  sh.setColumnWidth(1, 180);
+  for (let c = 2; c <= 49; c++) sh.setColumnWidth(c, 110);
 
-  sh.getRange(1, 1).setValue('ProductName');
-  sh.getRange(1, 2).setValue('(reserved)');
-  sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(1, 1).setValue('Category');
+  sh.getRange(1, 1).setBackground(COLOR_HEADER).setFontWeight('bold');
 
   sh.setFrozenRows(1);
-  sh.setFrozenColumns(2);
+  sh.setFrozenColumns(1);
 
-  sh.getRange(1, 1).setNote('外部実績から取り込まれた「製品名」です。');
-  sh.getRange(1, 3).setNote('過去4年（48ヶ月）の月次売上（客観データ）です。');
+  sh.getRange(1, 1).setNote('BASE / SPOT のカテゴリ行です。');
+  sh.getRange(1, 2).setNote('過去4年（48ヶ月）の月次売上（客観データ）です。');
 }
 
 function buildFACTORS_PRODUCT_() {
@@ -1268,7 +1381,7 @@ function buildOPINIONS_() {
 
 function buildDEV_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = getOrCreateSheet_(ss, SHEETS.DEV);
+  const sh = getOrCreateSheet_(ss, SHEETS.DEV_SPOT);
   sh.clear({ contentsOnly: true });
   sh.clearFormats();
 
@@ -1283,8 +1396,8 @@ function buildDEV_() {
 
   sh.getRange('D:D').setNumberFormat('¥#,##0');
   sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
-  sh.getRange(1, 2).setNote('この日付の月に固定売上として加算します（スポット開発/スポットイベント）。');
-  sh.getRange(1, 3).setNote('案件名（またはスポットイベント名）を短く。');
+  sh.getRange(1, 2).setNote('この日付の月に固定売上として加算します（開発案件/スポット要因）。');
+  sh.getRange(1, 3).setNote('案件名（またはスポット要因名）を短く。');
   sh.getRange(1, 4).setNote('金額（円）。ここは運用(Ops)のシミュレーションには混ぜず、固定額として加算します。');
   sh.getRange(1, 5).setNote('確度（0..1）。金額×確度で固定加算されます（例：1,000,000円×0.9=900,000円）。');
 
@@ -1389,7 +1502,7 @@ function ensureOpinionsTemplate_(sh, people, defaultDate) {
   const missing = people.filter(p => !existing.has(p));
   if (missing.length > 0) {
     const startRow = sh.getLastRow() + 1;
-    const rows = missing.map(p => [p, defaultDate, '0%', 0.70, '']);
+    const rows = missing.map(p => [p, defaultDate, '', '', '']);
     sh.getRange(startRow, 1, rows.length, 5).setValues(rows);
   }
 
@@ -1552,10 +1665,10 @@ function validateAllInputsOrThrow_(fy) {
   if (lastRow < 2) throw new Error('SALESに製品行がありません。②で取り込み、または手入力してください。');
 
   const expectedMonths = 48;
-  const startCol = 3;
+  const startCol = 2;
   const endCol = startCol + expectedMonths - 1;
   if (sales.getLastColumn() < endCol) {
-    throw new Error('SALESの月次列が48ヶ月分ありません。②過去売上データを反映 を実行してください。');
+    throw new Error('SALESの月次列が48ヶ月分ありません。A-2 売上データの取り込み を実行してください。');
   }
 
   const values = sales.getRange(2, 1, lastRow - 1, endCol).getValues();
@@ -1575,11 +1688,25 @@ function validateAllInputsOrThrow_(fy) {
     }
   }
 
-  // FACTORS / OPINIONS / DEV：明らかに変な行があれば停止（未完成行は“無視”＝エラーにはしない）
+  // FACTORS / OPINIONS / DEV_SPOT：明らかに変な行があれば停止（未完成行は“無視”＝エラーにはしない）
   validateFactorsSheet_(SHEETS.FACTORS_PRODUCT, { cols: 5, mode: 'product' });
   validateFactorsSheet_(SHEETS.FACTORS_CLIENT, { cols: 4, mode: 'client' });
   validateOpinionsSheet_(people);
   validateDevSheet_();
+}
+
+function validateRequiredUserInputsOrThrow_() {
+  const people = getPeopleListFromConfig_();
+  const missingPeople = findMissingPeopleOpinionsByValidRows_(people);
+  if (missingPeople.length > 0) {
+    throw new Error(`OPINIONSに担当者意見が不足しています。未入力: ${missingPeople.join(', ')}`);
+  }
+
+  const fp = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.FACTORS_PRODUCT);
+  if (!fp || fp.getLastRow() < 2) throw new Error('FACTORS_PRODUCT の入力行がありません。A-3 を実行してください。');
+
+  const hasReason = fp.getRange(2, 5, fp.getLastRow() - 1, 1).getValues().some(r => String(r[0] || '').trim());
+  if (!hasReason) throw new Error('FACTORS_PRODUCT のReasonが未入力です。最低1件入力してください。');
 }
 
 function validateFactorsSheet_(sheetName, opt) {
@@ -1681,7 +1808,7 @@ function validateOpinionsSheet_(requiredPeople) {
 
 function validateDevSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.DEV);
+  const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
   if (!sh) return;
 
   const last = sh.getLastRow();
@@ -1703,14 +1830,14 @@ function validateDevSheet_() {
     if (!monthRaw || amountRaw === '' || amountRaw === null || confRaw === '' || confRaw === null) continue;
 
     const dt = toDate_(monthRaw);
-    if (!dt) throw new Error(`DEV!B${rowNum} の日付が不正です（yyyy/mm/dd 形式で入力してください）。`);
+    if (!dt) throw new Error(`DEV_SPOT!B${rowNum} の日付が不正です（yyyy/mm/dd 形式で入力してください）。`);
 
     const amt = toNumberSafe_(amountRaw);
-    if (!isFinite(amt)) throw new Error(`DEV!D${rowNum} の金額が数値として不正です（"${amountRaw}"）。`);
-    if (amt < 0) throw new Error(`DEV!D${rowNum} の金額が負の値です（${amt}）。`);
+    if (!isFinite(amt)) throw new Error(`DEV_SPOT!D${rowNum} の金額が数値として不正です（"${amountRaw}"）。`);
+    if (amt < 0) throw new Error(`DEV_SPOT!D${rowNum} の金額が負の値です（${amt}）。`);
 
     const conf = Number(confRaw);
-    if (!isFinite(conf) || conf < 0 || conf > 1) throw new Error(`DEV!E${rowNum} の確度が不正です（0..1）。`);
+    if (!isFinite(conf) || conf < 0 || conf > 1) throw new Error(`DEV_SPOT!E${rowNum} の確度が不正です（0..1）。`);
   }
 }
 
@@ -1735,11 +1862,11 @@ function getPeopleListFromConfig_() {
 
 function getProductNameListFromSales_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sales = ss.getSheetByName(SHEETS.SALES);
-  if (!sales) return [];
-  const last = sales.getLastRow();
+  const salesInput = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+  if (!salesInput) return [];
+  const last = salesInput.getLastRow();
   if (last < 2) return [];
-  const vals = sales.getRange(2, 1, last - 1, 1).getValues().map(r => String(r[0] || '').trim()).filter(Boolean);
+  const vals = salesInput.getRange(2, 3, last - 1, 1).getValues().map(r => String(r[0] || '').trim()).filter(Boolean);
   return Array.from(new Set(vals)).sort();
 }
 
@@ -1781,8 +1908,8 @@ function readSales48Months_(salesSheet) {
   const lastCol = salesSheet.getLastColumn();
 
   const expectedMonths = 48;
-  const startCol = 3; // C列〜
-  const endCol = startCol + expectedMonths - 1; // 50（AX）
+  const startCol = 2; // B列〜
+  const endCol = startCol + expectedMonths - 1; // 49
 
   const isComplete48 = (lastCol >= endCol);
 
@@ -1862,7 +1989,7 @@ function computeProductWeightsClosed12_(productNames, monthlyByProduct, seriesSt
 /** DEV固定（12ヶ月）※必要情報が揃った行だけ加算 */
 function readDevFixed12Months_(fy) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.DEV);
+  const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
   const out = new Array(12).fill(0);
   if (!sh) return out;
 
@@ -2408,4 +2535,569 @@ function toastProgress_(ss, message, seconds) {
   ss.toast(message, MENU_NAME, seconds || 5);
   // 読み取れる程度に少し待つ（スピード最優先ではない方針）
   Utilities.sleep(450);
+}
+
+
+/** ====== v1.1 Phase1実装 ====== */
+function buildPhase1Sheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildSimpleSheet_(ss, SHEETS.SALES_INPUT_MONTHLY, ['client','service_type','product','target_month','input_amount','status','source_updated_at']);
+  buildSimpleSheet_(ss, SHEETS.ACTUAL_EVAL_MONTHLY, ['client','service_type','product','target_month','eval_actual_amount','actual_closed_flag','source_updated_at']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_tsv']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','direction','estimated_impact_pct','confidence','evidence','time_horizon','business_relevance_reason','relevance_score']);
+  buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
+  buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action']);
+  buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
+  buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
+  buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
+  initializeProcessStatus_();
+}
+
+function buildSimpleSheet_(ss, name, headers) {
+  const sh = getOrCreateSheet_(ss, name);
+  sh.clear();
+  sh.getRange(1,1,1,headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.setFrozenRows(1);
+}
+
+function initializeProcessStatus_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
+  const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status'];
+  const rows = keys.map(k => [k,'','', 'not_run','','','']);
+  sh.getRange(2,1,rows.length,7).setValues(rows);
+}
+
+function importSalesInputMonthly() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    const client = String(cfg.getRange('B2').getValue() || '').trim();
+    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+    importMonthlyFromExternal_(SHEETS.SALES_INPUT_MONTHLY, true);
+    syncSalesFromSalesInput_(fy, client);
+    refreshManualInputSheets_(fy);
+    const sh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+    if (sh) ss.setActiveSheet(sh);
+    SpreadsheetApp.getUi().alert('完了', '売上データを更新しました。次は A-3〜A-8 を順番に実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function refreshManualInputSheets_(fy) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const people = getPeopleListFromConfig_();
+  if (!people.length) return;
+
+  const inSh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+  const vals = inSh.getDataRange().getValues().slice(1);
+  const products = Array.from(new Set(vals.map(r => String(r[2] || '').trim()).filter(Boolean))).sort();
+  if (!products.length) return;
+
+  const defaultDate = new Date((Number(fy) || getDefaultFY_()), 3, 1);
+  ensureFactorsProductTemplate_(ss.getSheetByName(SHEETS.FACTORS_PRODUCT), products, people, defaultDate);
+  ensureFactorsClientTemplate_(ss.getSheetByName(SHEETS.FACTORS_CLIENT), people, defaultDate);
+  ensureOpinionsTemplate_(ss.getSheetByName(SHEETS.OPINIONS), people, defaultDate);
+  ensureDevTemplate_(ss.getSheetByName(SHEETS.DEV_SPOT), people, defaultDate);
+}
+
+function importActualEvalMonthly() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    importMonthlyFromExternal_(SHEETS.ACTUAL_EVAL_MONTHLY, false);
+    const sh = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY);
+    if (sh) ss.setActiveSheet(sh);
+    SpreadsheetApp.getUi().alert('完了', '検証実績を更新しました。次は B-2 予測検証レポート更新 を実行できます。', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function importMonthlyFromExternal_(targetSheetName, withStatus) {
+  const started = new Date();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(targetSheetName);
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const targetClient = String(cfg.getRange('B2').getValue() || '').trim();
+  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+  if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+
+  const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
+  const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
+
+  const start = new Date(fy - 3, 3, 1);
+  const end = new Date(fy + 1, 2, 1);
+  const rows = [];
+  const now = new Date();
+  const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  sheets.forEach(sht => {
+    const vals = sht.getDataRange().getValues();
+    for (let i = 1; i < vals.length; i++) {
+      const r = vals[i];
+      const client = String(r[EXT_COL_CLIENT - 1] || '').trim();
+      if (client !== targetClient) continue;
+
+      const serviceCategory = String(r[EXT_COL_SERVICE_CATEGORY - 1] || '').trim().toLowerCase();
+      const serviceType = serviceCategory.includes('スポット') ? 'SPOT' : (serviceCategory.includes('ベース') ? 'BASE' : 'OTHER');
+      if (serviceType === 'OTHER') continue;
+
+      const d = r[EXT_COL_DATE_PRIMARY - 1] || r[EXT_COL_DATE_SECONDARY - 1];
+      const dt = toDate_(d);
+      if (!dt) continue;
+      const ym = new Date(dt.getFullYear(), dt.getMonth(), 1);
+      if (ym < start || ym > end) continue;
+
+      const product = String(r[EXT_COL_CATEGORY - 1] || '').trim() || serviceType;
+      const amount = Number(r[EXT_COL_AMOUNT - 1] || 0);
+      if (!isFinite(amount)) continue;
+
+      if (withStatus) {
+        const status = ym >= currMonth ? 'open' : 'closed';
+        rows.push([client, serviceType, product, fmtYM_(ym), amount, status, new Date()]);
+      } else {
+        const closed = ym < currMonth ? 1 : 0;
+        rows.push([client, serviceType, product, fmtYM_(ym), amount, closed, new Date()]);
+      }
+    }
+  });
+
+  rows.sort((a, b) => (a[0] + a[1] + a[3] + a[2]).localeCompare(b[0] + b[1] + b[3] + b[2]));
+
+  sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), sh.getLastColumn()).clearContent();
+  if (rows.length) sh.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+
+  const step = (targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'step1_status' : 'step2_status';
+  updateProcessStatus_(step, 'success', targetClient, rows.length, '');
+  logRun_((targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'importSalesInputMonthly' : 'importActualEvalMonthly', targetClient, 'success', rows.length, started, '');
+}
+
+function generateAIResearchTemplate() {
+  requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const targetClient = String(cfg.getRange('B2').getValue() || '').trim();
+  if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+  const shIn = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+  const shOut = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  const vals = shIn.getDataRange().getValues().slice(1);
+  const byClient = {};
+  vals.forEach(r=>{
+    const c=String(r[0]||'').trim(); const ym=String(r[3]||''); const a=Number(r[4]||0);
+    if(!c || c !== targetClient) return;
+    byClient[c]=byClient[c]||[];
+    byClient[c].push({ym,a});
+  });
+  const rows=[];
+  Object.keys(byClient).sort().forEach(c=>{
+    const recent = byClient[c].sort((x,y)=>x.ym.localeCompare(y.ym)).slice(-6);
+    const text = recent.map(x=>`${x.ym}:${Math.round(x.a).toLocaleString()}`).join(', ');
+    const prompt = `クライアント名: ${c}\n直近売上推移: ${text}\n調査依頼: 今後12ヶ月の売上に影響する外部要因（市場・競合・制度・需要）を重要度順で列挙してください。`;
+    rows.push([c,new Date(),prompt]);
+  });
+  shOut.getRange(2,1,Math.max(1,shOut.getMaxRows()-1),4).clearContent();
+  if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
+  updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
+  logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
+  ss.setActiveSheet(shOut);
+  showPromptPreviewDialog_(rows);
+}
+
+function parseAIResearchPaste_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  const out = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  const raw = String(sh.getRange('D2').getValue()||'').trim();
+  if (!raw) return 0;
+  const lines = raw.split(/\r?\n/).filter(Boolean);
+  const rows=[];
+  lines.forEach((ln,idx)=>{
+    const cols = ln.split('\t');
+    if (idx===0 && cols[0]==='client') return;
+    if (cols.length < 10) return;
+    const impact = Number(cols[4]||0);
+    const score = Number(cols[9]||0);
+    if (!isFinite(impact) || !isFinite(score) || score < 0 || score > 100) return;
+    rows.push(cols.slice(0,10));
+  });
+  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),10).clearContent();
+  if (rows.length) out.getRange(2,1,rows.length,10).setValues(rows);
+  const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
+  const client = String(cfg.getRange('B2').getValue() || '').trim();
+  updateProcessStatus_('step3a_status','success',client,rows.length,'');
+  return rows.length;
+}
+
+/**
+ * Phase1実行の中心フロー。
+ * - 単一クライアント実行（GAS時間制約回避）
+ * - 予測前に SALES_INPUT_MONTHLY -> SALES 同期
+ * - 実行後は OUTPUT（閲覧）と FORECAST_*（監査/分析）を同時更新
+ */
+function runPhase1Forecast() {
+  try {
+    requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+    const started = new Date();
+    const parsed = parseAIResearchPaste_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    const client = String(cfg.getRange('B2').getValue() || '').trim();
+    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+    cfg.getRange('B3').setValue(fy);
+    validateAllInputsOrThrow_(fy);
+    validateRequiredUserInputsOrThrow_();
+    syncSalesFromSalesInput_(fy, client);
+    const result = runForecastFYCore_(fy, client);
+    writeOutputFY_(result);
+    writeForecastArtifacts_(result, client);
+    ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
+    updateProcessStatus_('step4_status','success',client,result.months.length,'');
+    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
+    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-9 ダッシュボード更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    updateProcessStatus_('step4_status','error','',0,String(e.message || e));
+    SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function writeForecastArtifacts_(result, client) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT);
+  const rep = ss.getSheetByName(SHEETS.FORECAST_REPORT);
+  const runDate = new Date();
+  const sid = Utilities.getUuid();
+  const rows=[];
+  const scenarios = [
+    {name:'nega', arr:result.mixed.p10},
+    {name:'neutral', arr:result.mixed.p50},
+    {name:'posi', arr:result.mixed.p90}
+  ];
+  scenarios.forEach(sc=>{
+    result.months.forEach((m,i)=>{
+      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,result.devFixedByMonth[i]||0,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null]);
+    });
+  });
+  const r0 = snap.getLastRow()+1;
+  snap.getRange(r0,1,rows.length,rows[0].length).setValues(rows);
+
+  const repRows = rows.map(r=>[runDate,client,r[3],r[4],r[17],r[13],r[9],r[10],r[11],r[12],r[14],r[15],r[16],r[20]]);
+  rep.getRange(rep.getLastRow()+1,1,repRows.length,repRows[0].length).setValues(repRows);
+}
+
+/**
+ * 実績確定後の検証ステップ。
+ * - ③の後に実行することで EVAL_LOG が更新される
+ * - Phase移行判断に使うKPI（sMAPE等）の元データを蓄積する
+ */
+function updatePhase1EvaluationReport() {
+  requireStepSuccess_('step2_status', '先にB-1 検証用に実績データを取り込み を実行してください。');
+  requireStepSuccess_('step4_status', '先にA-8 予測実行を実行してください。');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const actual = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY).getDataRange().getValues().slice(1);
+  const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT).getDataRange().getValues().slice(1);
+  const mapA = new Map();
+  actual.forEach(r=>{
+    const k = [r[0], r[3]].join('|');
+    mapA.set(k, (mapA.get(k) || 0) + Number(r[4] || 0));
+  });
+  const evalRows=[];
+  snap.forEach(r=>{
+    const key = [r[2], r[3]].join('|');
+    const act = mapA.get(key);
+    if (act == null) return;
+    const pred = Number(r[17]||0);
+    const ape = act ? Math.abs(pred-act)/Math.abs(act) : '';
+    evalRows.push([Utilities.getUuid(),new Date(),r[2],r[3],r[4],pred,act,ape,0,'model_limitation']);
+  });
+  const out = ss.getSheetByName(SHEETS.EVAL_LOG);
+  if (evalRows.length) out.getRange(out.getLastRow()+1,1,evalRows.length,evalRows[0].length).setValues(evalRows);
+
+  const compare = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
+  writeEvalCompareMonthly_(compare, actual, snap);
+
+  updateProcessStatus_('step5_status','success','',evalRows.length,'');
+  logRun_('updatePhase1EvaluationReport','', 'success', evalRows.length, new Date(), '');
+  ss.setActiveSheet(compare || out);
+}
+
+function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
+  if (!sh) return;
+
+  const actualMap = new Map();
+  actualRows.forEach(r => {
+    const ym = String(r[3] || '');
+    const type = String(r[1] || '').trim().toUpperCase();
+    const amt = Number(r[4] || 0);
+    if (!ym || !isFinite(amt)) return;
+    if (!actualMap.has(ym)) actualMap.set(ym, { BASE: 0, SPOT: 0 });
+    if (type === 'BASE' || type === 'SPOT') actualMap.get(ym)[type] += amt;
+  });
+
+  const neutralMap = new Map();
+  snapRows.forEach(r => {
+    if (String(r[4] || '') !== 'neutral') return;
+    const ym = String(r[3] || '');
+    const pred = Number(r[17] || 0);
+    if (!ym || !isFinite(pred)) return;
+    neutralMap.set(ym, pred);
+  });
+
+  const ratio = getBaseSpotRatioFromSales_();
+  const months = Array.from(new Set([...actualMap.keys(), ...neutralMap.keys()])).sort();
+  const rows = months.map(ym => {
+    const predTotal = Number(neutralMap.get(ym) || 0);
+    const predBase = predTotal * ratio.base;
+    const predSpot = predTotal * ratio.spot;
+    const act = actualMap.get(ym) || { BASE: 0, SPOT: 0 };
+    const actTotal = act.BASE + act.SPOT;
+    return [ym, predBase, predSpot, predTotal, act.BASE, act.SPOT, actTotal, actTotal - predTotal];
+  });
+
+  sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), 8).clearContent();
+  if (rows.length) sh.getRange(2, 1, rows.length, 8).setValues(rows);
+}
+
+function getBaseSpotRatioFromSales_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SALES);
+  if (!sh || sh.getLastRow() < 2) return { base: 0.5, spot: 0.5 };
+  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(sh.getLastColumn(), 50)).getValues();
+  let base = 0;
+  let spot = 0;
+  vals.forEach(r => {
+    const t = String(r[0] || '').trim().toUpperCase();
+    let s = 0;
+    for (let i = 2; i < r.length; i++) s += Number(r[i] || 0);
+    if (t === 'BASE') base += s;
+    if (t === 'SPOT') spot += s;
+  });
+  const total = base + spot;
+  if (total <= 0) return { base: 0.5, spot: 0.5 };
+  return { base: base / total, spot: spot / total };
+}
+
+/**
+ * 現場閲覧用サマリー更新。
+ * - OUTPUTの理解補助（件数・更新時刻・KPI信号）を表示
+ * - 詳細分析は FORECAST_REPORT / EVAL_LOG を参照
+ */
+function updatePhase1Dashboard() {
+  requireStepSuccess_('step4_status', '先にA-8 予測実行を実行してください。');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dash = ss.getSheetByName(SHEETS.DASHBOARD);
+  const rep = ss.getSheetByName(SHEETS.FORECAST_REPORT).getDataRange().getValues();
+  dash.clear();
+  buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
+  const total = rep.length - 1;
+  dash.getRange(2,1,4,3).setValues([
+    ['forecast_rows', total, 'FORECAST_REPORT件数'],
+    ['last_updated', new Date(), '更新日時'],
+    ['kpi_smape_signal', 'N/A', '⑤実行後に算出'],
+    ['dashboard_status', 'ready', '初期ダッシュボード']
+  ]);
+  updateProcessStatus_('step6_status','success','',total,'');
+  logRun_('updatePhase1Dashboard','', 'success', total, new Date(), '');
+  ss.setActiveSheet(dash);
+}
+
+function updatePhase1LearningInsights() {
+  requireStepSuccess_('step5_status', '先にB-2 検証レポートを更新してください。');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const client = String(cfg.getRange('B2').getValue() || '').trim();
+  const evalSh = ss.getSheetByName(SHEETS.EVAL_LOG);
+  const out = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
+  const vals = evalSh.getDataRange().getValues().slice(1).filter(r => String(r[2] || '').trim() === client);
+
+  const byMonth = new Map();
+  vals.forEach(r => {
+    const month = String(r[3] || '');
+    const scenario = String(r[4] || '');
+    const pred = Number(r[5] || 0);
+    const actual = Number(r[6] || 0);
+    if (!month) return;
+    if (!byMonth.has(month)) byMonth.set(month, {actual: 0, p50: 0, hasP50: false});
+    const obj = byMonth.get(month);
+    obj.actual = Math.max(obj.actual, actual);
+    if (scenario === 'neutral') {
+      obj.p50 = pred;
+      obj.hasP50 = true;
+    }
+  });
+
+  const rows = [];
+  Array.from(byMonth.keys()).sort().forEach(month => {
+    const v = byMonth.get(month);
+    if (!v.hasP50) return;
+    const diff = v.actual - v.p50;
+    const rate = (v.actual !== 0) ? (diff / Math.abs(v.actual)) : 0;
+    const insight = (Math.abs(rate) < 0.1)
+      ? '予測精度は概ね良好。継続運用。'
+      : (rate > 0
+        ? '実績が予測超過。増加要因（スポット案件・大型失注回避等）を追加学習。'
+        : '実績が予測未達。失注・延期・単価低下要因を確認。');
+    const nextAction = (Math.abs(rate) < 0.1)
+      ? '現行手順を継続し、次月も同手順で検証。'
+      : 'B-3で要因を記録し、A-3〜A-7入力項目へ反映。';
+    rows.push([new Date(), client, month, v.actual, v.p50, diff, rate, insight, nextAction]);
+  });
+
+  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),9).clearContent();
+  if (rows.length) out.getRange(2,1,rows.length,9).setValues(rows);
+  updateProcessStatus_('step7_status', 'success', client, rows.length, '');
+  logRun_('updatePhase1LearningInsights', client, 'success', rows.length, new Date(), '');
+  ss.setActiveSheet(out);
+}
+
+function chooseClientFromSalesInput_() {
+  const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
+  return String(cfg.getRange('B2').getValue() || '').trim();
+}
+
+function updateProcessStatus_(stepKey, status, targetClient, count, err) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
+  const vals = sh.getDataRange().getValues();
+  for (let i=1;i<vals.length;i++) {
+    if (vals[i][0] === stepKey) {
+      sh.getRange(i+1,2,1,6).setValues([[new Date(), Session.getActiveUser().getEmail()||'unknown', status, targetClient||'', count||0, err||'']]);
+      return;
+    }
+  }
+  sh.appendRow([stepKey,new Date(),Session.getActiveUser().getEmail()||'unknown',status,targetClient||'',count||0,err||'']);
+}
+
+function requireStepSuccess_(stepKey, message) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
+  const vals = sh.getDataRange().getValues();
+  const row = vals.find(r=>r[0]===stepKey);
+  if (!row || row[3] !== 'success') throw new Error(message);
+}
+
+function logRun_(fn, client, status, count, startedAt, err) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.RUN_LOG);
+  const end = new Date();
+  const sec = Math.round((end - startedAt) / 1000);
+  const params = JSON.stringify({N_SIM, SPIKE_CLIP_MIN, SPIKE_CLIP_MAX, TREND_FACTOR_MIN, TREND_FACTOR_MAX});
+  const hash = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, `${fn}|${client}|${end.toISOString()}`));
+  sh.appendRow([Utilities.getUuid(), end, Session.getActiveUser().getEmail()||'unknown', fn, client||'', status, count||0, VERSION, params, hash, sec, err||'']);
+}
+
+function parseYM_(s) {
+  const m = String(s||'').match(/^(\d{4})\/(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2])-1, 1);
+}
+
+
+function applyTabColors_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const colorAuto = '#0b5394';
+  const colorManual = '#bf9000';
+  const colorOutput = '#990000';
+  const colorEval = '#38761d';
+  const colorGuide = '#666666';
+
+  const manual = [SHEETS.FACTORS_PRODUCT, SHEETS.FACTORS_CLIENT, SHEETS.OPINIONS, SHEETS.DEV_SPOT];
+  const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
+  const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
+  const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
+  const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
+
+  manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
+  auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
+  output.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorOutput); });
+  evalSheets.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorEval); });
+  guide.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorGuide); });
+}
+
+function hideNonUserSheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hideTargets = [SHEETS.AI_RESEARCH_STRUCTURED, SHEETS.RUN_LOG, SHEETS.FORECAST_SNAPSHOT, SHEETS.PROCESS_STATUS];
+  hideTargets.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (sh) sh.hideSheet();
+  });
+}
+
+function setGuideLinkTable_(guideSheet, startRow, links) {
+  const colorByLabel = {
+    '自動入力用': '#d9e8fb',
+    'ユーザ入力用': '#fff2cc',
+    '出力用': '#f4cccc',
+    '事後検証用': '#d9ead3'
+  };
+  links.forEach((item, i) => {
+    const row = startRow + i;
+    const target = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(item[1]);
+    guideSheet.getRange(row, 1).setValue(item[0]);
+    if (target) {
+      const formula = `=HYPERLINK("#gid=${target.getSheetId()}", "${item[2]}")`;
+      guideSheet.getRange(row, 2).setFormula(formula);
+    } else {
+      guideSheet.getRange(row, 2).setValue(item[2]);
+    }
+    guideSheet.getRange(row, 3).setValue(item[1]);
+    if (colorByLabel[item[0]]) guideSheet.getRange(row, 1, 1, 3).setBackground(colorByLabel[item[0]]);
+  });
+}
+
+function showPromptPreviewDialog_(rows) {
+  if (!rows || !rows.length) return;
+  const prompt = String(rows[0][2] || '');
+  const pasteTarget = `${SHEETS.AI_RESEARCH_PROMPT}!D2`; 
+  const html = `
+  <div style="font-family:sans-serif;padding:12px">
+    <h3>AIプロンプト（コピーして利用）</h3>
+    <div style="font-size:12px;color:#444;margin-bottom:8px;line-height:1.6;">
+      1) 下のプロンプトをコピーしてAIツールに貼り付けて実行してください。<br>
+      2) 返ってきたTSVを <b>${pasteTarget}</b> シートの A2 セルへ貼り付けてください。<br>
+      3) その後 A-8 を実行すると予測に反映されます。
+    </div>
+    <textarea id="p" style="width:100%;height:260px">${escapeHtml_(prompt)}</textarea>
+    <div style="margin-top:10px">
+      <button onclick="document.getElementById('p').select();document.execCommand('copy');">コピー</button>
+      <button onclick="google.script.host.close();">閉じる</button>
+    </div>
+  </div>`;
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(640).setHeight(420), 'AIプロンプト');
+}
+
+function syncSalesFromSalesInput_(fy, client) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const inSh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+  const sales = ss.getSheetByName(SHEETS.SALES);
+  if (!inSh || !sales) throw new Error('SALES_INPUT_MONTHLY または SALES がありません。');
+
+  const start = new Date(fy - 3, 3, 1);
+  const totalMonths = 48;
+  const vals = inSh.getDataRange().getValues().slice(1);
+  const map = new Map();
+  vals.forEach(r => {
+    const c = String(r[0] || '').trim();
+    const p = String(r[1] || '').trim();
+    const ym = parseYM_(String(r[3] || ''));
+    const amt = Number(r[4] || 0);
+    if (!c || !p || !ym || !isFinite(amt) || c !== client) return;
+    if (p !== 'BASE' && p !== 'SPOT') return;
+    const idx = monthIndexFromStart_(ym, start);
+    if (idx < 0 || idx >= totalMonths) return;
+    if (!map.has(p)) map.set(p, new Array(totalMonths).fill(0));
+    map.get(p)[idx] += amt;
+  });
+
+  buildSALES_();
+  const headerMonths = [];
+  for (let i = 0; i < totalMonths; i++) headerMonths.push(fmtYM_(addMonths_(start, i)));
+  sales.getRange(1, 1).setValue('Category');
+  sales.getRange(1, 2, 1, totalMonths).setValues([headerMonths]);
+
+  const names = ['BASE', 'SPOT'];
+  const out = names.map(n => [n, ...(map.get(n) || new Array(totalMonths).fill(0))]);
+  sales.getRange(2,1,Math.max(1,sales.getMaxRows()-1),1+totalMonths).clearContent();
+  if (out.length) {
+    sales.getRange(2,1,out.length,1+totalMonths).setValues(out);
+    sales.getRange(2,2,out.length,totalMonths).setBackground(COLOR_OBJECTIVE);
+  }
 }
