@@ -232,6 +232,7 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
@@ -282,6 +283,7 @@ function resetWorkbookSheets_(ss, order) {
   order.forEach(name => {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
+}
 
   ss.getSheets().forEach(sh => {
     if (required.has(sh.getName())) return;
