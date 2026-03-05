@@ -241,6 +241,7 @@ function setupForecastBook() {
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.OUTPUT,
     SHEETS.FORECAST_REPORT,
     SHEETS.DASHBOARD,
@@ -489,11 +490,21 @@ function getClientCandidatesForSetup_() {
     const vals = sh.getRange(2, EXT_COL_CLIENT, lastRow - 1, 1).getValues();
     vals.forEach(r => {
       const v = r[0];
-      if (v && String(v).trim()) set.add(String(v).trim());
+      if (v && String(v).trim()) set.add(normalizeClientName_(String(v).trim()));
     });
   });
 
   return Array.from(set).sort();
+}
+
+function normalizeClientName_(name) {
+  const s = String(name || '').trim();
+  if (s === 'ｳﾞｨｱﾄﾘｽ製薬(株)' || s === 'ｳﾞｨｱﾄﾘｽ製薬合同会社') return 'ｳﾞｨｱﾄﾘｽ製薬';
+  return s;
+}
+
+function isSameClient_(a, b) {
+  return normalizeClientName_(a) === normalizeClientName_(b);
 }
 
 /** ====== ② 過去売上データを反映（外部SS→このSSのSALES） ====== */
@@ -528,7 +539,7 @@ function importPastSalesToSalesTab() {
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
 
   // 予測FY=2026なら → 2023,2024,2025,2026
-  const years = [fy - 3, fy - 2, fy - 1, fy];
+  const years = [fy - 4, fy - 3, fy - 2, fy - 1];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
   const start = new Date(fy - 3, 3, 1); // fy-3/04/01
@@ -551,7 +562,7 @@ function importPastSalesToSalesTab() {
       const row = values[i];
 
       const c = row[EXT_COL_CLIENT - 1];
-      if (String(c).trim() !== client) continue;
+      if (!isSameClient_(c, client)) continue;
 
       const productName = row[EXT_COL_CATEGORY - 1]; // AX＝製品名
       const amount = row[EXT_COL_AMOUNT - 1];
@@ -638,7 +649,7 @@ function openProductTrendEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.FACTORS_PRODUCT);
   ensureFactorsProductTemplate_(sh, products, people, defaultDate);
@@ -672,7 +683,7 @@ function openClientTrendEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.FACTORS_CLIENT);
   ensureFactorsClientTemplate_(sh, people, defaultDate);
@@ -705,7 +716,7 @@ function openOpinionsEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.OPINIONS);
   ensureOpinionsTemplate_(sh, people, defaultDate);
@@ -741,7 +752,7 @@ function openDevEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
   ensureDevTemplate_(sh, people, defaultDate);
@@ -921,7 +932,7 @@ function runForecastFYCore_(fy, clientName) {
 
   // 12ヶ月予測対象
   const months = [];
-  const start = new Date(fy, 3, 1);
+  const start = new Date(fy - 1, 3, 1);
   for (let i = 0; i < 12; i++) months.push(addMonths_(start, i));
 
   // 線形回帰（参考）予測：季節性込みモデルのトレンド外挿（参考）
@@ -989,8 +1000,8 @@ function writeOutputFY_(result) {
   const fy = result.fy;
   const client = result.clientName;
 
-  const start = new Date(fy, 3, 1);
-  const end = new Date(fy + 1, 2, 1);
+  const start = new Date(fy - 1, 3, 1);
+  const end = new Date(fy, 2, 1);
 
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
@@ -1192,7 +1203,7 @@ function buildGUIDE_() {
   sh.clearFormats();
   sh.setColumnWidth(1, 130);
   sh.setColumnWidth(2, 340);
-  sh.setColumnWidth(3, 540);
+  sh.setColumnWidth(3, 660);
 
   const C_A = '#d9e8fb';
   const C_B = '#d9ead3';
@@ -1288,7 +1299,7 @@ function buildCONFIG_() {
   sh.getRange('B10').setBackground(COLOR_SUBJECTIVE);
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と一致させます。');
-  sh.getRange('A3').setNote('例：FY2026 は 2026/04/01〜2027/03/31 の12ヶ月です。');
+  sh.getRange('A3').setNote('例：FY2026 は 2025/04/01〜2026/03/31 の12ヶ月です（4月開始・3月決算）。');
   sh.getRange('A5').setNote('シミュレーションは1000回試行し、レンジ（P10/P50/P90）を出します。単純な一発計算より「ブレ幅」を扱えるのがメリットです。');
   sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。⑤では全員分の意見が必須です。');
 }
@@ -1333,7 +1344,7 @@ function buildFACTORS_PRODUCT_() {
   sh.getRange(1, 4).setHorizontalAlignment('right');
   sh.getRange('D:D').setNumberFormat('@').setHorizontalAlignment('right');
 
-  sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
+  sh.getRange(1, 1).setNote('初期設定で入力した表記（CONFIGシートの担当者と同じ表記）を選択してください。');
   sh.getRange(1, 2).setNote('SALES_INPUT_MONTHLYから取得した製品一覧に合わせて自動展開されます。');
   sh.getRange(1, 3).setNote('この日付「以降」に影響が出る想定で入力します。');
   sh.getRange(1, 4).setNote('増減率（%）です。例：-30% = 今後30%減りそう。\n入力は 0%/±5%刻みを推奨。');
@@ -1358,7 +1369,7 @@ function buildFACTORS_CLIENT_() {
 
   sh.getRange('C:C').setNumberFormat('@').setHorizontalAlignment('right');
 
-  sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
+  sh.getRange(1, 1).setNote('初期設定で入力した表記（CONFIGシートの担当者と同じ表記）を選択してください。');
   sh.getRange(1, 2).setNote('この日付「以降」に影響が出る想定で入力します。');
   sh.getRange(1, 3).setNote('増減率（%）です。例：-10% = 予算圧縮で10%減りそう。\n※入力値はそのまま直に固定反映せず、シミュレーション内で扱われます。');
   sh.getRange(1, 4).setNote('根拠を短く（例：予算圧縮、体制変更など）。\n未入力だと判断根拠が追跡しづらくなります。');
@@ -1383,7 +1394,7 @@ function buildOPINIONS_() {
 
   sh.getRange('C:C').setNumberFormat('@').setHorizontalAlignment('right');
 
-  sh.getRange(1, 1).setNote('担当者（苗字推奨）。⑤で全員分の行を自動作成します。');
+  sh.getRange(1, 1).setNote('初期設定で入力した表記（CONFIGシートの担当者と同じ表記）を選択してください。A列はプルダウンです。');
   sh.getRange(1, 2).setNote('この日付「以降」に意見の影響が出る想定で入力します。');
   sh.getRange(1, 3).setNote('増減率（%）です。例：+20% = 今後20%増えそう。\n※意見はそのまま固定反映されず、シミュレーションでランダムに活用されます。');
   sh.getRange(1, 4).setNote('信頼度（0..1）。1に近いほど「この意見を強く信用してよい」として影響が強まります。');
@@ -1409,7 +1420,7 @@ function buildDEV_() {
   sh.setColumnWidth(5, COL_WIDTHS.W_CONF);
 
   sh.getRange('D:D').setNumberFormat('¥#,##0');
-  sh.getRange(1, 1).setNote('入力者（苗字推奨）。A列はプルダウンで選択します。');
+  sh.getRange(1, 1).setNote('初期設定で入力した表記（CONFIGシートの担当者と同じ表記）を選択してください。');
   sh.getRange(1, 2).setNote('この日付の月に固定売上として加算します（開発案件/スポット要因）。');
   sh.getRange(1, 3).setNote('案件名（またはスポット要因名）を短く。');
   sh.getRange(1, 4).setNote('金額（円）。ここは運用(Ops)のシミュレーションには混ぜず、固定額として加算します。');
@@ -1523,6 +1534,12 @@ function ensureOpinionsTemplate_(sh, people, defaultDate) {
   const maxRow = Math.max(sh.getLastRow(), 2);
   sh.getRange(2, 1, maxRow - 1, 5).setBackground(COLOR_SUBJECTIVE);
 
+  const dvPerson = SpreadsheetApp.newDataValidation()
+    .requireValueInList(people, true)
+    .setAllowInvalid(false)
+    .build();
+  sh.getRange(2, 1, sh.getMaxRows() - 1, 1).setDataValidation(dvPerson);
+
   const stepList = buildPercentStepList_();
   const dvStep = SpreadsheetApp.newDataValidation()
     .requireValueInList(stepList, true)
@@ -1538,7 +1555,7 @@ function ensureOpinionsTemplate_(sh, people, defaultDate) {
 }
 
 function ensureDevTemplate_(sh, people, defaultDate) {
-  if (!sh) throw new Error('DEVがありません。');
+  if (!sh) throw new Error('DEV_SPOTがありません。');
 
   if (sh.getLastRow() < 2) {
     const rows = Array.from({ length: 10 }, () => ['', defaultDate, '', '', 1.0]);
@@ -2011,7 +2028,7 @@ function readDevFixed12Months_(fy) {
   if (last < 2) return out;
 
   const vals = sh.getRange(2, 1, last - 1, 5).getValues();
-  const start = new Date(fy, 3, 1);
+  const start = new Date(fy - 1, 3, 1);
 
   vals.forEach(r => {
     const dt = toDate_(r[1]);
@@ -2611,7 +2628,7 @@ function refreshManualInputSheets_(fy) {
   const products = Array.from(new Set(vals.map(r => String(r[2] || '').trim()).filter(Boolean))).sort();
   if (!products.length) return;
 
-  const defaultDate = new Date((Number(fy) || getDefaultFY_()), 3, 1);
+  const defaultDate = new Date((Number(fy) || getDefaultFY_()) - 1, 3, 1);
   ensureFactorsProductTemplate_(ss.getSheetByName(SHEETS.FACTORS_PRODUCT), products, people, defaultDate);
   ensureFactorsClientTemplate_(ss.getSheetByName(SHEETS.FACTORS_CLIENT), people, defaultDate);
   ensureOpinionsTemplate_(ss.getSheetByName(SHEETS.OPINIONS), people, defaultDate);
@@ -2635,15 +2652,15 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(targetSheetName);
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const targetClient = String(cfg.getRange('B2').getValue() || '').trim();
+  const targetClient = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
   if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
 
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
   const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
 
-  const start = new Date(fy - 3, 3, 1);
-  const end = new Date(fy + 1, 2, 1);
+  const start = new Date(fy - 4, 3, 1);
+  const end = new Date(fy, 2, 1);
   const rows = [];
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -2653,7 +2670,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
     for (let i = 1; i < vals.length; i++) {
       const r = vals[i];
       const client = String(r[EXT_COL_CLIENT - 1] || '').trim();
-      if (client !== targetClient) continue;
+      if (!isSameClient_(client, targetClient)) continue;
 
       const serviceCategory = String(r[EXT_COL_SERVICE_CATEGORY - 1] || '').trim().toLowerCase();
       const serviceType = serviceCategory.includes('スポット') ? 'SPOT' : (serviceCategory.includes('ベース') ? 'BASE' : 'OTHER');
@@ -2671,10 +2688,10 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
 
       if (withStatus) {
         const status = ym >= currMonth ? 'open' : 'closed';
-        rows.push([client, serviceType, product, fmtYM_(ym), amount, status, new Date()]);
+        rows.push([normalizeClientName_(client), serviceType, product, fmtYM_(ym), amount, status, new Date()]);
       } else {
         const closed = ym < currMonth ? 1 : 0;
-        rows.push([client, serviceType, product, fmtYM_(ym), amount, closed, new Date()]);
+        rows.push([normalizeClientName_(client), serviceType, product, fmtYM_(ym), amount, closed, new Date()]);
       }
     }
   });
@@ -2701,7 +2718,7 @@ function generateAIResearchTemplate() {
   const byClient = {};
   vals.forEach(r=>{
     const c=String(r[0]||'').trim(); const ym=String(r[3]||''); const a=Number(r[4]||0);
-    if(!c || c !== targetClient) return;
+    if(!c || !isSameClient_(c, targetClient)) return;
     byClient[c]=byClient[c]||[];
     byClient[c].push({ym,a});
   });
@@ -2709,11 +2726,23 @@ function generateAIResearchTemplate() {
   Object.keys(byClient).sort().forEach(c=>{
     const recent = byClient[c].sort((x,y)=>x.ym.localeCompare(y.ym)).slice(-6);
     const text = recent.map(x=>`${x.ym}:${Math.round(x.a).toLocaleString()}`).join(', ');
-    const prompt = `クライアント名: ${c}\n直近売上推移: ${text}\n調査依頼: 今後12ヶ月の売上に影響する外部要因（市場・競合・制度・需要）を重要度順で列挙してください。`;
-    rows.push([c,new Date(),prompt]);
+    const prompt = [
+      `クライアント名: ${normalizeClientName_(c)}`,
+      `Gemに設定してあるカスタム指示を遵守して実行してください。`,
+      `直近売上推移(月次): ${text}`,
+      `調査タスク1（市場調査）: 市場成長率、需要変動要因、規制動向を調査し、売上への影響方向を整理。`,
+      `調査タスク2（競合分析）: 主要競合の製品/価格/チャネル施策を調査し、当該クライアント売上への影響度を評価。`,
+      `調査タスク3（顧客/チャネル）: 医療機関・代理店・流通側の変化要因を調査し、月次影響の時期を明記。`,
+      `調査タスク4（デジタル活用）: AI利活用姿勢、データ利活用積極度、デジタルマーケティング推進度を定量/定性で評価。`,
+      `出力要件: 必ずTSV形式で返却。根拠URLまたは根拠ソースを含める。`
+    ].join('\n');
+    rows.push([normalizeClientName_(c),new Date(),prompt]);
   });
   shOut.getRange(2,1,Math.max(1,shOut.getMaxRows()-1),4).clearContent();
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
+  shOut.getRange('D1').setValue('paste_tsv').setBackground('#ffe599').setFontWeight('bold');
+  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにAIのTSV結果を貼り付けてください。A-8実行前に必須です。');
+  shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
   logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
   ss.setActiveSheet(shOut);
@@ -3084,7 +3113,7 @@ function syncSalesFromSalesInput_(fy, client) {
   const sales = ss.getSheetByName(SHEETS.SALES);
   if (!inSh || !sales) throw new Error('SALES_INPUT_MONTHLY または SALES がありません。');
 
-  const start = new Date(fy - 3, 3, 1);
+  const start = new Date(fy - 4, 3, 1);
   const totalMonths = 48;
   const vals = inSh.getDataRange().getValues().slice(1);
   const map = new Map();
@@ -3093,7 +3122,7 @@ function syncSalesFromSalesInput_(fy, client) {
     const p = String(r[1] || '').trim();
     const ym = parseYM_(String(r[3] || ''));
     const amt = Number(r[4] || 0);
-    if (!c || !p || !ym || !isFinite(amt) || c !== client) return;
+    if (!c || !p || !ym || !isFinite(amt) || !isSameClient_(c, client)) return;
     if (p !== 'BASE' && p !== 'SPOT') return;
     const idx = monthIndexFromStart_(ym, start);
     if (idx < 0 || idx >= totalMonths) return;
