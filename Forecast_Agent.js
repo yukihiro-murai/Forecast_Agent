@@ -19,7 +19,7 @@ const MENU_NAME = 'Forecast Agent';
  *
  * [Phase1 -> Phase2 移行の目安]
  * 1) 最低3か月、月次運用が安定して継続されていること
- *    - ①②⑤⑥⑦の実行漏れがなく、PROCESS_STATUSが継続的に success
+ *    - A-1/A-2/A-9/A-10/B-2 の実行漏れがなく、PROCESS_STATUSが継続的に success
  * 2) 精度KPIが最低基準を満たすこと
  *    - 全体sMAPE <= 30%（目安）
  *    - 実測がネガ〜ポジ帯に入る割合 >= 70%（目安）
@@ -34,11 +34,11 @@ const MENU_NAME = 'Forecast Agent';
  * - モデル監視（ドリフト検知、エラー分類の定例化）
  *
  * [月次運用ルール（推奨順）]
- * 1) ②予測入力売上を取り込み
- * 2) （必要時）④AI調査テンプレート生成→AI結果貼付
- * 3) ⑤予測実行（単一クライアント）
- * 4) ⑦ダッシュボード更新
- * 5) 実績確定後に③検証実績取り込み→⑥予測検証レポート更新
+ * 1) A-2 売上データを取り込み
+ * 2) （必要時）A-8 AI調査テンプレート生成→AI結果貼付
+ * 3) A-9 予測実行（単一クライアント）
+ * 4) A-10 ダッシュボード更新
+ * 5) 実績確定後にB-1検証実績取り込み→B-2予測検証レポート更新
  *
  * [運用時の注意]
  * - 本ツールは「確認→修正→再実行」を前提とする（一発確定しない）
@@ -141,13 +141,14 @@ function onOpen() {
     .addItem('A-1 初期セットアップ', 'setupForecastBook')
     .addSeparator()
     .addItem('A-2 売上データの取り込み', 'importSalesInputMonthly')
-    .addItem('A-3 製品ごとの動向を入力', 'openProductTrendEntryDialog')
-    .addItem('A-4 クライアント動向を入力', 'openClientTrendEntryDialog')
-    .addItem('A-5 担当者意見を入力', 'openOpinionsEntryDialog')
-    .addItem('A-6 開発/スポット要因を入力', 'openDevEntryDialog')
-    .addItem('A-7 AI調査テンプレートを生成', 'generateAIResearchTemplate')
-    .addItem('A-8 予測を実行', 'runPhase1Forecast')
-    .addItem('A-9 ダッシュボード更新', 'updatePhase1Dashboard')
+    .addItem('A-3 予測用に売上データを集計', 'aggregateSalesData')
+    .addItem('A-4 製品ごとの動向を入力', 'openProductTrendEntryDialog')
+    .addItem('A-5 クライアント動向を入力', 'openClientTrendEntryDialog')
+    .addItem('A-6 担当者意見を入力', 'openOpinionsEntryDialog')
+    .addItem('A-7 開発/スポット要因を入力', 'openDevEntryDialog')
+    .addItem('A-8 AI調査テンプレートを生成', 'generateAIResearchTemplate')
+    .addItem('A-9 予測を実行', 'runPhase1Forecast')
+    .addItem('A-10 ダッシュボード更新', 'updatePhase1Dashboard')
     .addSeparator()
     .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
@@ -218,7 +219,7 @@ function onEdit(e) {
   }
 }
 
-/** ====== ① 初期セットアップ ====== */
+/** ====== A-1 初期セットアップ ====== */
 function setupForecastBook() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
@@ -507,7 +508,7 @@ function isSameClient_(a, b) {
   return normalizeClientName_(a) === normalizeClientName_(b);
 }
 
-/** ====== ② 過去売上データを反映（外部SS→このSSのSALES） ====== */
+/** ====== 補助: 過去売上データを反映（外部SS→このSSのSALES） ====== */
 function importPastSalesToSalesTab() {
   ensureSetupDone_();
 
@@ -518,11 +519,11 @@ function importPastSalesToSalesTab() {
   const fy = Number(cfg.getRange('B3').getValue());
 
   if (!client) {
-    SpreadsheetApp.getUi().alert('CONFIG!B2 にメーカー名が未設定です。①初期セットアップを実行してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B2 にメーカー名が未設定です。A-1 初期セットアップを実行してください。');
     return;
   }
   if (!fy || !isFinite(fy)) {
-    SpreadsheetApp.getUi().alert('CONFIG!B3 に予測FYが未設定です。①初期セットアップを実行してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B3 に予測FYが未設定です。A-1 初期セットアップを実行してください。');
     return;
   }
 
@@ -631,19 +632,19 @@ function importPastSalesToSalesTab() {
   ui.alert('完了', `SALESに過去4年分（48ヶ月）の売上を反映しました。\nメーカー: ${client}`, ui.ButtonSet.OK);
 }
 
-/** ====== ③〜⑥：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
+/** ====== A-4〜A-7：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
 function openProductTrendEntryDialog() {
   ensureSetupDone_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\n①初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
   const products = getProductNameListFromSales_();
   if (products.length === 0) {
-    SpreadsheetApp.getUi().alert('SALESに製品名がありません。\n②過去売上データを反映 を先に実行してください。');
+    SpreadsheetApp.getUi().alert('SALESに製品名がありません。\nA-2〜A-3 を先に実行してください。');
     return;
   }
 
@@ -657,7 +658,7 @@ function openProductTrendEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    '③ 製品動向を入力',
+    'A-4 製品動向を入力',
     [
       'FACTORS_PRODUCT を入力してください（青色のセルが対象です）。',
       '1) A列：担当者を選択',
@@ -677,7 +678,7 @@ function openClientTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\n①初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -691,7 +692,7 @@ function openClientTrendEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    '④ クライアント動向を入力',
+    'A-5 クライアント動向を入力',
     [
       'FACTORS_CLIENT を入力してください（青色のセルが対象です）。',
       '1) A列：担当者を選択',
@@ -710,7 +711,7 @@ function openOpinionsEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\n①初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -724,10 +725,10 @@ function openOpinionsEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    '⑤ メーカー担当者意見を入力',
+    'A-6 メーカー担当者意見を入力',
     [
       'OPINIONS を入力してください（青色のセルが対象です）。',
-      '※原則として担当者全員の入力が必要です（未入力があると⑦が実行できません）。',
+      '※原則として担当者全員の入力が必要です（未入力があるとA-9が実行できません）。',
       '',
       '入力手順：',
       '1) B列：影響が出る日付（この日付以降に反映）',
@@ -746,7 +747,7 @@ function openDevEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\n①初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -760,7 +761,7 @@ function openDevEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    '⑥ 開発/スポット要因を入力',
+    'A-7 開発/スポット要因を入力',
     [
       'DEV_SPOT を入力してください（青色のセルが対象です）。',
       '開発案件だけでなく、スポット要因（例：法改定による差し替え等）もここに入力してください。',
@@ -813,7 +814,7 @@ function closeIt(){ google.script.host.close(); }
   ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(360), title);
 }
 
-/** ====== ⑦ 予測を出力 ====== */
+/** ====== A-9 予測を出力 ====== */
 function executeForecastUsingConfig() {
   ensureSetupDone_();
 
@@ -823,7 +824,7 @@ function executeForecastUsingConfig() {
   const client = String(cfg.getRange('B2').getValue() || '').trim();
   const fy = Number(cfg.getRange('B3').getValue());
   if (!client || !fy) {
-    SpreadsheetApp.getUi().alert('初期設定が未完了です。①初期セットアップを実行してください。');
+    SpreadsheetApp.getUi().alert('初期設定が未完了です。A-1 初期セットアップを実行してください。');
     return;
   }
 
@@ -841,7 +842,7 @@ function executeForecastUsingConfig() {
   if (missingPeople.length > 0) {
     SpreadsheetApp.getUi().alert(
       '担当者の意見が不足しています',
-      `OPINIONSに全員の意見が必要です。\n未入力: ${missingPeople.join(', ')}\n\n⑤で全員分入力してください。`,
+      `OPINIONSに全員の意見が必要です。\n未入力: ${missingPeople.join(', ')}\n\nA-6で全員分入力してください。`,
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     return;
@@ -922,6 +923,9 @@ function runForecastFYCore_(fy, clientName) {
   const factorsClient = readFactorsClient_(fy);
   const opinions = readOpinions_(fy);
 
+  // AI調査スコア（topic別 adjusted_score 平均）
+  const aiScores = readAIResearchScores_();
+
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
   const productWeights = computeProductWeightsClosed12_(
     salesData.productNames,
@@ -958,6 +962,7 @@ function runForecastFYCore_(fy, clientName) {
     factorsClient,
     opinions,
     productWeights,
+    aiScores,
     nSim: N_SIM,
     months
   });
@@ -975,7 +980,8 @@ function runForecastFYCore_(fy, clientName) {
     devFixedByMonth,
     opinionsSummaryTop,
     opinionsSummaryByMonth,
-    modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept }
+    modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
+    aiScores
   };
 }
 
@@ -1021,10 +1027,19 @@ function writeOutputFY_(result) {
   sh.getRange(4, 2, 1, 5).merge();
   sh.getRange(4, 2).setWrap(true);
 
+  // AI調査スコア要約
+  const ai = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const aiSummary = `Market: ${ai.Market} / Competitor: ${ai.Competitor} / Channel: ${ai.Channel} / DX: ${ai.DX}`;
+  sh.getRange(5, 1).setValue('AI調査スコア（adjusted）');
+  sh.getRange(5, 1).setFontWeight('bold');
+  sh.getRange(5, 2).setValue(aiSummary || '（未実施）');
+  sh.getRange(5, 2, 1, 5).merge();
+  sh.getRange(5, 2).setWrap(true);
+
   // 既存チャート削除（重なり防止）
   sh.getCharts().forEach(c => sh.removeChart(c));
 
-  let row = 6;
+  let row = 7;
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
@@ -1217,14 +1232,15 @@ function buildGUIDE_() {
 
   const aRows = [
     ['A-予測', 'A-1 初期セットアップ', '初回のみ。クライアント/FY/担当者を設定。'],
-    ['A-予測', 'A-2 売上データの取り込み', '対象クライアントの案件一覧を SALES_INPUT_MONTHLY へ取り込み、同時に SALES を48か月横持ち（BASE/SPOT 2行）で更新。'],
-    ['A-予測', 'A-3 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
-    ['A-予測', 'A-4 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
-    ['A-予測', 'A-5 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
-    ['A-予測', 'A-6 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-7 AI調査テンプレートを生成', '生成された内容をAIツールへ貼り付け、返却TSVを AI_RESEARCH_PROMPT!D2 に貼り付け。'],
-    ['A-予測', 'A-8 予測を実行', 'OUTPUT / FORECAST_REPORT を更新。'],
-    ['A-予測', 'A-9 ダッシュボード更新', 'DASHBOARD を更新。']
+    ['A-予測', 'A-2 売上データの取り込み', '案件一覧を SALES_INPUT_MONTHLY へ取り込み。'],
+    ['A-予測', 'A-3 予測用に売上データを集計', 'SALES_INPUT_MONTHLY のデータを SALES で48か月横持ち（BASE/SPOT）に集計。'],
+    ['A-予測', 'A-4 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
+    ['A-予測', 'A-5 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
+    ['A-予測', 'A-6 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
+    ['A-予測', 'A-7 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
+    ['A-予測', 'A-8 AI調査テンプレートを生成', '生成されたプロンプトをGemへ貼り付け、返却結果を AI_RESEARCH_PROMPT!D2 に全文貼り付け。'],
+    ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新。'],
+    ['A-予測', 'A-10 ダッシュボード更新', 'DASHBOARD を更新。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
@@ -1233,9 +1249,9 @@ function buildGUIDE_() {
     ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
     ['B-事後検証', 'B-3 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(12, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
+  sh.getRange(14, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
-  sh.getRange(16, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(18, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT_MONTHLY, '予測入力（月次案件一覧）'],
@@ -1253,14 +1269,14 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
     ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト']
   ];
-  setGuideLinkTable_(sh, 17, links);
+  setGuideLinkTable_(sh, 19, links);
 
-  const last = 17 + links.length;
+  const last = 19 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 4, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
     ['・手入力シートはヘッダコメントを参照し、何を入力すると何に影響するかを確認してください。'],
-    ['・A-8 実行時に未入力や型不正がある場合はエラー表示して停止します。'],
+    ['・A-9 実行時に未入力や型不正がある場合はエラー表示して停止します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
 
@@ -1301,7 +1317,7 @@ function buildCONFIG_() {
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と一致させます。');
   sh.getRange('A3').setNote('例：FY2026 は 2025/04/01〜2026/03/31 の12ヶ月です（4月開始・3月決算）。');
   sh.getRange('A5').setNote('シミュレーションは1000回試行し、レンジ（P10/P50/P90）を出します。単純な一発計算より「ブレ幅」を扱えるのがメリットです。');
-  sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。⑤では全員分の意見が必須です。');
+  sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。A-6では全員分の意見が必須です。');
 }
 
 function buildSALES_() {
@@ -1437,7 +1453,7 @@ function buildOUTPUT_() {
   sh.clearFormats();
 }
 
-/** ====== テンプレ整形（③〜⑥で呼ぶ） ====== */
+/** ====== テンプレ整形（A-4〜A-7で呼ぶ） ====== */
 function ensureFactorsProductTemplate_(sh, products, people, defaultDate) {
   if (!sh) throw new Error('FACTORS_PRODUCTがありません。');
 
@@ -1693,7 +1709,7 @@ function validateAllInputsOrThrow_(fy) {
   if (!sales) throw new Error('SALESシートがありません。');
 
   const lastRow = sales.getLastRow();
-  if (lastRow < 2) throw new Error('SALESに製品行がありません。②で取り込み、または手入力してください。');
+  if (lastRow < 2) throw new Error('SALESに製品行がありません。A-2で取り込み、または手入力してください。');
 
   const expectedMonths = 48;
   const startCol = 2;
@@ -1734,7 +1750,7 @@ function validateRequiredUserInputsOrThrow_() {
   }
 
   const fp = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.FACTORS_PRODUCT);
-  if (!fp || fp.getLastRow() < 2) throw new Error('FACTORS_PRODUCT の入力行がありません。A-3 を実行してください。');
+  if (!fp || fp.getLastRow() < 2) throw new Error('FACTORS_PRODUCT の入力行がありません。A-4 を実行してください。');
 
   const hasReason = fp.getRange(2, 5, fp.getLastRow() - 1, 1).getValues().some(r => String(r[0] || '').trim());
   if (!hasReason) throw new Error('FACTORS_PRODUCT のReasonが未入力です。最低1件入力してください。');
@@ -1796,10 +1812,10 @@ function validateFactorsSheet_(sheetName, opt) {
 function validateOpinionsSheet_(requiredPeople) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OPINIONS);
-  if (!sh) throw new Error('OPINIONSシートがありません。⑤を実行してください。');
+  if (!sh) throw new Error('OPINIONSシートがありません。A-6を実行してください。');
 
   const last = sh.getLastRow();
-  if (last < 2) throw new Error('OPINIONSに入力行がありません。⑤を実行してください。');
+  if (last < 2) throw new Error('OPINIONSに入力行がありません。A-6を実行してください。');
 
   const vals = sh.getRange(2, 1, last - 1, 5).getValues();
 
@@ -1833,7 +1849,7 @@ function validateOpinionsSheet_(requiredPeople) {
 
   const missing = requiredPeople.filter(p => !okPeople.has(p));
   if (missing.length > 0) {
-    throw new Error(`OPINIONSに担当者全員の有効な入力がありません。\n未入力: ${missing.join(', ')}\n⑤で入力してください。`);
+    throw new Error(`OPINIONSに担当者全員の有効な入力がありません。\n未入力: ${missing.join(', ')}\nA-6で入力してください。`);
   }
 }
 
@@ -2128,6 +2144,52 @@ function readOpinions_(fy) {
   }).filter(Boolean);
 }
 
+/**
+ * AI_RESEARCH_STRUCTURED から topic 別の adjusted_score を読み取り、
+ * 予測モデル用の係数マップを返す。
+ *
+ * 返却値: { Market: number, Competitor: number, Channel: number, DX: number }
+ * 各値は adjusted_score の topic 別平均（-50〜+50 の範囲）。
+ * データがない場合は全て 0（ニュートラル）。
+ */
+function readAIResearchScores_() {
+  const result = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  if (!sh) return result;
+
+  const last = sh.getLastRow();
+  if (last < 2) return result;
+
+  const vals = sh.getDataRange().getValues();
+  const header = vals[0];
+
+  // カラムindex特定（ヘッダ名で検索）
+  const topicIdx = header.indexOf('topic');
+  const adjIdx = header.indexOf('adjusted_score');
+  if (topicIdx < 0 || adjIdx < 0) return result;
+
+  const sums = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const counts = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+
+  for (let i = 1; i < vals.length; i++) {
+    const topic = String(vals[i][topicIdx] || '').trim();
+    const score = Number(vals[i][adjIdx] || 0);
+    if (!isFinite(score)) continue;
+    if (sums[topic] === undefined) continue;
+
+    sums[topic] += score;
+    counts[topic]++;
+  }
+
+  for (const k in result) {
+    result[k] = counts[k] > 0 ? Math.round(sums[k] / counts[k] * 10) / 10 : 0;
+  }
+
+  return result;
+}
+
+
 /** ====== 予測計算（モデル） ====== */
 function fitOpsModelTrendSeason_(y) {
   const n = y.length;
@@ -2180,6 +2242,15 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
   const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights));
   const kClientByMonth = months.map(m => clientFactorsMultiplier_(factorsClient, m));
 
+  // AI調査スコア → 係数変換
+  // adjusted_score の合計（全topic）を 0.01 倍して係数化
+  // 例: 合計 +30 → 1.03（+3%の微調整）
+  // 重みを意図的に小さくし、過度な影響を防ぐ
+  const aiScores = opt.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const aiTotalScore = (aiScores.Market || 0) + (aiScores.Competitor || 0) + (aiScores.Channel || 0) + (aiScores.DX || 0);
+  const AI_WEIGHT = 0.001; // AI調査の重み（1ポイントあたり0.1%の影響）
+  const kAI = 1 + aiTotalScore * AI_WEIGHT;
+
   const startT = 48;
   const simByMonth = Array.from({ length: 12 }, () => []);
 
@@ -2195,6 +2266,7 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
       ops *= kProdByMonth[i];
       ops *= kClientByMonth[i];
       ops *= sampleOpinionMultiplier_(opinions, months[i]);
+      ops *= kAI;
 
       const total = Math.max(0, ops) + devFixedByMonth[i];
       simByMonth[i].push(total);
@@ -2378,7 +2450,7 @@ function smoothSeriesSeasonalAware_(y) {
 function ensureSetupDone_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss.getSheetByName(SHEETS.CONFIG)) {
-    throw new Error('初期セットアップが必要です。Forecast Agent > ① 初期セットアップ を実行してください。');
+    throw new Error('初期セットアップが必要です。Forecast Agent > A-1 初期セットアップ を実行してください。');
   }
 }
 
@@ -2605,14 +2677,42 @@ function importSalesInputMonthly() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
-    const client = String(cfg.getRange('B2').getValue() || '').trim();
     const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
     importMonthlyFromExternal_(SHEETS.SALES_INPUT_MONTHLY, true);
-    syncSalesFromSalesInput_(fy, client);
     refreshManualInputSheets_(fy);
     const sh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
     if (sh) ss.setActiveSheet(sh);
-    SpreadsheetApp.getUi().alert('完了', '売上データを更新しました。次は A-3〜A-8 を順番に実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', '売上データを取り込みました。次は A-3 予測用に売上データを集計 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+
+/**
+ * A-3: SALES_INPUT_MONTHLY のデータを SALES シートに集計（BASE/SPOT × 48ヶ月横持ち）
+ */
+function aggregateSalesData() {
+  try {
+    ensureSetupDone_();
+    requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    const client = String(cfg.getRange('B2').getValue() || '').trim();
+    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+
+    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+
+    syncSalesFromSalesInput_(fy, client);
+
+    const sales = ss.getSheetByName(SHEETS.SALES);
+    ss.setActiveSheet(sales);
+
+    SpreadsheetApp.getUi().alert(
+      '完了',
+      'SALESシートにBASE/SPOT × 48ヶ月の売上データを集計しました。\n次は A-4〜A-9 を順番に実行してください。',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   } catch (e) {
     SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
@@ -2808,7 +2908,7 @@ function runPhase1Forecast() {
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
-    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-9 ダッシュボード更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-10 ダッシュボード更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
@@ -2841,12 +2941,12 @@ function writeForecastArtifacts_(result, client) {
 
 /**
  * 実績確定後の検証ステップ。
- * - ③の後に実行することで EVAL_LOG が更新される
+ * - B-1の後に実行することで EVAL_LOG が更新される
  * - Phase移行判断に使うKPI（sMAPE等）の元データを蓄積する
  */
 function updatePhase1EvaluationReport() {
   requireStepSuccess_('step2_status', '先にB-1 検証用に実績データを取り込み を実行してください。');
-  requireStepSuccess_('step4_status', '先にA-8 予測実行を実行してください。');
+  requireStepSuccess_('step4_status', '先にA-9 予測実行を実行してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const actual = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY).getDataRange().getValues().slice(1);
   const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT).getDataRange().getValues().slice(1);
@@ -2936,7 +3036,7 @@ function getBaseSpotRatioFromSales_() {
  * - 詳細分析は FORECAST_REPORT / EVAL_LOG を参照
  */
 function updatePhase1Dashboard() {
-  requireStepSuccess_('step4_status', '先にA-8 予測実行を実行してください。');
+  requireStepSuccess_('step4_status', '先にA-9 予測実行を実行してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dash = ss.getSheetByName(SHEETS.DASHBOARD);
   const rep = ss.getSheetByName(SHEETS.FORECAST_REPORT).getDataRange().getValues();
@@ -2946,7 +3046,7 @@ function updatePhase1Dashboard() {
   dash.getRange(2,1,4,3).setValues([
     ['forecast_rows', total, 'FORECAST_REPORT件数'],
     ['last_updated', new Date(), '更新日時'],
-    ['kpi_smape_signal', 'N/A', '⑤実行後に算出'],
+    ['kpi_smape_signal', 'N/A', 'A-9実行後に算出'],
     ['dashboard_status', 'ready', '初期ダッシュボード']
   ]);
   updateProcessStatus_('step6_status','success','',total,'');
