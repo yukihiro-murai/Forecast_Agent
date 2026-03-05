@@ -43,7 +43,7 @@ const MENU_NAME = 'Forecast Agent';
  * [運用時の注意]
  * - 本ツールは「確認→修正→再実行」を前提とする（一発確定しない）
  * - OUTPUTは要点表示、詳細根拠はFORECAST_REPORT/FORECAST_SNAPSHOTで確認
- * - AI結果は補助情報。relevance_scoreや値域チェックに通らない情報は反映しない
+ * - AI結果は補助情報。形式・値域チェックに通らない情報は反映しない
  * - 初期セットアップは全タブ再作成（既存タブ削除）なので本番時は必ず注意喚起
  * - 重大な仕様変更を行った場合は、GUIDEとCHANGELOG（運用記録）を同時更新
  ***************************************/
@@ -2574,8 +2574,8 @@ function buildPhase1Sheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   buildSimpleSheet_(ss, SHEETS.SALES_INPUT_MONTHLY, ['client','service_type','product','target_month','input_amount','status','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.ACTUAL_EVAL_MONTHLY, ['client','service_type','product','target_month','eval_actual_amount','actual_closed_flag','source_updated_at']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_tsv']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','direction','estimated_impact_pct','confidence','evidence','time_horizon','business_relevance_reason','relevance_score']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','adjusted_score','report_text']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category']);
@@ -2715,33 +2715,27 @@ function generateAIResearchTemplate() {
   const shIn = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
   const shOut = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
   const vals = shIn.getDataRange().getValues().slice(1);
-  const byClient = {};
-  vals.forEach(r=>{
-    const c=String(r[0]||'').trim(); const ym=String(r[3]||''); const a=Number(r[4]||0);
-    if(!c || !isSameClient_(c, targetClient)) return;
-    byClient[c]=byClient[c]||[];
-    byClient[c].push({ym,a});
-  });
+  const clients = Array.from(new Set(
+    vals
+      .map(r => String(r[0] || '').trim())
+      .filter(c => c && isSameClient_(c, targetClient))
+      .map(c => normalizeClientName_(c))
+  ));
+
   const rows=[];
-  Object.keys(byClient).sort().forEach(c=>{
-    const recent = byClient[c].sort((x,y)=>x.ym.localeCompare(y.ym)).slice(-6);
-    const text = recent.map(x=>`${x.ym}:${Math.round(x.a).toLocaleString()}`).join(', ');
+  clients.sort().forEach(c=>{
     const prompt = [
-      `クライアント名: ${normalizeClientName_(c)}`,
-      `Gemに設定してあるカスタム指示を遵守して実行してください。`,
-      `直近売上推移(月次): ${text}`,
-      `調査タスク1（市場調査）: 市場成長率、需要変動要因、規制動向を調査し、売上への影響方向を整理。`,
-      `調査タスク2（競合分析）: 主要競合の製品/価格/チャネル施策を調査し、当該クライアント売上への影響度を評価。`,
-      `調査タスク3（顧客/チャネル）: 医療機関・代理店・流通側の変化要因を調査し、月次影響の時期を明記。`,
-      `調査タスク4（デジタル活用）: AI利活用姿勢、データ利活用積極度、デジタルマーケティング推進度を定量/定性で評価。`,
-      `出力要件: 必ずTSV形式で返却。根拠URLまたは根拠ソースを含める。`
+      `Client_Name: ${normalizeClientName_(c)}`,
+      `As_of_Date: ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')}`,
+      '',
+      'カスタム指示に従い、出力してください。'
     ].join('\n');
     rows.push([normalizeClientName_(c),new Date(),prompt]);
   });
   shOut.getRange(2,1,Math.max(1,shOut.getMaxRows()-1),4).clearContent();
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
-  shOut.getRange('D1').setValue('paste_tsv').setBackground('#ffe599').setFontWeight('bold');
-  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにAIのTSV結果を貼り付けてください。A-8実行前に必須です。');
+  shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
+  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。レポートとTSVの両方を含んだ状態で貼り付けてOKです。A-8実行時に自動でパースされます。');
   shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
   logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
@@ -2752,33 +2746,48 @@ function generateAIResearchTemplate() {
 function parseAIResearchPaste_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
   const out = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
-  const raw = String(sh.getRange('D2').getValue()||'').trim();
+  const raw = String(sh.getRange('D2').getValue() || '').trim();
   if (!raw) return 0;
-  const lines = raw.split(/\r?\n/).filter(Boolean);
-  const rows=[];
-  lines.forEach((ln,idx)=>{
+
+  // レポート部分を抽出
+  const reportMatch = raw.match(/===REPORT_START===([\s\S]*?)===REPORT_END===/);
+  const report = reportMatch ? reportMatch[1].trim() : '';
+
+  // TSV部分を抽出
+  const tsvMatch = raw.match(/===TSV_START===([\s\S]*?)===TSV_END===/);
+  if (!tsvMatch) return 0;
+
+  const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => l.trim());
+
+  const rows = [];
+  tsvLines.forEach((ln, idx) => {
     const cols = ln.split('\t');
-    if (idx===0 && cols[0]==='client') return;
-    if (cols.length < 10) return;
-    const impact = Number(cols[4]||0);
-    const score = Number(cols[9]||0);
-    if (!isFinite(impact) || !isFinite(score) || score < 0 || score > 100) return;
-    rows.push(cols.slice(0,10));
+    // ヘッダ行スキップ（clientで始まる行）
+    if (idx === 0 && cols[0] && cols[0].trim().toLowerCase() === 'client') return;
+    if (cols.length < 9) return;
+
+    const impactScore = Number(cols[4] || 0);
+    const confidence = Number(cols[5] || 0);
+    if (!isFinite(impactScore) || impactScore < 0 || impactScore > 100) return;
+    if (!isFinite(confidence) || confidence < 0 || confidence > 1) return;
+
+    const adjustedScore = Math.round((impactScore - 50) * confidence * 10) / 10;
+
+    // 9列のTSVデータ + adjusted_score + report_text
+    const row = cols.slice(0, 9);
+    row.push(adjustedScore);
+    row.push(rows.length === 0 ? report : '');  // レポートは最初の行にだけ格納
+    rows.push(row);
   });
-  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),10).clearContent();
-  if (rows.length) out.getRange(2,1,rows.length,10).setValues(rows);
+
+  out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 11).clearContent();
+  if (rows.length) out.getRange(2, 1, rows.length, 11).setValues(rows);
+
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
-  updateProcessStatus_('step3a_status','success',client,rows.length,'');
+  updateProcessStatus_('step3a_status', 'success', client, rows.length, '');
   return rows.length;
 }
-
-/**
- * Phase1実行の中心フロー。
- * - 単一クライアント実行（GAS時間制約回避）
- * - 予測前に SALES_INPUT_MONTHLY -> SALES 同期
- * - 実行後は OUTPUT（閲覧）と FORECAST_*（監査/分析）を同時更新
- */
 function runPhase1Forecast() {
   try {
     requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
@@ -3094,11 +3103,12 @@ function showPromptPreviewDialog_(rows) {
   <div style="font-family:sans-serif;padding:12px">
     <h3>AIプロンプト（コピーして利用）</h3>
     <div style="font-size:12px;color:#444;margin-bottom:8px;line-height:1.6;">
-      1) 下のプロンプトをコピーしてAIツールに貼り付けて実行してください。<br>
-      2) 返ってきたTSVを <b>${pasteTarget}</b> へ貼り付けてください。<br>
+      0) <b style="color:#ea4335">Gemの右下のモードを「Pro」に切り替えてください（高速モードは不可）</b><br>
+      1) 下のプロンプトをコピーしてGemに貼り付けて実行してください。<br>
+      2) Gemにアクセス（<a href="https://gemini.google.com/gem/1NGUI4UI_tuNF3NvwXV323iuQsqEALB0p?usp=sharing" target="_blank">こちら</a>）し、返ってきた結果を <b>全文コピー</b> して <b>${pasteTarget}</b> へ貼り付けてください。（TSVだけでなく全文をそのまま貼ってください）<br>
       3) その後 A-8 を実行すると予測に反映されます。
     </div>
-    <textarea id="p" style="width:100%;height:260px">${escapeHtml_(prompt)}</textarea>
+    <textarea id="p" style="width:100%;height:120px">${escapeHtml_(prompt)}</textarea>
     <div style="margin-top:10px">
       <button onclick="document.getElementById('p').select();document.execCommand('copy');">コピー</button>
       <button onclick="google.script.host.close();">閉じる</button>
