@@ -1249,9 +1249,9 @@ function buildGUIDE_() {
     ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
     ['B-事後検証', 'B-3 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(14, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
+  sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
-  sh.getRange(18, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(17, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT_MONTHLY, '予測入力（月次案件一覧）'],
@@ -1269,9 +1269,9 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
     ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト']
   ];
-  setGuideLinkTable_(sh, 19, links);
+  setGuideLinkTable_(sh, 18, links);
 
-  const last = 19 + links.length;
+  const last = 18 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 4, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
@@ -2492,6 +2492,13 @@ function toDate_(v) {
   if (!v) return null;
   if (v instanceof Date && !isNaN(v.getTime())) return v;
 
+  // Google Sheetsのシリアル日付に対応
+  if (typeof v === 'number' && isFinite(v)) {
+    const ms = Math.round((v - 25569) * 86400 * 1000);
+    const dNum = new Date(ms);
+    if (!isNaN(dNum.getTime())) return dNum;
+  }
+
   const s = String(v).trim();
   if (!s) return null;
 
@@ -2765,6 +2772,15 @@ function importActualEvalMonthly() {
   }
 }
 
+function writeRowsInChunks_(sh, startRow, startCol, rows, chunkSize) {
+  if (!rows || !rows.length) return;
+  const size = Math.max(1, Number(chunkSize) || 2000);
+  for (let i = 0; i < rows.length; i += size) {
+    const chunk = rows.slice(i, i + size);
+    sh.getRange(startRow + i, startCol, chunk.length, chunk[0].length).setValues(chunk);
+  }
+}
+
 function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const started = new Date();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2785,8 +2801,11 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
 
   sheets.forEach(sht => {
     toastProgress_(ss, `取り込み中: ${sht.getName()}（${rows.length}行取得済み）…`, 3);
-    const vals = sht.getDataRange().getValues();
-    for (let i = 1; i < vals.length; i++) {
+    const lastRow = sht.getLastRow();
+    if (lastRow < 2) return;
+    const readCols = Math.max(EXT_COL_AMOUNT, EXT_COL_DATE_PRIMARY, EXT_COL_DATE_SECONDARY, EXT_COL_SERVICE_CATEGORY, EXT_COL_CATEGORY, EXT_COL_CLIENT);
+    const vals = sht.getRange(2, 1, lastRow - 1, readCols).getValues();
+    for (let i = 0; i < vals.length; i++) {
       const r = vals[i];
       const client = String(r[EXT_COL_CLIENT - 1] || '').trim();
       if (!isSameClient_(client, targetClient)) continue;
@@ -2822,7 +2841,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   rows.sort((a, b) => (a[0] + a[1] + a[3] + a[2]).localeCompare(b[0] + b[1] + b[3] + b[2]));
 
   sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), sh.getLastColumn()).clearContent();
-  if (rows.length) sh.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  if (rows.length) writeRowsInChunks_(sh, 2, 1, rows, 2000);
 
   // D列（target_month）をテキスト形式に設定（Sheets自動Date変換を防止）
   if (rows.length) {
@@ -2832,7 +2851,10 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   // 取得データの月範囲をログ
   const ymSet = new Set(rows.map(r => String(r[3] || '')));
   const ymSorted = Array.from(ymSet).sort();
-  const rangeInfo = ymSorted.length ? `${ymSorted[0]}〜${ymSorted[ymSorted.length - 1]}（${ymSorted.length}ヶ月）` : 'データなし';
+  const expectedMonths = 48;
+  const rangeInfo = ymSorted.length
+    ? `${ymSorted[0]}〜${ymSorted[ymSorted.length - 1]}（${ymSorted.length}ヶ月 / 想定${expectedMonths}ヶ月）`
+    : `データなし（想定${expectedMonths}ヶ月）`;
 
   const step = (targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'step1_status' : 'step2_status';
   updateProcessStatus_(step, 'success', targetClient, rows.length, '');
@@ -3316,9 +3338,11 @@ function syncSalesFromSalesInput_(fy, client) {
 
   const names = ['BASE', 'SPOT'];
   const out = names.map(n => [n, ...(map.get(n) || new Array(totalMonths).fill(0))]);
+  const totalRow = ['TOTAL', ...new Array(totalMonths).fill(0).map((_, i) => Number((map.get('BASE') || [])[i] || 0) + Number((map.get('SPOT') || [])[i] || 0))];
+
   sales.getRange(2,1,Math.max(1,sales.getMaxRows()-1),1+totalMonths).clearContent();
-  if (out.length) {
-    sales.getRange(2,1,out.length,1+totalMonths).setValues(out);
-    sales.getRange(2,2,out.length,totalMonths).setBackground(COLOR_OBJECTIVE);
-  }
+  const allRows = [...out, totalRow];
+  sales.getRange(2,1,allRows.length,1+totalMonths).setValues(allRows);
+  sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
+  sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
