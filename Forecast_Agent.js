@@ -2781,6 +2781,23 @@ function writeRowsInChunks_(sh, startRow, startCol, rows, chunkSize) {
   }
 }
 
+function classifyServiceType_(serviceCategoryRaw) {
+  const serviceCategory = String(serviceCategoryRaw || '').trim().toLowerCase();
+
+  // 優先ルール：ベース/スポットの明示文字列を最優先
+  if (serviceCategory.includes('ベース')) return 'BASE';
+  if (serviceCategory.includes('スポット')) return 'SPOT';
+
+  // 追加マッピング（部分一致）
+  const baseKeywords = ['フラグメント', 'テンプレート', '運用更新', '簡便化', '保守サポート'];
+  const spotKeywords = ['開発', 'その他', 'myinsights'];
+
+  if (baseKeywords.some(k => serviceCategory.includes(k.toLowerCase()))) return 'BASE';
+  if (spotKeywords.some(k => serviceCategory.includes(k.toLowerCase()))) return 'SPOT';
+
+  return 'OTHER';
+}
+
 function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const started = new Date();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2810,8 +2827,8 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
       const client = String(r[EXT_COL_CLIENT - 1] || '').trim();
       if (!isSameClient_(client, targetClient)) continue;
 
-      const serviceCategory = String(r[EXT_COL_SERVICE_CATEGORY - 1] || '').trim().toLowerCase();
-      const serviceType = serviceCategory.includes('スポット') ? 'SPOT' : (serviceCategory.includes('ベース') ? 'BASE' : 'OTHER');
+      const serviceCategory = String(r[EXT_COL_SERVICE_CATEGORY - 1] || '').trim();
+      const serviceType = classifyServiceType_(serviceCategory);
       if (serviceType === 'OTHER') continue;
 
       let d = r[EXT_COL_DATE_PRIMARY - 1];
@@ -2846,6 +2863,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   // D列（target_month）をテキスト形式に設定（Sheets自動Date変換を防止）
   if (rows.length) {
     sh.getRange(2, 4, rows.length, 1).setNumberFormat('@');
+    sh.getRange(2, 5, rows.length, 1).setNumberFormat('#,##0');
   }
 
   // 取得データの月範囲をログ
@@ -3293,9 +3311,9 @@ function showPromptPreviewDialog_(rows) {
   <div style="font-family:sans-serif;padding:12px">
     <h3>AIプロンプト（コピーして利用）</h3>
     <div style="font-size:12px;color:#444;margin-bottom:8px;line-height:1.6;">
-      0) <b style="color:#ea4335">Gemの右下のモードを「Pro」に切り替えてください（高速モードは不可）</b><br>
+      0) <b style="color:#ea4335">Gemの右下のモードを「Pro」に切り替えてください（高速モード等は不可）</b><br>
       1) 下のプロンプトをコピーしてGemに貼り付けて実行してください。<br>
-      2) Gemにアクセス（<a href="https://gemini.google.com/gem/1NGUI4UI_tuNF3NvwXV323iuQsqEALB0p?usp=sharing" target="_blank">こちら</a>）し、返ってきた結果を <b>全文コピー</b> して <b>${pasteTarget}</b> へ貼り付けてください。（TSVだけでなく全文をそのまま貼ってください）<br>
+      2) Gemにアクセス（<a href="https://gemini.google.com/gem/1NGUI4UI_tuNF3NvwXV323iuQsqEALB0p?usp=sharing" target="_blank">こちら</a>）し、結果を <b>全文コピー</b> して <b>paste_gem_output（黄色になっている箇所）</b> にペーストしてください。<br>
       3) その後 A-8 を実行すると予測に反映されます。
     </div>
     <textarea id="p" style="width:100%;height:120px">${escapeHtml_(prompt)}</textarea>
@@ -3343,6 +3361,7 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,1,Math.max(1,sales.getMaxRows()-1),1+totalMonths).clearContent();
   const allRows = [...out, totalRow];
   sales.getRange(2,1,allRows.length,1+totalMonths).setValues(allRows);
+  sales.getRange(2,2,allRows.length,totalMonths).setNumberFormat('#,##0');
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
