@@ -2678,16 +2678,16 @@ function importSalesInputMonthly() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
     const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-    importMonthlyFromExternal_(SHEETS.SALES_INPUT_MONTHLY, true);
+    const result = importMonthlyFromExternal_(SHEETS.SALES_INPUT_MONTHLY, true);
     refreshManualInputSheets_(fy);
     const sh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
     if (sh) ss.setActiveSheet(sh);
-    SpreadsheetApp.getUi().alert('完了', '売上データを取り込みました。次は A-3 予測用に売上データを集計 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', `売上データを取り込みました（${result.count}件 / ${result.range}）。
+次は A-3 予測用に売上データを集計 を実行してください。`, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
-
 
 /**
  * A-3: SALES_INPUT_MONTHLY のデータを SALES シートに集計（BASE/SPOT × 48ヶ月横持ち）
@@ -2705,14 +2705,32 @@ function aggregateSalesData() {
 
     syncSalesFromSalesInput_(fy, client);
 
+    // 集計結果を確認
     const sales = ss.getSheetByName(SHEETS.SALES);
+    const salesData = sales.getDataRange().getValues();
+    let nonZeroCount = 0;
+    for (let r = 1; r < salesData.length; r++) {
+      for (let c = 1; c < salesData[r].length; c++) {
+        if (Number(salesData[r][c] || 0) !== 0) nonZeroCount++;
+      }
+    }
+
     ss.setActiveSheet(sales);
 
-    SpreadsheetApp.getUi().alert(
-      '完了',
-      'SALESシートにBASE/SPOT × 48ヶ月の売上データを集計しました。\n次は A-4〜A-9 を順番に実行してください。',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
+    if (nonZeroCount === 0) {
+      SpreadsheetApp.getUi().alert(
+        '警告',
+        'SALESシートに集計しましたが、すべての値が0です。\n\n考えられる原因：\n・SALES_INPUT_MONTHLY の service_type（B列）が BASE/SPOT になっていない\n・SALES_INPUT_MONTHLY の target_month（D列）が予測FYの範囲外\n\nSALES_INPUT_MONTHLY の内容を確認してください。',
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } else {
+      SpreadsheetApp.getUi().alert(
+        '完了',
+        `SALESシートにBASE/SPOT × 48ヶ月の売上データを集計しました（非ゼロセル: ${nonZeroCount}）。
+次は A-4〜A-9 を順番に実行してください。`,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    }
   } catch (e) {
     SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
@@ -2766,6 +2784,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
   sheets.forEach(sht => {
+    toastProgress_(ss, `取り込み中: ${sht.getName()}（${rows.length}行取得済み）…`, 3);
     const vals = sht.getDataRange().getValues();
     for (let i = 1; i < vals.length; i++) {
       const r = vals[i];
@@ -2776,8 +2795,12 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
       const serviceType = serviceCategory.includes('スポット') ? 'SPOT' : (serviceCategory.includes('ベース') ? 'BASE' : 'OTHER');
       if (serviceType === 'OTHER') continue;
 
-      const d = r[EXT_COL_DATE_PRIMARY - 1] || r[EXT_COL_DATE_SECONDARY - 1];
-      const dt = toDate_(d);
+      let d = r[EXT_COL_DATE_PRIMARY - 1];
+      let dt = toDate_(d);
+      if (!dt) {
+        d = r[EXT_COL_DATE_SECONDARY - 1];
+        dt = toDate_(d);
+      }
       if (!dt) continue;
       const ym = new Date(dt.getFullYear(), dt.getMonth(), 1);
       if (ym < start || ym > end) continue;
@@ -2801,9 +2824,21 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), sh.getLastColumn()).clearContent();
   if (rows.length) sh.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
 
+  // D列（target_month）をテキスト形式に設定（Sheets自動Date変換を防止）
+  if (rows.length) {
+    sh.getRange(2, 4, rows.length, 1).setNumberFormat('@');
+  }
+
+  // 取得データの月範囲をログ
+  const ymSet = new Set(rows.map(r => String(r[3] || '')));
+  const ymSorted = Array.from(ymSet).sort();
+  const rangeInfo = ymSorted.length ? `${ymSorted[0]}〜${ymSorted[ymSorted.length - 1]}（${ymSorted.length}ヶ月）` : 'データなし';
+
   const step = (targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'step1_status' : 'step2_status';
   updateProcessStatus_(step, 'success', targetClient, rows.length, '');
-  logRun_((targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'importSalesInputMonthly' : 'importActualEvalMonthly', targetClient, 'success', rows.length, started, '');
+  logRun_((targetSheetName === SHEETS.SALES_INPUT_MONTHLY) ? 'importSalesInputMonthly' : 'importActualEvalMonthly', targetClient, 'success', rows.length, started, rangeInfo);
+
+  return { count: rows.length, range: rangeInfo };
 }
 
 function generateAIResearchTemplate() {
@@ -3142,6 +3177,39 @@ function parseYM_(s) {
   return new Date(Number(m[1]), Number(m[2])-1, 1);
 }
 
+/**
+ * Date型・文字列型の両方から「その月の1日」のDateオブジェクトを返す。
+ * - Date型: そのまま月初に変換
+ * - 文字列 "YYYY/MM": パースして月初に変換
+ * - それ以外: null
+ */
+function toMonthStart_(v) {
+  if (!v) return null;
+
+  // Date型の場合（Sheetsが自動変換した場合）
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return new Date(v.getFullYear(), v.getMonth(), 1);
+  }
+
+  // 文字列の場合
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // "YYYY/MM" 形式
+  const m1 = s.match(/^(\d{4})\/(\d{1,2})$/);
+  if (m1) return new Date(Number(m1[1]), Number(m1[2]) - 1, 1);
+
+  // "YYYY-MM" 形式
+  const m2 = s.match(/^(\d{4})-(\d{1,2})$/);
+  if (m2) return new Date(Number(m2[1]), Number(m2[2]) - 1, 1);
+
+  // "YYYY/MM/DD" 形式（日を無視して月初に）
+  const m3 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-]\d{1,2}/);
+  if (m3) return new Date(Number(m3[1]), Number(m3[2]) - 1, 1);
+
+  return null;
+}
+
 
 function applyTabColors_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3230,7 +3298,7 @@ function syncSalesFromSalesInput_(fy, client) {
   vals.forEach(r => {
     const c = String(r[0] || '').trim();
     const p = String(r[1] || '').trim();
-    const ym = parseYM_(String(r[3] || ''));
+    const ym = toMonthStart_(r[3]);
     const amt = Number(r[4] || 0);
     if (!c || !p || !ym || !isFinite(amt) || !isSameClient_(c, client)) return;
     if (p !== 'BASE' && p !== 'SPOT') return;
