@@ -452,15 +452,15 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
 }
 
 /**
- * デフォルトFY：
- * - 現在が 1〜3月なら「今年」(例: 2026/02 → FY2026)
- * - 現在が 4〜12月なら「来年」(例: 2026/10 → FY2027)
+ * デフォルトFY（3月末決算の前後6か月基準）：
+ * - 実行日を6か月進めた日付の「年」をFYとして採用
+ *   例) 2026/04 実行 → 2026/10 相当 → FY2026
+ *   例) 2026/10 実行 → 2027/04 相当 → FY2027
  */
 function getDefaultFY_() {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  return (m >= 4) ? (y + 1) : y;
+  const shifted = new Date(now.getFullYear(), now.getMonth() + 6, 1);
+  return shifted.getFullYear();
 }
 
 /** 外部SSからメーカー候補（最新2年のAO列）を取得 */
@@ -1312,7 +1312,7 @@ function buildCONFIG_() {
 
   sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
   sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B10').setBackground(COLOR_SUBJECTIVE);
+  sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と一致させます。');
   sh.getRange('A3').setNote('例：FY2026 は 2025/04/01〜2026/03/31 の12ヶ月です（4月開始・3月決算）。');
@@ -2912,7 +2912,7 @@ function generateAIResearchTemplate() {
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
   shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
   shOut.getRange('D:D').setNumberFormat('@');
-  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。レポートとTSVの両方を含んだ状態で貼り付けてOKです。A-8実行時に自動でパースされます。');
+  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。REPORT_START/TSV_START の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-8実行時に自動でパースされます。');
   shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
   logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
@@ -2927,11 +2927,11 @@ function parseAIResearchPaste_() {
   if (!raw) return 0;
 
   // レポート部分を抽出
-  const reportMatch = raw.match(/===REPORT_START===([\s\S]*?)===REPORT_END===/);
+  const reportMatch = raw.match(/###REPORT_START###([\s\S]*?)###REPORT_END###/);
   const report = reportMatch ? reportMatch[1].trim() : '';
 
   // TSV部分を抽出
-  const tsvMatch = raw.match(/===TSV_START===([\s\S]*?)===TSV_END===/);
+  const tsvMatch = raw.match(/###TSV_START###([\s\S]*?)###TSV_END###/);
   if (!tsvMatch) return 0;
 
   const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => l.trim());
