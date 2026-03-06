@@ -2654,6 +2654,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.SALES_INPUT_MONTHLY, ['client','service_type','product','target_month','input_amount','status','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.ACTUAL_EVAL_MONTHLY, ['client','service_type','product','target_month','eval_actual_amount','actual_closed_flag','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
+  ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT).getRange('D:D').setNumberFormat('@');
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','adjusted_score','report_text']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
@@ -2910,6 +2911,7 @@ function generateAIResearchTemplate() {
   shOut.getRange(2,1,Math.max(1,shOut.getMaxRows()-1),4).clearContent();
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
   shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
+  shOut.getRange('D:D').setNumberFormat('@');
   shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。レポートとTSVの両方を含んだ状態で貼り付けてOKです。A-8実行時に自動でパースされます。');
   shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
@@ -3314,7 +3316,6 @@ function showPromptPreviewDialog_(rows) {
       0) <b style="color:#ea4335">Gemの右下のモードを「Pro」に切り替えてください（高速モード等は不可）</b><br>
       1) 下のプロンプトをコピーしてGemに貼り付けて実行してください。<br>
       2) Gemにアクセス（<a href="https://gemini.google.com/gem/1NGUI4UI_tuNF3NvwXV323iuQsqEALB0p?usp=sharing" target="_blank">こちら</a>）し、結果を <b>全文コピー</b> して <b>paste_gem_output（黄色になっている箇所）</b> にペーストしてください。<br>
-      3) その後 A-8 を実行すると予測に反映されます。
     </div>
     <textarea id="p" style="width:100%;height:120px">${escapeHtml_(prompt)}</textarea>
     <div style="margin-top:10px">
