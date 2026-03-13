@@ -246,9 +246,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -554,7 +556,7 @@ function importPastSalesToSalesTab() {
   const years = [fy - 4, fy - 3, fy - 2, fy - 1];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -902,7 +904,7 @@ function runForecastFYCore_(fy, clientName) {
     : sumAcrossProducts_(salesData.monthlyByProduct);
 
   // 未確定月補完（当月以降は未確定扱い／月別トレンド／補完後に途中実績より下がらない）
-  const seriesStart = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const seriesStart = new Date(fy - 3, 3, 1); // fy-3/04/01
   const adj = adjustForUnclosedMonths_(aggY_raw, seriesStart);
   const aggY_adj = adj.series;
 
