@@ -146,6 +146,9 @@ const K_TOTAL_BLOCK_MAX = 1.50;
 // SPOT背景推定（未知のスポット発生を最低限拾う）
 const SPOT_BG_SHRINK = 0.50;      // 履歴同月平均の50%を背景SPOTとして採用
 const SPOT_BG_FLOOR_RATE = 0.15;  // 履歴同月平均の15%は最低保証
+const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
+const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
+const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
 
 /** ====== メニュー ====== */
 function onOpen() {
@@ -887,6 +890,7 @@ function runForecastFYCore_(fy, clientName) {
   if (!sales) throw new Error('SALESがありません。');
 
   const salesData = readSales48Months_(sales);
+  const tuning = readModelTuningFromConfig_();
 
   if (!salesData.isComplete48) {
     const ui = SpreadsheetApp.getUi();
@@ -932,8 +936,16 @@ function runForecastFYCore_(fy, clientName) {
 
   // Dev：固定加算（確度で調整）※運用シミュレーションには混ぜない
   const devFixedByMonth = readDevFixed12Months_(fy);
-  // SPOT背景：履歴SPOTから最低限の未知案件を拾う
-  const spotBackgroundByMonth = estimateSpotBackground12Months_(salesData.spotSeries48 || [], seriesStart, adj.lastClosedMonthStart);
+  // 背景SPOTの上限を作るため、BASE予測(P50)を先に計算
+  const baseOnlyP50 = forecastByResidualQuantiles_(model, new Array(12).fill(0), { p10: residP10, p50: residP50, p90: residP90 }).p50;
+  // SPOT背景：履歴SPOTから最低限の未知案件を拾う（上限クリップあり）
+  const spotBackgroundByMonth = estimateSpotBackground12Months_(
+    salesData.spotSeries48 || [],
+    seriesStart,
+    adj.lastClosedMonthStart,
+    baseOnlyP50,
+    tuning
+  );
   const spotFixedByMonth = devFixedByMonth.map((v, i) => Number(v || 0) + Number(spotBackgroundByMonth[i] || 0));
 
   // 要因（主観係数）※必要情報が揃った行だけ読む
@@ -962,7 +974,8 @@ function runForecastFYCore_(fy, clientName) {
   for (let i = 0; i < 12; i++) {
     const t = 48 + (i + 1);
     const regOps = Math.max(0, (model.intercept + model.slope * t) * model.seasonalIndex[i % 12]);
-    regTotal.push(regOps + spotFixedByMonth[i]);
+    // 参考線（Linear）は既知案件(DEV)のみ加算し、背景SPOTは含めない
+    regTotal.push(regOps + devFixedByMonth[i]);
   }
 
   // 「客観のみ」：残差分位点レンジ + SPOT固定（背景 + 既知DEV）
@@ -982,7 +995,9 @@ function runForecastFYCore_(fy, clientName) {
     productWeights,
     aiScores,
     nSim: N_SIM,
-    months
+    months,
+    aiWeight: tuning.aiWeight,
+    aiMaxAbsEffect: tuning.aiMaxAbsEffect
   });
 
   const opinionsSummaryTop = summarizeOpinionsTop_(opinions);
@@ -1098,12 +1113,12 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1, 1, 6).merge();
   row++;
 
-  sh.getRange(row, 1).setValue('※「運用(Ops)」はトレンド＋季節性から推定し、レンジは残差/シミュレーションで作ります。「開発/スポット(Dev)」は固定額（確度で調整）を加算します。');
+  sh.getRange(row, 1).setValue('※「運用(Ops)」はBASEのトレンド＋季節性から推定し、レンジは残差/シミュレーションで作ります。「SPOT固定」は背景SPOT（未知）+ DEV_SPOT（既知）を加算します。');
   sh.getRange(row, 1, 1, 6).merge();
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10);
   row++;
 
-  const hdr = ['Month', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', '開発/スポット（Dev固定）', 'Total P50（客観のみ）', 'Total P50（混合）', 'OPINIONS要約'];
+  const hdr = ['Month', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', 'SPOT固定（背景+DEV）', 'Total P50（客観のみ）', 'Total P50（混合）', 'OPINIONS要約'];
   sh.getRange(row, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
 
@@ -1401,10 +1416,16 @@ function buildGUIDE_() {
 
   const last = 18 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
-  sh.getRange(last + 3, 1, 4, 1).setValues([
+  sh.getRange(last + 3, 1, 10, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
-    ['・手入力シートはヘッダコメントを参照し、何を入力すると何に影響するかを確認してください。'],
+    ['・織り込める要素: BASE履歴トレンド/季節性、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
+    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠で加算し、BASEトレンドとは分離します。'],
     ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
+    ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
+    ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
+    ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
+    ['・CONFIGの「モデル調整パラメータ」は管理者向けです。むやみに変更しないでください。'],
+    ['・検証(B-1〜B-3)を毎月回し、ズレをEVAL_INSIGHTSに蓄積してください。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
 
@@ -1476,6 +1497,20 @@ function buildCONFIG_() {
   sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
   sh.getRange(warnStart + 1, 2, a9Rows.length, 1).setWrap(true);
+
+  const tuneStart = warnStart + 1 + a9Rows.length + 2;
+  const tuneHdr = [['モデル調整パラメータ', '値（必要時のみ調整）']];
+  const tuneRows = [
+    ['SPOT_BG_SHRINK（背景SPOT縮小率）', SPOT_BG_SHRINK],
+    ['SPOT_BG_FLOOR_RATE（背景SPOT最低保証率）', SPOT_BG_FLOOR_RATE],
+    ['SPOT_BG_CAP_RATE（背景SPOT上限/BaseP50比）', SPOT_BG_CAP_RATE],
+    ['AI_WEIGHT（AI係数重み）', AI_WEIGHT_DEFAULT],
+    ['AI_MAX_ABS_EFFECT（AI係数上限）', AI_MAX_ABS_EFFECT]
+  ];
+  sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
+  sh.getRange(tuneStart + 1, 2, tuneRows.length, 1).setNumberFormat('0.0000');
+  sh.getRange(tuneStart, 1, 1, 2).setNote('A-9 実行時にこの値を参照します。極端な変更は予測を不安定にします。');
 }
 
 function buildSALES_() {
@@ -2003,9 +2038,12 @@ function findFirstExtremeMultiplierIssue_(fy) {
   const factorsProduct = readFactorsProduct_(fy);
   const factorsClient = readFactorsClient_(fy);
   const opinions = readOpinions_(fy);
+  const tuning = readModelTuningFromConfig_();
   const ai = readAIResearchScores_();
   const aiTotal = (ai.Market || 0) + (ai.Competitor || 0) + (ai.Channel || 0) + (ai.DX || 0);
-  const kAI = 1 + aiTotal * 0.001;
+  const aiRaw = aiTotal * (isFinite(tuning.aiWeight) ? tuning.aiWeight : AI_WEIGHT_DEFAULT);
+  const aiEff = Math.max(-(isFinite(tuning.aiMaxAbsEffect) ? tuning.aiMaxAbsEffect : AI_MAX_ABS_EFFECT), Math.min((isFinite(tuning.aiMaxAbsEffect) ? tuning.aiMaxAbsEffect : AI_MAX_ABS_EFFECT), aiRaw));
+  const kAI = 1 + aiEff;
 
   for (let i = 0; i < 12; i++) {
     const m = months[i];
@@ -2206,6 +2244,32 @@ function getPeopleListFromConfig_() {
   return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 }
 
+function readModelTuningFromConfig_() {
+  const out = {
+    spotBgShrink: SPOT_BG_SHRINK,
+    spotBgFloorRate: SPOT_BG_FLOOR_RATE,
+    spotBgCapRate: SPOT_BG_CAP_RATE,
+    aiWeight: AI_WEIGHT_DEFAULT,
+    aiMaxAbsEffect: AI_MAX_ABS_EFFECT
+  };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) return out;
+
+  const getNum = (aCell, def) => {
+    const v = Number(cfg.getRange(aCell).getValue());
+    return isFinite(v) ? v : def;
+  };
+
+  out.spotBgShrink = Math.max(0, Math.min(1, getNum('B28', out.spotBgShrink)));
+  out.spotBgFloorRate = Math.max(0, Math.min(1, getNum('B29', out.spotBgFloorRate)));
+  out.spotBgCapRate = Math.max(0, Math.min(1, getNum('B30', out.spotBgCapRate)));
+  out.aiWeight = Math.max(0, Math.min(0.01, getNum('B31', out.aiWeight)));
+  out.aiMaxAbsEffect = Math.max(0, Math.min(0.50, getNum('B32', out.aiMaxAbsEffect)));
+  return out;
+}
+
 function getProductNameListFromSales_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesInput = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
@@ -2295,7 +2359,7 @@ function readSales48Months_(salesSheet) {
 }
 
 /** SPOT背景（未知案件）を12ヶ月分推定：履歴同月平均を縮小しつつ最低保証を持たせる */
-function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart) {
+function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
   const out = new Array(12).fill(0);
   const src = Array.isArray(spotSeries48) ? spotSeries48 : [];
   if (src.length === 0) return out;
@@ -2320,8 +2384,9 @@ function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMo
       continue;
     }
     const monthAvg = avg_(arr);
-    const bg = Math.max(monthAvg * SPOT_BG_SHRINK, monthAvg * SPOT_BG_FLOOR_RATE);
-    out[m] = Math.max(0, bg);
+    const bg = Math.max(monthAvg * shrink, monthAvg * floorRate);
+    const cap = Math.max(0, Number(baseRef[m] || 0) * capRate);
+    out[m] = Math.max(0, Math.min(bg, cap));
   }
 
   return out;
@@ -2585,8 +2650,11 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
   // 重みを意図的に小さくし、過度な影響を防ぐ
   const aiScores = opt.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
   const aiTotalScore = (aiScores.Market || 0) + (aiScores.Competitor || 0) + (aiScores.Channel || 0) + (aiScores.DX || 0);
-  const AI_WEIGHT = 0.001; // AI調査の重み（1ポイントあたり0.1%の影響）
-  const kAI = 1 + aiTotalScore * AI_WEIGHT;
+  const aiWeight = isFinite(opt.aiWeight) ? opt.aiWeight : AI_WEIGHT_DEFAULT;
+  const aiMaxAbsEffect = isFinite(opt.aiMaxAbsEffect) ? opt.aiMaxAbsEffect : AI_MAX_ABS_EFFECT;
+  const aiRawEffect = aiTotalScore * aiWeight;
+  const aiClampedEffect = Math.max(-aiMaxAbsEffect, Math.min(aiMaxAbsEffect, aiRawEffect));
+  const kAI = 1 + aiClampedEffect;
 
   const startT = 48;
   const simByMonth = Array.from({ length: 12 }, () => []);
@@ -2636,7 +2704,10 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
       kOpinionP50ByMonth,
       kAIByMonth,
       aiTotalScore,
-      AI_WEIGHT
+      AI_WEIGHT: aiWeight,
+      aiRawEffect,
+      aiClampedEffect,
+      aiMaxAbsEffect
     }
   };
 }
@@ -3729,3 +3800,8 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
+  const cfg = tuning || {};
+  const shrink = isFinite(cfg.spotBgShrink) ? cfg.spotBgShrink : SPOT_BG_SHRINK;
+  const floorRate = isFinite(cfg.spotBgFloorRate) ? cfg.spotBgFloorRate : SPOT_BG_FLOOR_RATE;
+  const capRate = isFinite(cfg.spotBgCapRate) ? cfg.spotBgCapRate : SPOT_BG_CAP_RATE;
+  const baseRef = Array.isArray(baseP50ByMonth) ? baseP50ByMonth : new Array(12).fill(0);
