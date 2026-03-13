@@ -976,6 +976,7 @@ function runForecastFYCore_(fy, clientName) {
     months,
     objOnly,
     mixed,
+    mixedDiagnostics: mixed.diagnostics || null,
     regTotal,
     devFixedByMonth,
     opinionsSummaryTop,
@@ -1101,6 +1102,72 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1, rows.length, hdr.length).setValues(rows);
   sh.getRange(row, 2, rows.length, 5).setNumberFormat('¥#,##0');
   sh.getRange(row, 7, rows.length, 1).setWrap(true);
+  row += rows.length + 2;
+
+  // ===== セクション3：三角測量（手法比較） =====
+  sh.getRange(row, 1).setValue('三角測量（手法比較）');
+  sh.getRange(row, 1, 1, 6).merge();
+  sh.getRange(row, 1).setBackground('#d9e1f2').setFontWeight('bold');
+  row++;
+
+  const triHdr = ['比較軸', '線形回帰（参考）', '客観のみ（P50）', '混合（P50）', '混合-客観', '混合-線形回帰'];
+  const sumReg = sumArr_(result.regTotal);
+  const sumObj = sumArr_(result.objOnly.p50);
+  const sumMix = sumArr_(result.mixed.p50);
+  const triAnnual = ['年度合計', sumReg, sumObj, sumMix, sumMix - sumObj, sumMix - sumReg];
+  sh.getRange(row, 1, 1, triHdr.length).setValues([triHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  sh.getRange(row, 1, 1, triAnnual.length).setValues([triAnnual]);
+  sh.getRange(row, 2, 1, triAnnual.length - 1).setNumberFormat('¥#,##0');
+  row += 2;
+
+  const triMonthHdr = ['Month', '線形回帰', '客観のみP50', '混合P50', '混合-客観', '混合-線形回帰'];
+  sh.getRange(row, 1, 1, triMonthHdr.length).setValues([triMonthHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const triMonthRows = result.months.map((m, i) => [
+    fmtYM_(m),
+    result.regTotal[i],
+    result.objOnly.p50[i],
+    result.mixed.p50[i],
+    result.mixed.p50[i] - result.objOnly.p50[i],
+    result.mixed.p50[i] - result.regTotal[i]
+  ]);
+  sh.getRange(row, 1, triMonthRows.length, triMonthHdr.length).setValues(triMonthRows);
+  sh.getRange(row, 2, triMonthRows.length, triMonthHdr.length - 1).setNumberFormat('¥#,##0');
+  row += triMonthRows.length + 2;
+
+  // ===== セクション4：入力パラメータの影響可視化 =====
+  sh.getRange(row, 1).setValue('入力パラメータの影響（目安）');
+  sh.getRange(row, 1, 1, 8).merge();
+  sh.getRange(row, 1).setBackground('#e2f0d9').setFontWeight('bold');
+  row++;
+
+  const d = result.mixedDiagnostics || {};
+  const kProd = d.kProdByMonth || new Array(12).fill(1);
+  const kClient = d.kClientByMonth || new Array(12).fill(1);
+  const kOpinion = d.kOpinionP50ByMonth || new Array(12).fill(1);
+  const kAI = d.kAIByMonth || new Array(12).fill(1);
+  const opsBase = d.opsBaseByMonth || new Array(12).fill(0);
+
+  const infHdr = ['Month', 'Ops基礎', 'kProd', 'kClient', 'kOpinion(P50)', 'kAI', 'Dev固定', '混合P50', '客観P50', '差分(混合-客観)'];
+  sh.getRange(row, 1, 1, infHdr.length).setValues([infHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const infRows = result.months.map((m, i) => [
+    fmtYM_(m),
+    opsBase[i] || 0,
+    kProd[i] || 1,
+    kClient[i] || 1,
+    kOpinion[i] || 1,
+    kAI[i] || 1,
+    result.devFixedByMonth[i] || 0,
+    result.mixed.p50[i] || 0,
+    result.objOnly.p50[i] || 0,
+    (result.mixed.p50[i] || 0) - (result.objOnly.p50[i] || 0)
+  ]);
+  sh.getRange(row, 1, infRows.length, infHdr.length).setValues(infRows);
+  sh.getRange(row, 2, infRows.length, 1).setNumberFormat('¥#,##0');
+  sh.getRange(row, 3, infRows.length, 4).setNumberFormat('0.000');
+  sh.getRange(row, 7, infRows.length, 4).setNumberFormat('¥#,##0');
 }
 
 /** セクションブロック（表＋グラフ） */
@@ -1318,6 +1385,21 @@ function buildCONFIG_() {
   sh.getRange('A3').setNote('例：FY2026 は 2025/04/01〜2026/03/31 の12ヶ月です（4月開始・3月決算）。');
   sh.getRange('A5').setNote('シミュレーションは1000回試行し、レンジ（P10/P50/P90）を出します。単純な一発計算より「ブレ幅」を扱えるのがメリットです。');
   sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。A-6では全員分の意見が必須です。');
+
+  const infoStart = 12;
+  const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
+  const infoRows = [
+    ['客観ベース（Ops）', 'SALES（BASE/SPOT）48ヶ月からトレンド+12ヶ月季節性を推定。基礎系列はここで決まります。'],
+    ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
+    ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
+    ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
+    ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
+    ['AI調査（AI_RESEARCH_STRUCTURED）', 'kAI = 1 + 0.001 × (Market+Competitor+Channel+DX)。例: 合計+30 ⇒ +3%。'],
+    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（乗算ではなく、最後に足し込み）。']
+  ];
+  sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
+  sh.getRange(infoStart + 1, 2, infoRows.length, 1).setWrap(true);
 }
 
 function buildSALES_() {
@@ -1969,6 +2051,9 @@ function readSales48Months_(salesSheet) {
     vals.forEach(row => {
       const name = String(row[0] || '').trim();
       if (!name) return;
+      const category = name.toUpperCase();
+      // TOTAL行は表示用のため予測入力には含めない（BASE/SPOTのみを使用）
+      if (category !== 'BASE' && category !== 'SPOT') return;
       const arr = new Array(expectedMonths).fill(0);
       for (let i = 0; i < expectedMonths; i++) {
         const idx = (startCol - 1) + i;
@@ -2253,6 +2338,12 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
 
   const startT = 48;
   const simByMonth = Array.from({ length: 12 }, () => []);
+  const opinionKByMonth = Array.from({ length: 12 }, () => []);
+  const opsBaseByMonth = Array.from({ length: 12 }, (_, i) => {
+    const t = startT + (i + 1);
+    const mIdx = i % 12;
+    return Math.max(0, (model.intercept + model.slope * t) * model.seasonalIndex[mIdx]);
+  });
 
   for (let s = 0; s < nSim; s++) {
     for (let i = 0; i < 12; i++) {
@@ -2265,8 +2356,10 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
       let ops = base * (1 + e);
       ops *= kProdByMonth[i];
       ops *= kClientByMonth[i];
-      ops *= sampleOpinionMultiplier_(opinions, months[i]);
+      const kOpinion = sampleOpinionMultiplier_(opinions, months[i]);
+      ops *= kOpinion;
       ops *= kAI;
+      opinionKByMonth[i].push(kOpinion);
 
       const total = Math.max(0, ops) + devFixedByMonth[i];
       simByMonth[i].push(total);
@@ -2277,7 +2370,23 @@ function forecastMonteCarloMixed_(model, devFixedByMonth, opt) {
   const p50 = simByMonth.map(arr => percentile_(arr, 0.50));
   const p90 = simByMonth.map(arr => percentile_(arr, 0.90));
 
-  return { p10, p50, p90 };
+  const kOpinionP50ByMonth = opinionKByMonth.map(arr => percentile_(arr, 0.50));
+  const kAIByMonth = new Array(12).fill(kAI);
+
+  return {
+    p10,
+    p50,
+    p90,
+    diagnostics: {
+      opsBaseByMonth,
+      kProdByMonth,
+      kClientByMonth,
+      kOpinionP50ByMonth,
+      kAIByMonth,
+      aiTotalScore,
+      AI_WEIGHT
+    }
+  };
 }
 
 /** 製品要因：製品別step合算 → 構成比で加重 → 1+加重step */
@@ -2912,7 +3021,7 @@ function generateAIResearchTemplate() {
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
   shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
   shOut.getRange('D:D').setNumberFormat('@');
-  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。REPORT_START/TSV_START の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-8実行時に自動でパースされます。');
+  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。###REPORT_START### / ###TSV_START### の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-8実行時に自動でパースされます。');
   shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
   logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
@@ -2927,11 +3036,11 @@ function parseAIResearchPaste_() {
   if (!raw) return 0;
 
   // レポート部分を抽出
-  const reportMatch = raw.match(/###REPORT_START###([\s\S]*?)###REPORT_END###/);
+  const reportMatch = raw.match(/(?:###|===)REPORT_START(?:###|===)([\s\S]*?)(?:###|===)REPORT_END(?:###|===)/);
   const report = reportMatch ? reportMatch[1].trim() : '';
 
   // TSV部分を抽出
-  const tsvMatch = raw.match(/###TSV_START###([\s\S]*?)###TSV_END###/);
+  const tsvMatch = raw.match(/(?:###|===)TSV_START(?:###|===)([\s\S]*?)(?:###|===)TSV_END(?:###|===)/);
   if (!tsvMatch) return 0;
 
   const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => l.trim());
