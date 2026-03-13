@@ -143,6 +143,10 @@ const K_TOTAL_WARN_MAX = 1.30;
 const K_TOTAL_BLOCK_MIN = 0.50;
 const K_TOTAL_BLOCK_MAX = 1.50;
 
+// SPOT背景推定（未知のスポット発生を最低限拾う）
+const SPOT_BG_SHRINK = 0.50;      // 履歴同月平均の50%を背景SPOTとして採用
+const SPOT_BG_FLOOR_RATE = 0.15;  // 履歴同月平均の15%は最低保証
+
 /** ====== メニュー ====== */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
@@ -894,8 +898,10 @@ function runForecastFYCore_(fy, clientName) {
     if (res !== ui.Button.OK) throw new Error('ユーザーが中断しました。');
   }
 
-  // メーカー合算（48ヶ月）
-  const aggY_raw = sumAcrossProducts_(salesData.monthlyByProduct);
+  // 予測の土台はBASEのみ（SPOTは別途、背景成分として扱う）
+  const aggY_raw = salesData.baseSeries48 && salesData.baseSeries48.length
+    ? salesData.baseSeries48.slice()
+    : sumAcrossProducts_(salesData.monthlyByProduct);
 
   // 未確定月補完（当月以降は未確定扱い／月別トレンド／補完後に途中実績より下がらない）
   const seriesStart = new Date(fy - 3, 3, 1); // fy-3/04/01
@@ -926,6 +932,9 @@ function runForecastFYCore_(fy, clientName) {
 
   // Dev：固定加算（確度で調整）※運用シミュレーションには混ぜない
   const devFixedByMonth = readDevFixed12Months_(fy);
+  // SPOT背景：履歴SPOTから最低限の未知案件を拾う
+  const spotBackgroundByMonth = estimateSpotBackground12Months_(salesData.spotSeries48 || [], seriesStart, adj.lastClosedMonthStart);
+  const spotFixedByMonth = devFixedByMonth.map((v, i) => Number(v || 0) + Number(spotBackgroundByMonth[i] || 0));
 
   // 要因（主観係数）※必要情報が揃った行だけ読む
   const factorsProduct = readFactorsProduct_(fy);
@@ -953,19 +962,19 @@ function runForecastFYCore_(fy, clientName) {
   for (let i = 0; i < 12; i++) {
     const t = 48 + (i + 1);
     const regOps = Math.max(0, (model.intercept + model.slope * t) * model.seasonalIndex[i % 12]);
-    regTotal.push(regOps + devFixedByMonth[i]);
+    regTotal.push(regOps + spotFixedByMonth[i]);
   }
 
-  // 「客観のみ」：残差分位点レンジ + Dev固定
-  const objOnly = forecastByResidualQuantiles_(model, devFixedByMonth, { p10: residP10, p50: residP50, p90: residP90 });
+  // 「客観のみ」：残差分位点レンジ + SPOT固定（背景 + 既知DEV）
+  const objOnly = forecastByResidualQuantiles_(model, spotFixedByMonth, { p10: residP10, p50: residP50, p90: residP90 });
 
   toastProgress_(ss, `STEP3/6: 残差からレンジの基礎（P10/P50/P90）を作成…`, 5);
   toastProgress_(ss, `STEP4/6: Dev固定加算 + 主観係数（製品/クライアント/意見）を準備…`, 6);
 
   toastProgress_(ss, `STEP5/6: Monte Carlo ${N_SIM}回（運用のみを揺らす + Dev固定加算）…`, 8);
 
-  // 「混合」シミュレーション（Opsのみ揺らす）＋係数適用＋Dev固定
-  const mixed = forecastMonteCarloMixed_(model, devFixedByMonth, {
+  // 「混合」シミュレーション（Opsのみ揺らす）＋係数適用＋SPOT固定
+  const mixed = forecastMonteCarloMixed_(model, spotFixedByMonth, {
     residualPct,
     factorsProduct,
     factorsClient,
@@ -988,6 +997,8 @@ function runForecastFYCore_(fy, clientName) {
     mixedDiagnostics: mixed.diagnostics || null,
     regTotal,
     devFixedByMonth,
+    spotBackgroundByMonth,
+    spotFixedByMonth,
     opinionsSummaryTop,
     opinionsSummaryByMonth,
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
@@ -1026,7 +1037,7 @@ function writeOutputFY_(result) {
 
   // 上部サマリー（要点表示）
   sh.getRange(3, 1).setValue('予測の見方（要点）').setFontWeight('bold');
-  sh.getRange(3, 2).setValue('中立(P50)=中心値 / ネガ(P10)=下振れ目安 / ポジ(P90)=上振れ目安。\n予測根拠は「トレンド＋季節性＋シミュレーション」で算出しています。');
+  sh.getRange(3, 2).setValue('Baseline(P50)=中心値 / Downside(P10)=下振れ目安 / Upside(P90)=上振れ目安。\n予測根拠は「トレンド＋季節性＋シミュレーション」で算出しています。');
   sh.getRange(3, 2, 1, 5).merge();
   sh.getRange(3, 2).setWrap(true);
 
@@ -1058,7 +1069,10 @@ function writeOutputFY_(result) {
     months: result.months,
     series: result.mixed,
     regTotal: result.regTotal,
-    chartTitle: `混合：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`
+    chartTitle: `混合：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`,
+    spotFixedByMonth: result.spotFixedByMonth,
+    devFixedByMonth: result.devFixedByMonth,
+    spotBackgroundByMonth: result.spotBackgroundByMonth
   });
 
   row += 2;
@@ -1070,7 +1084,10 @@ function writeOutputFY_(result) {
     months: result.months,
     series: result.objOnly,
     regTotal: result.regTotal,
-    chartTitle: `客観のみ：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`
+    chartTitle: `客観のみ：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`,
+    spotFixedByMonth: result.spotFixedByMonth,
+    devFixedByMonth: result.devFixedByMonth,
+    spotBackgroundByMonth: result.spotBackgroundByMonth
   });
 
   row += 2;
@@ -1090,18 +1107,18 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
 
-  const dev = result.devFixedByMonth;
+  const spotFixed = result.spotFixedByMonth || result.devFixedByMonth;
   const rows = result.months.map((m, i) => {
     const objP50 = result.objOnly.p50[i];
     const mixP50 = result.mixed.p50[i];
-    const devVal = dev[i];
-    const opsObj = Math.max(0, objP50 - devVal);
-    const opsMix = Math.max(0, mixP50 - devVal);
+    const spotVal = spotFixed[i];
+    const opsObj = Math.max(0, objP50 - spotVal);
+    const opsMix = Math.max(0, mixP50 - spotVal);
     return [
       fmtYM_(m),
       opsObj,
       opsMix,
-      devVal,
+      spotVal,
       objP50,
       mixP50,
       result.opinionsSummaryByMonth[i] || ''
@@ -1114,12 +1131,12 @@ function writeOutputFY_(result) {
   row += rows.length + 2;
 
   // ===== セクション3：三角測量（手法比較） =====
-  sh.getRange(row, 1).setValue('三角測量（手法比較）');
+  sh.getRange(row, 1).setValue('Triangulation View（手法比較）');
   sh.getRange(row, 1, 1, 6).merge();
   sh.getRange(row, 1).setBackground('#d9e1f2').setFontWeight('bold');
   row++;
 
-  const triHdr = ['比較軸', '線形回帰（参考）', '客観のみ（P50）', '混合（P50）', '混合-客観', '混合-線形回帰'];
+  const triHdr = ['比較軸', 'Linear Regression', 'Objective-only (P50)', 'Mixed (P50)', 'Mixed-Objective', 'Mixed-Linear'];
   const sumReg = sumArr_(result.regTotal);
   const sumObj = sumArr_(result.objOnly.p50);
   const sumMix = sumArr_(result.mixed.p50);
@@ -1130,7 +1147,7 @@ function writeOutputFY_(result) {
   sh.getRange(row, 2, 1, triAnnual.length - 1).setNumberFormat('¥#,##0');
   row += 2;
 
-  const triMonthHdr = ['Month', '線形回帰', '客観のみP50', '混合P50', '混合-客観', '混合-線形回帰'];
+  const triMonthHdr = ['Month', 'Linear', 'Objective P50', 'Mixed P50', 'Mixed-Objective', 'Mixed-Linear'];
   sh.getRange(row, 1, 1, triMonthHdr.length).setValues([triMonthHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   const triMonthRows = result.months.map((m, i) => [
@@ -1189,14 +1206,14 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 1).setBackground(opt.labelBg).setFontWeight('bold');
   r++;
 
-  // 年度合計（B=ネガ / C=中立 / D=ポジ）
+  // 年度合計（B=Downside / C=Baseline / D=Upside）
   const sumPos = sumArr_(opt.series.p90);
   const sumNeu = sumArr_(opt.series.p50);
   const sumNeg = sumArr_(opt.series.p10);
   const sumReg = sumArr_(opt.regTotal);
   const sumRange = sumPos - sumNeg;
 
-  const annualHdr = ['年度合計（シミュレーション予測）', 'ネガ(P10)', '中立(P50)', 'ポジ(P90)', '線形回帰（参考）', 'レンジ(P90-P10)'];
+  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Range(P90-P10)'];
   const annualVal = ['年度合計（予測）', sumNeg, sumNeu, sumPos, sumReg, sumRange];
 
   sh.getRange(r, 1, 1, annualHdr.length).setValues([annualHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -1217,8 +1234,9 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 月次表
   r++;
-  const hdr = ['Month', 'ネガ(P10)', '中立(P50)', 'ポジ(P90)', '線形回帰（参考）', 'レンジ(P90-P10)'];
+  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Range(P90-P10)'];
   sh.getRange(r, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const monthTableHeaderRow = r;
   // BCDだけ意味色に
   sh.getRange(r, 2).setBackground(COLOR_NEG);
   sh.getRange(r, 3).setBackground(COLOR_NEU);
@@ -1243,20 +1261,54 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
   // P10/P50/P90説明（Note）
-  sh.getRange(r - 1, 2).setNote('【ネガ(P10)】\nシミュレーション結果の下位10%点（=10パーセンタイル）。\n下振れ側の目安です。');
-  sh.getRange(r - 1, 3).setNote('【中立(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
-  sh.getRange(r - 1, 4).setNote('【ポジ(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
-  sh.getRange(r - 1, 5).setNote('【線形回帰（参考）】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
-  sh.getRange(r - 1, 6).setNote('【レンジ(P90-P10)】\nポジ(P90)からネガ(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
+  sh.getRange(r - 1, 2).setNote('【Downside(P10)】\nシミュレーション結果の下位10%点（=10パーセンタイル）。\n下振れ側の目安です。');
+  sh.getRange(r - 1, 3).setNote('【Baseline(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
+  sh.getRange(r - 1, 4).setNote('【Upside(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
+  sh.getRange(r - 1, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
+  sh.getRange(r - 1, 6).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
+
+  // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
+  r += table.length + 2;
+  sh.getRange(r, 1).setValue('Scenario Split（BASE / SPOT）').setFontWeight('bold');
+  sh.getRange(r, 1, 1, 6).merge();
+  sh.getRange(r, 1).setBackground('#e2f0d9');
+  r++;
+
+  const spotFixed = opt.spotFixedByMonth || opt.devFixedByMonth || new Array(12).fill(0);
+  const splitHdr = [
+    'Month',
+    'Downside_BASE', 'Downside_SPOT',
+    'Baseline_BASE', 'Baseline_SPOT',
+    'Upside_BASE', 'Upside_SPOT'
+  ];
+  sh.getRange(r, 1, 1, splitHdr.length).setValues([splitHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  r++;
+
+  const splitRows = opt.months.map((m, i) => {
+    const spot = Number(spotFixed[i] || 0);
+    const neg = Number(opt.series.p10[i] || 0);
+    const neu = Number(opt.series.p50[i] || 0);
+    const pos = Number(opt.series.p90[i] || 0);
+    return [
+      fmtYM_(m),
+      Math.max(0, neg - spot), spot,
+      Math.max(0, neu - spot), spot,
+      Math.max(0, pos - spot), spot
+    ];
+  });
+  sh.getRange(r, 1, splitRows.length, splitHdr.length).setValues(splitRows);
+  sh.getRange(r, 2, splitRows.length, splitHdr.length - 1).setNumberFormat('¥#,##0');
+  sh.getRange(r - 1, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
+  sh.getRange(r - 1, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
   // グラフ：Month + Neg + Neu + Pos + Reg（A〜E）
-  const chartRange = sh.getRange(r - 1, 1, table.length + 1, 5);
+  const chartRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 5);
 
   const chartRow = startRow + 1;
   const chartCol = 8; // H列開始
 
   // 凡例テキスト（邪魔にならない小さめ）
-  sh.getRange(chartRow - 1, chartCol).setValue('凡例：赤=ネガ(P10) / 黄=中立(P50) / 青=ポジ(P90) / 灰=線形回帰（参考）')
+  sh.getRange(chartRow - 1, chartCol).setValue('Legend: red=Downside(P10) / yellow=Baseline(P50) / blue=Upside(P90) / gray=Linear Regression')
     .setFontSize(10).setFontColor('#666666');
   sh.getRange(chartRow - 1, chartCol, 1, 6).merge();
 
@@ -1271,7 +1323,7 @@ function writeSectionBlock_(sh, startRow, opt) {
     .setOption('pointSize', 0)
     .setOption('hAxis', { slantedText: true, slantedTextAngle: 45, showTextEvery: 1 })
     .setOption('vAxis', { format: '¥#,##0' })
-    // 色：ネガ=赤 / 中立=黄 / ポジ=青 / 回帰=灰
+    // 色：Downside=赤 / Baseline=黄 / Upside=青 / 回帰=灰
     .setOption('colors', ['#ea4335', '#fbbc04', '#1a73e8', COLOR_REG])
     .setOption('series', { 0:{ lineWidth:3 }, 1:{ lineWidth:4 }, 2:{ lineWidth:3 }, 3:{ lineWidth:3 } })
     .setOption('width', 820)
@@ -1398,13 +1450,13 @@ function buildCONFIG_() {
   const infoStart = 12;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
   const infoRows = [
-    ['客観ベース（Ops）', 'SALES（BASE/SPOT）48ヶ月からトレンド+12ヶ月季節性を推定。基礎系列はここで決まります。'],
+    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月のみでトレンド+12ヶ月季節性を推定。SPOTは背景成分として別枠で加算します。'],
     ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
     ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
     ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
     ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
     ['AI調査（AI_RESEARCH_STRUCTURED）', 'kAI = 1 + 0.001 × (Market+Competitor+Channel+DX)。例: 合計+30 ⇒ +3%。'],
-    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（乗算ではなく、最後に足し込み）。']
+    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（背景SPOTと合算してSPOT固定成分として扱う）。']
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
@@ -2236,8 +2288,43 @@ function readSales48Months_(salesSheet) {
   return {
     isComplete48,
     monthlyByProduct: data.map(x => x.monthly),
-    productNames: data.map(x => x.productName)
+    productNames: data.map(x => x.productName),
+    baseSeries48: (data.find(x => String(x.productName || '').toUpperCase() === 'BASE') || { monthly: new Array(expectedMonths).fill(0) }).monthly,
+    spotSeries48: (data.find(x => String(x.productName || '').toUpperCase() === 'SPOT') || { monthly: new Array(expectedMonths).fill(0) }).monthly
   };
+}
+
+/** SPOT背景（未知案件）を12ヶ月分推定：履歴同月平均を縮小しつつ最低保証を持たせる */
+function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart) {
+  const out = new Array(12).fill(0);
+  const src = Array.isArray(spotSeries48) ? spotSeries48 : [];
+  if (src.length === 0) return out;
+
+  const closedIdx = [];
+  for (let i = 0; i < src.length; i++) {
+    const mStart = addMonths_(seriesStart, i);
+    if (mStart <= lastClosedMonthStart) closedIdx.push(i);
+  }
+  if (closedIdx.length === 0) return out;
+
+  for (let m = 0; m < 12; m++) {
+    const arr = [];
+    for (let j = 0; j < closedIdx.length; j++) {
+      const idx = closedIdx[j];
+      if (idx % 12 !== m) continue;
+      const v = Number(src[idx] || 0);
+      if (isFinite(v) && v > 0) arr.push(v);
+    }
+    if (arr.length === 0) {
+      out[m] = 0;
+      continue;
+    }
+    const monthAvg = avg_(arr);
+    const bg = Math.max(monthAvg * SPOT_BG_SHRINK, monthAvg * SPOT_BG_FLOOR_RATE);
+    out[m] = Math.max(0, bg);
+  }
+
+  return out;
 }
 
 function sumAcrossProducts_(monthlyByProduct) {
@@ -3281,7 +3368,8 @@ function writeForecastArtifacts_(result, client) {
   ];
   scenarios.forEach(sc=>{
     result.months.forEach((m,i)=>{
-      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,result.devFixedByMonth[i]||0,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null]);
+      const deterministicAdj = (result.spotFixedByMonth && isFinite(result.spotFixedByMonth[i])) ? result.spotFixedByMonth[i] : (result.devFixedByMonth[i] || 0);
+      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null]);
     });
   });
   const r0 = snap.getLastRow()+1;
