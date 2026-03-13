@@ -134,6 +134,15 @@ const COL_WIDTHS = {
 // チャートの高さ相当の“余白行”目安（重なり防止）
 const CHART_HEIGHT_ROWS = 22;
 
+// A-9 実行前の影響度チェック閾値
+const STEP_WARN_THRESHOLD = 0.30;   // ±30%
+const STEP_STRONG_THRESHOLD = 0.50; // ±50%
+const STEP_BLOCK_THRESHOLD = 1.00;  // ±100%
+const K_TOTAL_WARN_MIN = 0.70;
+const K_TOTAL_WARN_MAX = 1.30;
+const K_TOTAL_BLOCK_MIN = 0.50;
+const K_TOTAL_BLOCK_MAX = 1.50;
+
 /** ====== メニュー ====== */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
@@ -1306,7 +1315,7 @@ function buildGUIDE_() {
     ['A-予測', 'A-6 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-7 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
     ['A-予測', 'A-8 AI調査テンプレートを生成', '生成されたプロンプトをGemへ貼り付け、返却結果を AI_RESEARCH_PROMPT!D2 に全文貼り付け。'],
-    ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新。'],
+    ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新（実行前に注意ロジックで1件ずつ確認）。'],
     ['A-予測', 'A-10 ダッシュボード更新', 'DASHBOARD を更新。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
@@ -1343,7 +1352,7 @@ function buildGUIDE_() {
   sh.getRange(last + 3, 1, 4, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
     ['・手入力シートはヘッダコメントを参照し、何を入力すると何に影響するかを確認してください。'],
-    ['・A-9 実行時に未入力や型不正がある場合はエラー表示して停止します。'],
+    ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
 
@@ -1400,6 +1409,21 @@ function buildCONFIG_() {
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
   sh.getRange(infoStart + 1, 2, infoRows.length, 1).setWrap(true);
+
+  // A-9 注意ロジック（実装定数と連動）
+  const warnStart = infoStart + 1 + infoRows.length + 2;
+  const a9Hdr = [['A-9 実行前チェック', '閾値と挙動（定数連動）']];
+  const a9Rows = [
+    ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
+    ['Step 強警告', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
+    ['Step 停止', `|Step| >= ${Math.round(STEP_BLOCK_THRESHOLD * 100)}% ：修正必須（A-9中断）`],
+    ['合成係数 警告', `kTotal < ${K_TOTAL_WARN_MIN.toFixed(2)} または > ${K_TOTAL_WARN_MAX.toFixed(2)} ：警告表示（OKで続行 / Cancelで中断）`],
+    ['合成係数 停止', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：修正必須（A-9中断）`],
+    ['解消手順', '1) 表示された1件を修正 → 2) A-9を再実行 → 3) 次の注意が出たら同様に修正（同時に複数表示しない）']
+  ];
+  sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
+  sh.getRange(warnStart + 1, 2, a9Rows.length, 1).setWrap(true);
 }
 
 function buildSALES_() {
@@ -1836,6 +1860,147 @@ function validateRequiredUserInputsOrThrow_() {
 
   const hasReason = fp.getRange(2, 5, fp.getLastRow() - 1, 1).getValues().some(r => String(r[0] || '').trim());
   if (!hasReason) throw new Error('FACTORS_PRODUCT のReasonが未入力です。最低1件入力してください。');
+}
+
+/**
+ * A-9 実行前の階層アラート（1件ずつ解消させる）
+ * 1) Stepの極端値
+ * 2) 主観/AI合成係数の過大影響
+ */
+function runHierarchicalA9AlertsOrThrow_(fy) {
+  // 閾値は buildCONFIG_ の「A-9 実行前チェック」表示と同一定数を参照
+  const issue =
+    findFirstExtremeStepIssue_(fy) ||
+    findFirstExtremeMultiplierIssue_(fy);
+
+  if (!issue) return;
+
+  const ui = SpreadsheetApp.getUi();
+  const title = issue.level === 'block' ? '入力エラー（要修正）' : '注意（影響が大きい入力）';
+  const buttons = issue.level === 'block' ? ui.ButtonSet.OK : ui.ButtonSet.OK_CANCEL;
+  const res = ui.alert(title, issue.message, buttons);
+
+  if (issue.level === 'block') throw new Error(issue.abortMessage || issue.message);
+  if (res !== ui.Button.OK) throw new Error('ユーザーがA-9実行を中断しました（入力内容を見直してください）。');
+}
+
+function findFirstExtremeStepIssue_(fy) {
+  const factorsProduct = readFactorsProduct_(fy);
+  const factorsClient = readFactorsClient_(fy);
+  const opinions = readOpinions_(fy);
+
+  const checks = [];
+  factorsProduct.forEach(x => checks.push({ src: 'FACTORS_PRODUCT', who: x.person, month: x.month, step: x.step }));
+  factorsClient.forEach(x => checks.push({ src: 'FACTORS_CLIENT', who: x.person, month: x.month, step: x.step }));
+  opinions.forEach(x => checks.push({ src: 'OPINIONS', who: x.person, month: x.month, step: x.step }));
+
+  for (let i = 0; i < checks.length; i++) {
+    const c = checks[i];
+    const abs = Math.abs(Number(c.step || 0));
+    if (!isFinite(abs)) continue;
+
+    const ym = c.month ? fmtYM_(c.month) : '-';
+    const pct = `${Math.round((c.step || 0) * 100)}%`;
+    const detail = `シート: ${c.src} / 担当: ${c.who || '-'} / 月: ${ym} / Step: ${pct}`;
+
+    if (abs >= STEP_BLOCK_THRESHOLD) {
+      return {
+        level: 'block',
+        message: `Stepが極端です（±100%以上）。\n\n${detail}\n\nまずこの1件を修正してから、再度 A-9 を実行してください。`,
+        abortMessage: `Stepが極端です（${detail}）。`
+      };
+    }
+    if (abs >= STEP_STRONG_THRESHOLD) {
+      return {
+        level: 'warn',
+        message: `Stepが大きく、予測に強く影響する可能性があります（±50%以上）。\n\n${detail}\n\n修正する場合はキャンセル、続行する場合はOKを押してください。`
+      };
+    }
+    if (abs >= STEP_WARN_THRESHOLD) {
+      return {
+        level: 'warn',
+        message: `Stepがやや大きめです（±30%以上）。\n\n${detail}\n\n修正する場合はキャンセル、続行する場合はOKを押してください。`
+      };
+    }
+  }
+
+  return null;
+}
+
+function findFirstExtremeMultiplierIssue_(fy) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sales = ss.getSheetByName(SHEETS.SALES);
+  if (!sales) return null;
+
+  const salesData = readSales48Months_(sales);
+  const monthlyByProduct = salesData.monthlyByProduct || [];
+  if (monthlyByProduct.length === 0) return null;
+
+  const productNames = salesData.productNames || [];
+  const totalsByProduct = monthlyByProduct.map(arr => sumArr_(arr));
+  const totalAll = sumArr_(totalsByProduct) || 1;
+  const weights = new Map();
+  for (let i = 0; i < productNames.length; i++) {
+    weights.set(productNames[i], (totalsByProduct[i] || 0) / totalAll);
+  }
+
+  const months = [];
+  const start = new Date(fy - 1, 3, 1);
+  for (let i = 0; i < 12; i++) months.push(addMonths_(start, i));
+
+  const factorsProduct = readFactorsProduct_(fy);
+  const factorsClient = readFactorsClient_(fy);
+  const opinions = readOpinions_(fy);
+  const ai = readAIResearchScores_();
+  const aiTotal = (ai.Market || 0) + (ai.Competitor || 0) + (ai.Channel || 0) + (ai.DX || 0);
+  const kAI = 1 + aiTotal * 0.001;
+
+  for (let i = 0; i < 12; i++) {
+    const m = months[i];
+    const kProd = productFactorsMultiplier_(factorsProduct, m, weights);
+    const kClient = clientFactorsMultiplier_(factorsClient, m);
+    const kOpinion = opinionExpectedMultiplier_(opinions, m);
+    const kTotal = kProd * kClient * kOpinion * kAI;
+    const ym = fmtYM_(m);
+
+    if (kTotal < K_TOTAL_BLOCK_MIN || kTotal > K_TOTAL_BLOCK_MAX) {
+      return {
+        level: 'block',
+        message: `主観/AIの合成係数が極端です（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\nまずこの1件を見直してから、再度 A-9 を実行してください。`,
+        abortMessage: `${ym} の合成係数が極端です（kTotal=${kTotal.toFixed(3)}）。`
+      };
+    }
+    if (kTotal < K_TOTAL_WARN_MIN || kTotal > K_TOTAL_WARN_MAX) {
+      return {
+        level: 'warn',
+        message: `主観/AIの合成係数が大きめです（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\n修正する場合はキャンセル、続行する場合はOKを押してください。`
+      };
+    }
+  }
+
+  return null;
+}
+
+function opinionExpectedMultiplier_(opinions, targetMonth) {
+  if (!opinions || opinions.length === 0) return 1;
+
+  const people = new Map();
+  opinions.forEach(o => {
+    if (!o.month || o.month > targetMonth) return;
+    const key = o.person || '';
+    if (!key) return;
+    const prev = people.get(key);
+    if (!prev || prev.month < o.month) people.set(key, o);
+  });
+  if (people.size === 0) return 1;
+
+  let k = 1;
+  people.forEach(o => {
+    const baseStep = isFinite(o.step) ? o.step : 0;
+    const conf = isFinite(o.confidence) ? o.confidence : 0.7;
+    k *= (1 + baseStep * conf);
+  });
+  return Math.max(0, k);
 }
 
 function validateFactorsSheet_(sheetName, opt) {
@@ -3087,6 +3252,7 @@ function runPhase1Forecast() {
     cfg.getRange('B3').setValue(fy);
     validateAllInputsOrThrow_(fy);
     validateRequiredUserInputsOrThrow_();
+    runHierarchicalA9AlertsOrThrow_(fy);
     syncSalesFromSalesInput_(fy, client);
     const result = runForecastFYCore_(fy, client);
     writeOutputFY_(result);
