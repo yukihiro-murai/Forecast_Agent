@@ -2362,6 +2362,11 @@ function readSales48Months_(salesSheet) {
 function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
   const out = new Array(12).fill(0);
   const src = Array.isArray(spotSeries48) ? spotSeries48 : [];
+  const cfg = tuning || {};
+  const shrink = isFinite(cfg.spotBgShrink) ? cfg.spotBgShrink : SPOT_BG_SHRINK;
+  const floorRate = isFinite(cfg.spotBgFloorRate) ? cfg.spotBgFloorRate : SPOT_BG_FLOOR_RATE;
+  const capRate = isFinite(cfg.spotBgCapRate) ? cfg.spotBgCapRate : SPOT_BG_CAP_RATE;
+  const baseRef = Array.isArray(baseP50ByMonth) ? baseP50ByMonth : new Array(12).fill(0);
   if (src.length === 0) return out;
 
   const closedIdx = [];
@@ -3800,8 +3805,3 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
-  const cfg = tuning || {};
-  const shrink = isFinite(cfg.spotBgShrink) ? cfg.spotBgShrink : SPOT_BG_SHRINK;
-  const floorRate = isFinite(cfg.spotBgFloorRate) ? cfg.spotBgFloorRate : SPOT_BG_FLOOR_RATE;
-  const capRate = isFinite(cfg.spotBgCapRate) ? cfg.spotBgCapRate : SPOT_BG_CAP_RATE;
-  const baseRef = Array.isArray(baseP50ByMonth) ? baseP50ByMonth : new Array(12).fill(0);
