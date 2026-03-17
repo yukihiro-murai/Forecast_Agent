@@ -556,7 +556,7 @@ function importPastSalesToSalesTab() {
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
 
   // 予測FY=2026なら → 2023,2024,2025,2026
-  const years = [fy - 4, fy - 3, fy - 2, fy - 1];
+  const years = [fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
   const start = new Date(fy - 3, 3, 1); // fy-3/04/01
@@ -681,7 +681,6 @@ function openProductTrendEntryDialog() {
       '2) C列：影響が出る日付（この日付以降に反映）',
       '3) D列：増減率（例：-30% = 今後30%減りそう）',
       '4) E列：根拠を短く',
-      '',
       '※ B列の製品名はSALESから自動で入っています。',
       '※ Stepは入力ゆらぎが出ないよう自動で「+10%/-30%」形式に整えます。'
     ]
@@ -715,7 +714,6 @@ function openClientTrendEntryDialog() {
       '2) B列：影響が出る日付（この日付以降に反映）',
       '3) C列：増減率（例：-10% = 予算圧縮で10%減りそう）',
       '4) D列：根拠を短く',
-      '',
       '※ Stepは入力ゆらぎが出ないよう自動で「+10%/-30%」形式に整えます。'
     ]
   );
@@ -745,13 +743,11 @@ function openOpinionsEntryDialog() {
     [
       'OPINIONS を入力してください（青色のセルが対象です）。',
       '※原則として担当者全員の入力が必要です（未入力があるとA-9が実行できません）。',
-      '',
       '入力手順：',
       '1) B列：影響が出る日付（この日付以降に反映）',
       '2) C列：増減率（例：+20% = 今後20%増えそう）',
       '3) D列：信頼度（0..1）',
       '4) E列：所感を短く',
-      '',
       '※ 意見はそのまま固定反映されず、シミュレーション内でランダムに活用されます。'
     ]
   );
@@ -781,14 +777,12 @@ function openDevEntryDialog() {
     [
       'DEV_SPOT を入力してください（青色のセルが対象です）。',
       '開発案件だけでなく、スポット要因（例：法改定による差し替え等）もここに入力してください。',
-      '',
       '入力手順：',
       '1) A列：担当者を選択',
       '2) B列：売上が立つ日付（この日付の月に反映）',
       '3) C列：案件名/スポット要因名',
       '4) D列：金額（円）',
       '5) E列：確度（0..1）',
-      '',
       '※ DEV_SPOTは「金額×確度」で固定加算されます（運用のシミュレーションには混ぜません）。'
     ]
   );
@@ -909,7 +903,7 @@ function runForecastFYCore_(fy, clientName) {
     ? salesData.baseSeries48.slice()
     : sumAcrossProducts_(salesData.monthlyByProduct);
 
-  const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 4, 3, 1);
+  const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 3, 3, 1);
   const aggY_adj = aggY_raw.slice();
 
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
@@ -1931,7 +1925,7 @@ function validateAllInputsOrThrow_(fy) {
   const startCol = 2;
   const endCol = startCol + expectedMonths - 1;
   if (sales.getLastColumn() < endCol) {
-    throw new Error('SALESの月次列が48ヶ月分ありません。A-2 売上データの取り込み を実行してください。');
+    throw new Error('SALESの月次列が48ヶ月分ありません。A-2 売上データを取り込む を実行してください。');
   }
 
   const values = sales.getRange(2, 1, lastRow - 1, endCol).getValues();
@@ -2046,7 +2040,7 @@ function findFirstExtremeDevSpotIssue_(fy) {
   const baseAvg = base48.length ? (sumArr_(base48) / Math.max(1, base48.length)) : 0;
   if (!isFinite(baseAvg) || baseAvg <= 0) return null;
 
-  const start = new Date(fy - 1, 3, 1);
+  const start = new Date(fy, 3, 1);
   for (let i = 0; i < 12; i++) {
     const v = Number(devFixed[i] || 0);
     if (!isFinite(v) || v <= 0) continue;
@@ -2086,7 +2080,7 @@ function findFirstExtremeMultiplierIssue_(fy) {
   }
 
   const months = [];
-  const start = new Date(fy - 1, 3, 1);
+  const start = new Date(fy, 3, 1);
   for (let i = 0; i < 12; i++) months.push(addMonths_(start, i));
 
   const factorsProduct = readFactorsProduct_(fy);
@@ -2420,8 +2414,8 @@ function readSalesHeaderMonths_(salesSheet, expectedMonths) {
 }
 
 function getForecastContext_(fy, runDate, headerMonths) {
-  const forecastStart = new Date(fy - 1, 3, 1);
-  const forecastEnd = new Date(fy, 2, 1);
+  const forecastStart = new Date(fy, 3, 1);
+  const forecastEnd = new Date(fy + 1, 2, 1);
   const currentMonth = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
   const lastClosedMonthStart = addMonths_(currentMonth, -1);
 
@@ -2501,7 +2495,7 @@ function computeProductWeightsFromSalesInputClosed12_(fy, client, ctx) {
   if (!sh || sh.getLastRow() < 2) return map;
 
   const vals = sh.getDataRange().getValues().slice(1);
-  const forecastStart = new Date(fy - 1, 3, 1);
+  const forecastStart = new Date(fy, 3, 1);
   const closedHistStart = addMonths_(forecastStart, -12);
   const closedHistEnd = ctx.lastClosedMonthStart;
 
@@ -3256,7 +3250,7 @@ function importSalesInputMonthly() {
     const sh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
     if (sh) ss.setActiveSheet(sh);
     SpreadsheetApp.getUi().alert('完了', `売上データを取り込みました（${result.count}件 / ${result.range}）。
-次は A-3 予測用に売上データを集計 を実行してください。`, SpreadsheetApp.getUi().ButtonSet.OK);
+次は A-3 予測用に売上データを加工 を実行してください。`, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
@@ -3268,7 +3262,7 @@ function importSalesInputMonthly() {
 function aggregateSalesData() {
   try {
     ensureSetupDone_();
-    requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+    requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
     const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -3376,8 +3370,8 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
   const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
 
-  const start = new Date(fy - 4, 3, 1);
-  const end = new Date(fy, 2, 1);
+  const start = new Date(fy - 3, 3, 1);
+  const end = new Date(fy + 1, 2, 1);
   const rows = [];
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3448,7 +3442,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
 }
 
 function generateAIResearchTemplate() {
-  requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+  requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const targetClient = String(cfg.getRange('B2').getValue() || '').trim();
@@ -3532,7 +3526,7 @@ function parseAIResearchPaste_() {
 }
 function runPhase1Forecast() {
   try {
-    requireStepSuccess_('step1_status', '先にA-2 売上データの取り込みを実行してください。');
+    requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const started = new Date();
     const parsed = parseAIResearchPaste_();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3551,7 +3545,7 @@ function runPhase1Forecast() {
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
-    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-10 ダッシュボード更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
@@ -3899,7 +3893,7 @@ function syncSalesFromSalesInput_(fy, client) {
   const sales = ss.getSheetByName(SHEETS.SALES);
   if (!inSh || !sales) throw new Error('SALES_INPUT_MONTHLY または SALES がありません。');
 
-  const start = new Date(fy - 4, 3, 1);
+  const start = new Date(fy - 3, 3, 1);
   const totalMonths = 48;
   const vals = inSh.getDataRange().getValues().slice(1);
   const map = new Map();
