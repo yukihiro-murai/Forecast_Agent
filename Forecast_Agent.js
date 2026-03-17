@@ -35,9 +35,9 @@ const MENU_NAME = 'Forecast Agent';
  *
  * [月次運用ルール（推奨順）]
  * 1) A-2 売上データを取り込み
- * 2) （必要時）A-8 AI調査テンプレート生成→AI結果貼付
+ * 2) （必要時）A-8 AI調査を取り込む→AI結果貼付
  * 3) A-9 予測実行（単一クライアント）
- * 4) A-10 ダッシュボード更新
+ * 4) A-10 予測ダッシュボードを更新
  * 5) 実績確定後にB-1検証実績取り込み→B-2予測検証レポート更新
  *
  * [運用時の注意]
@@ -156,15 +156,15 @@ function onOpen() {
   ui.createMenu(MENU_NAME)
     .addItem('A-1 初期セットアップ', 'setupForecastBook')
     .addSeparator()
-    .addItem('A-2 売上データの取り込み', 'importSalesInputMonthly')
-    .addItem('A-3 予測用に売上データを集計', 'aggregateSalesData')
+    .addItem('A-2 売上データを取り込む', 'importSalesInputMonthly')
+    .addItem('A-3 予測用に売上データを加工', 'aggregateSalesData')
     .addItem('A-4 製品ごとの動向を入力', 'openProductTrendEntryDialog')
     .addItem('A-5 クライアント動向を入力', 'openClientTrendEntryDialog')
     .addItem('A-6 担当者意見を入力', 'openOpinionsEntryDialog')
     .addItem('A-7 開発/スポット要因を入力', 'openDevEntryDialog')
-    .addItem('A-8 AI調査テンプレートを生成', 'generateAIResearchTemplate')
+    .addItem('A-8 AI調査を取り込む', 'generateAIResearchTemplate')
     .addItem('A-9 予測を実行', 'runPhase1Forecast')
-    .addItem('A-10 ダッシュボード更新', 'updatePhase1Dashboard')
+    .addItem('A-10 予測ダッシュボードを更新', 'updatePhase1Dashboard')
     .addSeparator()
     .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
@@ -1066,6 +1066,7 @@ function writeOutputFY_(result) {
   sh.getRange(1, 1, 1, 6).merge();
   sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
   sh.setFrozenRows(2);
+  sh.getRange(1, 1, sh.getMaxRows(), 12).setHorizontalAlignment('left');
 
   // 上部サマリー（要点表示）
   sh.getRange(3, 1).setValue('予測の見方（要点）').setFontWeight('bold');
@@ -1396,15 +1397,15 @@ function buildGUIDE_() {
 
   const aRows = [
     ['A-予測', 'A-1 初期セットアップ', '初回のみ。クライアント/FY/担当者を設定。'],
-    ['A-予測', 'A-2 売上データの取り込み', '案件一覧を SALES_INPUT_MONTHLY へ取り込み。'],
-    ['A-予測', 'A-3 予測用に売上データを集計', 'SALES_INPUT_MONTHLY のデータを SALES で48か月横持ち（BASE/SPOT）に集計。'],
+    ['A-予測', 'A-2 売上データを取り込む', '案件一覧を SALES_INPUT_MONTHLY へ取り込み。'],
+    ['A-予測', 'A-3 予測用に売上データを加工', 'SALES_INPUT_MONTHLY のデータを SALES で48か月横持ち（BASE/SPOT）に集計。'],
     ['A-予測', 'A-4 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
     ['A-予測', 'A-5 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
     ['A-予測', 'A-6 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-7 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-8 AI調査テンプレートを生成', '生成されたプロンプトをGemへ貼り付け、返却結果を AI_RESEARCH_PROMPT!D2 に全文貼り付け。'],
+    ['A-予測', 'A-8 AI調査を取り込む', '生成されたプロンプトをGemへ貼り付け、返却結果を AI_RESEARCH_PROMPT!D2 に全文貼り付け。'],
     ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新（実行前に注意ロジックで1件ずつ確認）。'],
-    ['A-予測', 'A-10 ダッシュボード更新', 'DASHBOARD を更新。']
+    ['A-予測', 'A-10 予測ダッシュボードを更新', 'DASHBOARD を更新。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
@@ -1485,7 +1486,7 @@ function buildCONFIG_() {
   sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と一致させます。');
-  sh.getRange('A3').setNote('例：FY2026 は 2025/04/01〜2026/03/31 の12ヶ月です（4月開始・3月決算）。');
+  sh.getRange('A3').setNote('例：FY2026 は 2026/04/01〜2027/03/31 の12ヶ月です（4月開始・3月決算）。');
   sh.getRange('A5').setNote('シミュレーションは1000回試行し、レンジ（P10/P50/P90）を出します。単純な一発計算より「ブレ幅」を扱えるのがメリットです。');
   sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。A-6では全員分の意見が必須です。');
 
