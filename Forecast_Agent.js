@@ -249,9 +249,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -553,11 +555,11 @@ function importPastSalesToSalesTab() {
 
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
 
-  // 予測FY=2026なら → 2022,2023,2024,2025
-  const years = [fy - 4, fy - 3, fy - 2, fy - 1];
+  // 予測FY=2026なら → 2023,2024,2025,2026
+  const years = [fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -664,7 +666,7 @@ function openProductTrendEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.FACTORS_PRODUCT);
   ensureFactorsProductTemplate_(sh, products, people, defaultDate);
@@ -697,7 +699,7 @@ function openClientTrendEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.FACTORS_CLIENT);
   ensureFactorsClientTemplate_(sh, people, defaultDate);
@@ -729,7 +731,7 @@ function openOpinionsEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.OPINIONS);
   ensureOpinionsTemplate_(sh, people, defaultDate);
@@ -763,7 +765,7 @@ function openDevEntryDialog() {
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = new Date(fy, 3, 1);
+  const defaultDate = new Date(fy - 1, 3, 1);
 
   const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
   ensureDevTemplate_(sh, people, defaultDate);
@@ -1049,8 +1051,8 @@ function writeOutputFY_(result) {
   const fy = result.fy;
   const client = result.clientName;
 
-  const start = new Date(fy, 3, 1);
-  const end = new Date(fy + 1, 2, 1);
+  const start = new Date(fy - 1, 3, 1);
+  const end = new Date(fy, 2, 1);
 
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
@@ -2577,7 +2579,7 @@ function readDevFixed12Months_(fy) {
   if (last < 2) return out;
 
   const vals = sh.getRange(2, 1, last - 1, 5).getValues();
-  const start = new Date(fy, 3, 1);
+  const start = new Date(fy - 1, 3, 1);
 
   vals.forEach(r => {
     const dt = toDate_(r[1]);
