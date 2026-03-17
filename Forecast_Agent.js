@@ -249,9 +249,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -557,7 +559,7 @@ function importPastSalesToSalesTab() {
   const years = [fy - 4, fy - 3, fy - 2, fy - 1];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
