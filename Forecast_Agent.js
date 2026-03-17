@@ -903,7 +903,7 @@ function runForecastFYCore_(fy, clientName) {
     ? salesData.baseSeries48.slice()
     : sumAcrossProducts_(salesData.monthlyByProduct);
 
-  const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 3, 3, 1);
+  const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 4, 3, 1);
   const aggY_adj = aggY_raw.slice();
 
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
@@ -953,8 +953,8 @@ function runForecastFYCore_(fy, clientName) {
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
   const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
 
-  // 12ヶ月予測対象
-  const months = ctx.forecastMonthIndexesInSales.map(i => salesData.headerMonths[i]);
+  // 12ヶ月予測対象（FY開始月〜12ヶ月）
+  const months = ctx.forecastMonths;
 
   // 線形回帰（参考）予測：季節性込みモデルのトレンド外挿（参考）
   const regTotal = [];
@@ -991,13 +991,11 @@ function runForecastFYCore_(fy, clientName) {
   const opinionsSummaryByMonth = summarizeOpinionsByMonth_(opinions, months);
 
   const totalActual48 = salesData.baseSeries48.map((v, i) => Number(v || 0) + Number((salesData.spotSeries48 || [])[i] || 0));
-  const sourceByMonth = months.map((_, i) => {
-    const salesIdx = ctx.forecastMonthIndexesInSales[i];
-    return ctx.closedForecastMonthIndexes.indexOf(salesIdx) >= 0 ? 'actual_closed' : 'forecast_open';
-  });
+  const closedOffsets = new Set(ctx.closedForecastMonthOffsets || []);
+  const sourceByMonth = months.map((_, i) => closedOffsets.has(i) ? 'actual_closed' : 'forecast_open');
   const actualClosedByMonth = months.map((_, i) => {
     const salesIdx = ctx.forecastMonthIndexesInSales[i];
-    return ctx.closedForecastMonthIndexes.indexOf(salesIdx) >= 0 ? Number(totalActual48[salesIdx] || 0) : '';
+    return (closedOffsets.has(i) && salesIdx >= 0) ? Number(totalActual48[salesIdx] || 0) : '';
   });
 
   for (let i = 0; i < months.length; i++) {
@@ -1455,8 +1453,8 @@ function buildCONFIG_() {
   sh.clear({ contentsOnly: true });
   sh.clearFormats();
 
-  sh.setColumnWidth(1, 260);
-  sh.setColumnWidth(2, 420);
+  sh.setColumnWidth(1, 312);
+  sh.setColumnWidth(2, 504);
 
   // 担当者行はA10/B10
   const rows = [
@@ -2419,35 +2417,43 @@ function getForecastContext_(fy, runDate, headerMonths) {
   const currentMonth = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
   const lastClosedMonthStart = addMonths_(currentMonth, -1);
 
-  const forecastMonthIndexesInSales = [];
-  const historyMonthIndexes = [];
-  const closedForecastMonthIndexes = [];
-  const openForecastMonthIndexes = [];
+  const forecastMonths = [];
+  for (let i = 0; i < 12; i++) forecastMonths.push(addMonths_(forecastStart, i));
 
+  const historyMonthIndexes = [];
   for (let i = 0; i < headerMonths.length; i++) {
     const m = headerMonths[i];
     if (m < forecastStart) historyMonthIndexes.push(i);
-    if (m >= forecastStart && m <= forecastEnd) {
-      forecastMonthIndexesInSales.push(i);
-      if (m <= lastClosedMonthStart) closedForecastMonthIndexes.push(i);
-      else openForecastMonthIndexes.push(i);
-    }
   }
 
-  if (forecastMonthIndexesInSales.length !== 12) {
-    throw new Error(`SALESヘッダ月とFYの整合が取れていません（対象FYの月数=${forecastMonthIndexesInSales.length}）。`);
+  const ymToIndex = new Map();
+  for (let i = 0; i < headerMonths.length; i++) ymToIndex.set(fmtYM_(headerMonths[i]), i);
+
+  const forecastMonthIndexesInSales = forecastMonths.map(m => {
+    const idx = ymToIndex.get(fmtYM_(m));
+    return Number.isInteger(idx) ? idx : -1;
+  });
+
+  const closedForecastMonthOffsets = [];
+  const openForecastMonthOffsets = [];
+  for (let i = 0; i < forecastMonths.length; i++) {
+    const salesIdx = forecastMonthIndexesInSales[i];
+    if (salesIdx >= 0 && forecastMonths[i] <= lastClosedMonthStart) closedForecastMonthOffsets.push(i);
+    else openForecastMonthOffsets.push(i);
   }
 
   return {
     forecastStart,
     forecastEnd,
+    forecastMonths,
     lastClosedMonthStart,
     forecastMonthIndexesInSales,
     historyMonthIndexes,
-    closedForecastMonthIndexes,
-    openForecastMonthIndexes
+    closedForecastMonthOffsets,
+    openForecastMonthOffsets
   };
 }
+
 
 /** SPOT背景（未知案件）を12ヶ月分推定：履歴同月平均を縮小しつつ最低保証を持たせる */
 function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
@@ -3313,7 +3319,7 @@ function refreshManualInputSheets_(fy) {
   const products = Array.from(new Set(vals.map(r => String(r[2] || '').trim()).filter(Boolean))).sort();
   if (!products.length) return;
 
-  const defaultDate = new Date((Number(fy) || getDefaultFY_()) - 1, 3, 1);
+  const defaultDate = new Date((Number(fy) || getDefaultFY_()), 3, 1);
   ensureFactorsProductTemplate_(ss.getSheetByName(SHEETS.FACTORS_PRODUCT), products, people, defaultDate);
   ensureFactorsClientTemplate_(ss.getSheetByName(SHEETS.FACTORS_CLIENT), people, defaultDate);
   ensureOpinionsTemplate_(ss.getSheetByName(SHEETS.OPINIONS), people, defaultDate);
@@ -3370,8 +3376,9 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
   const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
 
-  const start = new Date(fy - 3, 3, 1);
-  const end = new Date(fy + 1, 2, 1);
+  const isSalesInput = targetSheetName === SHEETS.SALES_INPUT_MONTHLY;
+  const start = isSalesInput ? new Date(fy - 4, 3, 1) : new Date(fy - 3, 3, 1);
+  const end = isSalesInput ? new Date(fy - 1, 2, 1) : new Date(fy + 1, 2, 1);
   const rows = [];
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3893,7 +3900,7 @@ function syncSalesFromSalesInput_(fy, client) {
   const sales = ss.getSheetByName(SHEETS.SALES);
   if (!inSh || !sales) throw new Error('SALES_INPUT_MONTHLY または SALES がありません。');
 
-  const start = new Date(fy - 3, 3, 1);
+  const start = new Date(fy - 4, 3, 1);
   const totalMonths = 48;
   const vals = inSh.getDataRange().getValues().slice(1);
   const map = new Map();
