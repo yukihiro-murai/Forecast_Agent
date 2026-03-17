@@ -1489,9 +1489,9 @@ function buildCONFIG_() {
   const a9Rows = [
     ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
     ['Step 強警告', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 停止', `|Step| >= ${Math.round(STEP_BLOCK_THRESHOLD * 100)}% ：修正必須（A-9中断）`],
+    ['Step 極端値', `|Step| >= ${Math.round(STEP_BLOCK_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
     ['合成係数 警告', `kTotal < ${K_TOTAL_WARN_MIN.toFixed(2)} または > ${K_TOTAL_WARN_MAX.toFixed(2)} ：警告表示（OKで続行 / Cancelで中断）`],
-    ['合成係数 停止', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：修正必須（A-9中断）`],
+    ['合成係数 極端値', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：強い警告表示（OKで続行 / Cancelで中断）`],
     ['解消手順', '1) 表示された1件を修正 → 2) A-9を再実行 → 3) 次の注意が出たら同様に修正（同時に複数表示しない）']
   ];
   sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -1958,16 +1958,15 @@ function runHierarchicalA9AlertsOrThrow_(fy) {
   // 閾値は buildCONFIG_ の「A-9 実行前チェック」表示と同一定数を参照
   const issue =
     findFirstExtremeStepIssue_(fy) ||
+    findFirstExtremeDevSpotIssue_(fy) ||
     findFirstExtremeMultiplierIssue_(fy);
 
   if (!issue) return;
 
   const ui = SpreadsheetApp.getUi();
-  const title = issue.level === 'block' ? '入力エラー（要修正）' : '注意（影響が大きい入力）';
-  const buttons = issue.level === 'block' ? ui.ButtonSet.OK : ui.ButtonSet.OK_CANCEL;
+  const title = issue.level === 'high' ? '注意（影響がかなり大きい入力）' : '注意（影響が大きい入力）';
+  const buttons = ui.ButtonSet.OK_CANCEL;
   const res = ui.alert(title, issue.message, buttons);
-
-  if (issue.level === 'block') throw new Error(issue.abortMessage || issue.message);
   if (res !== ui.Button.OK) throw new Error('ユーザーがA-9実行を中断しました（入力内容を見直してください）。');
 }
 
@@ -1992,9 +1991,8 @@ function findFirstExtremeStepIssue_(fy) {
 
     if (abs >= STEP_BLOCK_THRESHOLD) {
       return {
-        level: 'block',
-        message: `Stepが極端です（±100%以上）。\n\n${detail}\n\nまずこの1件を修正してから、再度 A-9 を実行してください。`,
-        abortMessage: `Stepが極端です（${detail}）。`
+        level: 'high',
+        message: `Stepが極端です（±100%以上）。\n\n${detail}\n\nプロモーション終了などで意図した入力ならOKで続行できます。修正する場合はキャンセルしてください。`
       };
     }
     if (abs >= STEP_STRONG_THRESHOLD) {
@@ -2011,6 +2009,39 @@ function findFirstExtremeStepIssue_(fy) {
     }
   }
 
+  return null;
+}
+
+function findFirstExtremeDevSpotIssue_(fy) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sales = ss.getSheetByName(SHEETS.SALES);
+  const devFixed = readDevFixed12Months_(fy);
+  if (!sales || !devFixed || devFixed.length === 0) return null;
+
+  const salesData = readSales48Months_(sales);
+  const base48 = salesData.baseSeries48 || [];
+  const baseAvg = base48.length ? (sumArr_(base48) / Math.max(1, base48.length)) : 0;
+  if (!isFinite(baseAvg) || baseAvg <= 0) return null;
+
+  const start = new Date(fy - 1, 3, 1);
+  for (let i = 0; i < 12; i++) {
+    const v = Number(devFixed[i] || 0);
+    if (!isFinite(v) || v <= 0) continue;
+    const ym = fmtYM_(addMonths_(start, i));
+    const ratio = v / baseAvg;
+    if (ratio >= 1.2) {
+      return {
+        level: 'high',
+        message: `DEV/SPOT固定が大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した大型案件ならOKで続行、修正する場合はキャンセルしてください。`
+      };
+    }
+    if (ratio >= 0.8) {
+      return {
+        level: 'warn',
+        message: `DEV/SPOT固定がやや大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した入力ならOKで続行、修正する場合はキャンセルしてください。`
+      };
+    }
+  }
   return null;
 }
 
@@ -2055,9 +2086,8 @@ function findFirstExtremeMultiplierIssue_(fy) {
 
     if (kTotal < K_TOTAL_BLOCK_MIN || kTotal > K_TOTAL_BLOCK_MAX) {
       return {
-        level: 'block',
-        message: `主観/AIの合成係数が極端です（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\nまずこの1件を見直してから、再度 A-9 を実行してください。`,
-        abortMessage: `${ym} の合成係数が極端です（kTotal=${kTotal.toFixed(3)}）。`
+        level: 'high',
+        message: `主観/AIの合成係数が極端です（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\n意図した戦略変更ならOKで続行できます。修正する場合はキャンセルしてください。`
       };
     }
     if (kTotal < K_TOTAL_WARN_MIN || kTotal > K_TOTAL_WARN_MAX) {
