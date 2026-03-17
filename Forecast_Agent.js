@@ -249,9 +249,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -557,7 +559,7 @@ function importPastSalesToSalesTab() {
   const years = [fy - 4, fy - 3, fy - 2, fy - 1];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -1057,8 +1059,8 @@ function writeOutputFY_(result) {
   const fy = result.fy;
   const client = result.clientName;
 
-  const start = new Date(fy, 3, 1);
-  const end = new Date(fy + 1, 2, 1);
+  const start = new Date(fy - 1, 3, 1);
+  const end = new Date(fy, 2, 1);
 
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
