@@ -891,6 +891,8 @@ function runForecastFYCore_(fy, clientName) {
 
   const salesData = readSales48Months_(sales);
   const tuning = readModelTuningFromConfig_();
+  const runDate = new Date();
+  const ctx = getForecastContext_(fy, runDate, salesData.headerMonths || []);
 
   if (!salesData.isComplete48) {
     const ui = SpreadsheetApp.getUi();
@@ -907,15 +909,13 @@ function runForecastFYCore_(fy, clientName) {
     ? salesData.baseSeries48.slice()
     : sumAcrossProducts_(salesData.monthlyByProduct);
 
-  // 未確定月補完（当月以降は未確定扱い／月別トレンド／補完後に途中実績より下がらない）
-  const seriesStart = new Date(fy - 3, 3, 1); // fy-3/04/01
-  const adj = adjustForUnclosedMonths_(aggY_raw, seriesStart);
-  const aggY_adj = adj.series;
+  const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 4, 3, 1);
+  const aggY_adj = aggY_raw.slice();
 
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
 
   // スムージング（季節性は守りつつ単発スパイクだけ弱める）
-  const smoothY = smoothSeriesSeasonalAware_(aggY_adj);
+  const smoothY = aggY_adj.slice();
 
   // Opsモデル：トレンド＋季節性
   const model = fitOpsModelTrendSeason_(smoothY);
@@ -924,7 +924,7 @@ function runForecastFYCore_(fy, clientName) {
   const residualPctClosed = [];
   for (let i = 0; i < smoothY.length; i++) {
     const mStart = addMonths_(seriesStart, i);
-    if (mStart > adj.lastClosedMonthStart) continue; // 未確定は除外
+    if (mStart > ctx.lastClosedMonthStart) continue; // 未確定は除外
     const f = model.fitted[i];
     if (f > 0) residualPctClosed.push(smoothY[i] / f - 1);
   }
@@ -942,7 +942,7 @@ function runForecastFYCore_(fy, clientName) {
   const spotBackgroundByMonth = estimateSpotBackground12Months_(
     salesData.spotSeries48 || [],
     seriesStart,
-    adj.lastClosedMonthStart,
+    ctx.lastClosedMonthStart,
     baseOnlyP50,
     tuning
   );
@@ -957,17 +957,10 @@ function runForecastFYCore_(fy, clientName) {
   const aiScores = readAIResearchScores_();
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
-  const productWeights = computeProductWeightsClosed12_(
-    salesData.productNames,
-    salesData.monthlyByProduct,
-    seriesStart,
-    adj.lastClosedMonthStart
-  );
+  const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
 
   // 12ヶ月予測対象
-  const months = [];
-  const start = new Date(fy - 1, 3, 1);
-  for (let i = 0; i < 12; i++) months.push(addMonths_(start, i));
+  const months = ctx.forecastMonthIndexesInSales.map(i => salesData.headerMonths[i]);
 
   // 線形回帰（参考）予測：季節性込みモデルのトレンド外挿（参考）
   const regTotal = [];
@@ -1003,6 +996,28 @@ function runForecastFYCore_(fy, clientName) {
   const opinionsSummaryTop = summarizeOpinionsTop_(opinions);
   const opinionsSummaryByMonth = summarizeOpinionsByMonth_(opinions, months);
 
+  const totalActual48 = salesData.baseSeries48.map((v, i) => Number(v || 0) + Number((salesData.spotSeries48 || [])[i] || 0));
+  const sourceByMonth = months.map((_, i) => {
+    const salesIdx = ctx.forecastMonthIndexesInSales[i];
+    return ctx.closedForecastMonthIndexes.indexOf(salesIdx) >= 0 ? 'actual_closed' : 'forecast_open';
+  });
+  const actualClosedByMonth = months.map((_, i) => {
+    const salesIdx = ctx.forecastMonthIndexesInSales[i];
+    return ctx.closedForecastMonthIndexes.indexOf(salesIdx) >= 0 ? Number(totalActual48[salesIdx] || 0) : '';
+  });
+
+  for (let i = 0; i < months.length; i++) {
+    if (sourceByMonth[i] !== 'actual_closed') continue;
+    const a = Number(actualClosedByMonth[i] || 0);
+    objOnly.p10[i] = a; objOnly.p50[i] = a; objOnly.p90[i] = a;
+    mixed.p10[i] = a; mixed.p50[i] = a; mixed.p90[i] = a;
+    regTotal[i] = a;
+  }
+
+  if (factorsProduct.length > 0 && mixed.diagnostics && mixed.diagnostics.kProdByMonth && mixed.diagnostics.kProdByMonth.every(k => Math.abs(Number(k || 1) - 1) < 1e-9)) {
+    throw new Error('FACTORS_PRODUCT に有効行がありますが、kProd が全月1.0です。製品名キーの整合を確認してください。');
+  }
+
   return {
     fy,
     clientName,
@@ -1016,6 +1031,8 @@ function runForecastFYCore_(fy, clientName) {
     spotFixedByMonth,
     opinionsSummaryTop,
     opinionsSummaryByMonth,
+    sourceByMonth,
+    actualClosedByMonth,
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
     aiScores
   };
@@ -1118,7 +1135,7 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10);
   row++;
 
-  const hdr = ['Month', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', 'SPOT固定（背景+DEV）', 'Total P50（客観のみ）', 'Total P50（混合）', 'OPINIONS要約'];
+  const hdr = ['Month', 'ActualClosed', 'ForecastSource', '運用(Ops)P50（客観のみ）', '運用(Ops)P50（混合）', 'SPOT固定（背景+DEV）', 'Total P50（客観のみ）', 'Total P50（混合）', '差分(Mixed-Objective)', 'OPINIONS要約'];
   sh.getRange(row, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
 
@@ -1131,18 +1148,22 @@ function writeOutputFY_(result) {
     const opsMix = Math.max(0, mixP50 - spotVal);
     return [
       fmtYM_(m),
+      result.actualClosedByMonth ? (result.actualClosedByMonth[i] || '') : '',
+      result.sourceByMonth ? (result.sourceByMonth[i] || 'forecast_open') : 'forecast_open',
       opsObj,
       opsMix,
       spotVal,
       objP50,
       mixP50,
+      mixP50 - objP50,
       result.opinionsSummaryByMonth[i] || ''
     ];
   });
 
   sh.getRange(row, 1, rows.length, hdr.length).setValues(rows);
-  sh.getRange(row, 2, rows.length, 5).setNumberFormat('¥#,##0');
-  sh.getRange(row, 7, rows.length, 1).setWrap(true);
+  sh.getRange(row, 2, rows.length, 1).setNumberFormat('¥#,##0');
+  sh.getRange(row, 4, rows.length, 6).setNumberFormat('¥#,##0');
+  sh.getRange(row, 10, rows.length, 1).setWrap(true);
   row += rows.length + 2;
 
   // ===== セクション3：三角測量（手法比較） =====
@@ -1498,7 +1519,8 @@ function buildCONFIG_() {
   sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
   sh.getRange(warnStart + 1, 2, a9Rows.length, 1).setWrap(true);
 
-  const tuneStart = warnStart + 1 + a9Rows.length + 2;
+  // 管理者が参照しやすいよう固定位置に配置（B32:B36を実値として利用）
+  const tuneStart = 31;
   const tuneHdr = [['モデル調整パラメータ', '値（必要時のみ調整）']];
   const tuneRows = [
     ['SPOT_BG_SHRINK（背景SPOT縮小率）', SPOT_BG_SHRINK],
@@ -2292,11 +2314,11 @@ function readModelTuningFromConfig_() {
     return isFinite(v) ? v : def;
   };
 
-  out.spotBgShrink = Math.max(0, Math.min(1, getNum('B28', out.spotBgShrink)));
-  out.spotBgFloorRate = Math.max(0, Math.min(1, getNum('B29', out.spotBgFloorRate)));
-  out.spotBgCapRate = Math.max(0, Math.min(1, getNum('B30', out.spotBgCapRate)));
-  out.aiWeight = Math.max(0, Math.min(0.01, getNum('B31', out.aiWeight)));
-  out.aiMaxAbsEffect = Math.max(0, Math.min(0.50, getNum('B32', out.aiMaxAbsEffect)));
+  out.spotBgShrink = Math.max(0, Math.min(1, getNum('B32', out.spotBgShrink)));
+  out.spotBgFloorRate = Math.max(0, Math.min(1, getNum('B33', out.spotBgFloorRate)));
+  out.spotBgCapRate = Math.max(0, Math.min(1, getNum('B34', out.spotBgCapRate)));
+  out.aiWeight = Math.max(0, Math.min(0.01, getNum('B35', out.aiWeight)));
+  out.aiMaxAbsEffect = Math.max(0, Math.min(0.50, getNum('B36', out.aiMaxAbsEffect)));
   return out;
 }
 
@@ -2384,7 +2406,51 @@ function readSales48Months_(salesSheet) {
     monthlyByProduct: data.map(x => x.monthly),
     productNames: data.map(x => x.productName),
     baseSeries48: (data.find(x => String(x.productName || '').toUpperCase() === 'BASE') || { monthly: new Array(expectedMonths).fill(0) }).monthly,
-    spotSeries48: (data.find(x => String(x.productName || '').toUpperCase() === 'SPOT') || { monthly: new Array(expectedMonths).fill(0) }).monthly
+    spotSeries48: (data.find(x => String(x.productName || '').toUpperCase() === 'SPOT') || { monthly: new Array(expectedMonths).fill(0) }).monthly,
+    headerMonths: readSalesHeaderMonths_(salesSheet, expectedMonths)
+  };
+}
+
+function readSalesHeaderMonths_(salesSheet, expectedMonths) {
+  const vals = salesSheet.getRange(1, 2, 1, expectedMonths).getValues()[0];
+  const out = vals.map(v => toMonthStart_(v));
+  if (out.some(v => !v)) throw new Error('SALESヘッダ月が解釈できません。A-3を再実行してください。');
+  return out;
+}
+
+function getForecastContext_(fy, runDate, headerMonths) {
+  const forecastStart = new Date(fy - 1, 3, 1);
+  const forecastEnd = new Date(fy, 2, 1);
+  const currentMonth = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
+  const lastClosedMonthStart = addMonths_(currentMonth, -1);
+
+  const forecastMonthIndexesInSales = [];
+  const historyMonthIndexes = [];
+  const closedForecastMonthIndexes = [];
+  const openForecastMonthIndexes = [];
+
+  for (let i = 0; i < headerMonths.length; i++) {
+    const m = headerMonths[i];
+    if (m < forecastStart) historyMonthIndexes.push(i);
+    if (m >= forecastStart && m <= forecastEnd) {
+      forecastMonthIndexesInSales.push(i);
+      if (m <= lastClosedMonthStart) closedForecastMonthIndexes.push(i);
+      else openForecastMonthIndexes.push(i);
+    }
+  }
+
+  if (forecastMonthIndexesInSales.length !== 12) {
+    throw new Error(`SALESヘッダ月とFYの整合が取れていません（対象FYの月数=${forecastMonthIndexesInSales.length}）。`);
+  }
+
+  return {
+    forecastStart,
+    forecastEnd,
+    lastClosedMonthStart,
+    forecastMonthIndexesInSales,
+    historyMonthIndexes,
+    closedForecastMonthIndexes,
+    openForecastMonthIndexes
   };
 }
 
@@ -2424,6 +2490,37 @@ function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMo
     out[m] = Math.max(0, Math.min(bg, cap));
   }
 
+  return out;
+}
+
+function computeProductWeightsFromSalesInputClosed12_(fy, client, ctx) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
+  const map = new Map();
+  if (!sh || sh.getLastRow() < 2) return map;
+
+  const vals = sh.getDataRange().getValues().slice(1);
+  const forecastStart = new Date(fy - 1, 3, 1);
+  const closedHistStart = addMonths_(forecastStart, -12);
+  const closedHistEnd = ctx.lastClosedMonthStart;
+
+  vals.forEach(r => {
+    const c = String(r[0] || '').trim();
+    const type = String(r[1] || '').trim();
+    const product = String(r[2] || '').trim();
+    const ym = toMonthStart_(r[3]);
+    const amt = toNumberSafe_(r[4]);
+    if (!c || !isSameClient_(c, client)) return;
+    if (type !== 'BASE' || !product || !ym || !isFinite(amt)) return;
+    if (ym < closedHistStart || ym > closedHistEnd) return;
+    map.set(product, (map.get(product) || 0) + amt);
+  });
+
+  const total = Array.from(map.values()).reduce((a, b) => a + b, 0);
+  if (total <= 0) return new Map();
+
+  const out = new Map();
+  map.forEach((v, k) => out.set(k, v / total));
   return out;
 }
 
