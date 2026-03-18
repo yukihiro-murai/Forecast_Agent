@@ -253,9 +253,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -576,7 +578,7 @@ function importPastSalesToSalesTab() {
   const years = [fy - 4, fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -927,7 +929,7 @@ function runForecastFYCore_(fy, clientName) {
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
 
   // スムージング（季節性は守りつつ単発スパイクだけ弱める）
-  const smoothY = smoothSeriesSeasonalAware_(aggY_adj);
+  const smoothY = aggY_adj.slice();
 
   // Opsモデル：トレンド＋季節性
   const model = fitOpsModelTrendSeason_(smoothY);
