@@ -253,9 +253,11 @@ function setupForecastBook() {
 
   const order = [
     SHEETS.GUIDE,
+    SHEETS.OUTPUT,
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
@@ -576,7 +578,7 @@ function importPastSalesToSalesTab() {
   const years = [fy - 4, fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
-  const start = new Date(fy - 4, 3, 1); // fy-4/04/01
+  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
   const totalMonths = 48;
 
   const map = new Map(); // productName -> monthly[48]
@@ -927,7 +929,7 @@ function runForecastFYCore_(fy, clientName) {
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
 
   // スムージング（季節性は守りつつ単発スパイクだけ弱める）
-  const smoothY = smoothSeriesSeasonalAware_(aggY_adj);
+  const smoothY = aggY_adj.slice();
 
   // Opsモデル：トレンド＋季節性
   const model = fitOpsModelTrendSeason_(smoothY);
@@ -1120,6 +1122,22 @@ function writeOutputFY_(result) {
   // AI調査 Insight
   sh.getRange(7, 1).setValue('AI調査 Insight').setFontWeight('bold');
   sh.getRange(7, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiScores, result.aiReportText || '')).setWrap(true);
+
+  // 上部：担当者所感要約
+  sh.getRange(4, 1).setValue('担当者所感（OPINION）');
+  sh.getRange(4, 1).setFontWeight('bold');
+  sh.getRange(4, 2).setValue(result.opinionsSummaryTop || '（未入力）');
+  sh.getRange(4, 2, 1, 5).merge();
+  sh.getRange(4, 2).setWrap(true);
+
+  // AI調査スコア要約
+  const ai = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const aiSummary = `Market: ${ai.Market} / Competitor: ${ai.Competitor} / Channel: ${ai.Channel} / DX: ${ai.DX}`;
+  sh.getRange(5, 1).setValue('AI調査スコア（adjusted）');
+  sh.getRange(5, 1).setFontWeight('bold');
+  sh.getRange(5, 2).setValue(aiSummary || '（未実施）');
+  sh.getRange(5, 2, 1, 5).merge();
+  sh.getRange(5, 2).setWrap(true);
 
   // 既存チャート削除（重なり防止）
   sh.getCharts().forEach(c => sh.removeChart(c));
