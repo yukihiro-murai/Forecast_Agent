@@ -377,14 +377,14 @@ function showInitialSetupDialog_() {
       ${optionsHtml}
     </select>
     <div class="hint">
-      ※ 候補は外部実績シート（最新2年のAO列）から自動抽出しています。
+      ※クライアント名の候補は外部実績シートから自動抽出しています。
     </div>
   </div>
 
   <div class="block">
     <label>何年度（FY）を予測しますか？</label>
     <input id="fy" type="number" />
-    <div class="hint">※ 空欄の場合はデフォルト年度（${defaultFY}年）を使用します。（決算期：3月末）</div>
+    <div class="hint">※ 空欄の場合デフォルト年度（${defaultFY}年）を使用。（決算月：${defaultFY + 1}年3月）</div>
   </div>
 
   <div class="block">
@@ -555,8 +555,8 @@ function importPastSalesToSalesTab() {
 
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
 
-  // 予測FY=2026なら → 2023,2024,2025,2026
-  const years = [fy - 3, fy - 2, fy - 1, fy];
+  // 予測FY=2026なら → 2022,2023,2024,2025,2026（2026年は1〜3月を使用）
+  const years = [fy - 4, fy - 3, fy - 2, fy - 1, fy];
   const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
 
   const start = new Date(fy - 3, 3, 1); // fy-3/04/01
@@ -904,7 +904,8 @@ function runForecastFYCore_(fy, clientName) {
     : sumAcrossProducts_(salesData.monthlyByProduct);
 
   const seriesStart = salesData.headerMonths && salesData.headerMonths.length ? salesData.headerMonths[0] : new Date(fy - 4, 3, 1);
-  const aggY_adj = aggY_raw.slice();
+  const unclosedAdjusted = adjustForUnclosedMonths_(aggY_raw, seriesStart);
+  const aggY_adj = unclosedAdjusted.series.slice();
 
   toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
 
@@ -3378,7 +3379,7 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
 
   const isSalesInput = targetSheetName === SHEETS.SALES_INPUT_MONTHLY;
   const start = isSalesInput ? new Date(fy - 4, 3, 1) : new Date(fy - 3, 3, 1);
-  const end = isSalesInput ? new Date(fy - 1, 2, 1) : new Date(fy + 1, 2, 1);
+  const end = isSalesInput ? new Date(fy, 2, 1) : new Date(fy + 1, 2, 1);
   const rows = [];
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
