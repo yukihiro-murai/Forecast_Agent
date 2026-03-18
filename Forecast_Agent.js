@@ -974,6 +974,7 @@ function runForecastFYCore_(fy, clientName) {
 
   // AI調査スコア（topic別 adjusted_score 平均）
   const aiScores = readAIResearchScores_();
+  const aiReportText = readAIPasteOutputSummary_();
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
   const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
@@ -1058,7 +1059,8 @@ function runForecastFYCore_(fy, clientName) {
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
     baseSeries48: salesData.baseSeries48 || [],
     opsModel: model,
-    aiScores
+    aiScores,
+    aiReportText
   };
 }
 
@@ -1123,26 +1125,19 @@ function writeOutputFY_(result) {
   sh.getRange(7, 1).setValue('AI調査 Insight').setFontWeight('bold');
   sh.getRange(7, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiScores, result.aiReportText || '')).setWrap(true);
 
-  // 上部：担当者所感要約
-  sh.getRange(4, 1).setValue('担当者所感（OPINION）');
-  sh.getRange(4, 1).setFontWeight('bold');
-  sh.getRange(4, 2).setValue(result.opinionsSummaryTop || '（未入力）');
-  sh.getRange(4, 2, 1, 5).merge();
-  sh.getRange(4, 2).setWrap(true);
-
-  // AI調査スコア要約
-  const ai = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  const aiSummary = `Market: ${ai.Market} / Competitor: ${ai.Competitor} / Channel: ${ai.Channel} / DX: ${ai.DX}`;
-  sh.getRange(5, 1).setValue('AI調査スコア（adjusted）');
-  sh.getRange(5, 1).setFontWeight('bold');
-  sh.getRange(5, 2).setValue(aiSummary || '（未実施）');
-  sh.getRange(5, 2, 1, 5).merge();
-  sh.getRange(5, 2).setWrap(true);
+  // AI調査スコア（4指標）説明
+  sh.getRange(8, 1).setValue('AI調査スコア（adjusted）説明').setFontWeight('bold');
+  sh.getRange(8, 2, 1, 5).merge().setValue(`Market: 市場環境・需要の追い風/逆風
+Competitor: 競合動向による取りやすさ
+Channel: 販売チャネル/商流の有利不利
+DX: デジタル化・運用効率化による成長余地`).setWrap(true);
 
   // 既存チャート削除（重なり防止）
   sh.getCharts().forEach(c => sh.removeChart(c));
 
-  let row = 9;
+  let row = 10;
+
+  const seasonalWeightedCore = forecastSeasonalWeighted_(result.baseSeries48 || []);
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
@@ -1154,7 +1149,8 @@ function writeOutputFY_(result) {
     chartTitle: `混合：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`,
     spotFixedByMonth: result.spotFixedByMonth,
     devFixedByMonth: result.devFixedByMonth,
-    spotBackgroundByMonth: result.spotBackgroundByMonth
+    spotBackgroundByMonth: result.spotBackgroundByMonth,
+    seasonalWeighted: seasonalWeightedCore
   });
 
   row += 2;
@@ -1169,7 +1165,8 @@ function writeOutputFY_(result) {
     chartTitle: `客観のみ：FY${fy} 月次予測レンジ（${client} / P10-P50-P90 + 回帰）`,
     spotFixedByMonth: result.spotFixedByMonth,
     devFixedByMonth: result.devFixedByMonth,
-    spotBackgroundByMonth: result.spotBackgroundByMonth
+    spotBackgroundByMonth: result.spotBackgroundByMonth,
+    seasonalWeighted: seasonalWeightedCore
   });
 
   row += 2;
@@ -1177,11 +1174,11 @@ function writeOutputFY_(result) {
   // 参考：内訳（P50比較）
   sh.getRange(row, 1).setValue('（参考）内訳とメモ（P50比較）');
   sh.getRange(row, 1).setFontWeight('bold');
-  sh.getRange(row, 1, 1, 6).merge();
+  sh.getRange(row, 1, 1, 11).merge();
   row++;
 
   sh.getRange(row, 1).setValue('※「運用(Ops)」はBASEのトレンド＋季節性から推定。背景SPOT（定量）とknown spot（定性）を分離して扱います。');
-  sh.getRange(row, 1, 1, 6).merge();
+  sh.getRange(row, 1, 1, 11).merge();
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10);
   row++;
 
@@ -1221,8 +1218,12 @@ function writeOutputFY_(result) {
 
   // ===== セクション3：三角測量（手法比較） =====
   sh.getRange(row, 1).setValue('Triangulation View（手法比較）');
-  sh.getRange(row, 1, 1, 6).merge();
+  sh.getRange(row, 1, 1, 8).merge();
   sh.getRange(row, 1).setBackground('#d9e1f2').setFontWeight('bold');
+  row++;
+  sh.getRange(row, 1).setValue('※ MonteCarlo: 残差分布を用いた確率予測 / Linear: 線形トレンド外挿 / Seasonal Weighted: 同月履歴の加重平均（直近重み・スパイク抑制）');
+  sh.getRange(row, 1, 1, 8).merge();
+  sh.getRange(row, 1).setFontColor('#666666').setFontSize(10).setWrap(true);
   row++;
 
   const seasonalWeighted = forecastSeasonalWeighted_(result.baseSeries48 || []);
@@ -1258,7 +1259,7 @@ function writeOutputFY_(result) {
 
   // ===== セクション4：入力パラメータの影響可視化 =====
   sh.getRange(row, 1).setValue('入力パラメータの影響（目安）');
-  sh.getRange(row, 1, 1, 8).merge();
+  sh.getRange(row, 1, 1, 11).merge();
   sh.getRange(row, 1).setBackground('#e2f0d9').setFontWeight('bold');
   row++;
 
@@ -1297,7 +1298,7 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // ラベル
   sh.getRange(r, 1).setValue(opt.label);
-  sh.getRange(r, 1, 1, 6).merge();
+  sh.getRange(r, 1, 1, 7).merge();
   sh.getRange(r, 1).setBackground(opt.labelBg).setFontWeight('bold');
   r++;
 
@@ -1306,10 +1307,11 @@ function writeSectionBlock_(sh, startRow, opt) {
   const sumNeu = sumArr_(opt.series.p50);
   const sumNeg = sumArr_(opt.series.p10);
   const sumReg = sumArr_(opt.regTotal);
+  const sumSeasonal = sumArr_(opt.seasonalWeighted || new Array(12).fill(0));
   const sumRange = sumPos - sumNeg;
 
-  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Range(P90-P10)'];
-  const annualVal = ['年度合計（予測）', sumNeg, sumNeu, sumPos, sumReg, sumRange];
+  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
+  const annualVal = ['年度合計（予測）', sumNeg, sumNeu, sumPos, sumReg, sumSeasonal, sumRange];
 
   sh.getRange(r, 1, 1, annualHdr.length).setValues([annualHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   // BCDだけ意味色に
@@ -1319,7 +1321,7 @@ function writeSectionBlock_(sh, startRow, opt) {
   r++;
 
   sh.getRange(r, 1, 1, annualVal.length).setValues([annualVal]);
-  sh.getRange(r, 2, 1, 5).setNumberFormat('¥#,##0');
+  sh.getRange(r, 2, 1, 6).setNumberFormat('¥#,##0');
 
   // 意味色（値行）
   sh.getRange(r, 2).setBackground(COLOR_NEG);
@@ -1329,7 +1331,7 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 月次表
   r++;
-  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Range(P90-P10)'];
+  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
   sh.getRange(r, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const monthTableHeaderRow = r;
   // BCDだけ意味色に
@@ -1343,11 +1345,12 @@ function writeSectionBlock_(sh, startRow, opt) {
     const neu = opt.series.p50[i];
     const neg = opt.series.p10[i];
     const reg = opt.regTotal[i];
-    return [fmtYM_(m), neg, neu, pos, reg, (pos - neg)];
+    const sea = (opt.seasonalWeighted || [])[i] || 0;
+    return [fmtYM_(m), neg, neu, pos, reg, sea, (pos - neg)];
   });
 
   sh.getRange(r, 1, table.length, hdr.length).setValues(table);
-  sh.getRange(r, 2, table.length, 5).setNumberFormat('¥#,##0');
+  sh.getRange(r, 2, table.length, 6).setNumberFormat('¥#,##0');
   sh.getRange(r, 1, table.length, 1).setNumberFormat('@');
 
   // 意味色（列全体）
@@ -1360,12 +1363,13 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r - 1, 3).setNote('【Baseline(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
   sh.getRange(r - 1, 4).setNote('【Upside(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
   sh.getRange(r - 1, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
-  sh.getRange(r - 1, 6).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
+  sh.getRange(r - 1, 6).setNote('【Seasonal Weighted】\n同月履歴の加重平均（直近重み）にスパイク抑制をかけた独立推計です。');
+  sh.getRange(r - 1, 7).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
 
   // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
   r += table.length + 2;
   sh.getRange(r, 1).setValue('Scenario Split（BASE / SPOT）').setFontWeight('bold');
-  sh.getRange(r, 1, 1, 6).merge();
+  sh.getRange(r, 1, 1, 7).merge();
   sh.getRange(r, 1).setBackground('#e2f0d9');
   r++;
 
@@ -2077,7 +2081,8 @@ function findFirstExtremeStepIssue_(fy) {
     if (abs >= STEP_BLOCK_THRESHOLD) {
       return {
         level: 'high',
-        message: `Stepが極端です（±100%以上）。\n\n${detail}\n\nプロモーション終了などで意図した入力ならOKで続行できます。修正する場合はキャンセルしてください。`
+        message: `Stepが極端です（±100%以上）。\n\n${detail}\n\nプロモーション終了などで意図した入力ならOKで続行できます。
+修正する場合はキャンセルしてください。`
       };
     }
     if (abs >= STEP_STRONG_THRESHOLD) {
@@ -2117,13 +2122,15 @@ function findFirstExtremeDevSpotIssue_(fy) {
     if (ratio >= 1.2) {
       return {
         level: 'high',
-        message: `DEV/SPOT固定が大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した大型案件ならOKで続行、修正する場合はキャンセルしてください。`
+        message: `DEV/SPOT固定が大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した大型案件ならOKで続行できます。
+修正する場合はキャンセルしてください。`
       };
     }
     if (ratio >= 0.8) {
       return {
         level: 'warn',
-        message: `DEV/SPOT固定がやや大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した入力ならOKで続行、修正する場合はキャンセルしてください。`
+        message: `DEV/SPOT固定がやや大きい月があります（${ym} / ${Math.round(v).toLocaleString()}円, BASE平均比 ${(ratio * 100).toFixed(1)}%）。\n\n意図した入力ならOKで続行できます。
+修正する場合はキャンセルしてください。`
       };
     }
   }
@@ -2172,7 +2179,8 @@ function findFirstExtremeMultiplierIssue_(fy) {
     if (kTotal < K_TOTAL_BLOCK_MIN || kTotal > K_TOTAL_BLOCK_MAX) {
       return {
         level: 'high',
-        message: `主観/AIの合成係数が極端です（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\n意図した戦略変更ならOKで続行できます。修正する場合はキャンセルしてください。`
+        message: `主観/AIの合成係数が極端です（${ym} / kTotal=${kTotal.toFixed(3)}）。\n\n意図した戦略変更ならOKで続行できます。
+修正する場合はキャンセルしてください。`
       };
     }
     if (kTotal < K_TOTAL_WARN_MIN || kTotal > K_TOTAL_WARN_MAX) {
@@ -2881,6 +2889,15 @@ function readAIResearchScores_() {
   return result;
 }
 
+function readAIPasteOutputSummary_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  if (!sh) return '';
+  const txt = String(sh.getRange('D2').getValue() || '').replace(/\s+/g, ' ').trim();
+  if (!txt) return '';
+  return txt.length > 120 ? `${txt.slice(0, 120)}…` : txt;
+}
+
 
 /** ====== 予測計算（モデル） ====== */
 function fitOpsModelTrendSeason_(y) {
@@ -2971,13 +2988,15 @@ function buildAIInsight_(aiScores, reportText) {
   kv.sort((a,b)=>b.v-a.v);
   const best = kv[0] || { k: 'Market', v: 0 };
   const worst = kv[kv.length - 1] || { k: 'DX', v: 0 };
-  const txt = String(reportText || '');
+  const txt = String(reportText || '').trim();
   const horizon = (txt.match(/short/ig)||[]).length >= (txt.match(/mid/ig)||[]).length ? 'Short寄り' : 'Mid寄り';
+  const summaryLine = txt ? `・paste_gem_output要約: ${txt.slice(0, 90)}${txt.length > 90 ? '…' : ''}` : '・paste_gem_output要約: （未貼付）';
   return `・ポジティブ要因: ${best.k} (${best.v.toFixed(1)})
 ・ネガティブ要因: ${worst.k} (${worst.v.toFixed(1)})
 ・示唆の時間軸は ${horizon}
-・高インパクト項目は担当者コメントと整合確認を推奨`;
+${summaryLine}`;
 }
+
 
 function forecastByResidualQuantiles_(model, devFixedByMonth, q) {
   const p10 = [], p50 = [], p90 = [];
@@ -3791,7 +3810,7 @@ function runPhase1Forecast() {
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
-    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
