@@ -150,7 +150,7 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SHARE_WARN_THRESHOLD = 0.40;   // 定性寄与率警告閾値
+const QUAL_SHARE_WARN_THRESHOLD = 0.20;   // 定性寄与率警告閾値
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
 const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
 
@@ -974,7 +974,7 @@ function runForecastFYCore_(fy, clientName) {
 
   // AI調査スコア（topic別 adjusted_score 平均）
   const aiScores = readAIResearchScores_();
-  const aiReportText = readAIPasteOutputSummary_();
+  const aiReportText = readAIPasteOutputFullText_();
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
   const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
@@ -1124,18 +1124,22 @@ function writeOutputFY_(result) {
   // AI調査 Insight
   sh.getRange(7, 1).setValue('AI調査 Insight').setFontWeight('bold');
   sh.getRange(7, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiScores, result.aiReportText || '')).setWrap(true);
-
-  // AI調査スコア（4指標）説明
-  sh.getRange(8, 1).setValue('AI調査スコア（adjusted）説明').setFontWeight('bold');
-  sh.getRange(8, 2, 1, 5).merge().setValue(`Market: 市場環境・需要の追い風/逆風
+  sh.getRange(7, 1).setNote(`Market: 市場環境・需要の追い風/逆風
 Competitor: 競合動向による取りやすさ
 Channel: 販売チャネル/商流の有利不利
-DX: デジタル化・運用効率化による成長余地`).setWrap(true);
+DX: デジタル化・運用効率化による成長余地`);
+  sh.setRowHeight(7, 48); // 全文保持しつつ表示は見切れてOK
+
+  // AI調査スコア（4軸）を省略せず表示
+  const ai4 = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  sh.getRange(8, 1).setValue('AI調査スコア（4軸）').setFontWeight('bold');
+  sh.getRange(8, 2, 1, 4).setValues([['Market','Competitor','Channel','DX']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(9, 2, 1, 4).setValues([[ai4.Market || 0, ai4.Competitor || 0, ai4.Channel || 0, ai4.DX || 0]]).setNumberFormat('0.0');
 
   // 既存チャート削除（重なり防止）
   sh.getCharts().forEach(c => sh.removeChart(c));
 
-  let row = 10;
+  let row = 11;
 
   const seasonalWeightedCore = forecastSeasonalWeighted_(result.baseSeries48 || []);
 
@@ -2889,7 +2893,7 @@ function readAIResearchScores_() {
   return result;
 }
 
-function readAIPasteOutputSummary_() {
+function readAIPasteOutputFullText_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
   if (!sh) return '';
@@ -2990,11 +2994,12 @@ function buildAIInsight_(aiScores, reportText) {
   const worst = kv[kv.length - 1] || { k: 'DX', v: 0 };
   const txt = String(reportText || '').trim();
   const horizon = (txt.match(/short/ig)||[]).length >= (txt.match(/mid/ig)||[]).length ? 'Short寄り' : 'Mid寄り';
-  const summaryLine = txt ? `・paste_gem_output要約: ${txt.slice(0, 90)}${txt.length > 90 ? '…' : ''}` : '・paste_gem_output要約: （未貼付）';
+  const fullText = txt || '（paste_gem_output 未貼付）';
   return `・ポジティブ要因: ${best.k} (${best.v.toFixed(1)})
 ・ネガティブ要因: ${worst.k} (${worst.v.toFixed(1)})
 ・示唆の時間軸は ${horizon}
-${summaryLine}`;
+・AI本文:
+${fullText}`;
 }
 
 
@@ -4102,12 +4107,34 @@ function applyTabColors_() {
 
 function hideNonUserSheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const hideTargets = [SHEETS.AI_RESEARCH_STRUCTURED, SHEETS.RUN_LOG, SHEETS.FORECAST_SNAPSHOT, SHEETS.PROCESS_STATUS];
-  hideTargets.forEach(name => {
-    const sh = ss.getSheetByName(name);
-    if (sh) sh.hideSheet();
+  const userVisible = new Set([
+    SHEETS.GUIDE,
+    SHEETS.CONFIG,
+    SHEETS.SALES_INPUT_MONTHLY,
+    SHEETS.SALES,
+    SHEETS.FACTORS_PRODUCT,
+    SHEETS.FACTORS_CLIENT,
+    SHEETS.OPINIONS,
+    SHEETS.DEV_SPOT,
+    SHEETS.OUTPUT,
+    SHEETS.AI_RESEARCH_PROMPT,
+    SHEETS.ACTUAL_EVAL_MONTHLY,
+    SHEETS.EVAL_COMPARE_MONTHLY,
+    SHEETS.EVAL_INSIGHTS,
+    SHEETS.DASHBOARD
+  ]);
+
+  ss.getSheets().forEach(sh => {
+    const name = sh.getName();
+    try {
+      if (userVisible.has(name)) sh.showSheet();
+      else sh.hideSheet();
+    } catch (e) {
+      // フィルタビュー中などで失敗しても処理継続
+    }
   });
 }
+
 
 function setGuideLinkTable_(guideSheet, startRow, links) {
   const colorByLabel = {
