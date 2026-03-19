@@ -150,9 +150,24 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SHARE_WARN_THRESHOLD = 0.20;   // 定性寄与率警告閾値
+const QUAL_SHARE_ALERT_THRESHOLD = 0.20;  // 定性寄与率アラート閾値（警告用途）
+const QUAL_SHARE_TARGET_CENTER = 0.20;     // 定性寄与率の目標中心
+const QUAL_SHARE_TARGET_LOW = 0.18;        // 定性寄与率の許容下限
+const QUAL_SHARE_TARGET_HIGH = 0.22;       // 定性寄与率の許容上限
+const QUAL_SUBJECTIVE_MAX_SCALE = 2.50;    // 主観連続差分の最大スケール
+const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.50;  // 月次cap（quantOpsAfterResidual比）
+const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
 const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
+
+// Seasonal Weighted（48M維持）
+const SEASONAL_YEAR_WEIGHT_Y1 = 0.10; // oldest
+const SEASONAL_YEAR_WEIGHT_Y2 = 0.20;
+const SEASONAL_YEAR_WEIGHT_Y3 = 0.30;
+const SEASONAL_YEAR_WEIGHT_Y4 = 0.40; // newest
+const SEASONAL_OPEN_MONTH_WEIGHT_MULT = 0.60;
+const SEASONAL_WEIGHTED_MAD_K = 2.5;
+const SEASONAL_COMPARE_WARN_THRESHOLD = 0.25;
 
 /** ====== メニュー ====== */
 function onOpen() {
@@ -926,9 +941,7 @@ function runForecastFYCore_(fy, clientName) {
   const unclosedAdjusted = adjustForUnclosedMonths_(aggY_raw, seriesStart);
   const aggY_adj = unclosedAdjusted.series.slice();
 
-  toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
-
-  // スムージング（季節性は守りつつ単発スパイクだけ弱める）
+  toastProgress_(ss, 'STEP2/6: 未確定月補完済み48ヶ月でトレンド＋季節性を推定…', 7);
   const smoothY = aggY_adj.slice();
 
   // Opsモデル：トレンド＋季節性
@@ -1011,6 +1024,7 @@ function runForecastFYCore_(fy, clientName) {
     months,
     aiWeight: tuning.aiWeight,
     aiMaxAbsEffect: tuning.aiMaxAbsEffect,
+    tuning,
     spotBgModel,
     knownSpotProjectsByMonth: devProjectsByMonth,
     knownSpotBgSuppressRate: isFinite(tuning.knownSpotBgSuppressRate) ? tuning.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE
@@ -1058,6 +1072,9 @@ function runForecastFYCore_(fy, clientName) {
     actualClosedByMonth,
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
     baseSeries48: salesData.baseSeries48 || [],
+    adjustedBaseSeries48: aggY_adj,
+    seriesStart,
+    lastClosedMonthStart: ctx.lastClosedMonthStart,
     opsModel: model,
     aiScores,
     aiReportText
@@ -1097,25 +1114,30 @@ function writeOutputFY_(result) {
   // KPIブロック（定量/定性寄与）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
   const mixedP50 = result.mixed.p50 || new Array(12).fill(0);
+  const mixedRawP50 = (result.mixed.raw && result.mixed.raw.p50) ? result.mixed.raw.p50 : mixedP50;
   const quantTotal = sumArr_(quantP50);
   const mixedTotal = sumArr_(mixedP50);
+  const mixedRawTotal = sumArr_(mixedRawP50);
   const qualDeltaSigned = mixedTotal - quantTotal;
+  const rawQualDeltaSigned = mixedRawTotal - quantTotal;
   const denom = Math.abs(quantTotal) + Math.abs(qualDeltaSigned);
+  const rawDenom = Math.abs(quantTotal) + Math.abs(rawQualDeltaSigned);
   const quantShare = denom > 0 ? (Math.abs(quantTotal) / denom) : 1;
   const qualShare = denom > 0 ? (Math.abs(qualDeltaSigned) / denom) : 0;
+  const rawQualShare = rawDenom > 0 ? (Math.abs(rawQualDeltaSigned) / rawDenom) : 0;
   const tuningTop = readModelTuningFromConfig_();
-  const qualWarnThreshold = isFinite(tuningTop.qualShareWarnThreshold) ? tuningTop.qualShareWarnThreshold : QUAL_SHARE_WARN_THRESHOLD;
+  const qualWarnThreshold = isFinite(tuningTop.qualShareAlertThreshold) ? tuningTop.qualShareAlertThreshold : QUAL_SHARE_ALERT_THRESHOLD;
   const qualWarn = qualShare >= qualWarnThreshold ? '⚠ 定性寄与が高めです' : 'OK';
 
   sh.getRange(3, 1).setValue('KPI（定量/定性寄与）').setFontWeight('bold').setBackground('#e2f0d9');
   sh.getRange(3, 1, 1, 6).merge();
-  const kpiHdr = ['定量寄与率', '定性寄与率', '定性差分額', '警告'];
-  const kpiVal = [quantShare, qualShare, qualDeltaSigned, qualWarn];
-  sh.getRange(4, 1, 1, 4).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(5, 1, 1, 4).setValues([kpiVal]);
-  sh.getRange(5, 1, 1, 2).setNumberFormat('0.0%');
-  sh.getRange(5, 3).setNumberFormat('¥#,##0');
-  if (qualShare >= qualWarnThreshold) sh.getRange(5, 4).setBackground('#f4cccc').setFontWeight('bold');
+  const kpiHdr = ['定量寄与率', '定性寄与率（calibrated）', '定性寄与率（raw）', '定性差分額（calibrated）', '警告'];
+  const kpiVal = [quantShare, qualShare, rawQualShare, qualDeltaSigned, qualWarn];
+  sh.getRange(4, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(5, 1, 1, 5).setValues([kpiVal]);
+  sh.getRange(5, 1, 1, 3).setNumberFormat('0.0%');
+  sh.getRange(5, 4).setNumberFormat('¥#,##0');
+  if (qualShare >= qualWarnThreshold) sh.getRange(5, 5).setBackground('#f4cccc').setFontWeight('bold');
 
   // 数値トレンド Insight
   sh.getRange(6, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
@@ -1141,7 +1163,19 @@ DX: デジタル化・運用効率化による成長余地`);
 
   let row = 11;
 
-  const seasonalWeightedCore = forecastSeasonalWeighted_(result.baseSeries48 || []);
+  const seasonalWeightedCore = forecastSeasonalWeighted48_({
+    adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
+    seriesStart: result.seriesStart,
+    lastClosedMonthStart: result.lastClosedMonthStart,
+    spotBackgroundExpectedByMonth: result.spotBackgroundByMonth || new Array(12).fill(0),
+    knownSpotExpectedByMonth: result.knownSpotExpectedByMonth || new Array(12).fill(0),
+    tuning: tuningTop
+  });
+  const seasonalCompareWarnThreshold = isFinite(tuningTop.seasonalCompareWarnThreshold) ? tuningTop.seasonalCompareWarnThreshold : SEASONAL_COMPARE_WARN_THRESHOLD;
+  const seasonalCompare = quantTotal !== 0 ? Math.abs((seasonalWeightedCore.annualTotal - quantTotal) / quantTotal) : 0;
+  if (seasonalCompare >= seasonalCompareWarnThreshold) {
+    seasonalWeightedCore.diagnostics.warningText = `⚠ Seasonal totalがQuant totalと${(seasonalCompare * 100).toFixed(1)}%乖離`;
+  }
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
@@ -1225,37 +1259,38 @@ DX: デジタル化・運用効率化による成長余地`);
   sh.getRange(row, 1, 1, 8).merge();
   sh.getRange(row, 1).setBackground('#d9e1f2').setFontWeight('bold');
   row++;
-  sh.getRange(row, 1).setValue('※ MonteCarlo: 残差分布を用いた確率予測 / Linear: 線形トレンド外挿 / Seasonal Weighted: 同月履歴の加重平均（直近重み・スパイク抑制）');
+  sh.getRange(row, 1).setValue('※ MonteCarlo: 残差分布を用いた確率予測 / Linear: 線形トレンド外挿 / Seasonal Weighted: 48M補完系列+Expected Spot のtotal比較');
   sh.getRange(row, 1, 1, 8).merge();
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10).setWrap(true);
   row++;
 
-  const seasonalWeighted = forecastSeasonalWeighted_(result.baseSeries48 || []);
+  const seasonalWeighted = seasonalWeightedCore;
   const quantP50Tri = (result.quantOnly || result.objOnly).p50;
-  const triHdr = ['比較軸', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted', 'Mixed P50', 'Mixed-Quant', 'Mixed-Linear', 'Mixed-Seasonal'];
+  const triHdr = ['比較軸', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted Total', 'Mixed Raw P50', 'Mixed Calibrated P50', 'Calibrated-Quant', 'Calibrated-Seasonal'];
   const sumReg = sumArr_(result.regTotal);
   const sumObj = sumArr_(quantP50Tri);
+  const sumMixRaw = sumArr_(mixedRawP50);
   const sumMix = sumArr_(result.mixed.p50);
-  const sumSea = sumArr_(seasonalWeighted);
-  const triAnnual = ['年度合計', sumObj, sumReg, sumSea, sumMix, sumMix - sumObj, sumMix - sumReg, sumMix - sumSea];
+  const sumSea = seasonalWeighted.annualTotal || 0;
+  const triAnnual = ['年度合計', sumObj, sumReg, sumSea, sumMixRaw, sumMix, sumMix - sumObj, sumMix - sumSea];
   sh.getRange(row, 1, 1, triHdr.length).setValues([triHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   sh.getRange(row, 1, 1, triAnnual.length).setValues([triAnnual]);
   sh.getRange(row, 2, 1, triAnnual.length - 1).setNumberFormat('¥#,##0');
   row += 2;
 
-  const triMonthHdr = ['Month', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted', 'Mixed P50', 'Mixed-Quant', 'Mixed-Linear', 'Mixed-Seasonal'];
+  const triMonthHdr = ['Month', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted Total', 'Mixed Raw P50', 'Mixed Calibrated P50', 'Calibrated-Quant', 'Calibrated-Seasonal'];
   sh.getRange(row, 1, 1, triMonthHdr.length).setValues([triMonthHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   const triMonthRows = result.months.map((m, i) => [
     fmtYM_(m),
     quantP50Tri[i],
     result.regTotal[i],
-    seasonalWeighted[i] || 0,
+    (seasonalWeighted.totalByMonth || [])[i] || 0,
+    mixedRawP50[i] || 0,
     result.mixed.p50[i],
     result.mixed.p50[i] - quantP50Tri[i],
-    result.mixed.p50[i] - result.regTotal[i],
-    result.mixed.p50[i] - (seasonalWeighted[i] || 0)
+    result.mixed.p50[i] - (((seasonalWeighted.totalByMonth || [])[i]) || 0)
   ]);
   sh.getRange(row, 1, triMonthRows.length, triMonthHdr.length).setValues(triMonthRows);
   sh.getRange(row, 2, triMonthRows.length, triMonthHdr.length - 1).setNumberFormat('¥#,##0');
@@ -1274,7 +1309,7 @@ DX: デジタル化・運用効率化による成長余地`);
   const kAI = d.kAIByMonth || new Array(12).fill(1);
   const opsBase = d.opsBaseByMonth || new Array(12).fill(0);
 
-  const infHdr = ['Month', 'Ops基礎', 'kProd', 'kClient', 'kOpinion(P50)', 'kAI', 'known spot(P50)', '背景SPOT(P50)', '混合P50', '定量P50', '差分(混合-定量)'];
+  const infHdr = ['Month', 'Ops基礎', 'kProd', 'kClient', 'kOpinion(P50)', 'kAI', 'Known Spot Expected', 'Known Spot P50', '背景SPOT(P50)', '混合P50(cal)', '混合P50(raw)', '定量P50'];
   sh.getRange(row, 1, 1, infHdr.length).setValues([infHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   const infRows = result.months.map((m, i) => [
@@ -1284,16 +1319,42 @@ DX: デジタル化・運用効率化による成長余地`);
     kClient[i] || 1,
     kOpinion[i] || 1,
     kAI[i] || 1,
+    (result.knownSpotExpectedByMonth || [])[i] || 0,
     (d.knownSpotP50ByMonth || [])[i] || 0,
     (d.bgSpotP50ByMonth || [])[i] || 0,
     result.mixed.p50[i] || 0,
-    (result.quantOnly || result.objOnly).p50[i] || 0,
-    (result.mixed.p50[i] || 0) - ((result.quantOnly || result.objOnly).p50[i] || 0)
+    mixedRawP50[i] || 0,
+    (result.quantOnly || result.objOnly).p50[i] || 0
   ]);
   sh.getRange(row, 1, infRows.length, infHdr.length).setValues(infRows);
   sh.getRange(row, 2, infRows.length, 1).setNumberFormat('¥#,##0');
   sh.getRange(row, 3, infRows.length, 4).setNumberFormat('0.000');
-  sh.getRange(row, 7, infRows.length, 5).setNumberFormat('¥#,##0');
+  sh.getRange(row, 7, infRows.length, 6).setNumberFormat('¥#,##0');
+
+  row += infRows.length + 2;
+  const diag = d.qualCalibration || {};
+  sh.getRange(row, 1).setValue('Diagnostics').setFontWeight('bold').setBackground('#fde9d9');
+  sh.getRange(row, 1, 1, 6).merge();
+  row++;
+  const diagHdr = ['rawSubjectiveShare', 'rawTotalQualShare', 'calibratedSubjectiveShare', 'calibratedTotalQualShare', 'qualScale', 'qualCapHit', 'seasonalBaseAnnual', 'seasonalExpectedSpotAnnual', 'seasonalTotalAnnual', 'seasonalCompareWarning', 'qualCompareWarning'];
+  const diagRow = [[
+    diag.rawSubjectiveShare || 0,
+    diag.rawTotalQualShare || 0,
+    diag.calibratedSubjectiveShare || 0,
+    diag.calibratedTotalQualShare || 0,
+    diag.qualScale || 1,
+    diag.qualCapHit ? 'YES' : 'NO',
+    seasonalWeighted.annualBase || 0,
+    seasonalWeighted.annualExpectedSpot || 0,
+    seasonalWeighted.annualTotal || 0,
+    seasonalWeighted.diagnostics && seasonalWeighted.diagnostics.warningText ? seasonalWeighted.diagnostics.warningText : '',
+    diag.warningText || ''
+  ]];
+  sh.getRange(row, 1, 1, diagHdr.length).setValues([diagHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  sh.getRange(row, 1, 1, diagHdr.length).setValues(diagRow);
+  sh.getRange(row, 1, 1, 5).setNumberFormat('0.0000');
+  sh.getRange(row, 7, 1, 3).setNumberFormat('¥#,##0');
 }
 
 /** セクションブロック（表＋グラフ） */
@@ -1311,10 +1372,11 @@ function writeSectionBlock_(sh, startRow, opt) {
   const sumNeu = sumArr_(opt.series.p50);
   const sumNeg = sumArr_(opt.series.p10);
   const sumReg = sumArr_(opt.regTotal);
-  const sumSeasonal = sumArr_(opt.seasonalWeighted || new Array(12).fill(0));
+  const seasonalTotalByMonth = (opt.seasonalWeighted && opt.seasonalWeighted.totalByMonth) ? opt.seasonalWeighted.totalByMonth : new Array(12).fill(0);
+  const sumSeasonal = sumArr_(seasonalTotalByMonth);
   const sumRange = sumPos - sumNeg;
 
-  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
+  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted Total', 'Range(P90-P10)'];
   const annualVal = ['年度合計（予測）', sumNeg, sumNeu, sumPos, sumReg, sumSeasonal, sumRange];
 
   sh.getRange(r, 1, 1, annualHdr.length).setValues([annualHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -1335,7 +1397,7 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 月次表
   r++;
-  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
+  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted Total', 'Range(P90-P10)'];
   sh.getRange(r, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const monthTableHeaderRow = r;
   // BCDだけ意味色に
@@ -1349,7 +1411,7 @@ function writeSectionBlock_(sh, startRow, opt) {
     const neu = opt.series.p50[i];
     const neg = opt.series.p10[i];
     const reg = opt.regTotal[i];
-    const sea = (opt.seasonalWeighted || [])[i] || 0;
+    const sea = seasonalTotalByMonth[i] || 0;
     return [fmtYM_(m), neg, neu, pos, reg, sea, (pos - neg)];
   });
 
@@ -1367,7 +1429,7 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r - 1, 3).setNote('【Baseline(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
   sh.getRange(r - 1, 4).setNote('【Upside(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
   sh.getRange(r - 1, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
-  sh.getRange(r - 1, 6).setNote('【Seasonal Weighted】\n同月履歴の加重平均（直近重み）にスパイク抑制をかけた独立推計です。');
+  sh.getRange(r - 1, 6).setNote('【Seasonal Weighted Total】\n48ヶ月補完系列の同月加重推計に、Expected Spot（背景+known）を加えた合計です。');
   sh.getRange(r - 1, 7).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
 
   // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
@@ -1506,8 +1568,8 @@ function buildGUIDE_() {
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 10, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
-    ['・織り込める要素: BASE履歴トレンド/季節性、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
-    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠で加算し、BASEトレンドとは分離します。'],
+    ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
+    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠で加算し、主観連続差分（raw/calibrated）と分離管理します。'],
     ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
     ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
     ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
@@ -1559,13 +1621,15 @@ function buildCONFIG_() {
   const infoStart = 12;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
   const infoRows = [
-    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月のみでトレンド+12ヶ月季節性を推定。SPOTは背景成分として別枠で加算します。'],
+    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
     ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
     ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
     ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
     ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
     ['AI調査（AI_RESEARCH_STRUCTURED）', 'kAI = 1 + 0.001 × (Market+Competitor+Channel+DX)。例: 合計+30 ⇒ +3%。'],
-    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（背景SPOTと合算してSPOT固定成分として扱う）。']
+    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（背景SPOTと合算してSPOT固定成分として扱う）。'],
+    ['定性差分の校正', '主観連続差分はrawとcalibratedを分離。known spotは増幅せず固定し、mixedのみ校正。'],
+    ['Seasonal Weighted', '48M補完系列の同月加重推計BASEにExpected Spotを加算し、total-to-totalで比較表示。']
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
@@ -1598,7 +1662,20 @@ function buildCONFIG_() {
     ['SPOT_SPIKE_MAD_K（SPOTスパイク判定MAD倍率）', SPOT_SPIKE_MAD_K],
     ['KNOWN_SPOT_OFFSET_RATE（known spotの背景相殺率）', KNOWN_SPOT_OFFSET_RATE],
     ['KNOWN_SPOT_BG_SUPPRESS_RATE（known spot命中時の背景抑制）', KNOWN_SPOT_BG_SUPPRESS_RATE],
-    ['QUAL_SHARE_WARN_THRESHOLD（定性寄与率警告閾値）', QUAL_SHARE_WARN_THRESHOLD]
+    ['QUAL_SHARE_ALERT_THRESHOLD（定性寄与率アラート閾値）', QUAL_SHARE_ALERT_THRESHOLD],
+    ['QUAL_SHARE_TARGET_CENTER（定性寄与率目標中心）', QUAL_SHARE_TARGET_CENTER],
+    ['QUAL_SHARE_TARGET_LOW（定性寄与率目標下限）', QUAL_SHARE_TARGET_LOW],
+    ['QUAL_SHARE_TARGET_HIGH（定性寄与率目標上限）', QUAL_SHARE_TARGET_HIGH],
+    ['QUAL_SUBJECTIVE_MAX_SCALE（主観連続差分の最大スケール）', QUAL_SUBJECTIVE_MAX_SCALE],
+    ['QUAL_SUBJECTIVE_MONTHLY_CAP（月次cap/quantOps基準）', QUAL_SUBJECTIVE_MONTHLY_CAP],
+    ['QUAL_CALIBRATION_ENABLED（1=有効,0=無効）', QUAL_CALIBRATION_ENABLED],
+    ['SEASONAL_YEAR_WEIGHT_Y1（最古年重み）', SEASONAL_YEAR_WEIGHT_Y1],
+    ['SEASONAL_YEAR_WEIGHT_Y2', SEASONAL_YEAR_WEIGHT_Y2],
+    ['SEASONAL_YEAR_WEIGHT_Y3', SEASONAL_YEAR_WEIGHT_Y3],
+    ['SEASONAL_YEAR_WEIGHT_Y4（最新年重み）', SEASONAL_YEAR_WEIGHT_Y4],
+    ['SEASONAL_OPEN_MONTH_WEIGHT_MULT（未確定月信頼度係数）', SEASONAL_OPEN_MONTH_WEIGHT_MULT],
+    ['SEASONAL_WEIGHTED_MAD_K（季節推計MAD倍率）', SEASONAL_WEIGHTED_MAD_K],
+    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -2381,7 +2458,20 @@ function readModelTuningFromConfig_() {
     spotSpikeMadK: SPOT_SPIKE_MAD_K,
     knownSpotOffsetRate: KNOWN_SPOT_OFFSET_RATE,
     knownSpotBgSuppressRate: KNOWN_SPOT_BG_SUPPRESS_RATE,
-    qualShareWarnThreshold: QUAL_SHARE_WARN_THRESHOLD
+    qualShareAlertThreshold: QUAL_SHARE_ALERT_THRESHOLD,
+    qualShareTargetCenter: QUAL_SHARE_TARGET_CENTER,
+    qualShareTargetLow: QUAL_SHARE_TARGET_LOW,
+    qualShareTargetHigh: QUAL_SHARE_TARGET_HIGH,
+    qualSubjectiveMaxScale: QUAL_SUBJECTIVE_MAX_SCALE,
+    qualSubjectiveMonthlyCap: QUAL_SUBJECTIVE_MONTHLY_CAP,
+    qualCalibrationEnabled: QUAL_CALIBRATION_ENABLED,
+    seasonalYearWeightY1: SEASONAL_YEAR_WEIGHT_Y1,
+    seasonalYearWeightY2: SEASONAL_YEAR_WEIGHT_Y2,
+    seasonalYearWeightY3: SEASONAL_YEAR_WEIGHT_Y3,
+    seasonalYearWeightY4: SEASONAL_YEAR_WEIGHT_Y4,
+    seasonalOpenMonthWeightMult: SEASONAL_OPEN_MONTH_WEIGHT_MULT,
+    seasonalWeightedMadK: SEASONAL_WEIGHTED_MAD_K,
+    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2401,7 +2491,20 @@ function readModelTuningFromConfig_() {
   out.spotSpikeMadK = Math.max(0.5, Math.min(10, getNum('B37', out.spotSpikeMadK)));
   out.knownSpotOffsetRate = Math.max(0, Math.min(1, getNum('B38', out.knownSpotOffsetRate)));
   out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getNum('B39', out.knownSpotBgSuppressRate)));
-  out.qualShareWarnThreshold = Math.max(0, Math.min(1, getNum('B40', out.qualShareWarnThreshold)));
+  out.qualShareAlertThreshold = Math.max(0, Math.min(1, getNum('B40', out.qualShareAlertThreshold)));
+  out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getNum('B41', out.qualShareTargetCenter)));
+  out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getNum('B42', out.qualShareTargetLow)));
+  out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getNum('B43', out.qualShareTargetHigh)));
+  out.qualSubjectiveMaxScale = Math.max(0.1, Math.min(10, getNum('B44', out.qualSubjectiveMaxScale)));
+  out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getNum('B45', out.qualSubjectiveMonthlyCap)));
+  out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getNum('B46', out.qualCalibrationEnabled))));
+  out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getNum('B47', out.seasonalYearWeightY1)));
+  out.seasonalYearWeightY2 = Math.max(0, Math.min(1, getNum('B48', out.seasonalYearWeightY2)));
+  out.seasonalYearWeightY3 = Math.max(0, Math.min(1, getNum('B49', out.seasonalYearWeightY3)));
+  out.seasonalYearWeightY4 = Math.max(0, Math.min(1, getNum('B50', out.seasonalYearWeightY4)));
+  out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getNum('B51', out.seasonalOpenMonthWeightMult)));
+  out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getNum('B52', out.seasonalWeightedMadK)));
+  out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getNum('B53', out.seasonalCompareWarnThreshold)));
   return out;
 }
 
@@ -2930,36 +3033,71 @@ function fitOpsModelTrendSeason_(y) {
 }
 
 
-function forecastSeasonalWeighted_(baseSeries48) {
-  const src = Array.isArray(baseSeries48) ? baseSeries48 : new Array(48).fill(0);
-  const out = new Array(12).fill(0);
-  const yearWeights = [0.1, 0.2, 0.3, 0.4];
+function forecastSeasonalWeighted48_(opt) {
+  const src = (opt && Array.isArray(opt.adjustedBaseSeries48)) ? opt.adjustedBaseSeries48 : new Array(48).fill(0);
+  const seriesStart = (opt && opt.seriesStart) ? opt.seriesStart : new Date(new Date().getFullYear() - 4, 3, 1);
+  const lastClosedMonthStart = (opt && opt.lastClosedMonthStart) ? opt.lastClosedMonthStart : getLastClosedMonthStart_();
+  const spotBg = (opt && Array.isArray(opt.spotBackgroundExpectedByMonth)) ? opt.spotBackgroundExpectedByMonth : new Array(12).fill(0);
+  const knownSpot = (opt && Array.isArray(opt.knownSpotExpectedByMonth)) ? opt.knownSpotExpectedByMonth : new Array(12).fill(0);
+  const tuning = (opt && opt.tuning) ? opt.tuning : {};
+  const yearWeights = [
+    isFinite(tuning.seasonalYearWeightY1) ? tuning.seasonalYearWeightY1 : SEASONAL_YEAR_WEIGHT_Y1,
+    isFinite(tuning.seasonalYearWeightY2) ? tuning.seasonalYearWeightY2 : SEASONAL_YEAR_WEIGHT_Y2,
+    isFinite(tuning.seasonalYearWeightY3) ? tuning.seasonalYearWeightY3 : SEASONAL_YEAR_WEIGHT_Y3,
+    isFinite(tuning.seasonalYearWeightY4) ? tuning.seasonalYearWeightY4 : SEASONAL_YEAR_WEIGHT_Y4
+  ];
+  const openMult = isFinite(tuning.seasonalOpenMonthWeightMult) ? tuning.seasonalOpenMonthWeightMult : SEASONAL_OPEN_MONTH_WEIGHT_MULT;
+  const madK = isFinite(tuning.seasonalWeightedMadK) ? tuning.seasonalWeightedMadK : SEASONAL_WEIGHTED_MAD_K;
+  const compareWarnThreshold = isFinite(tuning.seasonalCompareWarnThreshold) ? tuning.seasonalCompareWarnThreshold : SEASONAL_COMPARE_WARN_THRESHOLD;
 
+  const baseByMonth = new Array(12).fill(0);
+  const monthTrendFactor = computeMonthTrendFactors_(src, src.map((_, i) => i));
   for (let m = 0; m < 12; m++) {
     const vals = [];
     for (let y = 0; y < 4; y++) {
       const idx = y * 12 + m;
-      const v = Number(src[idx] || 0);
-      if (isFinite(v)) vals.push({ v, w: yearWeights[y] });
+      const monthStart = addMonths_(seriesStart, idx);
+      const raw = Number(src[idx] || 0);
+      if (!isFinite(raw)) continue;
+      let w = Number(yearWeights[y] || 0);
+      if (monthStart > lastClosedMonthStart) w *= openMult;
+      vals.push({ v: raw, w });
     }
     if (!vals.length) continue;
-
-    const vArr = vals.map(x => x.v).sort((a,b)=>a-b);
-    const p10 = percentileSorted_(vArr, 0.10);
-    const p90 = percentileSorted_(vArr, 0.90);
-    let num = 0, den = 0;
+    const med = percentile_(vals.map(x => x.v), 0.50);
+    const mad = Math.max(1e-6, percentile_(vals.map(x => Math.abs(x.v - med)), 0.50));
+    const lo = med - madK * mad;
+    const hi = med + madK * mad;
+    let num = 0;
+    let den = 0;
     vals.forEach(x => {
-      const vv = Math.max(p10, Math.min(p90, x.v));
-      num += vv * x.w;
+      const clipped = Math.max(lo, Math.min(hi, x.v));
+      num += clipped * x.w;
       den += x.w;
     });
-    out[m] = den > 0 ? (num / den) : 0;
+    const monthBase = den > 0 ? num / den : 0;
+    const trendF = Math.max(TREND_FACTOR_MIN, Math.min(TREND_FACTOR_MAX, Number(monthTrendFactor[m] || 1)));
+    baseByMonth[m] = Math.max(0, monthBase * trendF);
   }
 
-  const recent12 = src.slice(36, 48);
-  const prev12 = src.slice(24, 36);
-  const trendAdj = (avg_(prev12) > 0) ? Math.max(0.90, Math.min(1.10, avg_(recent12) / avg_(prev12))) : 1;
-  return out.map(v => Math.max(0, v * trendAdj));
+  const totalByMonth = baseByMonth.map((v, i) => Math.max(0, Number(v || 0) + Number(spotBg[i] || 0) + Number(knownSpot[i] || 0)));
+  const annualBase = sumArr_(baseByMonth);
+  const annualExpectedSpot = sumArr_(spotBg) + sumArr_(knownSpot);
+  const annualTotal = sumArr_(totalByMonth);
+  const diagnostics = {
+    compareWarnThreshold,
+    warningText: ''
+  };
+  return {
+    baseByMonth,
+    spotBackgroundExpectedByMonth: spotBg.slice(),
+    knownSpotExpectedByMonth: knownSpot.slice(),
+    totalByMonth,
+    annualBase,
+    annualExpectedSpot,
+    annualTotal,
+    diagnostics
+  };
 }
 
 function buildHistoricalTrendInsight_(series48, model) {
@@ -3028,6 +3166,7 @@ function forecastMonteCarloMixed_(model, opt) {
   const spotBgModel = opt.spotBgModel || { expectedByMonth: new Array(12).fill(0), occurrenceProbByMonth: new Array(12).fill(0), severitySamplesByMonth: Array.from({ length: 12 }, () => [0]) };
   const knownSpotProjectsByMonth = opt.knownSpotProjectsByMonth || Array.from({ length: 12 }, () => []);
   const knownSpotBgSuppressRate = isFinite(opt.knownSpotBgSuppressRate) ? opt.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE;
+  const tuning = opt.tuning || {};
 
   const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights));
   const kClientByMonth = months.map(m => clientFactorsMultiplier_(factorsClient, m));
@@ -3041,10 +3180,14 @@ function forecastMonteCarloMixed_(model, opt) {
   const kAI = 1 + aiClampedEffect;
 
   const startT = 48;
-  const simByMonth = Array.from({ length: 12 }, () => []);
+  const totalRawSimByMonth = Array.from({ length: 12 }, () => []);
+  const totalCalibratedSimByMonth = Array.from({ length: 12 }, () => []);
+  const quantOpsSimByMonth = Array.from({ length: 12 }, () => []);
+  const subjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const scaledSubjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const knownSpotSimByMonth = Array.from({ length: 12 }, () => []);
+  const bgSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const opinionKByMonth = Array.from({ length: 12 }, () => []);
-  const knownSpotSimP50ByMonth = Array.from({ length: 12 }, () => []);
-  const bgSpotSimP50ByMonth = Array.from({ length: 12 }, () => []);
 
   const opsBaseByMonth = Array.from({ length: 12 }, (_, i) => {
     const t = startT + (i + 1);
@@ -3060,44 +3203,114 @@ function forecastMonteCarloMixed_(model, opt) {
       const base = Math.max(0, (model.intercept + model.slope * t) * model.seasonalIndex[mIdx]);
       const e = residualPct[Math.floor(Math.random() * residualPct.length)] || 0;
 
-      let ops = base * (1 + e);
+      const quantOpsAfterResidual = Math.max(0, base * (1 + e));
+      let ops = quantOpsAfterResidual;
       ops *= kProdByMonth[i];
       ops *= kClientByMonth[i];
       const kOpinion = sampleOpinionMultiplier_(opinions, months[i]);
       ops *= kOpinion;
       ops *= kAI;
+      const subjectiveContinuousDelta = quantOpsAfterResidual * ((kProdByMonth[i] * kClientByMonth[i] * kOpinion * kAI) - 1);
       opinionKByMonth[i].push(kOpinion);
 
       const knownSpot = simulateKnownSpotByMonth_(knownSpotProjectsByMonth[i]);
       const bgSuppress = knownSpot > 0 ? knownSpotBgSuppressRate : 1;
       const bgSpot = sampleSpotBackgroundAmount_(spotBgModel, i, bgSuppress);
-      knownSpotSimP50ByMonth[i].push(knownSpot);
-      bgSpotSimP50ByMonth[i].push(bgSpot);
+      const quantOpsSim = quantOpsAfterResidual;
+      const totalRaw = Math.max(0, ops) + knownSpot + bgSpot;
 
-      const total = Math.max(0, ops) + knownSpot + bgSpot;
-      simByMonth[i].push(total);
+      quantOpsSimByMonth[i].push(quantOpsSim);
+      subjectiveContinuousDeltaSimByMonth[i].push(subjectiveContinuousDelta);
+      knownSpotSimByMonth[i].push(knownSpot);
+      bgSpotSimByMonth[i].push(bgSpot);
+      totalRawSimByMonth[i].push(totalRaw);
     }
   }
 
-  const p10 = simByMonth.map(arr => percentile_(arr, 0.10));
-  const p50 = simByMonth.map(arr => percentile_(arr, 0.50));
-  const p90 = simByMonth.map(arr => percentile_(arr, 0.90));
+  const subjectiveContinuousP50ByMonth = subjectiveContinuousDeltaSimByMonth.map(arr => percentile_(arr, 0.50));
+  const knownSpotP50ByMonth = knownSpotSimByMonth.map(arr => percentile_(arr, 0.50));
+  const quantOpsP50ByMonth = quantOpsSimByMonth.map(arr => percentile_(arr, 0.50));
+  const calibrated = calibrateSubjectiveContinuousDelta_({
+    quantOpsP50ByMonth,
+    subjectiveContinuousP50ByMonth,
+    knownSpotP50ByMonth,
+    tuning
+  });
+
+  let capHit = false;
+  for (let s = 0; s < nSim; s++) {
+    for (let i = 0; i < 12; i++) {
+      const rawSubj = Number(subjectiveContinuousDeltaSimByMonth[i][s] || 0);
+      const quantOpsBase = Math.max(0, Number(quantOpsSimByMonth[i][s] || 0)); // cap基準は quantOpsAfterResidual（定量土台）で統一
+      const scaled = clamp_(rawSubj * calibrated.scale, -quantOpsBase * calibrated.monthlyCap, quantOpsBase * calibrated.monthlyCap);
+      if (Math.abs(scaled - rawSubj * calibrated.scale) > 1e-6) capHit = true;
+      scaledSubjectiveContinuousDeltaSimByMonth[i].push(scaled);
+      const totalCal = Math.max(0, Number(quantOpsSimByMonth[i][s] || 0) + Number(bgSpotSimByMonth[i][s] || 0) + Number(knownSpotSimByMonth[i][s] || 0) + scaled);
+      totalCalibratedSimByMonth[i].push(totalCal);
+    }
+  }
+
+  const rawQ = quantilesFromSimByMonth_(totalRawSimByMonth);
+  const calibratedQ = quantilesFromSimByMonth_(totalCalibratedSimByMonth);
+  const subjectiveQ = quantilesFromSimByMonth_(subjectiveContinuousDeltaSimByMonth);
+  const knownQ = quantilesFromSimByMonth_(knownSpotSimByMonth);
+  const bgQ = quantilesFromSimByMonth_(bgSpotSimByMonth);
+  const scaledSubjectiveQ = quantilesFromSimByMonth_(scaledSubjectiveContinuousDeltaSimByMonth);
 
   const kOpinionP50ByMonth = opinionKByMonth.map(arr => percentile_(arr, 0.50));
   const kAIByMonth = new Array(12).fill(kAI);
+  const qualDiag = buildQualShareDiagnostics_({
+    quantAnnual: sumArr_(quantOpsP50ByMonth) + sumArr_(bgQ.p50),
+    knownSpotAnnual: sumArr_(knownQ.p50),
+    rawSubjectiveAnnual: sumArr_(subjectiveQ.p50),
+    calibratedSubjectiveAnnual: sumArr_(scaledSubjectiveQ.p50),
+    targetLow: calibrated.targetLow,
+    targetHigh: calibrated.targetHigh,
+    alertThreshold: isFinite(tuning.qualShareAlertThreshold) ? tuning.qualShareAlertThreshold : QUAL_SHARE_ALERT_THRESHOLD,
+    capHit
+  });
 
   return {
-    p10,
-    p50,
-    p90,
+    p10: calibratedQ.p10,
+    p50: calibratedQ.p50,
+    p90: calibratedQ.p90,
+    raw: rawQ,
+    calibrated: calibratedQ,
     diagnostics: {
       opsBaseByMonth,
       kProdByMonth,
       kClientByMonth,
       kOpinionP50ByMonth,
       kAIByMonth,
-      knownSpotP50ByMonth: knownSpotSimP50ByMonth.map(arr => percentile_(arr, 0.50)),
-      bgSpotP50ByMonth: bgSpotSimP50ByMonth.map(arr => percentile_(arr, 0.50)),
+      quantOpsSimByMonth,
+      subjectiveContinuousDeltaSimByMonth,
+      knownSpotSimByMonth,
+      bgSpotSimByMonth,
+      totalRawSimByMonth,
+      totalCalibratedSimByMonth,
+      subjectiveContinuousP10ByMonth: subjectiveQ.p10,
+      subjectiveContinuousP50ByMonth: subjectiveQ.p50,
+      subjectiveContinuousP90ByMonth: subjectiveQ.p90,
+      knownSpotP10ByMonth: knownQ.p10,
+      knownSpotP50ByMonth: knownQ.p50,
+      knownSpotP90ByMonth: knownQ.p90,
+      bgSpotP10ByMonth: bgQ.p10,
+      bgSpotP50ByMonth: bgQ.p50,
+      bgSpotP90ByMonth: bgQ.p90,
+      totalRawP10ByMonth: rawQ.p10,
+      totalRawP50ByMonth: rawQ.p50,
+      totalRawP90ByMonth: rawQ.p90,
+      scaledSubjectiveP50ByMonth: scaledSubjectiveQ.p50,
+      qualCalibration: {
+        rawSubjectiveShare: qualDiag.rawSubjectiveShare,
+        rawTotalQualShare: qualDiag.rawTotalQualShare,
+        calibratedSubjectiveShare: qualDiag.calibratedSubjectiveShare,
+        calibratedTotalQualShare: qualDiag.calibratedTotalQualShare,
+        qualScale: calibrated.scale,
+        qualCapHit: capHit,
+        targetReached: qualDiag.targetReached,
+        warningText: qualDiag.warningText
+      },
       aiTotalScore,
       AI_WEIGHT: aiWeight,
       aiRawEffect,
@@ -3105,6 +3318,60 @@ function forecastMonteCarloMixed_(model, opt) {
       aiMaxAbsEffect
     }
   };
+}
+
+function quantilesFromSimByMonth_(simByMonth) {
+  return {
+    p10: simByMonth.map(arr => percentile_(arr, 0.10)),
+    p50: simByMonth.map(arr => percentile_(arr, 0.50)),
+    p90: simByMonth.map(arr => percentile_(arr, 0.90))
+  };
+}
+
+function calibrateSubjectiveContinuousDelta_(opt) {
+  const tuning = opt && opt.tuning ? opt.tuning : {};
+  const quantAnnual = sumArr_(opt.quantOpsP50ByMonth || []);
+  const knownSpotAnnual = sumArr_(opt.knownSpotP50ByMonth || []);
+  const rawSubjectiveAnnual = sumArr_(opt.subjectiveContinuousP50ByMonth || []);
+  const targetCenter = isFinite(tuning.qualShareTargetCenter) ? tuning.qualShareTargetCenter : QUAL_SHARE_TARGET_CENTER;
+  const targetLow = isFinite(tuning.qualShareTargetLow) ? tuning.qualShareTargetLow : QUAL_SHARE_TARGET_LOW;
+  const targetHigh = isFinite(tuning.qualShareTargetHigh) ? tuning.qualShareTargetHigh : QUAL_SHARE_TARGET_HIGH;
+  const maxScale = isFinite(tuning.qualSubjectiveMaxScale) ? tuning.qualSubjectiveMaxScale : QUAL_SUBJECTIVE_MAX_SCALE;
+  const monthlyCap = isFinite(tuning.qualSubjectiveMonthlyCap) ? tuning.qualSubjectiveMonthlyCap : QUAL_SUBJECTIVE_MONTHLY_CAP;
+  const enabled = isFinite(tuning.qualCalibrationEnabled) ? Number(tuning.qualCalibrationEnabled) > 0 : !!QUAL_CALIBRATION_ENABLED;
+  const epsilon = 1e-6;
+  const targetTotalQualDeltaAbs = Math.abs(quantAnnual) * targetCenter / Math.max(1 - targetCenter, epsilon);
+  const requiredSubjectiveAbs = Math.max(0, targetTotalQualDeltaAbs - Math.abs(knownSpotAnnual));
+  const rawSubjectiveAbs = Math.max(Math.abs(rawSubjectiveAnnual), epsilon);
+  let scale = Math.min(maxScale, requiredSubjectiveAbs / rawSubjectiveAbs);
+  if (!enabled) scale = 1;
+  return { scale, monthlyCap, targetCenter, targetLow, targetHigh };
+}
+
+function buildQualShareDiagnostics_(opt) {
+  const quantAnnual = Number(opt.quantAnnual || 0);
+  const knownSpotAnnual = Number(opt.knownSpotAnnual || 0);
+  const rawSubjectiveAnnual = Number(opt.rawSubjectiveAnnual || 0);
+  const calibratedSubjectiveAnnual = Number(opt.calibratedSubjectiveAnnual || 0);
+  const rawTotalQualDelta = rawSubjectiveAnnual + knownSpotAnnual;
+  const calTotalQualDelta = calibratedSubjectiveAnnual + knownSpotAnnual;
+  const rawDenom = Math.abs(quantAnnual) + Math.abs(rawTotalQualDelta);
+  const calDenom = Math.abs(quantAnnual) + Math.abs(calTotalQualDelta);
+  const rawSubjectiveShare = rawDenom > 0 ? Math.abs(rawSubjectiveAnnual) / rawDenom : 0;
+  const rawTotalQualShare = rawDenom > 0 ? Math.abs(rawTotalQualDelta) / rawDenom : 0;
+  const calibratedSubjectiveShare = calDenom > 0 ? Math.abs(calibratedSubjectiveAnnual) / calDenom : 0;
+  const calibratedTotalQualShare = calDenom > 0 ? Math.abs(calTotalQualDelta) / calDenom : 0;
+  const targetReached = calibratedTotalQualShare >= opt.targetLow && calibratedTotalQualShare <= opt.targetHigh;
+  const warningThreshold = isFinite(opt.alertThreshold) ? opt.alertThreshold : QUAL_SHARE_ALERT_THRESHOLD;
+  let warningText = '';
+  if (!targetReached) warningText = `⚠ Qual share target未達（cal=${(calibratedTotalQualShare * 100).toFixed(1)}%）`;
+  if (calibratedTotalQualShare >= warningThreshold) warningText = `${warningText} ⚠ 定性寄与率アラート`;
+  if (opt.capHit) warningText = `${warningText} ⚠ monthly cap hit`;
+  return { rawSubjectiveShare, rawTotalQualShare, calibratedSubjectiveShare, calibratedTotalQualShare, targetReached, warningText: warningText.trim() };
+}
+
+function clamp_(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 
