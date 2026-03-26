@@ -1135,8 +1135,9 @@ function writeOutputFY_(result) {
     ? 'N/A（予測対象月なし）'
     : ((overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH) ? '⚠ 主観オーバーレイ率が目標帯外です' : 'OK');
 
-  sh.getRange(3, 1).setValue('KPI（定量/定性寄与）').setFontWeight('bold').setBackground('#e2f0d9');
+  sh.getRange(3, 1).setValue('予測構成サマリー').setFontWeight('bold').setBackground('#e2f0d9');
   sh.getRange(3, 1, 1, 6).merge();
+  const summaryHeaderRow = 4;
   const kpiHdr = ['定量寄与率（予測対象月のみ）', '主観オーバーレイ率（予測対象月のみ / calibrated）', 'Known Spot寄与率（予測対象月のみ）', '非定量ネット差分率（参考）', '警告'];
   const kpiVal = [
     hasOpenMonths ? kpiCal.quantShare : 'N/A',
@@ -1145,8 +1146,13 @@ function writeOutputFY_(result) {
     hasOpenMonths ? kpiCal.qualShare : 'N/A',
     qualWarn
   ];
-  sh.getRange(4, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(5, 1, 1, 5).setValues([kpiVal]);
+  sh.getRange(summaryHeaderRow, 1).setNote('定量予測（quantOnly）に対する構成比です。forecast_open 月のみで算出します。');
+  sh.getRange(summaryHeaderRow, 2).setNote('主観オーバーレイ（product/client/opinion/AI）寄与率です。');
+  sh.getRange(summaryHeaderRow, 3).setNote('Known Spot（DEV_SPOT由来）寄与率です。');
+  sh.getRange(summaryHeaderRow, 4).setNote('非定量ネット差分率（mixedとquantの差分）です。');
+  sh.getRange(summaryHeaderRow, 5).setNote('帯外・解析不足などの警告を表示します。');
   if (hasOpenMonths) {
     sh.getRange(5, 1, 1, 3).setNumberFormat('0.0%');
     sh.getRange(5, 4).setNumberFormat('¥#,##0');
@@ -1183,6 +1189,16 @@ function writeOutputFY_(result) {
   sh.getRange(12, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
   sh.getRange(13, 1).setValue('スコア基準（4軸合計）');
   sh.getRange(13, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
+  sh.getRange(8, 1).setNote('Marketトピックのfinal blended score');
+  sh.getRange(9, 1).setNote('Competitorトピックのfinal blended score');
+  sh.getRange(10, 1).setNote('Channelトピックのfinal blended score');
+  sh.getRange(11, 1).setNote('DXトピックのfinal blended score');
+  sh.getRange(12, 1).setNote('各軸の理論レンジ説明');
+  sh.getRange(13, 1).setNote('4軸合計レンジ説明');
+  const aiAllZero = [ai4.Market, ai4.Competitor, ai4.Channel, ai4.DX].every(v => Math.abs(Number(v || 0)) < 1e-9);
+  if (aiAllZero) {
+    sh.getRange(14, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
+  }
 
   let row = 14;
 
@@ -1438,7 +1454,7 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 意味色（値行）
   sh.getRange(r, 2).setBackground(COLOR_NEG);
-  sh.getRange(r, 3).setBackground(COLOR_NEU).setFontWeight('bold'); // 中立を強調
+  sh.getRange(r, 3).setBackground(COLOR_NEU);
   sh.getRange(r, 4).setBackground(COLOR_POS);
   r++;
 
@@ -1468,7 +1484,7 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 意味色（列全体）
   sh.getRange(r, 2, table.length, 1).setBackground(COLOR_NEG);
-  sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU).setFontWeight('bold'); // 中立強調
+  sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU);
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
   // P10/P50/P90説明（Note）※月次ヘッダセルにのみ付与
@@ -3155,7 +3171,7 @@ function readAIReportTextForClient_(clientName) {
           if (b.asOfDate.getTime() !== a.asOfDate.getTime()) return b.asOfDate - a.asOfDate;
           return b.rowNo - a.rowNo;
         });
-        if (rows.length) return rows[0].reportText;
+        if (rows.length) return sanitizeAiReportText_(rows[0].reportText);
       }
     }
   }
@@ -3163,7 +3179,7 @@ function readAIReportTextForClient_(clientName) {
   const promptSh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
   if (!promptSh) return '';
   const txt = String(promptSh.getRange('D2').getValue() || '');
-  return extractReportSection_(txt);
+  return sanitizeAiReportText_(extractReportSection_(txt));
 }
 
 function extractReportSection_(txt) {
@@ -3182,6 +3198,79 @@ function extractReportSection_(txt) {
     return txt.substring(sIdx + start.length, eIdx).trim();
   }
   return txt;
+}
+
+function sanitizeAiReportText_(txt) {
+  let s = String(txt || '');
+  if (!s) return '';
+  const startPatterns = ['【Market】', '【Competitor】', '【Channel】', '【DX】', '**1. Market', '**2. Competitor', '**3. Channel', '**4. DX', '## I.', '## II.'];
+  let startIdx = -1;
+  startPatterns.forEach(p => {
+    const idx = s.indexOf(p);
+    if (idx >= 0 && (startIdx < 0 || idx < startIdx)) startIdx = idx;
+  });
+  if (startIdx > 0) s = s.substring(startIdx);
+  const removePhrases = ['お任せください', '私はAIアシスタントとして', '客観的な事実に基づき', '分析しました', '次に、', '深掘りして分析しましょうか', 'これらの分析結果の詳細は、以下のデータテーブルに整理しています。'];
+  removePhrases.forEach(p => { s = s.split(p).join(''); });
+  s = s.replace(/^.*ですね。/gm, '');
+  const lines = s.split(/\r?\n/);
+  while (lines.length && /[？?]$/.test(String(lines[lines.length - 1]).trim())) lines.pop();
+  s = lines.join('\n');
+  s = s.replace(/(^|\n)\s*#{1,3}\s*/g, '$1');
+  s = s.replace(/\*\*/g, '');
+  s = s.replace(/^[\-\*]\s+/gm, '');
+  return s.trim();
+}
+
+function normalizeAiDirection_(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return '';
+  if (/(up|positive|posi|上昇|増)/.test(s)) return 'up';
+  if (/(down|negative|nega|低下|減)/.test(s)) return 'down';
+  if (/(neutral|中立)/.test(s)) return 'neutral';
+  return s;
+}
+
+function parseAiNumericScore_(v, fieldName) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return NaN;
+  if (fieldName === 'impact_score') {
+    if (s === 'high') return 80;
+    if (s === 'medium') return 60;
+    if (s === 'low') return 40;
+  }
+  return NaN;
+}
+
+function parseAiConfidence_(v) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'high') return 0.90;
+  if (s === 'medium') return 0.70;
+  if (s === 'low') return 0.50;
+  return NaN;
+}
+
+function parseAiPercentile_(v) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return NaN;
+  if (/top\s*10|上位\s*10/.test(s)) return 90;
+  if (/top\s*20|上位\s*20/.test(s)) return 80;
+  if (/top\s*25|上位\s*25/.test(s)) return 75;
+  return NaN;
+}
+
+function buildAiParseWarningText_(opt) {
+  const msgs = [];
+  if (opt.hasReport && (opt.validEvent + opt.validBenchmark === 0)) msgs.push('AI report_textはあるが有効AI行が0件');
+  if (opt.validBenchmark === 0) msgs.push('benchmark行が0件');
+  if (opt.invalid > 0) msgs.push(`invalid行 ${opt.invalid} 件`);
+  return msgs.join(' / ');
 }
 
 
@@ -3725,6 +3814,43 @@ function validateOutputLayout_() {
   return out;
 }
 
+function applySheetVisualStandards_(sh, profile) {
+  if (!sh) return;
+  const full = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  full.setVerticalAlignment('middle').setHorizontalAlignment('left').setFontWeight('normal');
+  const wrapped = sh.getDataRange();
+  wrapped.setWrap(true).setVerticalAlignment('top');
+  sh.getRange(1, 1, 1, sh.getMaxColumns()).setVerticalAlignment('middle').setFontWeight('bold');
+  const nums = (profile && profile.numericCols) ? profile.numericCols : [];
+  nums.forEach(c => {
+    if (c <= sh.getMaxColumns()) sh.getRange(2, c, Math.max(1, sh.getMaxRows() - 1), 1).setHorizontalAlignment('right');
+  });
+}
+
+function validateAiParsing_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  if (!sh) throw new Error('AI_RESEARCH_STRUCTUREDがありません。');
+  const vals = sh.getDataRange().getValues();
+  const hdr = vals[0];
+  const tIdx = hdr.indexOf('topic');
+  const eIdx = hdr.indexOf('event_score');
+  const bIdx = hdr.indexOf('benchmark_score');
+  const reportIdx = hdr.indexOf('report_text');
+  let validEvent = 0, validBench = 0;
+  const topics = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  for (let i = 1; i < vals.length; i++) {
+    const topic = String(vals[i][tIdx] || '').trim();
+    if (topics[topic] !== undefined) topics[topic]++;
+    if (isFinite(Number(vals[i][eIdx]))) validEvent++;
+    if (isFinite(Number(vals[i][bIdx]))) validBench++;
+  }
+  const rep = reportIdx >= 0 ? String(vals[1] && vals[1][reportIdx] || '') : '';
+  const out = { validEvent, validBench, topics, b7StartsLikeReport: /^(【|[0-9]+\.)/.test(rep.trim()) };
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}
+
 
 /** 製品要因：製品別step合算 → 構成比で加重 → 1+加重step */
 function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights) {
@@ -4118,6 +4244,7 @@ function buildSimpleSheet_(ss, name, headers) {
   sh.clear();
   sh.getRange(1,1,1,headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.setFrozenRows(1);
+  applySheetVisualStandards_(sh, { numericCols: [] });
 }
 
 function initializeProcessStatus_() {
@@ -4407,28 +4534,36 @@ function parseAIResearchPaste_() {
   };
 
   const rows = [];
+  let validEvent = 0;
+  let validBenchmark = 0;
+  let invalid = 0;
   for (let i = 1; i < tsvLines.length; i++) {
-    const cols = tsvLines[i].split('\t');
+    let cols = tsvLines[i].split('\t');
+    if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/);
     if (!cols.length) continue;
-    const impact = Number(pick(cols, 'impact_score', ''));
-    const conf = Number(pick(cols, 'confidence', ''));
-    const direction = String(pick(cols, 'direction', '') || '').trim().toLowerCase();
+    const impact = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
+    const conf = parseAiConfidence_(pick(cols, 'confidence', ''));
+    const direction = normalizeAiDirection_(pick(cols, 'direction', ''));
     const rowType = String(pick(cols, 'row_type', oldFormat ? 'event' : '') || '').trim() || 'event';
     const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
     const eventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : '';
-    const relPct = Number(pick(cols, 'relative_percentile', ''));
-    const relConf = Number(pick(cols, 'relative_confidence', ''));
+    const relPct = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
+    const relConf = parseAiConfidence_(pick(cols, 'relative_confidence', ''));
     const quality = String(pick(cols, 'benchmark_quality', '') || '').trim().toLowerCase();
     const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : (quality === 'low' ? 0.5 : 1));
     const benchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : '';
+    const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
+    if (!isValid) invalid++;
+    if (rowType === 'benchmark' && isValid) validBenchmark++;
+    if (rowType !== 'benchmark' && isValid) validEvent++;
     rows.push([
       pick(cols, 'client', ''),
       pick(cols, 'as_of_date', ''),
       pick(cols, 'topic', ''),
       rowType,
-      pick(cols, 'direction', ''),
-      pick(cols, 'impact_score', ''),
-      pick(cols, 'confidence', ''),
+      direction,
+      isFinite(impact) ? impact : '',
+      isFinite(conf) ? conf : '',
       pick(cols, 'evidence', ''),
       pick(cols, 'time_horizon', ''),
       pick(cols, 'business_relevance_reason', ''),
@@ -4436,11 +4571,11 @@ function parseAIResearchPaste_() {
       pick(cols, 'peer_universe', ''),
       pick(cols, 'peer_basis', ''),
       pick(cols, 'relative_position_label', ''),
-      pick(cols, 'relative_percentile', ''),
-      pick(cols, 'relative_confidence', ''),
+      isFinite(relPct) ? relPct : '',
+      isFinite(relConf) ? relConf : '',
       pick(cols, 'benchmark_quality', ''),
       pick(cols, 'relative_reason', ''),
-      rows.length === 0 ? (pick(cols, 'report_text', '') || report) : '',
+      rows.length === 0 ? sanitizeAiReportText_(pick(cols, 'report_text', '') || report) : '',
       eventScore,
       benchmarkScore,
       ''
@@ -4452,8 +4587,15 @@ function parseAIResearchPaste_() {
 
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
-  updateProcessStatus_('step3a_status', 'success', client, rows.length, '');
-  return rows.length;
+  const warnText = buildAiParseWarningText_({
+    rawRows: Math.max(0, tsvLines.length - 1),
+    validEvent,
+    validBenchmark,
+    invalid,
+    hasReport: !!report
+  });
+  updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
+  return { rows: rows.length, validEvent, validBenchmark, invalid, warning: warnText };
 }
 function runPhase1Forecast() {
   try {
@@ -4471,11 +4613,14 @@ function runPhase1Forecast() {
     runHierarchicalA9AlertsOrThrow_(fy);
     syncSalesFromSalesInput_(fy, client);
     const result = runForecastFYCore_(fy, client);
+    const aiAllZero = ['Market','Competitor','Channel','DX'].every(k => Math.abs(Number((result.aiScores || {})[k] || 0)) < 1e-9);
+    if (aiAllZero) SpreadsheetApp.getActiveSpreadsheet().toast('⚠ AIスコアが全topicで0.0です。AI_RESEARCH_STRUCTUREDの形式を確認してください。', MENU_NAME, 8);
     writeOutputFY_(result);
     writeForecastArtifacts_(result, client);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
-    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
+    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}`);
+    if (parsed.warning) SpreadsheetApp.getActiveSpreadsheet().toast(parsed.warning, MENU_NAME, 8);
     SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
