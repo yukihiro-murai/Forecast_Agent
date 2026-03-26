@@ -182,6 +182,16 @@ const SUBJECTIVE_OVERLAY_TARGET_CENTER = 0.08;
 const SUBJECTIVE_OVERLAY_TARGET_LOW = 0.05;
 const SUBJECTIVE_OVERLAY_TARGET_HIGH = 0.12;
 
+// Seasonal Weighted（48M維持）
+const SEASONAL_YEAR_WEIGHT_Y1 = 0.10; // oldest
+const SEASONAL_YEAR_WEIGHT_Y2 = 0.20;
+const SEASONAL_YEAR_WEIGHT_Y3 = 0.30;
+const SEASONAL_YEAR_WEIGHT_Y4 = 0.40; // newest
+const SEASONAL_OPEN_MONTH_WEIGHT_MULT = 0.60;
+const SEASONAL_WEIGHTED_MAD_K = 2.5;
+const SEASONAL_COMPARE_WARN_THRESHOLD = 0.25;
+const SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT = 'Seasonal Weighted Total は、直近4年（48ヶ月）の同月実績を新しい年ほど高い重みで平均した参考推計です。未確定月は補完後系列を使い、BASE推計に Expected Spot（背景SPOT + known spot）を加算しています。';
+
 /** ====== メニュー ====== */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
