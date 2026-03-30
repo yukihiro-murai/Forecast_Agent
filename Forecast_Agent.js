@@ -1162,10 +1162,12 @@ function writeOutputFY_(result) {
   }
   const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
   const compRow = compDen > 0
-    ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考: 合計100%分解']
-    : ['N/A', 'N/A', 'N/A', 'N/A', '参考: 合計100%分解'];
+    ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考（補助）: 合計100%分解']
+    : ['N/A', 'N/A', 'N/A', 'N/A', '参考（補助）: 合計100%分解'];
   sh.getRange(6, 1, 1, 5).setValues([compRow]);
   if (compDen > 0) sh.getRange(6, 1, 1, 4).setNumberFormat('0.0%');
+  sh.getRange(6, 1, 1, 5).setBackground('#f3f3f3').setFontColor('#666666');
+  sh.getRange(6, 5).setNote('【参考（補助）: 合計100%分解】\nrow 5のKPIは「計算ロジック別の管理指標」です。\nこの行は内訳を100%に正規化して相対比較しやすくした補助表示で、\n意思決定では row 5 のKPIと併読してください。');
 
   // 数値トレンド Insight
   sh.getRange(7, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
@@ -1493,13 +1495,14 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU);
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
-  // P10/P50/P90説明（Note）※月次ヘッダセルにのみ付与
-  sh.getRange(monthTableHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション分布の10パーセンタイルです。\n通常想定より弱い条件が重なった場合の下振れ目安です。');
-  sh.getRange(monthTableHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション分布の中央値（50パーセンタイル）です。\n通常運用時の中心シナリオとして最優先で参照します。');
-  sh.getRange(monthTableHeaderRow, 4).setNote('【Upside(P90)】\nシミュレーション分布の90パーセンタイルです。\n好条件が重なった場合の上振れ目安です。');
-  sh.getRange(monthTableHeaderRow, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
-  sh.getRange(monthTableHeaderRow, 6).setNote(`【Seasonal Weighted Total】\n${SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT}`);
-  sh.getRange(monthTableHeaderRow, 7).setNote('【Range(P90-P10)】\nUpside(P90) - Downside(P10) の幅です。\n値が大きいほど「通常条件から外れた時の振れ幅」が大きいことを示します。');
+  // P10/P50/P90説明（Note）※最初に登場する年度合計ヘッダに付与
+  sh.getRange(annualHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション分布の10パーセンタイル（下位10%点）です。\n通常想定より弱い条件が重なった場合の下振れ目安で、悲観ケースの確認に使います。');
+  sh.getRange(annualHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション分布の中央値（50パーセンタイル）です。\n通常運用時の中心シナリオで、まずこの値を基準に計画を立てます。');
+  sh.getRange(annualHeaderRow, 4).setNote('【Upside(P90)】\nシミュレーション分布の90パーセンタイル（上位10%点）です。\n好条件が重なった場合の上振れ目安として、機会側の確認に使います。');
+  sh.getRange(annualHeaderRow, 5).setNote('【Linear Regression】\n過去売上（ならした推移）へ単純な直線を当てて将来を外挿した参考値です。\nシナリオ分布とは独立した「トレンド比較用」の補助線として使います。');
+  sh.getRange(annualHeaderRow, 6).setNote(`【Seasonal Weighted Total】\n${SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT}\n※シミュレーション本体とは別系統の参照推計です。`);
+  sh.getRange(annualHeaderRow, 7).setNote('【Range(P90-P10)】\nUpside(P90) - Downside(P10) の幅です。\n値が大きいほど、通常条件から外れたときの振れ幅（不確実性）が大きいことを示します。');
+  sh.getRange(monthTableHeaderRow, 2, 1, 6).clearNote();
 
   // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
   r += table.length + 2;
@@ -1683,10 +1686,10 @@ function buildCONFIG_() {
   sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
   sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
 
-  sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と一致させます。');
-  sh.getRange('A3').setNote('例：FY2026 は 2026/04/01〜2027/03/31 の12ヶ月です（4月開始・3月決算）。');
-  sh.getRange('A5').setNote('シミュレーションは1000回試行し、レンジ（P10/P50/P90）を出します。単純な一発計算より「ブレ幅」を扱えるのがメリットです。');
-  sh.getRange('A10').setNote('シミュレーションに関与する担当者の苗字をカンマ区切りで記載します。A-6では全員分の意見が必須です。');
+  sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
+  sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
+  sh.getRange('A5').setNote('モンテカルロ試行回数です（既定: 1000）。\n回数を増やすほどレンジ（P10/P50/P90）は安定しますが、実行時間は長くなります。');
+  sh.getRange('A10').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
 
   const infoStart = 12;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
@@ -1750,7 +1753,7 @@ function buildCONFIG_() {
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
   sh.getRange(tuneStart + 1, 2, tuneRows.length, 1).setNumberFormat('0.0000');
-  sh.getRange(tuneStart, 1, 1, 2).setNote('A-9 実行時にこの値を参照します。極端な変更は予測を不安定にします。');
+  sh.getRange(tuneStart, 1).setNote('A-9 実行時にこのチューニング値を参照します。\n極端な変更は予測を不安定にするため、変更前に根拠と比較結果（B-2/B-3）を必ず記録してください。');
 }
 
 function buildSALES_() {
