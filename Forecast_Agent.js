@@ -170,8 +170,8 @@ const SEASONAL_WEIGHTED_MAD_K = 2.5;
 const SEASONAL_COMPARE_WARN_THRESHOLD = 0.25;
 const SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT = 'Seasonal Weighted Total は、直近4年（48ヶ月）の同月実績を新しい年ほど高い重みで平均した参考推計です。未確定月は補完後系列を使い、BASE推計に Expected Spot（背景SPOT + known spot）を加算しています。';
 const RESIDUAL_WARMUP_SKIP_MONTHS = 6;
-const RESIDUAL_CLIP_MAD_K = 2.5;
-const RESIDUAL_SHRINK_TO_MEDIAN = 0.80;
+const RESIDUAL_CLIP_MAD_K = 3.0;
+const RESIDUAL_SHRINK_TO_MEDIAN = 0.90;
 const RANGE_MONTH_TARGET_LOW = 0.25;
 const RANGE_MONTH_TARGET_HIGH = 0.40;
 const RANGE_MONTH_WARN = 0.45;
@@ -1148,11 +1148,11 @@ function writeOutputFY_(result) {
   ];
   sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(5, 1, 1, 5).setValues([kpiVal]);
-  sh.getRange(summaryHeaderRow, 1).setNote('定量予測（quantOnly）に対する構成比です。forecast_open 月のみで算出します。');
-  sh.getRange(summaryHeaderRow, 2).setNote('主観オーバーレイ（product/client/opinion/AI）寄与率です。');
-  sh.getRange(summaryHeaderRow, 3).setNote('Known Spot（DEV_SPOT由来）寄与率です。');
-  sh.getRange(summaryHeaderRow, 4).setNote('非定量ネット差分率（mixedとquantの差分）です。');
-  sh.getRange(summaryHeaderRow, 5).setNote('帯外・解析不足などの警告を表示します。');
+  sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
+  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / calibrated）】\nFACTORS_PRODUCT/FACTORS_CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした比率です。\nKnown Spotは含みません。');
+  sh.getRange(summaryHeaderRow, 3).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
+  sh.getRange(summaryHeaderRow, 4).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
+  sh.getRange(summaryHeaderRow, 5).setNote('【警告】\n主観オーバーレイ率の帯外、AI行不足、レンジ過大など運用注意を表示します。');
   if (hasOpenMonths) {
     sh.getRange(5, 1, 1, 3).setNumberFormat('0.0%');
     sh.getRange(5, 4).setNumberFormat('¥#,##0');
@@ -1160,47 +1160,53 @@ function writeOutputFY_(result) {
   if (hasOpenMonths && (overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH)) {
     sh.getRange(5, 5).setBackground('#f4cccc').setFontWeight('bold');
   }
+  const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
+  const compRow = compDen > 0
+    ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考: 合計100%分解']
+    : ['N/A', 'N/A', 'N/A', 'N/A', '参考: 合計100%分解'];
+  sh.getRange(6, 1, 1, 5).setValues([compRow]);
+  if (compDen > 0) sh.getRange(6, 1, 1, 4).setNumberFormat('0.0%');
 
   // 数値トレンド Insight
-  sh.getRange(6, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
-  sh.getRange(6, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
+  sh.getRange(7, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
+  sh.getRange(7, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
 
   // AI調査 Insight
-  sh.getRange(7, 1).setValue('AI調査 Insight').setFontWeight('bold');
-  sh.getRange(7, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiReportText || ''));
-  const aiBodyRange = sh.getRange(7, 2, 1, 5);
+  sh.getRange(8, 1).setValue('AI調査 Insight').setFontWeight('bold');
+  sh.getRange(8, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiReportText || ''));
+  const aiBodyRange = sh.getRange(8, 2, 1, 5);
   try {
     aiBodyRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
   } catch (e) {
     aiBodyRange.setWrap(false);
   }
   aiBodyRange.setVerticalAlignment('top');
-  sh.setRowHeight(7, 48);
+  sh.setRowHeight(8, 48);
 
   // AI調査スコア（4軸）縦レイアウト
   const ai4 = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
   const aiMeta = (result.aiScores && result.aiScores.meta) ? result.aiScores.meta : { Market: {}, Competitor: {}, Channel: {}, DX: {} };
-  sh.getRange(8, 1, 4, 1).setValues([['Market'], ['Competitor'], ['Channel'], ['DX']]);
-  sh.getRange(8, 2, 4, 1).setValues([[ai4.Market || 0], [ai4.Competitor || 0], [ai4.Channel || 0], [ai4.DX || 0]]).setNumberFormat('0.0');
-  sh.getRange(8, 3, 4, 1).setValues([[shortText_((aiMeta.Market || {}).label, 12)], [shortText_((aiMeta.Competitor || {}).label, 12)], [shortText_((aiMeta.Channel || {}).label, 12)], [shortText_((aiMeta.DX || {}).label, 12)]]);
-  sh.getRange(8, 4, 4, 1).setValues([[shortText_((aiMeta.Market || {}).universe, 18)], [shortText_((aiMeta.Competitor || {}).universe, 18)], [shortText_((aiMeta.Channel || {}).universe, 18)], [shortText_((aiMeta.DX || {}).universe, 18)]]);
-  sh.getRange(8, 5, 4, 1).setValues([[shortText_((aiMeta.Market || {}).basis, 22)], [shortText_((aiMeta.Competitor || {}).basis, 22)], [shortText_((aiMeta.Channel || {}).basis, 22)], [shortText_((aiMeta.DX || {}).basis, 22)]]);
-  sh.getRange(12, 1).setValue('スコア基準（各軸）');
-  sh.getRange(12, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
-  sh.getRange(13, 1).setValue('スコア基準（4軸合計）');
-  sh.getRange(13, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
-  sh.getRange(8, 1).setNote('Marketトピックのfinal blended score');
-  sh.getRange(9, 1).setNote('Competitorトピックのfinal blended score');
-  sh.getRange(10, 1).setNote('Channelトピックのfinal blended score');
-  sh.getRange(11, 1).setNote('DXトピックのfinal blended score');
-  sh.getRange(12, 1).setNote('各軸の理論レンジ説明');
-  sh.getRange(13, 1).setNote('4軸合計レンジ説明');
+  sh.getRange(9, 1, 4, 1).setValues([['Market'], ['Competitor'], ['Channel'], ['DX']]);
+  sh.getRange(9, 2, 4, 1).setValues([[ai4.Market || 0], [ai4.Competitor || 0], [ai4.Channel || 0], [ai4.DX || 0]]).setNumberFormat('0.0');
+  sh.getRange(9, 3, 4, 1).setValues([[shortText_((aiMeta.Market || {}).label, 12)], [shortText_((aiMeta.Competitor || {}).label, 12)], [shortText_((aiMeta.Channel || {}).label, 12)], [shortText_((aiMeta.DX || {}).label, 12)]]);
+  sh.getRange(9, 4, 4, 1).setValues([[shortText_((aiMeta.Market || {}).universe, 18)], [shortText_((aiMeta.Competitor || {}).universe, 18)], [shortText_((aiMeta.Channel || {}).universe, 18)], [shortText_((aiMeta.DX || {}).universe, 18)]]);
+  sh.getRange(9, 5, 4, 1).setValues([[shortText_((aiMeta.Market || {}).basis, 22)], [shortText_((aiMeta.Competitor || {}).basis, 22)], [shortText_((aiMeta.Channel || {}).basis, 22)], [shortText_((aiMeta.DX || {}).basis, 22)]]);
+  sh.getRange(13, 1).setValue('スコア基準（各軸）');
+  sh.getRange(13, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
+  sh.getRange(14, 1).setValue('スコア基準（4軸合計）');
+  sh.getRange(14, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
+  sh.getRange(9, 1).setNote('Marketトピックのfinal blended score');
+  sh.getRange(10, 1).setNote('Competitorトピックのfinal blended score');
+  sh.getRange(11, 1).setNote('Channelトピックのfinal blended score');
+  sh.getRange(12, 1).setNote('DXトピックのfinal blended score');
+  sh.getRange(13, 1).setNote('各軸の理論レンジ説明');
+  sh.getRange(14, 1).setNote('4軸合計レンジ説明');
   const aiAllZero = [ai4.Market, ai4.Competitor, ai4.Channel, ai4.DX].every(v => Math.abs(Number(v || 0)) < 1e-9);
   if (aiAllZero) {
-    sh.getRange(14, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
+    sh.getRange(15, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
   }
 
-  let row = 14;
+  let row = 16;
 
   const seasonalWeightedCore = forecastSeasonalWeighted48_({
     adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
@@ -1488,12 +1494,12 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
   // P10/P50/P90説明（Note）※月次ヘッダセルにのみ付与
-  sh.getRange(monthTableHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション結果の下位10%点（=10パーセンタイル）。\n下振れ側の目安です。');
-  sh.getRange(monthTableHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
-  sh.getRange(monthTableHeaderRow, 4).setNote('【Upside(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
+  sh.getRange(monthTableHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション分布の10パーセンタイルです。\n通常想定より弱い条件が重なった場合の下振れ目安です。');
+  sh.getRange(monthTableHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション分布の中央値（50パーセンタイル）です。\n通常運用時の中心シナリオとして最優先で参照します。');
+  sh.getRange(monthTableHeaderRow, 4).setNote('【Upside(P90)】\nシミュレーション分布の90パーセンタイルです。\n好条件が重なった場合の上振れ目安です。');
   sh.getRange(monthTableHeaderRow, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
   sh.getRange(monthTableHeaderRow, 6).setNote(`【Seasonal Weighted Total】\n${SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT}`);
-  sh.getRange(monthTableHeaderRow, 7).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
+  sh.getRange(monthTableHeaderRow, 7).setNote('【Range(P90-P10)】\nUpside(P90) - Downside(P10) の幅です。\n値が大きいほど「通常条件から外れた時の振れ幅」が大きいことを示します。');
 
   // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
   r += table.length + 2;
