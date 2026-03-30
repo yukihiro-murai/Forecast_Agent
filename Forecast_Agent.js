@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v1.2
+ * Forecast Agent v1.3
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * v1.2（今回反映）
@@ -11,7 +11,7 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.2';
+const VERSION = '1.3';
 const MENU_NAME = 'Forecast Agent';
 
 /***************************************
@@ -150,9 +150,37 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SHARE_WARN_THRESHOLD = 0.20;   // 定性寄与率警告閾値
+const QUAL_SHARE_ALERT_THRESHOLD = 0.20;  // 定性寄与率アラート閾値（警告用途）
+const QUAL_SHARE_TARGET_CENTER = 0.15;     // 定性寄与率の目標中心
+const QUAL_SHARE_TARGET_LOW = 0.10;        // 定性寄与率の許容下限
+const QUAL_SHARE_TARGET_HIGH = 0.20;       // 定性寄与率の許容上限
+const QUAL_SUBJECTIVE_MAX_SCALE = 2.50;    // 主観連続差分の最大スケール
+const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual比）
+const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
-const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
+const AI_MAX_ABS_EFFECT = 0.03;   // AI係数の絶対上限（±3%）
+
+// Seasonal Weighted（48M維持）
+var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
+var SEASONAL_YEAR_WEIGHT_Y2 = (typeof SEASONAL_YEAR_WEIGHT_Y2 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y2 : 0.20;
+var SEASONAL_YEAR_WEIGHT_Y3 = (typeof SEASONAL_YEAR_WEIGHT_Y3 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y3 : 0.30;
+var SEASONAL_YEAR_WEIGHT_Y4 = (typeof SEASONAL_YEAR_WEIGHT_Y4 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y4 : 0.40; // newest
+const SEASONAL_OPEN_MONTH_WEIGHT_MULT = 0.60;
+const SEASONAL_WEIGHTED_MAD_K = 2.5;
+const SEASONAL_COMPARE_WARN_THRESHOLD = 0.25;
+const SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT = 'Seasonal Weighted Total は、直近4年（48ヶ月）の同月実績を新しい年ほど高い重みで平均した参考推計です。未確定月は補完後系列を使い、BASE推計に Expected Spot（背景SPOT + known spot）を加算しています。';
+const RESIDUAL_WARMUP_SKIP_MONTHS = 6;
+const RESIDUAL_CLIP_MAD_K = 3.0;
+const RESIDUAL_SHRINK_TO_MEDIAN = 0.90;
+const RANGE_MONTH_TARGET_LOW = 0.25;
+const RANGE_MONTH_TARGET_HIGH = 0.40;
+const RANGE_MONTH_WARN = 0.45;
+const RANGE_ANNUAL_TARGET_LOW = 0.10;
+const RANGE_ANNUAL_TARGET_HIGH = 0.20;
+const RANGE_ANNUAL_WARN = 0.25;
+const SUBJECTIVE_OVERLAY_TARGET_CENTER = 0.08;
+const SUBJECTIVE_OVERLAY_TARGET_LOW = 0.05;
+const SUBJECTIVE_OVERLAY_TARGET_HIGH = 0.12;
 
 /** ====== メニュー ====== */
 function onOpen() {
@@ -926,23 +954,14 @@ function runForecastFYCore_(fy, clientName) {
   const unclosedAdjusted = adjustForUnclosedMonths_(aggY_raw, seriesStart);
   const aggY_adj = unclosedAdjusted.series.slice();
 
-  toastProgress_(ss, 'STEP2/6: スパイクをならし（季節性は維持）→ トレンド＋季節性を推定…', 7);
-
-  // スムージング（季節性は守りつつ単発スパイクだけ弱める）
+  toastProgress_(ss, 'STEP2/6: 未確定月補完済み48ヶ月でトレンド＋季節性を推定…', 7);
   const smoothY = aggY_adj.slice();
 
   // Opsモデル：トレンド＋季節性
   const model = fitOpsModelTrendSeason_(smoothY);
 
-  // 残差%は「確定月のみ」から作る（未確定月の途中実績に依存しにくく）
-  const residualPctClosed = [];
-  for (let i = 0; i < smoothY.length; i++) {
-    const mStart = addMonths_(seriesStart, i);
-    if (mStart > ctx.lastClosedMonthStart) continue; // 未確定は除外
-    const f = model.fitted[i];
-    if (f > 0) residualPctClosed.push(smoothY[i] / f - 1);
-  }
-  const residualPct = residualPctClosed.length ? residualPctClosed : smoothY.map((y, i) => (model.fitted[i] ? (y / model.fitted[i] - 1) : 0));
+  // 残差%プール（確定月のみ + robust化）
+  const residualPct = buildResidualPool_(smoothY, model, seriesStart, ctx.lastClosedMonthStart);
 
   const residP10 = percentile_(residualPct, 0.10);
   const residP50 = percentile_(residualPct, 0.50);
@@ -972,15 +991,17 @@ function runForecastFYCore_(fy, clientName) {
   const factorsClient = readFactorsClient_(fy);
   const opinions = readOpinions_(fy);
 
-  // AI調査スコア（topic別 adjusted_score 平均）
+  // AI調査スコア（topic別：benchmark/event blend）
   const aiScores = readAIResearchScores_();
-  const aiReportText = readAIPasteOutputFullText_();
+  const aiReportText = readAIReportTextForClient_(clientName);
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
   const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
 
   // 12ヶ月予測対象（FY開始月〜12ヶ月）
   const months = ctx.forecastMonths;
+  const closedOffsetsSet = new Set(ctx.closedForecastMonthOffsets || []);
+  const sourceByMonth = months.map((_, i) => closedOffsetsSet.has(i) ? 'actual_closed' : 'forecast_open');
 
   // 線形回帰（参考）予測：季節性込みモデルのトレンド外挿（参考）
   const regTotal = [];
@@ -1009,8 +1030,10 @@ function runForecastFYCore_(fy, clientName) {
     aiScores,
     nSim: N_SIM,
     months,
+    sourceByMonth,
     aiWeight: tuning.aiWeight,
     aiMaxAbsEffect: tuning.aiMaxAbsEffect,
+    tuning,
     spotBgModel,
     knownSpotProjectsByMonth: devProjectsByMonth,
     knownSpotBgSuppressRate: isFinite(tuning.knownSpotBgSuppressRate) ? tuning.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE
@@ -1020,11 +1043,9 @@ function runForecastFYCore_(fy, clientName) {
   const opinionsSummaryByMonth = summarizeOpinionsByMonth_(opinions, months);
 
   const totalActual48 = salesData.baseSeries48.map((v, i) => Number(v || 0) + Number((salesData.spotSeries48 || [])[i] || 0));
-  const closedOffsets = new Set(ctx.closedForecastMonthOffsets || []);
-  const sourceByMonth = months.map((_, i) => closedOffsets.has(i) ? 'actual_closed' : 'forecast_open');
   const actualClosedByMonth = months.map((_, i) => {
     const salesIdx = ctx.forecastMonthIndexesInSales[i];
-    return (closedOffsets.has(i) && salesIdx >= 0) ? Number(totalActual48[salesIdx] || 0) : '';
+    return (closedOffsetsSet.has(i) && salesIdx >= 0) ? Number(totalActual48[salesIdx] || 0) : '';
   });
 
   for (let i = 0; i < months.length; i++) {
@@ -1058,6 +1079,9 @@ function runForecastFYCore_(fy, clientName) {
     actualClosedByMonth,
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
     baseSeries48: salesData.baseSeries48 || [],
+    adjustedBaseSeries48: aggY_adj,
+    seriesStart,
+    lastClosedMonthStart: ctx.lastClosedMonthStart,
     opsModel: model,
     aiScores,
     aiReportText
@@ -1070,8 +1094,7 @@ function writeOutputFY_(result) {
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
   if (!sh) throw new Error('OUTPUTがありません。');
 
-  sh.clear({ contentsOnly: true });
-  sh.clearFormats();
+  resetOutputSheet_(sh);
 
   // 幅
   sh.setColumnWidth(1, 240);
@@ -1087,6 +1110,7 @@ function writeOutputFY_(result) {
 
   const start = getForecastFYStart_(fy);
   const end = getForecastFYEnd_(fy);
+  const tuningTop = readModelTuningFromConfig_();
 
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
@@ -1097,51 +1121,111 @@ function writeOutputFY_(result) {
   // KPIブロック（定量/定性寄与）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
   const mixedP50 = result.mixed.p50 || new Array(12).fill(0);
-  const quantTotal = sumArr_(quantP50);
-  const mixedTotal = sumArr_(mixedP50);
-  const qualDeltaSigned = mixedTotal - quantTotal;
-  const denom = Math.abs(quantTotal) + Math.abs(qualDeltaSigned);
-  const quantShare = denom > 0 ? (Math.abs(quantTotal) / denom) : 1;
-  const qualShare = denom > 0 ? (Math.abs(qualDeltaSigned) / denom) : 0;
-  const tuningTop = readModelTuningFromConfig_();
-  const qualWarnThreshold = isFinite(tuningTop.qualShareWarnThreshold) ? tuningTop.qualShareWarnThreshold : QUAL_SHARE_WARN_THRESHOLD;
-  const qualWarn = qualShare >= qualWarnThreshold ? '⚠ 定性寄与が高めです' : 'OK';
+  const mixedRawP50 = (result.mixed.raw && result.mixed.raw.p50) ? result.mixed.raw.p50 : mixedP50;
+  const dTop = result.mixedDiagnostics || {};
+  const subjectiveCalP50 = dTop.scaledSubjectiveP50ByMonth || new Array(12).fill(0);
+  const subjectiveRawP50 = dTop.subjectiveContinuousP50ByMonth || new Array(12).fill(0);
+  const knownSpotP50 = dTop.knownSpotP50ByMonth || new Array(12).fill(0);
+  const kpiCal = computeDisplayedQualKpi_(quantP50, mixedP50, result.sourceByMonth || []);
+  const kpiRaw = computeDisplayedQualKpi_(quantP50, mixedRawP50, result.sourceByMonth || []);
+  const overlayCalKpi = computeSubjectiveOverlayKpi_(quantP50, subjectiveCalP50, result.sourceByMonth || []);
+  const knownSpotKpi = computeKnownSpotKpi_(quantP50, knownSpotP50, result.sourceByMonth || []);
+  const hasOpenMonths = !!kpiCal.hasOpenMonths;
+  const qualWarn = !hasOpenMonths
+    ? 'N/A（予測対象月なし）'
+    : ((overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH) ? '⚠ 主観オーバーレイ率が目標帯外です' : 'OK');
 
-  sh.getRange(3, 1).setValue('KPI（定量/定性寄与）').setFontWeight('bold').setBackground('#e2f0d9');
+  sh.getRange(3, 1).setValue('予測構成サマリー').setFontWeight('bold').setBackground('#e2f0d9');
   sh.getRange(3, 1, 1, 6).merge();
-  const kpiHdr = ['定量寄与率', '定性寄与率', '定性差分額', '警告'];
-  const kpiVal = [quantShare, qualShare, qualDeltaSigned, qualWarn];
-  sh.getRange(4, 1, 1, 4).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(5, 1, 1, 4).setValues([kpiVal]);
-  sh.getRange(5, 1, 1, 2).setNumberFormat('0.0%');
-  sh.getRange(5, 3).setNumberFormat('¥#,##0');
-  if (qualShare >= qualWarnThreshold) sh.getRange(5, 4).setBackground('#f4cccc').setFontWeight('bold');
+  const summaryHeaderRow = 4;
+  const kpiHdr = ['定量寄与率（予測対象月のみ）', '主観オーバーレイ率（予測対象月のみ / calibrated）', 'Known Spot寄与率（予測対象月のみ）', '非定量ネット差分率（参考）', '警告'];
+  const kpiVal = [
+    hasOpenMonths ? kpiCal.quantShare : 'N/A',
+    hasOpenMonths ? overlayCalKpi.overlayShare : 'N/A',
+    hasOpenMonths ? knownSpotKpi.knownSpotShare : 'N/A',
+    hasOpenMonths ? kpiCal.qualShare : 'N/A',
+    qualWarn
+  ];
+  sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(5, 1, 1, 5).setValues([kpiVal]);
+  sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
+  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / calibrated）】\nFACTORS_PRODUCT/FACTORS_CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした比率です。\nKnown Spotは含みません。');
+  sh.getRange(summaryHeaderRow, 3).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
+  sh.getRange(summaryHeaderRow, 4).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
+  sh.getRange(summaryHeaderRow, 5).setNote('【警告】\n主観オーバーレイ率の帯外、AI行不足、レンジ過大など運用注意を表示します。');
+  if (hasOpenMonths) {
+    sh.getRange(5, 1, 1, 3).setNumberFormat('0.0%');
+    sh.getRange(5, 4).setNumberFormat('¥#,##0');
+  }
+  if (hasOpenMonths && (overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH)) {
+    sh.getRange(5, 5).setBackground('#f4cccc').setFontWeight('bold');
+  }
+  const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
+  const compRow = compDen > 0
+    ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考: 合計100%分解']
+    : ['N/A', 'N/A', 'N/A', 'N/A', '参考: 合計100%分解'];
+  sh.getRange(6, 1, 1, 5).setValues([compRow]);
+  if (compDen > 0) sh.getRange(6, 1, 1, 4).setNumberFormat('0.0%');
 
   // 数値トレンド Insight
-  sh.getRange(6, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
-  sh.getRange(6, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
+  sh.getRange(7, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
+  sh.getRange(7, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
 
   // AI調査 Insight
-  sh.getRange(7, 1).setValue('AI調査 Insight').setFontWeight('bold');
-  sh.getRange(7, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiScores, result.aiReportText || '')).setWrap(true);
-  sh.getRange(7, 1).setNote(`Market: 市場環境・需要の追い風/逆風
-Competitor: 競合動向による取りやすさ
-Channel: 販売チャネル/商流の有利不利
-DX: デジタル化・運用効率化による成長余地`);
-  sh.setRowHeight(7, 48); // 全文保持しつつ表示は見切れてOK
+  sh.getRange(8, 1).setValue('AI調査 Insight').setFontWeight('bold');
+  sh.getRange(8, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiReportText || ''));
+  const aiBodyRange = sh.getRange(8, 2, 1, 5);
+  try {
+    aiBodyRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  } catch (e) {
+    aiBodyRange.setWrap(false);
+  }
+  aiBodyRange.setVerticalAlignment('top');
+  sh.setRowHeight(8, 48);
 
-  // AI調査スコア（4軸）を省略せず表示
+  // AI調査スコア（4軸）縦レイアウト
   const ai4 = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  sh.getRange(8, 1).setValue('AI調査スコア（4軸）').setFontWeight('bold');
-  sh.getRange(8, 2, 1, 4).setValues([['Market','Competitor','Channel','DX']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(9, 2, 1, 4).setValues([[ai4.Market || 0, ai4.Competitor || 0, ai4.Channel || 0, ai4.DX || 0]]).setNumberFormat('0.0');
+  const aiMeta = (result.aiScores && result.aiScores.meta) ? result.aiScores.meta : { Market: {}, Competitor: {}, Channel: {}, DX: {} };
+  sh.getRange(9, 1, 4, 1).setValues([['Market'], ['Competitor'], ['Channel'], ['DX']]);
+  sh.getRange(9, 2, 4, 1).setValues([[ai4.Market || 0], [ai4.Competitor || 0], [ai4.Channel || 0], [ai4.DX || 0]]).setNumberFormat('0.0');
+  sh.getRange(9, 3, 4, 1).setValues([[shortText_((aiMeta.Market || {}).label, 12)], [shortText_((aiMeta.Competitor || {}).label, 12)], [shortText_((aiMeta.Channel || {}).label, 12)], [shortText_((aiMeta.DX || {}).label, 12)]]);
+  sh.getRange(9, 4, 4, 1).setValues([[shortText_((aiMeta.Market || {}).universe, 18)], [shortText_((aiMeta.Competitor || {}).universe, 18)], [shortText_((aiMeta.Channel || {}).universe, 18)], [shortText_((aiMeta.DX || {}).universe, 18)]]);
+  sh.getRange(9, 5, 4, 1).setValues([[shortText_((aiMeta.Market || {}).basis, 22)], [shortText_((aiMeta.Competitor || {}).basis, 22)], [shortText_((aiMeta.Channel || {}).basis, 22)], [shortText_((aiMeta.DX || {}).basis, 22)]]);
+  sh.getRange(13, 1).setValue('スコア基準（各軸）');
+  sh.getRange(13, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
+  sh.getRange(14, 1).setValue('スコア基準（4軸合計）');
+  sh.getRange(14, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
+  sh.getRange(9, 1).setNote('Marketトピックのfinal blended score');
+  sh.getRange(10, 1).setNote('Competitorトピックのfinal blended score');
+  sh.getRange(11, 1).setNote('Channelトピックのfinal blended score');
+  sh.getRange(12, 1).setNote('DXトピックのfinal blended score');
+  sh.getRange(13, 1).setNote('各軸の理論レンジ説明');
+  sh.getRange(14, 1).setNote('4軸合計レンジ説明');
+  const aiAllZero = [ai4.Market, ai4.Competitor, ai4.Channel, ai4.DX].every(v => Math.abs(Number(v || 0)) < 1e-9);
+  if (aiAllZero) {
+    sh.getRange(15, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
+  }
 
-  // 既存チャート削除（重なり防止）
-  sh.getCharts().forEach(c => sh.removeChart(c));
+  let row = 16;
 
-  let row = 11;
-
-  const seasonalWeightedCore = forecastSeasonalWeighted_(result.baseSeries48 || []);
+  const seasonalWeightedCore = forecastSeasonalWeighted48_({
+    adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
+    seriesStart: result.seriesStart,
+    lastClosedMonthStart: result.lastClosedMonthStart,
+    spotBackgroundExpectedByMonth: result.spotBackgroundByMonth || new Array(12).fill(0),
+    knownSpotExpectedByMonth: result.knownSpotExpectedByMonth || new Array(12).fill(0),
+    tuning: tuningTop
+  });
+  const seasonalCompareWarnThreshold = isFinite(tuningTop.seasonalCompareWarnThreshold) ? tuningTop.seasonalCompareWarnThreshold : SEASONAL_COMPARE_WARN_THRESHOLD;
+  const quantTotal = hasOpenMonths ? kpiCal.quantTotal : sumArr_(quantP50);
+  const seasonalCompare = quantTotal !== 0 ? Math.abs((seasonalWeightedCore.annualTotal - quantTotal) / quantTotal) : 0;
+  if (seasonalCompare >= seasonalCompareWarnThreshold) {
+    seasonalWeightedCore.diagnostics.warningText = `⚠ Seasonal totalがQuant totalと${(seasonalCompare * 100).toFixed(1)}%乖離`;
+  }
+  const d = result.mixedDiagnostics || {};
+  const annualMixedCalSim = aggregateAnnualSim_(d.totalCalibratedSimByMonth || []);
+  const annualMixedRawSim = aggregateAnnualSim_(d.totalRawSimByMonth || []);
+  const annualQuantSim = aggregateAnnualSim_((d.quantOpsSimByMonth || []).map((arr, i) => arr.map((v, s) => Number(v || 0) + Number(((d.bgSpotSimByMonth || [])[i] || [])[s] || 0))));
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
@@ -1154,7 +1238,8 @@ DX: デジタル化・運用効率化による成長余地`);
     spotFixedByMonth: result.spotFixedByMonth,
     devFixedByMonth: result.devFixedByMonth,
     spotBackgroundByMonth: result.spotBackgroundByMonth,
-    seasonalWeighted: seasonalWeightedCore
+    seasonalWeighted: seasonalWeightedCore,
+    annualSim: annualMixedCalSim
   });
 
   row += 2;
@@ -1170,7 +1255,8 @@ DX: デジタル化・運用効率化による成長余地`);
     spotFixedByMonth: result.spotFixedByMonth,
     devFixedByMonth: result.devFixedByMonth,
     spotBackgroundByMonth: result.spotBackgroundByMonth,
-    seasonalWeighted: seasonalWeightedCore
+    seasonalWeighted: seasonalWeightedCore,
+    annualSim: annualQuantSim
   });
 
   row += 2;
@@ -1225,37 +1311,38 @@ DX: デジタル化・運用効率化による成長余地`);
   sh.getRange(row, 1, 1, 8).merge();
   sh.getRange(row, 1).setBackground('#d9e1f2').setFontWeight('bold');
   row++;
-  sh.getRange(row, 1).setValue('※ MonteCarlo: 残差分布を用いた確率予測 / Linear: 線形トレンド外挿 / Seasonal Weighted: 同月履歴の加重平均（直近重み・スパイク抑制）');
+  sh.getRange(row, 1).setValue(`※ MonteCarlo: 残差分布を用いた確率予測 / Linear: 線形トレンド外挿 / ${SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT}`);
   sh.getRange(row, 1, 1, 8).merge();
   sh.getRange(row, 1).setFontColor('#666666').setFontSize(10).setWrap(true);
   row++;
 
-  const seasonalWeighted = forecastSeasonalWeighted_(result.baseSeries48 || []);
+  const seasonalWeighted = seasonalWeightedCore;
   const quantP50Tri = (result.quantOnly || result.objOnly).p50;
-  const triHdr = ['比較軸', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted', 'Mixed P50', 'Mixed-Quant', 'Mixed-Linear', 'Mixed-Seasonal'];
+  const triHdr = ['比較軸', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted Total', 'Mixed Raw P50', 'Mixed Calibrated P50', 'Calibrated-Quant', 'Calibrated-Seasonal'];
   const sumReg = sumArr_(result.regTotal);
   const sumObj = sumArr_(quantP50Tri);
+  const sumMixRaw = sumArr_(mixedRawP50);
   const sumMix = sumArr_(result.mixed.p50);
-  const sumSea = sumArr_(seasonalWeighted);
-  const triAnnual = ['年度合計', sumObj, sumReg, sumSea, sumMix, sumMix - sumObj, sumMix - sumReg, sumMix - sumSea];
+  const sumSea = seasonalWeighted.annualTotal || 0;
+  const triAnnual = ['年度合計', sumObj, sumReg, sumSea, sumMixRaw, sumMix, sumMix - sumObj, sumMix - sumSea];
   sh.getRange(row, 1, 1, triHdr.length).setValues([triHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   sh.getRange(row, 1, 1, triAnnual.length).setValues([triAnnual]);
   sh.getRange(row, 2, 1, triAnnual.length - 1).setNumberFormat('¥#,##0');
   row += 2;
 
-  const triMonthHdr = ['Month', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted', 'Mixed P50', 'Mixed-Quant', 'Mixed-Linear', 'Mixed-Seasonal'];
+  const triMonthHdr = ['Month', 'MonteCarlo P50', 'Linear', 'Seasonal Weighted Total', 'Mixed Raw P50', 'Mixed Calibrated P50', 'Calibrated-Quant', 'Calibrated-Seasonal'];
   sh.getRange(row, 1, 1, triMonthHdr.length).setValues([triMonthHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   const triMonthRows = result.months.map((m, i) => [
     fmtYM_(m),
     quantP50Tri[i],
     result.regTotal[i],
-    seasonalWeighted[i] || 0,
+    (seasonalWeighted.totalByMonth || [])[i] || 0,
+    mixedRawP50[i] || 0,
     result.mixed.p50[i],
     result.mixed.p50[i] - quantP50Tri[i],
-    result.mixed.p50[i] - result.regTotal[i],
-    result.mixed.p50[i] - (seasonalWeighted[i] || 0)
+    result.mixed.p50[i] - (((seasonalWeighted.totalByMonth || [])[i]) || 0)
   ]);
   sh.getRange(row, 1, triMonthRows.length, triMonthHdr.length).setValues(triMonthRows);
   sh.getRange(row, 2, triMonthRows.length, triMonthHdr.length - 1).setNumberFormat('¥#,##0');
@@ -1267,14 +1354,13 @@ DX: デジタル化・運用効率化による成長余地`);
   sh.getRange(row, 1).setBackground('#e2f0d9').setFontWeight('bold');
   row++;
 
-  const d = result.mixedDiagnostics || {};
   const kProd = d.kProdByMonth || new Array(12).fill(1);
   const kClient = d.kClientByMonth || new Array(12).fill(1);
   const kOpinion = d.kOpinionP50ByMonth || new Array(12).fill(1);
   const kAI = d.kAIByMonth || new Array(12).fill(1);
   const opsBase = d.opsBaseByMonth || new Array(12).fill(0);
 
-  const infHdr = ['Month', 'Ops基礎', 'kProd', 'kClient', 'kOpinion(P50)', 'kAI', 'known spot(P50)', '背景SPOT(P50)', '混合P50', '定量P50', '差分(混合-定量)'];
+  const infHdr = ['Month', 'Ops基礎', 'kProd', 'kClient', 'kOpinion(P50)', 'kAI', 'Known Spot Expected', 'Known Spot P50', '背景SPOT(P50)', '混合P50(cal)', '混合P50(raw)', '定量P50'];
   sh.getRange(row, 1, 1, infHdr.length).setValues([infHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   row++;
   const infRows = result.months.map((m, i) => [
@@ -1284,16 +1370,58 @@ DX: デジタル化・運用効率化による成長余地`);
     kClient[i] || 1,
     kOpinion[i] || 1,
     kAI[i] || 1,
+    (result.knownSpotExpectedByMonth || [])[i] || 0,
     (d.knownSpotP50ByMonth || [])[i] || 0,
     (d.bgSpotP50ByMonth || [])[i] || 0,
     result.mixed.p50[i] || 0,
-    (result.quantOnly || result.objOnly).p50[i] || 0,
-    (result.mixed.p50[i] || 0) - ((result.quantOnly || result.objOnly).p50[i] || 0)
+    mixedRawP50[i] || 0,
+    (result.quantOnly || result.objOnly).p50[i] || 0
   ]);
   sh.getRange(row, 1, infRows.length, infHdr.length).setValues(infRows);
   sh.getRange(row, 2, infRows.length, 1).setNumberFormat('¥#,##0');
   sh.getRange(row, 3, infRows.length, 4).setNumberFormat('0.000');
-  sh.getRange(row, 7, infRows.length, 5).setNumberFormat('¥#,##0');
+  sh.getRange(row, 7, infRows.length, 6).setNumberFormat('¥#,##0');
+
+  row += infRows.length + 2;
+  const diag = d.qualCalibration || {};
+  sh.getRange(row, 1).setValue('Diagnostics').setFontWeight('bold').setBackground('#fde9d9');
+  sh.getRange(row, 1, 1, 6).merge();
+  row++;
+  const diagHdr = ['rawSubjectiveShare', 'rawTotalQualShare', 'calibratedSubjectiveShare', 'calibratedTotalQualShare', 'qualScale', 'qualCapHit', 'seasonalBaseAnnual', 'seasonalExpectedSpotAnnual', 'seasonalTotalAnnual', 'seasonalCompareWarning', 'qualCompareWarning'];
+  const diagRow = [[
+    diag.rawSubjectiveShare || 0,
+    diag.rawTotalQualShare || 0,
+    diag.calibratedSubjectiveShare || 0,
+    diag.calibratedTotalQualShare || 0,
+    diag.qualScale || 1,
+    diag.qualCapHit ? 'YES' : 'NO',
+    seasonalWeighted.annualBase || 0,
+    seasonalWeighted.annualExpectedSpot || 0,
+    seasonalWeighted.annualTotal || 0,
+    seasonalWeighted.diagnostics && seasonalWeighted.diagnostics.warningText ? seasonalWeighted.diagnostics.warningText : '',
+    diag.warningText || ''
+  ]];
+  sh.getRange(row, 1, 1, diagHdr.length).setValues([diagHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  sh.getRange(row, 1, 1, diagHdr.length).setValues(diagRow);
+  sh.getRange(row, 1, 1, 5).setNumberFormat('0.0000');
+  sh.getRange(row, 7, 1, 3).setNumberFormat('¥#,##0');
+  row++;
+  const monthRangeRatioAvg = averageMonthRangeRatio_(result.mixed.p10 || [], result.mixed.p50 || [], result.mixed.p90 || []);
+  const annualP10 = percentile_(annualMixedCalSim, 0.10);
+  const annualP50 = percentile_(annualMixedCalSim, 0.50);
+  const annualP90 = percentile_(annualMixedCalSim, 0.90);
+  const annualRangeRatio = annualP50 !== 0 ? (annualP90 - annualP10) / Math.abs(annualP50) : 0;
+  const rangeWarn = (monthRangeRatioAvg > RANGE_MONTH_WARN || annualRangeRatio > RANGE_ANNUAL_WARN) ? '⚠ range大きめ' : 'OK';
+  sh.getRange(row, 1, 1, 4).setValues([['monthly range ratio avg', 'annual range ratio', 'range warning', 'raw annual range ratio']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const rawAnnualP10 = percentile_(annualMixedRawSim, 0.10);
+  const rawAnnualP50 = percentile_(annualMixedRawSim, 0.50);
+  const rawAnnualP90 = percentile_(annualMixedRawSim, 0.90);
+  const rawAnnualRangeRatio = rawAnnualP50 !== 0 ? (rawAnnualP90 - rawAnnualP10) / Math.abs(rawAnnualP50) : 0;
+  sh.getRange(row, 1, 1, 4).setValues([[monthRangeRatioAvg, annualRangeRatio, rangeWarn, rawAnnualRangeRatio]]);
+  sh.getRange(row, 1, 1, 2).setNumberFormat('0.0%');
+  sh.getRange(row, 4).setNumberFormat('0.0%');
 }
 
 /** セクションブロック（表＋グラフ） */
@@ -1307,16 +1435,19 @@ function writeSectionBlock_(sh, startRow, opt) {
   r++;
 
   // 年度合計（B=Downside / C=Baseline / D=Upside）
-  const sumPos = sumArr_(opt.series.p90);
-  const sumNeu = sumArr_(opt.series.p50);
-  const sumNeg = sumArr_(opt.series.p10);
+  const annualSim = Array.isArray(opt.annualSim) && opt.annualSim.length ? opt.annualSim : null;
+  const sumPos = annualSim ? percentile_(annualSim, 0.90) : sumArr_(opt.series.p90);
+  const sumNeu = annualSim ? percentile_(annualSim, 0.50) : sumArr_(opt.series.p50);
+  const sumNeg = annualSim ? percentile_(annualSim, 0.10) : sumArr_(opt.series.p10);
   const sumReg = sumArr_(opt.regTotal);
-  const sumSeasonal = sumArr_(opt.seasonalWeighted || new Array(12).fill(0));
+  const seasonalTotalByMonth = (opt.seasonalWeighted && opt.seasonalWeighted.totalByMonth) ? opt.seasonalWeighted.totalByMonth : new Array(12).fill(0);
+  const sumSeasonal = sumArr_(seasonalTotalByMonth);
   const sumRange = sumPos - sumNeg;
 
-  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
+  const annualHdr = ['年度合計（シミュレーション予測）', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted Total', 'Range(P90-P10)'];
   const annualVal = ['年度合計（予測）', sumNeg, sumNeu, sumPos, sumReg, sumSeasonal, sumRange];
 
+  const annualHeaderRow = r;
   sh.getRange(r, 1, 1, annualHdr.length).setValues([annualHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   // BCDだけ意味色に
   sh.getRange(r, 2).setBackground(COLOR_NEG);
@@ -1329,13 +1460,13 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 意味色（値行）
   sh.getRange(r, 2).setBackground(COLOR_NEG);
-  sh.getRange(r, 3).setBackground(COLOR_NEU).setFontWeight('bold'); // 中立を強調
+  sh.getRange(r, 3).setBackground(COLOR_NEU);
   sh.getRange(r, 4).setBackground(COLOR_POS);
   r++;
 
   // 月次表
   r++;
-  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted', 'Range(P90-P10)'];
+  const hdr = ['Month', 'Downside(P10)', 'Baseline(P50)', 'Upside(P90)', 'Linear Regression', 'Seasonal Weighted Total', 'Range(P90-P10)'];
   sh.getRange(r, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const monthTableHeaderRow = r;
   // BCDだけ意味色に
@@ -1349,7 +1480,7 @@ function writeSectionBlock_(sh, startRow, opt) {
     const neu = opt.series.p50[i];
     const neg = opt.series.p10[i];
     const reg = opt.regTotal[i];
-    const sea = (opt.seasonalWeighted || [])[i] || 0;
+    const sea = seasonalTotalByMonth[i] || 0;
     return [fmtYM_(m), neg, neu, pos, reg, sea, (pos - neg)];
   });
 
@@ -1359,16 +1490,16 @@ function writeSectionBlock_(sh, startRow, opt) {
 
   // 意味色（列全体）
   sh.getRange(r, 2, table.length, 1).setBackground(COLOR_NEG);
-  sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU).setFontWeight('bold'); // 中立強調
+  sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU);
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
-  // P10/P50/P90説明（Note）
-  sh.getRange(r - 1, 2).setNote('【Downside(P10)】\nシミュレーション結果の下位10%点（=10パーセンタイル）。\n下振れ側の目安です。');
-  sh.getRange(r - 1, 3).setNote('【Baseline(P50)】\nシミュレーション結果の中央値（=50パーセンタイル）。\n最も参照すべき“中心”の目安です。');
-  sh.getRange(r - 1, 4).setNote('【Upside(P90)】\nシミュレーション結果の上位10%点（=90パーセンタイル）。\n上振れ側の目安です。');
-  sh.getRange(r - 1, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
-  sh.getRange(r - 1, 6).setNote('【Seasonal Weighted】\n同月履歴の加重平均（直近重み）にスパイク抑制をかけた独立推計です。');
-  sh.getRange(r - 1, 7).setNote('【Range(P90-P10)】\nUpside(P90)からDownside(P10)を引いた幅です。\n不確実性（どれくらいブレうるか）の大きさを表します。');
+  // P10/P50/P90説明（Note）※月次ヘッダセルにのみ付与
+  sh.getRange(monthTableHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション分布の10パーセンタイルです。\n通常想定より弱い条件が重なった場合の下振れ目安です。');
+  sh.getRange(monthTableHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション分布の中央値（50パーセンタイル）です。\n通常運用時の中心シナリオとして最優先で参照します。');
+  sh.getRange(monthTableHeaderRow, 4).setNote('【Upside(P90)】\nシミュレーション分布の90パーセンタイルです。\n好条件が重なった場合の上振れ目安です。');
+  sh.getRange(monthTableHeaderRow, 5).setNote('【Linear Regression】\n過去売上（ならした推移）に単純な直線を当てて将来を外挿した参考値です。\n季節性も考慮したトレンド外挿を行います。');
+  sh.getRange(monthTableHeaderRow, 6).setNote(`【Seasonal Weighted Total】\n${SEASONAL_WEIGHTED_TOTAL_EXPLAIN_TEXT}`);
+  sh.getRange(monthTableHeaderRow, 7).setNote('【Range(P90-P10)】\nUpside(P90) - Downside(P10) の幅です。\n値が大きいほど「通常条件から外れた時の振れ幅」が大きいことを示します。');
 
   // BASE/SPOT分離（SPOTは背景SPOT + DEV固定の合算）
   r += table.length + 2;
@@ -1384,6 +1515,7 @@ function writeSectionBlock_(sh, startRow, opt) {
     'Baseline_BASE', 'Baseline_SPOT',
     'Upside_BASE', 'Upside_SPOT'
   ];
+  const splitHeaderRow = r;
   sh.getRange(r, 1, 1, splitHdr.length).setValues([splitHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   r++;
 
@@ -1401,8 +1533,8 @@ function writeSectionBlock_(sh, startRow, opt) {
   });
   sh.getRange(r, 1, splitRows.length, splitHdr.length).setValues(splitRows);
   sh.getRange(r, 2, splitRows.length, splitHdr.length - 1).setNumberFormat('¥#,##0');
-  sh.getRange(r - 1, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
-  sh.getRange(r - 1, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
+  sh.getRange(splitHeaderRow, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
+  sh.getRange(splitHeaderRow, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
   // グラフ：Month + Neg + Neu + Pos + Reg（A〜E）
   const chartRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 5);
@@ -1506,13 +1638,13 @@ function buildGUIDE_() {
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 10, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
-    ['・織り込める要素: BASE履歴トレンド/季節性、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
-    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠で加算し、BASEトレンドとは分離します。'],
+    ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
+    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示します。'],
     ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
     ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
     ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
-    ['・CONFIGの「モデル調整パラメータ」は管理者向けです。むやみに変更しないでください。'],
+    ['・A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
     ['・検証(B-1〜B-3)を毎月回し、ズレをEVAL_INSIGHTSに蓄積してください。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
@@ -1559,13 +1691,15 @@ function buildCONFIG_() {
   const infoStart = 12;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
   const infoRows = [
-    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月のみでトレンド+12ヶ月季節性を推定。SPOTは背景成分として別枠で加算します。'],
+    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
     ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
     ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
     ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
     ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
-    ['AI調査（AI_RESEARCH_STRUCTURED）', 'kAI = 1 + 0.001 × (Market+Competitor+Channel+DX)。例: 合計+30 ⇒ +3%。'],
-    ['固定額（DEV_SPOT）', 'amount×confidence を月次で固定加算（背景SPOTと合算してSPOT固定成分として扱う）。']
+    ['AI調査（AI_RESEARCH_STRUCTURED）', '最新eventと業界内相対benchmarkをblendしてtopic別scoreを作成。AI効果上限は±3%。'],
+    ['固定額（DEV_SPOT）', 'amount×confidence をknown spotとして加算。背景SPOTは定量側で別管理。'],
+    ['定性差分の校正', 'calibration対象はSubjective Continuous Overlayのみ（Known Spotは対象外）。'],
+    ['Seasonal Weighted', '48M補完系列の同月加重推計BASEにExpected Spotを加算し、total-to-totalで比較表示。']
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
@@ -1598,7 +1732,20 @@ function buildCONFIG_() {
     ['SPOT_SPIKE_MAD_K（SPOTスパイク判定MAD倍率）', SPOT_SPIKE_MAD_K],
     ['KNOWN_SPOT_OFFSET_RATE（known spotの背景相殺率）', KNOWN_SPOT_OFFSET_RATE],
     ['KNOWN_SPOT_BG_SUPPRESS_RATE（known spot命中時の背景抑制）', KNOWN_SPOT_BG_SUPPRESS_RATE],
-    ['QUAL_SHARE_WARN_THRESHOLD（定性寄与率警告閾値）', QUAL_SHARE_WARN_THRESHOLD]
+    ['QUAL_SHARE_ALERT_THRESHOLD（定性寄与率アラート閾値）', QUAL_SHARE_ALERT_THRESHOLD],
+    ['QUAL_SHARE_TARGET_CENTER（定性寄与率目標中心）', QUAL_SHARE_TARGET_CENTER],
+    ['QUAL_SHARE_TARGET_LOW（定性寄与率目標下限）', QUAL_SHARE_TARGET_LOW],
+    ['QUAL_SHARE_TARGET_HIGH（定性寄与率目標上限）', QUAL_SHARE_TARGET_HIGH],
+    ['QUAL_SUBJECTIVE_MAX_SCALE（主観連続差分の最大スケール）', QUAL_SUBJECTIVE_MAX_SCALE],
+    ['QUAL_SUBJECTIVE_MONTHLY_CAP（月次cap/quantOps基準）', QUAL_SUBJECTIVE_MONTHLY_CAP],
+    ['QUAL_CALIBRATION_ENABLED（1=有効,0=無効）', QUAL_CALIBRATION_ENABLED],
+    ['SEASONAL_YEAR_WEIGHT_Y1（最古年重み）', SEASONAL_YEAR_WEIGHT_Y1],
+    ['SEASONAL_YEAR_WEIGHT_Y2', SEASONAL_YEAR_WEIGHT_Y2],
+    ['SEASONAL_YEAR_WEIGHT_Y3', SEASONAL_YEAR_WEIGHT_Y3],
+    ['SEASONAL_YEAR_WEIGHT_Y4（最新年重み）', SEASONAL_YEAR_WEIGHT_Y4],
+    ['SEASONAL_OPEN_MONTH_WEIGHT_MULT（未確定月信頼度係数）', SEASONAL_OPEN_MONTH_WEIGHT_MULT],
+    ['SEASONAL_WEIGHTED_MAD_K（季節推計MAD倍率）', SEASONAL_WEIGHTED_MAD_K],
+    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -1964,6 +2111,35 @@ function computeMonthTrendFactors_(y, closedIdx) {
     }
   }
   return factors;
+}
+
+function buildResidualPool_(y, model, seriesStart, lastClosedMonthStart) {
+  const tries = [RESIDUAL_WARMUP_SKIP_MONTHS, 3, 0];
+  for (let t = 0; t < tries.length; t++) {
+    const skip = tries[t];
+    const arr = [];
+    for (let i = skip; i < y.length; i++) {
+      const mStart = addMonths_(seriesStart, i);
+      if (mStart > lastClosedMonthStart) continue;
+      const fitted = Number((model.fitted || [])[i] || 0);
+      if (fitted <= 0) continue;
+      arr.push(Number(y[i] || 0) / fitted - 1);
+    }
+    if (arr.length >= 6) {
+      const med = percentile_(arr, 0.50);
+      const mad = Math.max(1e-6, percentile_(arr.map(v => Math.abs(v - med)), 0.50));
+      const lo = med - RESIDUAL_CLIP_MAD_K * mad;
+      const hi = med + RESIDUAL_CLIP_MAD_K * mad;
+      return arr.map(v => {
+        const clipped = clamp_(v, lo, hi);
+        return med + RESIDUAL_SHRINK_TO_MEDIAN * (clipped - med);
+      });
+    }
+  }
+  return y.map((val, i) => {
+    const fitted = Number((model.fitted || [])[i] || 0);
+    return fitted > 0 ? (Number(val || 0) / fitted - 1) : 0;
+  });
 }
 
 function estimateMonthAverage_(y, closedIdx, monthMod) {
@@ -2381,7 +2557,20 @@ function readModelTuningFromConfig_() {
     spotSpikeMadK: SPOT_SPIKE_MAD_K,
     knownSpotOffsetRate: KNOWN_SPOT_OFFSET_RATE,
     knownSpotBgSuppressRate: KNOWN_SPOT_BG_SUPPRESS_RATE,
-    qualShareWarnThreshold: QUAL_SHARE_WARN_THRESHOLD
+    qualShareAlertThreshold: QUAL_SHARE_ALERT_THRESHOLD,
+    qualShareTargetCenter: QUAL_SHARE_TARGET_CENTER,
+    qualShareTargetLow: QUAL_SHARE_TARGET_LOW,
+    qualShareTargetHigh: QUAL_SHARE_TARGET_HIGH,
+    qualSubjectiveMaxScale: QUAL_SUBJECTIVE_MAX_SCALE,
+    qualSubjectiveMonthlyCap: QUAL_SUBJECTIVE_MONTHLY_CAP,
+    qualCalibrationEnabled: QUAL_CALIBRATION_ENABLED,
+    seasonalYearWeightY1: SEASONAL_YEAR_WEIGHT_Y1,
+    seasonalYearWeightY2: SEASONAL_YEAR_WEIGHT_Y2,
+    seasonalYearWeightY3: SEASONAL_YEAR_WEIGHT_Y3,
+    seasonalYearWeightY4: SEASONAL_YEAR_WEIGHT_Y4,
+    seasonalOpenMonthWeightMult: SEASONAL_OPEN_MONTH_WEIGHT_MULT,
+    seasonalWeightedMadK: SEASONAL_WEIGHTED_MAD_K,
+    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2397,11 +2586,24 @@ function readModelTuningFromConfig_() {
   out.spotBgFloorRate = Math.max(0, Math.min(1, getNum('B33', out.spotBgFloorRate)));
   out.spotBgCapRate = Math.max(0, Math.min(1, getNum('B34', out.spotBgCapRate)));
   out.aiWeight = Math.max(0, Math.min(0.01, getNum('B35', out.aiWeight)));
-  out.aiMaxAbsEffect = Math.max(0, Math.min(0.50, getNum('B36', out.aiMaxAbsEffect)));
+  out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getNum('B36', out.aiMaxAbsEffect)));
   out.spotSpikeMadK = Math.max(0.5, Math.min(10, getNum('B37', out.spotSpikeMadK)));
   out.knownSpotOffsetRate = Math.max(0, Math.min(1, getNum('B38', out.knownSpotOffsetRate)));
   out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getNum('B39', out.knownSpotBgSuppressRate)));
-  out.qualShareWarnThreshold = Math.max(0, Math.min(1, getNum('B40', out.qualShareWarnThreshold)));
+  out.qualShareAlertThreshold = Math.max(0, Math.min(1, getNum('B40', out.qualShareAlertThreshold)));
+  out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getNum('B41', out.qualShareTargetCenter)));
+  out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getNum('B42', out.qualShareTargetLow)));
+  out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getNum('B43', out.qualShareTargetHigh)));
+  out.qualSubjectiveMaxScale = Math.max(0.1, Math.min(10, getNum('B44', out.qualSubjectiveMaxScale)));
+  out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getNum('B45', out.qualSubjectiveMonthlyCap)));
+  out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getNum('B46', out.qualCalibrationEnabled))));
+  out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getNum('B47', out.seasonalYearWeightY1)));
+  out.seasonalYearWeightY2 = Math.max(0, Math.min(1, getNum('B48', out.seasonalYearWeightY2)));
+  out.seasonalYearWeightY3 = Math.max(0, Math.min(1, getNum('B49', out.seasonalYearWeightY3)));
+  out.seasonalYearWeightY4 = Math.max(0, Math.min(1, getNum('B50', out.seasonalYearWeightY4)));
+  out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getNum('B51', out.seasonalOpenMonthWeightMult)));
+  out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getNum('B52', out.seasonalWeightedMadK)));
+  out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getNum('B53', out.seasonalCompareWarnThreshold)));
   return out;
 }
 
@@ -2849,15 +3051,11 @@ function readOpinions_(fy) {
 }
 
 /**
- * AI_RESEARCH_STRUCTURED から topic 別の adjusted_score を読み取り、
- * 予測モデル用の係数マップを返す。
- *
- * 返却値: { Market: number, Competitor: number, Channel: number, DX: number }
- * 各値は adjusted_score の topic 別平均（-50〜+50 の範囲）。
- * データがない場合は全て 0（ニュートラル）。
+ * AI_RESEARCH_STRUCTURED から topic 別のAIスコアを読み取り、
+ * benchmark/event blend の最終スコアを返す。
  */
 function readAIResearchScores_() {
-  const result = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const result = { Market: 0, Competitor: 0, Channel: 0, DX: 0, meta: { Market: {}, Competitor: {}, Channel: {}, DX: {} } };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
   if (!sh) return result;
@@ -2868,38 +3066,217 @@ function readAIResearchScores_() {
   const vals = sh.getDataRange().getValues();
   const header = vals[0];
 
-  // カラムindex特定（ヘッダ名で検索）
-  const topicIdx = header.indexOf('topic');
-  const adjIdx = header.indexOf('adjusted_score');
-  if (topicIdx < 0 || adjIdx < 0) return result;
+  const idx = {};
+  header.forEach((h, i) => { idx[String(h || '').trim()] = i; });
+  const topicIdx = idx.topic;
+  if (topicIdx === undefined) return result;
+  const rowTypeIdx = idx.row_type;
+  const eventScoreIdx = idx.event_score;
+  const benchmarkScoreIdx = idx.benchmark_score;
+  const directionIdx = idx.direction;
+  const impactIdx = idx.impact_score;
+  const confIdx = idx.confidence;
+  const relPctIdx = idx.relative_percentile;
+  const relConfIdx = idx.relative_confidence;
+  const qualityIdx = idx.benchmark_quality;
+  const labelIdx = idx.relative_position_label;
+  const peerUIdx = idx.peer_universe;
+  const peerBIdx = idx.peer_basis;
+  const asOfIdx = idx.as_of_date;
+  const oldAdjIdx = idx.adjusted_score;
 
-  const sums = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  const counts = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const blend = { Market: [0.65, 0.35], Competitor: [0.70, 0.30], Channel: [0.65, 0.35], DX: [0.50, 0.50] };
+  const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
+  const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
+  const latestBenchMeta = { Market: null, Competitor: null, Channel: null, DX: null };
 
+  const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : (q === 'low' ? 0.5 : 1)));
   for (let i = 1; i < vals.length; i++) {
     const topic = String(vals[i][topicIdx] || '').trim();
-    const score = Number(vals[i][adjIdx] || 0);
-    if (!isFinite(score)) continue;
-    if (sums[topic] === undefined) continue;
+    if (eventArr[topic] === undefined) continue;
+    const rowType = rowTypeIdx === undefined ? 'event' : String(vals[i][rowTypeIdx] || 'event').trim().toLowerCase();
 
-    sums[topic] += score;
-    counts[topic]++;
+    let eventScore = Number(eventScoreIdx === undefined ? NaN : vals[i][eventScoreIdx]);
+    if (!isFinite(eventScore) && oldAdjIdx !== undefined) {
+      const direction = String(vals[i][directionIdx] || '').trim().toLowerCase();
+      const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
+      const impact = Number(vals[i][impactIdx] || NaN);
+      const conf = Number(vals[i][confIdx] || NaN);
+      if (isFinite(impact) && isFinite(conf)) eventScore = sign * Math.abs(impact - 50) * conf;
+    }
+    let benchScore = Number(benchmarkScoreIdx === undefined ? NaN : vals[i][benchmarkScoreIdx]);
+    if (!isFinite(benchScore) && relPctIdx !== undefined && relConfIdx !== undefined) {
+      const relPct = Number(vals[i][relPctIdx] || NaN);
+      const relConf = Number(vals[i][relConfIdx] || NaN);
+      const q = String(vals[i][qualityIdx] || '').trim().toLowerCase();
+      if (isFinite(relPct) && isFinite(relConf)) benchScore = (relPct - 50) * relConf * qualityMul(q);
+    }
+
+    if (rowType === 'benchmark') {
+      if (isFinite(benchScore)) benchArr[topic].push(benchScore);
+      const asOf = toDate_(asOfIdx === undefined ? '' : vals[i][asOfIdx]) || new Date(0);
+      if (!latestBenchMeta[topic] || latestBenchMeta[topic].asOf < asOf) {
+        latestBenchMeta[topic] = {
+          asOf,
+          label: String(labelIdx === undefined ? '' : vals[i][labelIdx] || ''),
+          universe: String(peerUIdx === undefined ? '' : vals[i][peerUIdx] || ''),
+          basis: String(peerBIdx === undefined ? '' : vals[i][peerBIdx] || '')
+        };
+      }
+    } else {
+      if (isFinite(eventScore)) eventArr[topic].push(eventScore);
+    }
   }
 
-  for (const k in result) {
-    result[k] = counts[k] > 0 ? Math.round(sums[k] / counts[k] * 10) / 10 : 0;
-  }
+  ['Market', 'Competitor', 'Channel', 'DX'].forEach(topic => {
+    const eAvg = eventArr[topic].length ? avg_(eventArr[topic]) : null;
+    const bAvg = benchArr[topic].length ? avg_(benchArr[topic]) : null;
+    let finalScore = 0;
+    if (bAvg === null && eAvg !== null) finalScore = eAvg;
+    else if (bAvg !== null && eAvg === null) finalScore = bAvg;
+    else if (bAvg !== null && eAvg !== null) finalScore = bAvg * blend[topic][0] + eAvg * blend[topic][1];
+    result[topic] = Math.round(finalScore * 10) / 10;
+    result.meta[topic] = latestBenchMeta[topic] || { label: '', universe: '', basis: '' };
+  });
 
   return result;
 }
 
 function readAIPasteOutputFullText_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
-  if (!sh) return '';
-  const txt = String(sh.getRange('D2').getValue() || '').replace(/\s+/g, ' ').trim();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const client = cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '';
+  return readAIReportTextForClient_(client);
+}
+
+function readAIReportTextForClient_(clientName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  if (sh) {
+    const vals = sh.getDataRange().getValues();
+    if (vals.length >= 2) {
+      const header = vals[0].map(v => String(v || '').trim());
+      const reportIdx = header.indexOf('report_text');
+      const clientIdx = header.indexOf('client');
+      const asOfIdx = header.indexOf('as_of_date');
+      if (reportIdx >= 0) {
+        const rows = [];
+        for (let i = 1; i < vals.length; i++) {
+          const report = vals[i][reportIdx];
+          const reportText = report === null || report === undefined ? '' : String(report);
+          if (!reportText.trim()) continue;
+          if (clientIdx >= 0 && clientName) {
+            const rowClient = String(vals[i][clientIdx] || '').trim();
+            if (rowClient && !isSameClient_(rowClient, clientName)) continue;
+          }
+          const asOfRaw = asOfIdx >= 0 ? vals[i][asOfIdx] : '';
+          const asOfDate = toDate_(asOfRaw) || new Date(0);
+          rows.push({ reportText, asOfDate, rowNo: i });
+        }
+        rows.sort((a, b) => {
+          if (b.asOfDate.getTime() !== a.asOfDate.getTime()) return b.asOfDate - a.asOfDate;
+          return b.rowNo - a.rowNo;
+        });
+        if (rows.length) return sanitizeAiReportText_(rows[0].reportText);
+      }
+    }
+  }
+
+  const promptSh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  if (!promptSh) return '';
+  const txt = String(promptSh.getRange('D2').getValue() || '');
+  return sanitizeAiReportText_(extractReportSection_(txt));
+}
+
+function extractReportSection_(txt) {
   if (!txt) return '';
-  return txt.length > 120 ? `${txt.slice(0, 120)}…` : txt;
+  const pairs = [
+    ['###REPORT_START###', '###REPORT_END###'],
+    ['===REPORT_START===', '===REPORT_END===']
+  ];
+  for (let i = 0; i < pairs.length; i++) {
+    const start = pairs[i][0];
+    const end = pairs[i][1];
+    const sIdx = txt.indexOf(start);
+    if (sIdx < 0) continue;
+    const eIdx = txt.indexOf(end, sIdx + start.length);
+    if (eIdx < 0) continue;
+    return txt.substring(sIdx + start.length, eIdx).trim();
+  }
+  return txt;
+}
+
+function sanitizeAiReportText_(txt) {
+  let s = String(txt || '');
+  if (!s) return '';
+  const startPatterns = ['【Market】', '【Competitor】', '【Channel】', '【DX】', '**1. Market', '**2. Competitor', '**3. Channel', '**4. DX', '## I.', '## II.'];
+  let startIdx = -1;
+  startPatterns.forEach(p => {
+    const idx = s.indexOf(p);
+    if (idx >= 0 && (startIdx < 0 || idx < startIdx)) startIdx = idx;
+  });
+  if (startIdx > 0) s = s.substring(startIdx);
+  const removePhrases = ['お任せください', '私はAIアシスタントとして', '客観的な事実に基づき', '分析しました', '次に、', '深掘りして分析しましょうか', 'これらの分析結果の詳細は、以下のデータテーブルに整理しています。'];
+  removePhrases.forEach(p => { s = s.split(p).join(''); });
+  s = s.replace(/^.*ですね。/gm, '');
+  const lines = s.split(/\r?\n/);
+  while (lines.length && /[？?]$/.test(String(lines[lines.length - 1]).trim())) lines.pop();
+  s = lines.join('\n');
+  s = s.replace(/(^|\n)\s*#{1,3}\s*/g, '$1');
+  s = s.replace(/\*\*/g, '');
+  s = s.replace(/^[\-\*]\s+/gm, '');
+  return s.trim();
+}
+
+function normalizeAiDirection_(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return '';
+  if (/(up|positive|posi|上昇|増)/.test(s)) return 'up';
+  if (/(down|negative|nega|低下|減)/.test(s)) return 'down';
+  if (/(neutral|中立)/.test(s)) return 'neutral';
+  return s;
+}
+
+function parseAiNumericScore_(v, fieldName) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return NaN;
+  if (fieldName === 'impact_score') {
+    if (s === 'high') return 80;
+    if (s === 'medium') return 60;
+    if (s === 'low') return 40;
+  }
+  return NaN;
+}
+
+function parseAiConfidence_(v) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'high') return 0.90;
+  if (s === 'medium') return 0.70;
+  if (s === 'low') return 0.50;
+  return NaN;
+}
+
+function parseAiPercentile_(v) {
+  const n = Number(v);
+  if (isFinite(n)) return n;
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return NaN;
+  if (/top\s*10|上位\s*10/.test(s)) return 90;
+  if (/top\s*20|上位\s*20/.test(s)) return 80;
+  if (/top\s*25|上位\s*25/.test(s)) return 75;
+  return NaN;
+}
+
+function buildAiParseWarningText_(opt) {
+  const msgs = [];
+  if (opt.hasReport && (opt.validEvent + opt.validBenchmark === 0)) msgs.push('AI report_textはあるが有効AI行が0件');
+  if (opt.validBenchmark === 0) msgs.push('benchmark行が0件');
+  if (opt.invalid > 0) msgs.push(`invalid行 ${opt.invalid} 件`);
+  return msgs.join(' / ');
 }
 
 
@@ -2930,36 +3307,71 @@ function fitOpsModelTrendSeason_(y) {
 }
 
 
-function forecastSeasonalWeighted_(baseSeries48) {
-  const src = Array.isArray(baseSeries48) ? baseSeries48 : new Array(48).fill(0);
-  const out = new Array(12).fill(0);
-  const yearWeights = [0.1, 0.2, 0.3, 0.4];
+function forecastSeasonalWeighted48_(opt) {
+  const src = (opt && Array.isArray(opt.adjustedBaseSeries48)) ? opt.adjustedBaseSeries48 : new Array(48).fill(0);
+  const seriesStart = (opt && opt.seriesStart) ? opt.seriesStart : new Date(new Date().getFullYear() - 4, 3, 1);
+  const lastClosedMonthStart = (opt && opt.lastClosedMonthStart) ? opt.lastClosedMonthStart : getLastClosedMonthStart_();
+  const spotBg = (opt && Array.isArray(opt.spotBackgroundExpectedByMonth)) ? opt.spotBackgroundExpectedByMonth : new Array(12).fill(0);
+  const knownSpot = (opt && Array.isArray(opt.knownSpotExpectedByMonth)) ? opt.knownSpotExpectedByMonth : new Array(12).fill(0);
+  const tuning = (opt && opt.tuning) ? opt.tuning : {};
+  const yearWeights = [
+    isFinite(tuning.seasonalYearWeightY1) ? tuning.seasonalYearWeightY1 : SEASONAL_YEAR_WEIGHT_Y1,
+    isFinite(tuning.seasonalYearWeightY2) ? tuning.seasonalYearWeightY2 : SEASONAL_YEAR_WEIGHT_Y2,
+    isFinite(tuning.seasonalYearWeightY3) ? tuning.seasonalYearWeightY3 : SEASONAL_YEAR_WEIGHT_Y3,
+    isFinite(tuning.seasonalYearWeightY4) ? tuning.seasonalYearWeightY4 : SEASONAL_YEAR_WEIGHT_Y4
+  ];
+  const openMult = isFinite(tuning.seasonalOpenMonthWeightMult) ? tuning.seasonalOpenMonthWeightMult : SEASONAL_OPEN_MONTH_WEIGHT_MULT;
+  const madK = isFinite(tuning.seasonalWeightedMadK) ? tuning.seasonalWeightedMadK : SEASONAL_WEIGHTED_MAD_K;
+  const compareWarnThreshold = isFinite(tuning.seasonalCompareWarnThreshold) ? tuning.seasonalCompareWarnThreshold : SEASONAL_COMPARE_WARN_THRESHOLD;
 
+  const baseByMonth = new Array(12).fill(0);
+  const monthTrendFactor = computeMonthTrendFactors_(src, src.map((_, i) => i));
   for (let m = 0; m < 12; m++) {
     const vals = [];
     for (let y = 0; y < 4; y++) {
       const idx = y * 12 + m;
-      const v = Number(src[idx] || 0);
-      if (isFinite(v)) vals.push({ v, w: yearWeights[y] });
+      const monthStart = addMonths_(seriesStart, idx);
+      const raw = Number(src[idx] || 0);
+      if (!isFinite(raw)) continue;
+      let w = Number(yearWeights[y] || 0);
+      if (monthStart > lastClosedMonthStart) w *= openMult;
+      vals.push({ v: raw, w });
     }
     if (!vals.length) continue;
-
-    const vArr = vals.map(x => x.v).sort((a,b)=>a-b);
-    const p10 = percentileSorted_(vArr, 0.10);
-    const p90 = percentileSorted_(vArr, 0.90);
-    let num = 0, den = 0;
+    const med = percentile_(vals.map(x => x.v), 0.50);
+    const mad = Math.max(1e-6, percentile_(vals.map(x => Math.abs(x.v - med)), 0.50));
+    const lo = med - madK * mad;
+    const hi = med + madK * mad;
+    let num = 0;
+    let den = 0;
     vals.forEach(x => {
-      const vv = Math.max(p10, Math.min(p90, x.v));
-      num += vv * x.w;
+      const clipped = Math.max(lo, Math.min(hi, x.v));
+      num += clipped * x.w;
       den += x.w;
     });
-    out[m] = den > 0 ? (num / den) : 0;
+    const monthBase = den > 0 ? num / den : 0;
+    const trendF = Math.max(TREND_FACTOR_MIN, Math.min(TREND_FACTOR_MAX, Number(monthTrendFactor[m] || 1)));
+    baseByMonth[m] = Math.max(0, monthBase * trendF);
   }
 
-  const recent12 = src.slice(36, 48);
-  const prev12 = src.slice(24, 36);
-  const trendAdj = (avg_(prev12) > 0) ? Math.max(0.90, Math.min(1.10, avg_(recent12) / avg_(prev12))) : 1;
-  return out.map(v => Math.max(0, v * trendAdj));
+  const totalByMonth = baseByMonth.map((v, i) => Math.max(0, Number(v || 0) + Number(spotBg[i] || 0) + Number(knownSpot[i] || 0)));
+  const annualBase = sumArr_(baseByMonth);
+  const annualExpectedSpot = sumArr_(spotBg) + sumArr_(knownSpot);
+  const annualTotal = sumArr_(totalByMonth);
+  const diagnostics = {
+    compareWarnThreshold,
+    warningText: ''
+  };
+  return {
+    baseByMonth,
+    spotBackgroundExpectedByMonth: spotBg.slice(),
+    knownSpotExpectedByMonth: knownSpot.slice(),
+    totalByMonth,
+    annualBase,
+    annualExpectedSpot,
+    annualTotal,
+    diagnostics
+  };
 }
 
 function buildHistoricalTrendInsight_(series48, model) {
@@ -2986,20 +3398,8 @@ function buildHistoricalTrendInsight_(series48, model) {
 ・急変月は要因（案件・失注）の確認を推奨`;
 }
 
-function buildAIInsight_(aiScores, reportText) {
-  const ai = aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  const kv = Object.keys(ai).map(k => ({ k, v: Number(ai[k] || 0) }));
-  kv.sort((a,b)=>b.v-a.v);
-  const best = kv[0] || { k: 'Market', v: 0 };
-  const worst = kv[kv.length - 1] || { k: 'DX', v: 0 };
-  const txt = String(reportText || '').trim();
-  const horizon = (txt.match(/short/ig)||[]).length >= (txt.match(/mid/ig)||[]).length ? 'Short寄り' : 'Mid寄り';
-  const fullText = txt || '（paste_gem_output 未貼付）';
-  return `・ポジティブ要因: ${best.k} (${best.v.toFixed(1)})
-・ネガティブ要因: ${worst.k} (${worst.v.toFixed(1)})
-・示唆の時間軸は ${horizon}
-・AI本文:
-${fullText}`;
+function buildAIInsight_(reportText) {
+  return String(reportText || '');
 }
 
 
@@ -3025,9 +3425,11 @@ function forecastMonteCarloMixed_(model, opt) {
   const opinions = opt.opinions || [];
   const productWeights = opt.productWeights || new Map();
   const months = opt.months || [];
+  const sourceByMonth = opt.sourceByMonth || new Array(12).fill('forecast_open');
   const spotBgModel = opt.spotBgModel || { expectedByMonth: new Array(12).fill(0), occurrenceProbByMonth: new Array(12).fill(0), severitySamplesByMonth: Array.from({ length: 12 }, () => [0]) };
   const knownSpotProjectsByMonth = opt.knownSpotProjectsByMonth || Array.from({ length: 12 }, () => []);
   const knownSpotBgSuppressRate = isFinite(opt.knownSpotBgSuppressRate) ? opt.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE;
+  const tuning = opt.tuning || {};
 
   const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights));
   const kClientByMonth = months.map(m => clientFactorsMultiplier_(factorsClient, m));
@@ -3041,10 +3443,14 @@ function forecastMonteCarloMixed_(model, opt) {
   const kAI = 1 + aiClampedEffect;
 
   const startT = 48;
-  const simByMonth = Array.from({ length: 12 }, () => []);
+  const totalRawSimByMonth = Array.from({ length: 12 }, () => []);
+  const totalCalibratedSimByMonth = Array.from({ length: 12 }, () => []);
+  const quantOpsSimByMonth = Array.from({ length: 12 }, () => []);
+  const subjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const scaledSubjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const knownSpotSimByMonth = Array.from({ length: 12 }, () => []);
+  const bgSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const opinionKByMonth = Array.from({ length: 12 }, () => []);
-  const knownSpotSimP50ByMonth = Array.from({ length: 12 }, () => []);
-  const bgSpotSimP50ByMonth = Array.from({ length: 12 }, () => []);
 
   const opsBaseByMonth = Array.from({ length: 12 }, (_, i) => {
     const t = startT + (i + 1);
@@ -3060,44 +3466,111 @@ function forecastMonteCarloMixed_(model, opt) {
       const base = Math.max(0, (model.intercept + model.slope * t) * model.seasonalIndex[mIdx]);
       const e = residualPct[Math.floor(Math.random() * residualPct.length)] || 0;
 
-      let ops = base * (1 + e);
+      const quantOpsAfterResidual = Math.max(0, base * (1 + e));
+      let ops = quantOpsAfterResidual;
       ops *= kProdByMonth[i];
       ops *= kClientByMonth[i];
       const kOpinion = sampleOpinionMultiplier_(opinions, months[i]);
       ops *= kOpinion;
       ops *= kAI;
+      const subjectiveContinuousDelta = quantOpsAfterResidual * ((kProdByMonth[i] * kClientByMonth[i] * kOpinion * kAI) - 1);
       opinionKByMonth[i].push(kOpinion);
 
       const knownSpot = simulateKnownSpotByMonth_(knownSpotProjectsByMonth[i]);
       const bgSuppress = knownSpot > 0 ? knownSpotBgSuppressRate : 1;
       const bgSpot = sampleSpotBackgroundAmount_(spotBgModel, i, bgSuppress);
-      knownSpotSimP50ByMonth[i].push(knownSpot);
-      bgSpotSimP50ByMonth[i].push(bgSpot);
+      const quantOpsSim = quantOpsAfterResidual;
+      const totalRaw = Math.max(0, ops) + knownSpot + bgSpot;
 
-      const total = Math.max(0, ops) + knownSpot + bgSpot;
-      simByMonth[i].push(total);
+      quantOpsSimByMonth[i].push(quantOpsSim);
+      subjectiveContinuousDeltaSimByMonth[i].push(subjectiveContinuousDelta);
+      knownSpotSimByMonth[i].push(knownSpot);
+      bgSpotSimByMonth[i].push(bgSpot);
+      totalRawSimByMonth[i].push(totalRaw);
     }
   }
 
-  const p10 = simByMonth.map(arr => percentile_(arr, 0.10));
-  const p50 = simByMonth.map(arr => percentile_(arr, 0.50));
-  const p90 = simByMonth.map(arr => percentile_(arr, 0.90));
+  const calibrated = calibrateSubjectiveContinuousDelta_({
+    quantOpsSimByMonth,
+    subjectiveContinuousDeltaSimByMonth,
+    knownSpotSimByMonth,
+    bgSpotSimByMonth,
+    sourceByMonth,
+    tuning
+  });
+
+  const capHit = calibrated.capHit;
+  for (let i = 0; i < 12; i++) {
+    scaledSubjectiveContinuousDeltaSimByMonth[i] = calibrated.scaledSubjectiveSimByMonth[i].slice();
+    totalCalibratedSimByMonth[i] = calibrated.mixedSimByMonth[i].slice();
+  }
+
+  const rawQ = quantilesFromSimByMonth_(totalRawSimByMonth);
+  const calibratedQ = quantilesFromSimByMonth_(totalCalibratedSimByMonth);
+  const subjectiveQ = quantilesFromSimByMonth_(subjectiveContinuousDeltaSimByMonth);
+  const knownQ = quantilesFromSimByMonth_(knownSpotSimByMonth);
+  const bgQ = quantilesFromSimByMonth_(bgSpotSimByMonth);
+  const scaledSubjectiveQ = quantilesFromSimByMonth_(scaledSubjectiveContinuousDeltaSimByMonth);
 
   const kOpinionP50ByMonth = opinionKByMonth.map(arr => percentile_(arr, 0.50));
   const kAIByMonth = new Array(12).fill(kAI);
+  const quantP50ForKpi = quantOpsSimByMonth.map((arr, i) => percentile_(arr.map((v, s) => Number(v || 0) + Number((bgSpotSimByMonth[i] || [])[s] || 0)), 0.50));
+  const qualDiag = buildQualShareDiagnostics_({
+    quantP50ByMonth: quantP50ForKpi,
+    rawMixedP50ByMonth: rawQ.p50,
+    calibratedMixedP50ByMonth: calibratedQ.p50,
+    sourceByMonth,
+    chosenScale: calibrated.scale,
+    achievedQualShare: calibrated.achievedQualShare,
+    bandHit: calibrated.bandHit,
+    missReason: calibrated.missReason,
+    capHit
+  });
 
   return {
-    p10,
-    p50,
-    p90,
+    p10: calibratedQ.p10,
+    p50: calibratedQ.p50,
+    p90: calibratedQ.p90,
+    raw: rawQ,
+    calibrated: calibratedQ,
     diagnostics: {
       opsBaseByMonth,
       kProdByMonth,
       kClientByMonth,
       kOpinionP50ByMonth,
       kAIByMonth,
-      knownSpotP50ByMonth: knownSpotSimP50ByMonth.map(arr => percentile_(arr, 0.50)),
-      bgSpotP50ByMonth: bgSpotSimP50ByMonth.map(arr => percentile_(arr, 0.50)),
+      quantOpsSimByMonth,
+      subjectiveContinuousDeltaSimByMonth,
+      knownSpotSimByMonth,
+      bgSpotSimByMonth,
+      totalRawSimByMonth,
+      totalCalibratedSimByMonth,
+      subjectiveContinuousP10ByMonth: subjectiveQ.p10,
+      subjectiveContinuousP50ByMonth: subjectiveQ.p50,
+      subjectiveContinuousP90ByMonth: subjectiveQ.p90,
+      knownSpotP10ByMonth: knownQ.p10,
+      knownSpotP50ByMonth: knownQ.p50,
+      knownSpotP90ByMonth: knownQ.p90,
+      bgSpotP10ByMonth: bgQ.p10,
+      bgSpotP50ByMonth: bgQ.p50,
+      bgSpotP90ByMonth: bgQ.p90,
+      totalRawP10ByMonth: rawQ.p10,
+      totalRawP50ByMonth: rawQ.p50,
+      totalRawP90ByMonth: rawQ.p90,
+      scaledSubjectiveP50ByMonth: scaledSubjectiveQ.p50,
+      qualCalibration: {
+        rawSubjectiveShare: qualDiag.rawSubjectiveShare,
+        rawTotalQualShare: qualDiag.rawTotalQualShare,
+        calibratedSubjectiveShare: qualDiag.calibratedSubjectiveShare,
+        calibratedTotalQualShare: qualDiag.calibratedTotalQualShare,
+        qualScale: calibrated.chosenScale,
+        qualCapHit: capHit,
+        targetReached: calibrated.bandHit,
+        achievedQualShare: calibrated.achievedQualShare,
+        bandHit: calibrated.bandHit,
+        missReason: calibrated.missReason,
+        warningText: qualDiag.warningText
+      },
       aiTotalScore,
       AI_WEIGHT: aiWeight,
       aiRawEffect,
@@ -3105,6 +3578,283 @@ function forecastMonteCarloMixed_(model, opt) {
       aiMaxAbsEffect
     }
   };
+}
+
+function quantilesFromSimByMonth_(simByMonth) {
+  return {
+    p10: simByMonth.map(arr => percentile_(arr, 0.10)),
+    p50: simByMonth.map(arr => percentile_(arr, 0.50)),
+    p90: simByMonth.map(arr => percentile_(arr, 0.90))
+  };
+}
+
+function calibrateSubjectiveContinuousDelta_(opt) {
+  const tuning = opt && opt.tuning ? opt.tuning : {};
+  const targetCenter = SUBJECTIVE_OVERLAY_TARGET_CENTER;
+  const targetLow = SUBJECTIVE_OVERLAY_TARGET_LOW;
+  const targetHigh = SUBJECTIVE_OVERLAY_TARGET_HIGH;
+  const monthlyCap = isFinite(tuning.qualSubjectiveMonthlyCap) ? tuning.qualSubjectiveMonthlyCap : QUAL_SUBJECTIVE_MONTHLY_CAP;
+  const enabled = isFinite(tuning.qualCalibrationEnabled) ? Number(tuning.qualCalibrationEnabled) > 0 : !!QUAL_CALIBRATION_ENABLED;
+  const sourceByMonth = opt.sourceByMonth || new Array(12).fill('forecast_open');
+
+  const scaleCandidates = buildCoarseToFineScaleCandidates_(enabled);
+  let best = null;
+  let bestInBand = null;
+  for (let i = 0; i < scaleCandidates.length; i++) {
+    const scale = scaleCandidates[i];
+    const evalResult = evaluateScaleWithExistingSims_({
+      scale,
+      monthlyCap,
+      quantOpsSimByMonth: opt.quantOpsSimByMonth,
+      subjectiveContinuousDeltaSimByMonth: opt.subjectiveContinuousDeltaSimByMonth,
+      knownSpotSimByMonth: opt.knownSpotSimByMonth,
+      bgSpotSimByMonth: opt.bgSpotSimByMonth,
+      sourceByMonth
+    });
+    const dist = evalResult.hasOpenMonths ? Math.abs(evalResult.overlayShare - targetCenter) : Number.POSITIVE_INFINITY;
+    const cand = { scale, dist, ...evalResult };
+    if (!best || cand.dist < best.dist) best = cand;
+    if (cand.hasOpenMonths && cand.overlayShare >= targetLow && cand.overlayShare <= targetHigh) {
+      if (!bestInBand || cand.dist < bestInBand.dist) bestInBand = cand;
+    }
+  }
+  const chosen = bestInBand || best || {
+    scale: 1,
+    overlayShare: 0,
+    hasOpenMonths: false,
+    capHit: false,
+    mixedSimByMonth: Array.from({ length: 12 }, () => []),
+    scaledSubjectiveSimByMonth: Array.from({ length: 12 }, () => [])
+  };
+  const missReason = !chosen.hasOpenMonths ? 'forecast_open月がないため判定不能'
+    : (bestInBand ? '' : '探索レンジ内で目標帯(10%-20%)に未到達');
+  return {
+    scale: chosen.scale,
+    monthlyCap,
+    targetCenter,
+    targetLow,
+    targetHigh,
+    achievedQualShare: chosen.overlayShare,
+    bandHit: !!bestInBand,
+    missReason,
+    capHit: !!chosen.capHit,
+    mixedSimByMonth: chosen.mixedSimByMonth,
+    scaledSubjectiveSimByMonth: chosen.scaledSubjectiveSimByMonth
+  };
+}
+
+function buildQualShareDiagnostics_(opt) {
+  const rawKpi = computeDisplayedQualKpi_(opt.quantP50ByMonth || [], opt.rawMixedP50ByMonth || [], opt.sourceByMonth || []);
+  const calKpi = computeDisplayedQualKpi_(opt.quantP50ByMonth || [], opt.calibratedMixedP50ByMonth || [], opt.sourceByMonth || []);
+  const rawSubjectiveShare = rawKpi.hasOpenMonths ? rawKpi.qualShare : 0;
+  const rawTotalQualShare = rawKpi.hasOpenMonths ? rawKpi.qualShare : 0;
+  const calibratedSubjectiveShare = calKpi.hasOpenMonths ? calKpi.qualShare : 0;
+  const calibratedTotalQualShare = calKpi.hasOpenMonths ? calKpi.qualShare : 0;
+  const targetReached = calKpi.hasOpenMonths && calibratedTotalQualShare >= QUAL_SHARE_TARGET_LOW && calibratedTotalQualShare <= QUAL_SHARE_TARGET_HIGH;
+  let warningText = '';
+  if (!calKpi.hasOpenMonths) warningText = 'N/A（forecast_open月がありません）';
+  else if (!targetReached) warningText = `⚠ Qual share target未達（cal=${(calibratedTotalQualShare * 100).toFixed(1)}%）`;
+  if (opt.capHit) warningText = `${warningText} ⚠ monthly cap hit`;
+  if (opt.missReason) warningText = `${warningText} ${opt.missReason}`;
+  return {
+    rawSubjectiveShare,
+    rawTotalQualShare,
+    calibratedSubjectiveShare,
+    calibratedTotalQualShare,
+    targetReached,
+    chosenScale: opt.chosenScale,
+    achievedQualShare: opt.achievedQualShare,
+    bandHit: opt.bandHit,
+    missReason: opt.missReason,
+    warningText: warningText.trim()
+  };
+}
+
+function buildCoarseToFineScaleCandidates_(enabled) {
+  if (!enabled) return [1];
+  const coarse = [];
+  for (let s = 0; s <= 12; s += 0.25) coarse.push(Number(s.toFixed(3)));
+  const fine = [];
+  for (let s = 0; s <= 12; s += 0.05) fine.push(Number(s.toFixed(3)));
+  return Array.from(new Set(coarse.concat(fine))).sort((a, b) => a - b);
+}
+
+function evaluateScaleWithExistingSims_(opt) {
+  const nMonth = 12;
+  const mixedSimByMonth = Array.from({ length: nMonth }, () => []);
+  const scaledSubjectiveSimByMonth = Array.from({ length: nMonth }, () => []);
+  let capHit = false;
+  for (let i = 0; i < nMonth; i++) {
+    const qArr = opt.quantOpsSimByMonth[i] || [];
+    const subjArr = opt.subjectiveContinuousDeltaSimByMonth[i] || [];
+    const kArr = opt.knownSpotSimByMonth[i] || [];
+    const bgArr = opt.bgSpotSimByMonth[i] || [];
+    const n = qArr.length;
+    for (let s = 0; s < n; s++) {
+      const rawSubj = Number(subjArr[s] || 0);
+      const quantOpsBase = Math.max(0, Number(qArr[s] || 0));
+      const scaled = clamp_(rawSubj * opt.scale, -quantOpsBase * opt.monthlyCap, quantOpsBase * opt.monthlyCap);
+      if (Math.abs(scaled - rawSubj * opt.scale) > 1e-6) capHit = true;
+      scaledSubjectiveSimByMonth[i].push(scaled);
+      mixedSimByMonth[i].push(Math.max(0, Number(qArr[s] || 0) + Number(bgArr[s] || 0) + Number(kArr[s] || 0) + scaled));
+    }
+  }
+
+  const mixedP50ByMonth = mixedSimByMonth.map(arr => percentile_(arr, 0.50));
+  const quantP50ByMonth = Array.from({ length: nMonth }, (_, i) => {
+    const qArr = opt.quantOpsSimByMonth[i] || [];
+    const bgArr = opt.bgSpotSimByMonth[i] || [];
+    const qTotalArr = qArr.map((q, s) => Number(q || 0) + Number(bgArr[s] || 0));
+    return percentile_(qTotalArr, 0.50);
+  });
+  const scaledSubjectiveP50ByMonth = scaledSubjectiveSimByMonth.map(arr => percentile_(arr, 0.50));
+  const overlayKpi = computeSubjectiveOverlayKpi_(quantP50ByMonth, scaledSubjectiveP50ByMonth, opt.sourceByMonth || []);
+  return { ...overlayKpi, capHit, mixedSimByMonth, scaledSubjectiveSimByMonth };
+}
+
+function computeDisplayedQualKpi_(quantP50ByMonth, mixedP50ByMonth, sourceByMonth) {
+  const openIdx = [];
+  for (let i = 0; i < sourceByMonth.length; i++) {
+    if (sourceByMonth[i] === 'forecast_open') openIdx.push(i);
+  }
+  if (!openIdx.length) {
+    return { quantTotal: 0, mixedTotal: 0, qualDeltaSigned: 0, quantShare: 0, qualShare: 0, hasOpenMonths: false };
+  }
+  let quantTotal = 0;
+  let mixedTotal = 0;
+  openIdx.forEach(i => {
+    quantTotal += Number(quantP50ByMonth[i] || 0);
+    mixedTotal += Number(mixedP50ByMonth[i] || 0);
+  });
+  const qualDeltaSigned = mixedTotal - quantTotal;
+  const denom = Math.abs(quantTotal) + Math.abs(qualDeltaSigned);
+  const quantShare = denom > 0 ? Math.abs(quantTotal) / denom : 1;
+  const qualShare = denom > 0 ? Math.abs(qualDeltaSigned) / denom : 0;
+  return { quantTotal, mixedTotal, qualDeltaSigned, quantShare, qualShare, hasOpenMonths: true };
+}
+
+function computeSubjectiveOverlayKpi_(quantP50ByMonth, overlayByMonth, sourceByMonth) {
+  const openIdx = [];
+  for (let i = 0; i < sourceByMonth.length; i++) if (sourceByMonth[i] === 'forecast_open') openIdx.push(i);
+  if (!openIdx.length) return { overlayShare: 0, hasOpenMonths: false };
+  let quantTotal = 0;
+  let overlayTotal = 0;
+  openIdx.forEach(i => {
+    quantTotal += Number(quantP50ByMonth[i] || 0);
+    overlayTotal += Number(overlayByMonth[i] || 0);
+  });
+  const denom = Math.abs(quantTotal) + Math.abs(overlayTotal);
+  return { overlayShare: denom > 0 ? Math.abs(overlayTotal) / denom : 0, hasOpenMonths: true };
+}
+
+function computeKnownSpotKpi_(quantP50ByMonth, knownSpotByMonth, sourceByMonth) {
+  const openIdx = [];
+  for (let i = 0; i < sourceByMonth.length; i++) if (sourceByMonth[i] === 'forecast_open') openIdx.push(i);
+  if (!openIdx.length) return { knownSpotShare: 0, hasOpenMonths: false };
+  let quantTotal = 0;
+  let knownTotal = 0;
+  openIdx.forEach(i => {
+    quantTotal += Number(quantP50ByMonth[i] || 0);
+    knownTotal += Number(knownSpotByMonth[i] || 0);
+  });
+  const denom = Math.abs(quantTotal) + Math.abs(knownTotal);
+  return { knownSpotShare: denom > 0 ? Math.abs(knownTotal) / denom : 0, hasOpenMonths: true };
+}
+
+function aggregateAnnualSim_(simByMonth) {
+  if (!simByMonth || !simByMonth.length) return [];
+  const n = (simByMonth[0] || []).length || 0;
+  const out = [];
+  for (let s = 0; s < n; s++) {
+    let total = 0;
+    for (let i = 0; i < simByMonth.length; i++) total += Number(((simByMonth[i] || [])[s]) || 0);
+    out.push(total);
+  }
+  return out;
+}
+
+function averageMonthRangeRatio_(p10, p50, p90) {
+  const arr = [];
+  for (let i = 0; i < 12; i++) {
+    const mid = Number((p50 || [])[i] || 0);
+    if (mid === 0) continue;
+    const rr = (Number((p90 || [])[i] || 0) - Number((p10 || [])[i] || 0)) / Math.abs(mid);
+    arr.push(rr);
+  }
+  return arr.length ? avg_(arr) : 0;
+}
+
+function clamp_(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function shortText_(s, maxLen) {
+  const txt = String(s || '');
+  if (txt.length <= maxLen) return txt;
+  return `${txt.slice(0, maxLen)}…`;
+}
+
+function resetOutputSheet_(sh) {
+  sh.getCharts().forEach(c => sh.removeChart(c));
+  const full = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  full.getMergedRanges().forEach(r => r.breakApart());
+  full.clearNote();
+  sh.clear({ contentsOnly: true });
+  sh.clearFormats();
+  const maxRows = sh.getMaxRows();
+  if (maxRows > 0) sh.setRowHeights(1, maxRows, 21);
+}
+
+function validateOutputLayout_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.OUTPUT);
+  if (!sh) throw new Error('OUTPUTがありません。');
+  const out = {
+    staleNotes: sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).getNotes().flat().filter(Boolean).length,
+    hasB7LineBreak: String(sh.getRange('B7').getValue() || '').indexOf('\n') >= 0,
+    aiScoreLabels: sh.getRange(8, 1, 4, 1).getValues().flat(),
+    aiScoreValues: sh.getRange(8, 2, 4, 1).getValues().flat(),
+    kpiLabel: String(sh.getRange(4, 2).getValue() || '')
+  };
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}
+
+function applySheetVisualStandards_(sh, profile) {
+  if (!sh) return;
+  const full = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  full.setVerticalAlignment('middle').setHorizontalAlignment('left').setFontWeight('normal');
+  const wrapped = sh.getDataRange();
+  wrapped.setWrap(true).setVerticalAlignment('top');
+  sh.getRange(1, 1, 1, sh.getMaxColumns()).setVerticalAlignment('middle').setFontWeight('bold');
+  const nums = (profile && profile.numericCols) ? profile.numericCols : [];
+  nums.forEach(c => {
+    if (c <= sh.getMaxColumns()) sh.getRange(2, c, Math.max(1, sh.getMaxRows() - 1), 1).setHorizontalAlignment('right');
+  });
+}
+
+function validateAiParsing_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  if (!sh) throw new Error('AI_RESEARCH_STRUCTUREDがありません。');
+  const vals = sh.getDataRange().getValues();
+  const hdr = vals[0];
+  const tIdx = hdr.indexOf('topic');
+  const eIdx = hdr.indexOf('event_score');
+  const bIdx = hdr.indexOf('benchmark_score');
+  const reportIdx = hdr.indexOf('report_text');
+  let validEvent = 0, validBench = 0;
+  const topics = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  for (let i = 1; i < vals.length; i++) {
+    const topic = String(vals[i][tIdx] || '').trim();
+    if (topics[topic] !== undefined) topics[topic]++;
+    if (isFinite(Number(vals[i][eIdx]))) validEvent++;
+    if (isFinite(Number(vals[i][bIdx]))) validBench++;
+  }
+  const rep = reportIdx >= 0 ? String(vals[1] && vals[1][reportIdx] || '') : '';
+  const out = { validEvent, validBench, topics, b7StartsLikeReport: /^(【|[0-9]+\.)/.test(rep.trim()) };
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
 }
 
 
@@ -3483,7 +4233,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.ACTUAL_EVAL_MONTHLY, ['client','service_type','product','target_month','eval_actual_amount','actual_closed_flag','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
   ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT).getRange('D:D').setNumberFormat('@');
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','adjusted_score','report_text']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category']);
@@ -3500,6 +4250,7 @@ function buildSimpleSheet_(ss, name, headers) {
   sh.clear();
   sh.getRange(1,1,1,headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.setFrozenRows(1);
+  applySheetVisualStandards_(sh, { numericCols: [] });
 }
 
 function initializeProcessStatus_() {
@@ -3733,7 +4484,21 @@ function generateAIResearchTemplate() {
       `Client_Name: ${normalizeClientName_(c)}`,
       `As_of_Date: ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')}`,
       '',
-      'カスタム指示に従い、出力してください。'
+      'あなたは市場/競合分析アシスタントです。添付済みの富士経済PDF/XLSXを primary source とし、必要時のみIR/ニュースを補助利用してください。',
+      'このクライアントが外資なら「外資企業編」、内資なら「国内企業編」を peer benchmark の基準にしてください。',
+      'topicは Market / Competitor / Channel / DX を対象にしてください。',
+      '各topicで benchmark row を最低1件試み、event row は0〜3件まで許可します。',
+      'benchmark row で根拠が弱い場合は relative_percentile を空欄にし、推測埋めは禁止です。',
+      'evidence には可能な限り `富士経済 外資/国内 2025 p.xx` のように page/table を記載してください。',
+      'report_text では相対位置・比較母集団・根拠・BIGM2Y需要示唆を明記してください。',
+      '',
+      '###REPORT_START###',
+      '（ここに最終レポート本文）',
+      '###REPORT_END###',
+      '',
+      '###TSV_START###',
+      'client\tas_of_date\ttopic\trow_type\tdirection\timpact_score\tconfidence\tevidence\ttime_horizon\tbusiness_relevance_reason\tmarket_size_ref\tpeer_universe\tpeer_basis\trelative_position_label\trelative_percentile\trelative_confidence\tbenchmark_quality\trelative_reason\treport_text',
+      '###TSV_END###'
     ].join('\n');
     rows.push([normalizeClientName_(c),new Date(),prompt]);
   });
@@ -3764,35 +4529,79 @@ function parseAIResearchPaste_() {
   if (!tsvMatch) return 0;
 
   const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => l.trim());
+  if (!tsvLines.length) return 0;
+  const header = tsvLines[0].split('\t').map(v => String(v || '').trim());
+  const idx = {};
+  header.forEach((h, i) => { idx[h] = i; });
+  const oldFormat = header.indexOf('row_type') < 0;
+  const pick = (cols, name, def) => {
+    if (idx[name] === undefined) return def;
+    return cols[idx[name]] === undefined ? def : cols[idx[name]];
+  };
 
   const rows = [];
-  tsvLines.forEach((ln, idx) => {
-    const cols = ln.split('\t');
-    // ヘッダ行スキップ（clientで始まる行）
-    if (idx === 0 && cols[0] && cols[0].trim().toLowerCase() === 'client') return;
-    if (cols.length < 9) return;
+  let validEvent = 0;
+  let validBenchmark = 0;
+  let invalid = 0;
+  for (let i = 1; i < tsvLines.length; i++) {
+    let cols = tsvLines[i].split('\t');
+    if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/);
+    if (!cols.length) continue;
+    const impact = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
+    const conf = parseAiConfidence_(pick(cols, 'confidence', ''));
+    const direction = normalizeAiDirection_(pick(cols, 'direction', ''));
+    const rowType = String(pick(cols, 'row_type', oldFormat ? 'event' : '') || '').trim() || 'event';
+    const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
+    const eventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : '';
+    const relPct = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
+    const relConf = parseAiConfidence_(pick(cols, 'relative_confidence', ''));
+    const quality = String(pick(cols, 'benchmark_quality', '') || '').trim().toLowerCase();
+    const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : (quality === 'low' ? 0.5 : 1));
+    const benchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : '';
+    const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
+    if (!isValid) invalid++;
+    if (rowType === 'benchmark' && isValid) validBenchmark++;
+    if (rowType !== 'benchmark' && isValid) validEvent++;
+    rows.push([
+      pick(cols, 'client', ''),
+      pick(cols, 'as_of_date', ''),
+      pick(cols, 'topic', ''),
+      rowType,
+      direction,
+      isFinite(impact) ? impact : '',
+      isFinite(conf) ? conf : '',
+      pick(cols, 'evidence', ''),
+      pick(cols, 'time_horizon', ''),
+      pick(cols, 'business_relevance_reason', ''),
+      pick(cols, 'market_size_ref', ''),
+      pick(cols, 'peer_universe', ''),
+      pick(cols, 'peer_basis', ''),
+      pick(cols, 'relative_position_label', ''),
+      isFinite(relPct) ? relPct : '',
+      isFinite(relConf) ? relConf : '',
+      pick(cols, 'benchmark_quality', ''),
+      pick(cols, 'relative_reason', ''),
+      rows.length === 0 ? sanitizeAiReportText_(pick(cols, 'report_text', '') || report) : '',
+      eventScore,
+      benchmarkScore,
+      ''
+    ]);
+  }
 
-    const impactScore = Number(cols[4] || 0);
-    const confidence = Number(cols[5] || 0);
-    if (!isFinite(impactScore) || impactScore < 0 || impactScore > 100) return;
-    if (!isFinite(confidence) || confidence < 0 || confidence > 1) return;
-
-    const adjustedScore = Math.round((impactScore - 50) * confidence * 10) / 10;
-
-    // 9列のTSVデータ + adjusted_score + report_text
-    const row = cols.slice(0, 9);
-    row.push(adjustedScore);
-    row.push(rows.length === 0 ? report : '');  // レポートは最初の行にだけ格納
-    rows.push(row);
-  });
-
-  out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 11).clearContent();
-  if (rows.length) out.getRange(2, 1, rows.length, 11).setValues(rows);
+  out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
+  if (rows.length) out.getRange(2, 1, rows.length, 22).setValues(rows);
 
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
-  updateProcessStatus_('step3a_status', 'success', client, rows.length, '');
-  return rows.length;
+  const warnText = buildAiParseWarningText_({
+    rawRows: Math.max(0, tsvLines.length - 1),
+    validEvent,
+    validBenchmark,
+    invalid,
+    hasReport: !!report
+  });
+  updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
+  return { rows: rows.length, validEvent, validBenchmark, invalid, warning: warnText };
 }
 function runPhase1Forecast() {
   try {
@@ -3810,11 +4619,14 @@ function runPhase1Forecast() {
     runHierarchicalA9AlertsOrThrow_(fy);
     syncSalesFromSalesInput_(fy, client);
     const result = runForecastFYCore_(fy, client);
+    const aiAllZero = ['Market','Competitor','Channel','DX'].every(k => Math.abs(Number((result.aiScores || {})[k] || 0)) < 1e-9);
+    if (aiAllZero) SpreadsheetApp.getActiveSpreadsheet().toast('⚠ AIスコアが全topicで0.0です。AI_RESEARCH_STRUCTUREDの形式を確認してください。', MENU_NAME, 8);
     writeOutputFY_(result);
     writeForecastArtifacts_(result, client);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
-    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed}`);
+    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}`);
+    if (parsed.warning) SpreadsheetApp.getActiveSpreadsheet().toast(parsed.warning, MENU_NAME, 8);
     SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
