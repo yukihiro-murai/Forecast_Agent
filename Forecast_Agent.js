@@ -1666,7 +1666,7 @@ function buildGUIDE_() {
     ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
     ['・A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
-    ['・検証(B-1〜B-3)を毎月回し、ズレをEVAL_INSIGHTSに蓄積してください。'],
+    ['・検証(B-1〜B-3)は四半期で正式レビューし、月次は軽量監視（逸脱時のみ追加調査）を推奨します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
 
@@ -1685,10 +1685,22 @@ function buildGUIDE_() {
     ['前提', '業務前提', '1 client = 1 book。前提はCONFIGの環境前提ブロックで管理・更新する。']
   ];
   sh.getRange(policyStart + 2, 1, policyRows.length, 3).setValues(policyRows);
+  const inputChecklistStart = policyStart + 12;
+  sh.getRange(inputChecklistStart, 1, 1, 3).setValues([['入力チェックリスト（必須/任意）', '対象シート', '内容']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(inputChecklistStart + 1, 1, 6, 3).setValues([
+    ['必須', 'CONFIG', 'メーカー名 / FY / 担当者'],
+    ['必須', 'FACTORS_PRODUCT', '担当者・対象製品・Step（必要行のみ）'],
+    ['必須', 'FACTORS_CLIENT', '担当者・Step（必要行のみ）'],
+    ['必須', 'OPINIONS', 'CONFIGで指定した担当者全員分'],
+    ['任意', 'DEV_SPOT', '既知案件がある場合のみ入力'],
+    ['任意', 'CONFIG 環境前提', '未入力でも実行可（説明性向上のため推奨）']
+  ]);
   safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
   safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
   safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
+  safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
+  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, inputChecklistStart - 1]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -1703,18 +1715,20 @@ function buildCONFIG_() {
   sh.setColumnWidth(1, 312);
   sh.setColumnWidth(2, 504);
 
-  // 担当者行はA10/B10
+  // 重要情報を上段に配置（必須→任意→固定）
   const rows = [
     ['項目', '値'],
-    ['メーカー名（外部集計キー）', ''],
-    ['予測年度FY（YYYY）', ''],
-    ['（メモ）決算期', '3月末'],
-    ['（固定）Monte Carlo試行回数', N_SIM],
-    ['（固定）未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
-    ['（固定）スパイクならし下限比', SPIKE_CLIP_MIN],
-    ['（固定）スパイクならし上限比', SPIKE_CLIP_MAX],
-    ['（固定）季節性保護（MAD倍率）', SEASONAL_MAD_K],
-    ['担当者（カンマ区切り）', '']
+    ['[必須] メーカー名（外部集計キー）', ''],
+    ['[必須] 予測年度FY（YYYY）', ''],
+    ['[必須] 担当者（カンマ区切り）', ''],
+    ['[必須] 計画用単一値', PLAN_POINT_ESTIMATE_ROLE],
+    ['[任意] P10/P90の説明レンジ', RANGE_EXPLANATION_ROLE],
+    ['[任意] 決算期メモ', '3月末'],
+    ['[固定] Monte Carlo試行回数', N_SIM],
+    ['[固定] 未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
+    ['[固定] スパイクならし下限比', SPIKE_CLIP_MIN],
+    ['[固定] スパイクならし上限比', SPIKE_CLIP_MAX],
+    ['[固定] 季節性保護（MAD倍率）', SEASONAL_MAD_K]
   ];
 
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
@@ -1722,14 +1736,24 @@ function buildCONFIG_() {
 
   sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
   sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B4').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B5:B6').setBackground('#fff2cc');
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
-  sh.getRange('A5').setNote('モンテカルロ試行回数です（既定: 1000）。\n回数を増やすほどレンジ（P10/P50/P90）は安定しますが、実行時間は長くなります。');
-  sh.getRange('A10').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
+  sh.getRange('A4').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
+  sh.getRange('A5').setNote('予測に影響あり（高）。計画値はP50で固定します。任意変更不可。');
+  sh.getRange('A6').setNote('予測に影響あり（中）。P10/P90は説明帯であり、必須入力ではありません。');
+  sh.getRange('A7').setNote('予測に影響なし（低）。メモ用途の任意項目です。');
+  sh.getRange('A8').setNote('Monte Carlo試行回数（既定1000）。予測に影響あり（中）。通常は固定運用、精度検証時のみ調整。');
+  sh.getRange('A9').setNote('予測に影響あり（高）。未確定月補完ロジックの説明です。');
+  sh.getRange('A10').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
+  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
+  sh.getRange('A12').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
-  const infoStart = 12;
+  const infoStart = 13;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
   const infoRows = [
     ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
@@ -1739,15 +1763,17 @@ function buildCONFIG_() {
     ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
     ['AI調査（AI_RESEARCH_STRUCTURED）', '最新eventと業界内相対benchmarkをblendしてtopic別scoreを作成。AI効果上限は±3%。'],
     ['固定額（DEV_SPOT）', 'amount×confidence をknown spotとして加算。背景SPOTは定量側で別管理。'],
-    ['定性差分の校正', 'calibration対象はSubjective Continuous Overlayのみ（Known Spotは対象外）。'],
-    ['Seasonal Weighted', '48M補完系列の同月加重推計BASEにExpected Spotを加算し、total-to-totalで比較表示。']
+    ['定性差分の校正 / Seasonal Weighted', 'calibration対象はSubjective Continuous Overlayのみ（Known Spotは対象外）。Seasonal推計は比較用の参照値。']
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
   sh.getRange(infoStart + 1, 2, infoRows.length, 1).setWrap(true);
+  infoRows.forEach((r, i) => {
+    safeSetNote_(sh, infoStart + 1 + i, 1, `説明: ${r[0]}。\nこの項目は予測ロジック理解のための参照情報で、通常は編集不要です。`);
+  });
 
   // A-9 注意ロジック（実装定数と連動）
-  const warnStart = infoStart + 1 + infoRows.length + 2;
+  const warnStart = 23;
   const a9Hdr = [['A-9 実行前チェック', '閾値と挙動（定数連動）']];
   const a9Rows = [
     ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
@@ -1792,6 +1818,9 @@ function buildCONFIG_() {
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
   sh.getRange(tuneStart + 1, 2, tuneRows.length, 1).setNumberFormat('0.0000');
   sh.getRange(tuneStart, 1).setNote('A-9 実行時にこのチューニング値を参照します。\n極端な変更は予測を不安定にするため、変更前に根拠と比較結果（B-2/B-3）を必ず記録してください。');
+  tuneRows.forEach((r, i) => {
+    safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
+  });
 
   const policyStart = 56;
   sh.getRange(policyStart, 1, 1, 2).setValues([['予測運用ポリシー', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
@@ -1835,7 +1864,16 @@ function buildCONFIG_() {
   safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B53 は既存チューニング参照です。この下段に運用思想を追記しています。');
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
-  safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。');
+  safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
+  safeSetNote_(sh, envStart + 1, 1, '市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 3, 1, '製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, '競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  applySectionGapRows_(sh, [13, 22, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
@@ -4323,7 +4361,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
   buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
-  buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
@@ -4345,6 +4383,14 @@ function ensureSheetHeaders_(sh, headers) {
   if (needs) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
   }
+}
+
+function applySectionGapRows_(sh, rows) {
+  if (!sh || !rows || !rows.length) return;
+  rows.forEach(r => {
+    if (!isFinite(r) || r < 1) return;
+    sh.getRange(r, 1, 1, Math.max(2, sh.getLastColumn() || 2)).clearContent().setBackground('#ffffff');
+  });
 }
 
 function initializeProcessStatus_() {
@@ -5081,7 +5127,7 @@ function updatePhase1LearningInsights() {
   const evalSh = ss.getSheetByName(SHEETS.EVAL_LOG);
   const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   const out = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
-  ensureSheetHeaders_(out, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status']);
+  ensureSheetHeaders_(out, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   const vals = evalSh.getDataRange().getValues().slice(1).filter(r => String(r[2] || '').trim() === client);
   const cmpRows = cmp.getDataRange().getValues().slice(1).filter(r => r[9] !== '' && r[6] !== '');
   const den = cmpRows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
@@ -5147,15 +5193,17 @@ function updatePhase1LearningInsights() {
       (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? '次回サイクルで前提更新を反映' : '現行運用を継続',
       '',
       '',
-      (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'open' : 'monitoring'
+      (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'open' : 'monitoring',
+      /\/(03|06|09|12)$/.test(month) ? 'quarterly_full' : 'monthly_light'
     ]);
   });
 
-  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),23).clearContent();
-  if (rows.length) out.getRange(2,1,rows.length,23).setValues(rows);
+  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),24).clearContent();
+  if (rows.length) out.getRange(2,1,rows.length,24).setValues(rows);
   safeSetNote_(out, 1, 10, 'diagnostic_type: monthly_diagnostic / range_breach 等。');
   safeSetNote_(out, 1, 13, 'overforecast_breach は過大予測制約違反の有無。');
   safeSetNote_(out, 1, 19, 'action_type: add/update/remove/keep の管理。');
+  safeSetNote_(out, 1, 24, 'review_cycle: quarterly_full=四半期正式レビュー、monthly_light=月次軽量監視。');
   updateProcessStatus_('step7_status', 'success', client, rows.length, '');
   logRun_('updatePhase1LearningInsights', client, 'success', rows.length, new Date(), '');
   ss.setActiveSheet(out);
