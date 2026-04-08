@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v1.3
+ * Forecast Agent v1.4
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * v1.2（今回反映）
@@ -11,8 +11,15 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.3';
+const VERSION = '1.4';
 const MENU_NAME = 'Forecast Agent';
+const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
+const PLAN_POINT_ESTIMATE_ROLE = 'P50';
+const RANGE_EXPLANATION_ROLE = 'P10-P90';
+const ANNUAL_ABS_ERROR_CONSTRAINT = 0.10;
+const HALF_WAPE_CONSTRAINT = 0.12;
+const HALF_WAPE_FUTURE_TARGET = 0.10;
+const OVERFORECAST_RATE_CONSTRAINT = 0.05;
 
 /***************************************
  * 運用コメント（Phase移行基準・実務ルール）
@@ -429,7 +436,7 @@ function showInitialSetupDialog_() {
         <input id="p${i+1}" type="text" placeholder="例：赤木" />
       `).join('')}
     </div>
-    <div class="hint">空欄は無視され、CONFIG!B10 にカンマ区切りで保存されます。</div>
+    <div class="hint">空欄は無視され、CONFIG!B4（互換:B10）にカンマ区切りで保存されます。</div>
   </div>
 
   <div class="btns">
@@ -492,7 +499,8 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
 
   cfg.getRange('B2').setValue(String(clientName || '').trim());
   cfg.getRange('B3').setValue(fy);
-  cfg.getRange('B10').setValue(String(peopleCSV || '').trim());
+  cfg.getRange('B4').setValue(String(peopleCSV || '').trim());
+  cfg.getRange('B10').setFormula('=B4');
 
   // GUIDE更新（更新履歴は保持されます）
   buildGUIDE_();
@@ -702,7 +710,7 @@ function openProductTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
   const products = getProductNameListFromSales_();
@@ -740,7 +748,7 @@ function openClientTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -772,7 +780,7 @@ function openOpinionsEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -806,7 +814,7 @@ function openDevEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -1118,7 +1126,18 @@ function writeOutputFY_(result) {
   sh.setFrozenRows(2);
   sh.getRange(1, 1, sh.getMaxRows(), 12).setHorizontalAlignment('left');
 
-  // KPIブロック（定量/定性寄与）
+  // 予測運用ポリシー（成功KPI/制約を上部で明示）
+  sh.getRange(2, 1).setValue('予測運用ポリシー（計画値・制約・診断）').setFontWeight('bold').setBackground('#d9ead3');
+  sh.getRange(2, 1, 1, 6).merge();
+  sh.getRange(3, 1, 1, 6).setValues([['計画値=P50 / Downside=P10 / Upside=P90 / P10-P90は説明帯（hard gateではない）', '', '', '', '', '']]).merge();
+  sh.getRange(4, 1, 1, 6).setValues([[`年間制約: annual_abs_error_rate<=${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`, `半期制約: half_wape<=${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（目標${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`, `over-forecast rate<=${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%（半期/年間）`, '', '', '']]);
+  sh.getRange(4, 1, 1, 6).mergeAcross();
+  sh.getRange(5, 1, 1, 6).setValues([['月次/Qは診断指標。actualがP10-P90外の月はB-3(EVAL_INSIGHTS)で追加調査。1 client = 1 book。', '', '', '', '', '']]).merge();
+  safeSetNote_(sh, 2, 1, '成功KPI/制約と診断KPIを分離して運用するための説明ブロックです。');
+  safeSetNote_(sh, 3, 1, '計画の単一値はP50。P10/P90は説明用レンジです。');
+  safeSetNote_(sh, 4, 1, '本ツールは過大予測（forecast>actual）の抑制を優先して監視します。');
+
+  // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
   const mixedP50 = result.mixed.p50 || new Array(12).fill(0);
   const mixedRawP50 = (result.mixed.raw && result.mixed.raw.p50) ? result.mixed.raw.p50 : mixedP50;
@@ -1135,9 +1154,9 @@ function writeOutputFY_(result) {
     ? 'N/A（予測対象月なし）'
     : ((overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH) ? '⚠ 主観オーバーレイ率が目標帯外です' : 'OK');
 
-  sh.getRange(3, 1).setValue('予測構成サマリー').setFontWeight('bold').setBackground('#e2f0d9');
-  sh.getRange(3, 1, 1, 6).merge();
-  const summaryHeaderRow = 4;
+  sh.getRange(7, 1).setValue('予測構成サマリー（診断指標）').setFontWeight('bold').setBackground('#e2f0d9');
+  sh.getRange(7, 1, 1, 6).merge();
+  const summaryHeaderRow = 8;
   const kpiHdr = ['定量寄与率（予測対象月のみ）', '主観オーバーレイ率（予測対象月のみ / calibrated）', 'Known Spot寄与率（予測対象月のみ）', '非定量ネット差分率（参考）', '警告'];
   const kpiVal = [
     hasOpenMonths ? kpiCal.quantShare : 'N/A',
@@ -1147,68 +1166,68 @@ function writeOutputFY_(result) {
     qualWarn
   ];
   sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(5, 1, 1, 5).setValues([kpiVal]);
+  sh.getRange(9, 1, 1, 5).setValues([kpiVal]);
   sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
   sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / calibrated）】\nFACTORS_PRODUCT/FACTORS_CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした比率です。\nKnown Spotは含みません。');
   sh.getRange(summaryHeaderRow, 3).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
   sh.getRange(summaryHeaderRow, 4).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
   sh.getRange(summaryHeaderRow, 5).setNote('【警告】\n主観オーバーレイ率の帯外、AI行不足、レンジ過大など運用注意を表示します。');
   if (hasOpenMonths) {
-    sh.getRange(5, 1, 1, 3).setNumberFormat('0.0%');
-    sh.getRange(5, 4).setNumberFormat('¥#,##0');
+    sh.getRange(9, 1, 1, 3).setNumberFormat('0.0%');
+    sh.getRange(9, 4).setNumberFormat('¥#,##0');
   }
   if (hasOpenMonths && (overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH)) {
-    sh.getRange(5, 5).setBackground('#f4cccc').setFontWeight('bold');
+    sh.getRange(9, 5).setBackground('#f4cccc').setFontWeight('bold');
   }
   const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
   const compRow = compDen > 0
     ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考（補助）: 合計100%分解']
     : ['N/A', 'N/A', 'N/A', 'N/A', '参考（補助）: 合計100%分解'];
-  sh.getRange(6, 1, 1, 5).setValues([compRow]);
-  if (compDen > 0) sh.getRange(6, 1, 1, 4).setNumberFormat('0.0%');
-  sh.getRange(6, 1, 1, 5).setBackground('#f3f3f3').setFontColor('#666666');
-  sh.getRange(6, 5).setNote('【参考（補助）: 合計100%分解】\nrow 5のKPIは「計算ロジック別の管理指標」です。\nこの行は内訳を100%に正規化して相対比較しやすくした補助表示で、\n意思決定では row 5 のKPIと併読してください。');
+  sh.getRange(10, 1, 1, 5).setValues([compRow]);
+  if (compDen > 0) sh.getRange(10, 1, 1, 4).setNumberFormat('0.0%');
+  sh.getRange(10, 1, 1, 5).setBackground('#f3f3f3').setFontColor('#666666');
+  sh.getRange(10, 5).setNote('【参考（補助）: 合計100%分解】\nrow 9のKPIは「計算ロジック別の管理指標」です。\nこの行は内訳を100%に正規化して相対比較しやすくした補助表示で、\n意思決定では row 9 のKPIと併読してください。');
 
   // 数値トレンド Insight
-  sh.getRange(7, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
-  sh.getRange(7, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
+  sh.getRange(11, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
+  sh.getRange(11, 2, 1, 5).merge().setValue(buildHistoricalTrendInsight_(result.baseSeries48 || [], result.opsModel || {})).setWrap(true);
 
   // AI調査 Insight
-  sh.getRange(8, 1).setValue('AI調査 Insight').setFontWeight('bold');
-  sh.getRange(8, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiReportText || ''));
-  const aiBodyRange = sh.getRange(8, 2, 1, 5);
+  sh.getRange(12, 1).setValue('AI調査 Insight').setFontWeight('bold');
+  sh.getRange(12, 2, 1, 5).merge().setValue(buildAIInsight_(result.aiReportText || ''));
+  const aiBodyRange = sh.getRange(12, 2, 1, 5);
   try {
     aiBodyRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
   } catch (e) {
     aiBodyRange.setWrap(false);
   }
   aiBodyRange.setVerticalAlignment('top');
-  sh.setRowHeight(8, 48);
+  sh.setRowHeight(12, 48);
 
   // AI調査スコア（4軸）縦レイアウト
   const ai4 = result.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
   const aiMeta = (result.aiScores && result.aiScores.meta) ? result.aiScores.meta : { Market: {}, Competitor: {}, Channel: {}, DX: {} };
-  sh.getRange(9, 1, 4, 1).setValues([['Market'], ['Competitor'], ['Channel'], ['DX']]);
-  sh.getRange(9, 2, 4, 1).setValues([[ai4.Market || 0], [ai4.Competitor || 0], [ai4.Channel || 0], [ai4.DX || 0]]).setNumberFormat('0.0');
-  sh.getRange(9, 3, 4, 1).setValues([[shortText_((aiMeta.Market || {}).label, 12)], [shortText_((aiMeta.Competitor || {}).label, 12)], [shortText_((aiMeta.Channel || {}).label, 12)], [shortText_((aiMeta.DX || {}).label, 12)]]);
-  sh.getRange(9, 4, 4, 1).setValues([[shortText_((aiMeta.Market || {}).universe, 18)], [shortText_((aiMeta.Competitor || {}).universe, 18)], [shortText_((aiMeta.Channel || {}).universe, 18)], [shortText_((aiMeta.DX || {}).universe, 18)]]);
-  sh.getRange(9, 5, 4, 1).setValues([[shortText_((aiMeta.Market || {}).basis, 22)], [shortText_((aiMeta.Competitor || {}).basis, 22)], [shortText_((aiMeta.Channel || {}).basis, 22)], [shortText_((aiMeta.DX || {}).basis, 22)]]);
-  sh.getRange(13, 1).setValue('スコア基準（各軸）');
-  sh.getRange(13, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
-  sh.getRange(14, 1).setValue('スコア基準（4軸合計）');
-  sh.getRange(14, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
-  sh.getRange(9, 1).setNote('Marketトピックのfinal blended score');
-  sh.getRange(10, 1).setNote('Competitorトピックのfinal blended score');
-  sh.getRange(11, 1).setNote('Channelトピックのfinal blended score');
-  sh.getRange(12, 1).setNote('DXトピックのfinal blended score');
-  sh.getRange(13, 1).setNote('各軸の理論レンジ説明');
-  sh.getRange(14, 1).setNote('4軸合計レンジ説明');
+  sh.getRange(13, 1, 4, 1).setValues([['Market'], ['Competitor'], ['Channel'], ['DX']]);
+  sh.getRange(13, 2, 4, 1).setValues([[ai4.Market || 0], [ai4.Competitor || 0], [ai4.Channel || 0], [ai4.DX || 0]]).setNumberFormat('0.0');
+  sh.getRange(13, 3, 4, 1).setValues([[shortText_((aiMeta.Market || {}).label, 12)], [shortText_((aiMeta.Competitor || {}).label, 12)], [shortText_((aiMeta.Channel || {}).label, 12)], [shortText_((aiMeta.DX || {}).label, 12)]]);
+  sh.getRange(13, 4, 4, 1).setValues([[shortText_((aiMeta.Market || {}).universe, 18)], [shortText_((aiMeta.Competitor || {}).universe, 18)], [shortText_((aiMeta.Channel || {}).universe, 18)], [shortText_((aiMeta.DX || {}).universe, 18)]]);
+  sh.getRange(13, 5, 4, 1).setValues([[shortText_((aiMeta.Market || {}).basis, 22)], [shortText_((aiMeta.Competitor || {}).basis, 22)], [shortText_((aiMeta.Channel || {}).basis, 22)], [shortText_((aiMeta.DX || {}).basis, 22)]]);
+  sh.getRange(17, 1).setValue('スコア基準（各軸）');
+  sh.getRange(17, 2, 1, 4).merge().setValue('各軸 final score: -50〜+50程度（0=中立） / relative percentile: 0〜100（50=同業中位）');
+  sh.getRange(18, 1).setValue('スコア基準（4軸合計）');
+  sh.getRange(18, 2, 1, 4).merge().setValue('4軸合計: -200〜+200 / final AI score = relative benchmark + latest events のblend');
+  sh.getRange(13, 1).setNote('Marketトピックのfinal blended score');
+  sh.getRange(14, 1).setNote('Competitorトピックのfinal blended score');
+  sh.getRange(15, 1).setNote('Channelトピックのfinal blended score');
+  sh.getRange(16, 1).setNote('DXトピックのfinal blended score');
+  sh.getRange(17, 1).setNote('各軸の理論レンジ説明');
+  sh.getRange(18, 1).setNote('4軸合計レンジ説明');
   const aiAllZero = [ai4.Market, ai4.Competitor, ai4.Channel, ai4.DX].every(v => Math.abs(Number(v || 0)) < 1e-9);
   if (aiAllZero) {
-    sh.getRange(15, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
+    sh.getRange(19, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
   }
 
-  let row = 16;
+  let row = 20;
 
   const seasonalWeightedCore = forecastSeasonalWeighted48_({
     adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
@@ -1648,9 +1667,37 @@ function buildGUIDE_() {
     ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
     ['・A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
-    ['・検証(B-1〜B-3)を毎月回し、ズレをEVAL_INSIGHTSに蓄積してください。'],
+    ['・検証(B-1〜B-3)は四半期で正式レビューし、月次は軽量監視（逸脱時のみ追加調査）を推奨します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
+
+  const policyStart = last + 15;
+  sh.getRange(policyStart, 1).setValue('予測運用ポリシー（成功KPI / 制約 / 診断の整理）').setFontWeight('bold').setBackground('#d9ead3');
+  sh.getRange(policyStart, 1, 1, 3).merge();
+  sh.getRange(policyStart + 1, 1, 1, 3).setValues([['区分', '項目', '運用ルール']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const policyRows = [
+    ['主力計画値', 'Planning point estimate', '計画用単一値はP50（neutral/baseline）を使用。'],
+    ['レンジ説明', 'P10 / P90 の役割', 'P10=下振れ説明、P90=上振れ説明。P10-P90は説明帯であり成功KPIではない。'],
+    ['成功KPI/制約', '年間制約', 'annual_abs_error_rate <= 10%'],
+    ['成功KPI/制約', '半期制約', 'half_wape <= 12%（将来目標 10%）'],
+    ['成功KPI/制約', 'バイアス制約', 'half/annual over-forecast rate <= 5%（underも監視するが優先度はover）'],
+    ['診断KPI', '月次/Q/構成寄与', '月次APE・Q差分・定量寄与率/主観オーバーレイ率/Known Spot寄与率は診断指標として扱う。'],
+    ['事後検証', 'レンジ逸脱時の運用', 'actualがP10-P90外ならB-3(EVAL_INSIGHTS)で追加調査を必須化。'],
+    ['前提', '業務前提', '1 client = 1 book。前提はCONFIGの環境前提ブロックで管理・更新する。']
+  ];
+  sh.getRange(policyStart + 2, 1, policyRows.length, 3).setValues(policyRows);
+  const flowStart = policyStart + 12;
+  sh.getRange(flowStart, 1, 1, 3).setValues([['因果経路フローチャート（全体像）', '', '']]).setBackground('#d9ead3').setFontWeight('bold').merge();
+  sh.getRange(flowStart + 1, 1, 1, 3).setValues([['直接目的', '代理指標/計算', '制約/学習ループ']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]).setBackground('#f3f3f3');
+  safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
+  safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
+  safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
+  safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
+  safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
+  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, flowStart - 1]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -1665,59 +1712,71 @@ function buildCONFIG_() {
   sh.setColumnWidth(1, 312);
   sh.setColumnWidth(2, 504);
 
-  // 担当者行はA10/B10
+  // 重要情報を上段に配置（互換セルB10は維持）
   const rows = [
     ['項目', '値'],
-    ['メーカー名（外部集計キー）', ''],
-    ['予測年度FY（YYYY）', ''],
-    ['（メモ）決算期', '3月末'],
-    ['（固定）Monte Carlo試行回数', N_SIM],
-    ['（固定）未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
-    ['（固定）スパイクならし下限比', SPIKE_CLIP_MIN],
-    ['（固定）スパイクならし上限比', SPIKE_CLIP_MAX],
-    ['（固定）季節性保護（MAD倍率）', SEASONAL_MAD_K],
-    ['担当者（カンマ区切り）', '']
+    ['[必須] メーカー名（外部集計キー）', ''],
+    ['[必須] 予測年度FY（YYYY）', ''],
+    ['[必須] 担当者（カンマ区切り）', ''],
+    ['[必須] 計画用単一値', PLAN_POINT_ESTIMATE_ROLE],
+    ['[任意] P10/P90の説明レンジ', RANGE_EXPLANATION_ROLE],
+    ['[任意] 決算期メモ', '3月末'],
+    ['[固定] Monte Carlo試行回数', N_SIM],
+    ['[固定] 未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
+    ['[互換] 担当者（既存参照セルB10）', ''],
+    ['[固定] スパイクならし下限比', SPIKE_CLIP_MIN],
+    ['[固定] スパイクならし上限比', SPIKE_CLIP_MAX],
+    ['[固定] 季節性保護（MAD倍率）', SEASONAL_MAD_K]
   ];
 
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
 
-  sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B2:B4').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B10').setFormula('=B4');
+  sh.getRange('B5:B6').setBackground('#fff2cc');
+  sh.getRange('B10').setBackground('#f3f3f3');
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
-  sh.getRange('A5').setNote('モンテカルロ試行回数です（既定: 1000）。\n回数を増やすほどレンジ（P10/P50/P90）は安定しますが、実行時間は長くなります。');
-  sh.getRange('A10').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
+  sh.getRange('A4').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
+  sh.getRange('A5').setNote('予測に影響あり（高）。計画値はP50で固定します。任意変更不可。');
+  sh.getRange('A6').setNote('予測に影響あり（中）。P10/P90は説明帯であり、必須入力ではありません。');
+  sh.getRange('A7').setNote('予測に影響なし（低）。メモ用途の任意項目です。');
+  sh.getRange('A8').setNote('Monte Carlo試行回数（既定1000）。予測に影響あり（中）。通常は固定運用。');
+  sh.getRange('A9').setNote('予測に影響あり（高）。未確定月補完ロジックの説明です。');
+  sh.getRange('A10').setNote('既存コードとの互換のためB10セルを維持しています。B4に入力すると自動反映されます。');
+  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
+  sh.getRange('A12').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
+  sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
-  const infoStart = 12;
-  const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
+  const infoStart = 15;
+  const infoHdr = [['予測運用ポリシー（最重要）', '定義（マクロ→ミクロ）']];
   const infoRows = [
-    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
-    ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
-    ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
-    ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
-    ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
-    ['AI調査（AI_RESEARCH_STRUCTURED）', '最新eventと業界内相対benchmarkをblendしてtopic別scoreを作成。AI効果上限は±3%。'],
-    ['固定額（DEV_SPOT）', 'amount×confidence をknown spotとして加算。背景SPOTは定量側で別管理。'],
-    ['定性差分の校正', 'calibration対象はSubjective Continuous Overlayのみ（Known Spotは対象外）。'],
-    ['Seasonal Weighted', '48M補完系列の同月加重推計BASEにExpected Spotを加算し、total-to-totalで比較表示。']
+    ['直接目的（最上位）', '年間予算の外しすぎ抑制 / 半期見通し精度向上 / クライアント別予実管理の底上げ。'],
+    ['代理目的（目的関数の代理）', 'P50を基準に signed_error・abs_error・WAPE を継続監視し、前提更新へ接続。'],
+    ['中間目的①', '極端な楽観/悲観の抑制（過大予測を優先抑制）。'],
+    ['中間目的②', 'P10-P90レンジ逸脱時の追加調査を標準運用化。'],
+    ['中間目的③', 'B-3で原因仮説→前提更新→次サイクル反映を管理。'],
+    ['制約①', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
+    ['制約②', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
+    ['制約③', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%`]
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
   sh.getRange(infoStart + 1, 2, infoRows.length, 1).setWrap(true);
+  infoRows.forEach((r, i) => {
+    safeSetNote_(sh, infoStart + 1 + i, 1, `説明: ${r[0]}。\nこの項目は予測ロジック理解のための参照情報で、通常は編集不要です。`);
+  });
 
-  // A-9 注意ロジック（実装定数と連動）
-  const warnStart = infoStart + 1 + infoRows.length + 2;
-  const a9Hdr = [['A-9 実行前チェック', '閾値と挙動（定数連動）']];
+  // 代理指標と運用ループ
+  const warnStart = 25;
+  const a9Hdr = [['代理目的 / 指標の考え方', '説明']];
   const a9Rows = [
-    ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 強警告', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 極端値', `|Step| >= ${Math.round(STEP_BLOCK_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['合成係数 警告', `kTotal < ${K_TOTAL_WARN_MIN.toFixed(2)} または > ${K_TOTAL_WARN_MAX.toFixed(2)} ：警告表示（OKで続行 / Cancelで中断）`],
-    ['合成係数 極端値', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['解消手順', '1) 表示された1件を修正 → 2) A-9を再実行 → 3) 次の注意が出たら同様に修正（同時に複数表示しない）']
+    ['automatic optimization', '現段階では新設しない（既存forecast engineを維持）。'],
+    ['運用改善アプローチ', 'B-2/B-3で評価指標を観測し、前提・入力運用を更新する。'],
+    ['計画値とレンジの役割', '計画値=P50。P10/P90は説明帯。coverageは診断用途。'],
+    ['1 client = 1 book', '現行前提を維持。']
   ];
   sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
@@ -1754,6 +1813,74 @@ function buildCONFIG_() {
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
   sh.getRange(tuneStart + 1, 2, tuneRows.length, 1).setNumberFormat('0.0000');
   sh.getRange(tuneStart, 1).setNote('A-9 実行時にこのチューニング値を参照します。\n極端な変更は予測を不安定にするため、変更前に根拠と比較結果（B-2/B-3）を必ず記録してください。');
+  tuneRows.forEach((r, i) => {
+    safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
+  });
+
+  const policyStart = 56;
+  sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
+  const policyRows = [
+    ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
+    ['計画用単一値', 'P50（neutral/baseline）'],
+    ['P10/P90の役割', '説明用レンジ（Downside/ Upside）。成功KPIではなく説明帯。'],
+    ['成功KPI/制約', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
+    ['成功KPI/制約', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
+    ['バイアス制約', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%（overを優先管理）`],
+    ['診断KPI', '月次APE、Q差分、quant share、subjective overlay share、known spot share、range outside count。'],
+    ['レンジ逸脱対応', 'actualがP10-P90外の月はB-3で追加調査（原因仮説・前提更新・入力反映）。'],
+    ['前提', '1 client = 1 book'],
+    ['評価ポリシーversion', EVALUATION_POLICY_VERSION]
+  ];
+  sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
+
+  const proxyStart = policyStart + 13;
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart + 1, 1, 6, 2).setValues([
+    ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
+    ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
+    ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
+    ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
+    ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
+    ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
+  ]);
+
+  const envStart = proxyStart + 9;
+  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  const envRows = [
+    ['市場 / 制度前提', ''],
+    ['クライアント予算 / 体制前提', ''],
+    ['製品 / 適応前提', ''],
+    ['チャネル / MR / 販促前提', ''],
+    ['競合前提', ''],
+    ['Spot / 開発案件前提', ''],
+    ['情報源', ''],
+    ['最終更新日', new Date()]
+  ];
+  sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
+  sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
+  sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
+  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B53 は既存チューニング参照です。この下段に運用思想を追記しています。');
+  safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
+  safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
+  safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
+  safeSetNote_(sh, envStart + 1, 1, '市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 3, 1, '製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, '競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  const noteMaxRow = envStart + envRows.length;
+  const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
+  const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
+  for (let i = 0; i < colAValues.length; i++) {
+    const title = String(colAValues[i][0] || '').trim();
+    const curNote = String(colANotes[i][0] || '').trim();
+    if (!title || curNote) continue;
+    safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
+  }
+  applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
@@ -2167,7 +2294,7 @@ function validateAllInputsOrThrow_(fy) {
   const people = getPeopleListFromConfig_();
   if (!client) throw new Error('CONFIG!B2（メーカー名）が未入力です。');
   if (!isFinite(fyNum) || fyNum <= 2000) throw new Error('CONFIG!B3（予測年度FY）が不正です。');
-  if (people.length === 0) throw new Error('CONFIG!B10（担当者）が未入力です。');
+  if (people.length === 0) throw new Error('CONFIG!B4（互換:B10）（担当者）が未入力です。');
 
   // SALES（数値かどうか）
   const sales = ss.getSheetByName(SHEETS.SALES);
@@ -2546,7 +2673,9 @@ function getPeopleListFromConfig_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   if (!cfg) return [];
-  const raw = String(cfg.getRange('B10').getValue() || '');
+  const rawTop = String(cfg.getRange('B4').getValue() || '').trim();
+  const rawCompat = String(cfg.getRange('B10').getValue() || '').trim();
+  const raw = rawTop || rawCompat;
   return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 }
 
@@ -4239,9 +4368,9 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
-  buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category']);
-  buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total']);
-  buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
+  buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
@@ -4254,6 +4383,23 @@ function buildSimpleSheet_(ss, name, headers) {
   sh.getRange(1,1,1,headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.setFrozenRows(1);
   applySheetVisualStandards_(sh, { numericCols: [] });
+}
+
+function ensureSheetHeaders_(sh, headers) {
+  if (!sh) return;
+  const cur = sh.getRange(1, 1, 1, Math.max(headers.length, sh.getLastColumn() || 1)).getValues()[0];
+  const needs = headers.some((h, i) => String(cur[i] || '') !== h);
+  if (needs) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  }
+}
+
+function applySectionGapRows_(sh, rows) {
+  if (!sh || !rows || !rows.length) return;
+  rows.forEach(r => {
+    if (!isFinite(r) || r < 1) return;
+    sh.getRange(r, 1, 1, Math.max(2, sh.getLastColumn() || 2)).clearContent().setBackground('#ffffff');
+  });
 }
 
 function initializeProcessStatus_() {
@@ -4678,6 +4824,19 @@ function updatePhase1EvaluationReport() {
     const k = [r[0], r[3]].join('|');
     mapA.set(k, (mapA.get(k) || 0) + Number(r[4] || 0));
   });
+  const p10Map = new Map();
+  const p50Map = new Map();
+  const p90Map = new Map();
+  snap.forEach(r => {
+    const ym = String(r[3] || '');
+    const sc = String(r[4] || '');
+    const pred = Number(r[17] || 0);
+    if (!ym || !isFinite(pred)) return;
+    if (sc === 'nega') p10Map.set(ym, pred);
+    if (sc === 'neutral') p50Map.set(ym, pred);
+    if (sc === 'posi') p90Map.set(ym, pred);
+  });
+
   const evalRows=[];
   snap.forEach(r=>{
     const key = [r[2], r[3]].join('|');
@@ -4685,12 +4844,33 @@ function updatePhase1EvaluationReport() {
     if (act == null) return;
     const pred = Number(r[17]||0);
     const ape = act ? Math.abs(pred-act)/Math.abs(act) : '';
-    evalRows.push([Utilities.getUuid(),new Date(),r[2],r[3],r[4],pred,act,ape,0,'model_limitation']);
+    const signed = pred - act;
+    const absErr = Math.abs(signed);
+    const scenario = String(r[4] || '');
+    const role = scenario === 'neutral' ? 'P50' : (scenario === 'nega' ? 'P10' : (scenario === 'posi' ? 'P90' : ''));
+    const rangeContains = (p10Map.has(r[3]) && p90Map.has(r[3])) ? ((act >= p10Map.get(r[3]) && act <= p90Map.get(r[3])) ? 1 : 0) : '';
+    evalRows.push([
+      Utilities.getUuid(), new Date(), r[2], r[3], scenario, pred, act, ape, 0, 'model_limitation',
+      role,
+      scenario === 'neutral' ? 1 : 0,
+      signed,
+      absErr,
+      signed > 0 ? 'over' : (signed < 0 ? 'under' : 'exact'),
+      rangeContains,
+      quarterLabelFromYm_(r[3]),
+      halfLabelFromYm_(r[3]),
+      fyLabelFromYm_(r[3]),
+      VERSION,
+      EVALUATION_POLICY_VERSION,
+      scenario === 'neutral' ? 1 : 0
+    ]);
   });
   const out = ss.getSheetByName(SHEETS.EVAL_LOG);
+  ensureSheetHeaders_(out, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
   if (evalRows.length) out.getRange(out.getLastRow()+1,1,evalRows.length,evalRows[0].length).setValues(evalRows);
 
   const compare = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
+  ensureSheetHeaders_(compare, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
   writeEvalCompareMonthly_(compare, actual, snap);
 
   updateProcessStatus_('step5_status','success','',evalRows.length,'');
@@ -4711,28 +4891,63 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
     if (type === 'BASE' || type === 'SPOT') actualMap.get(ym)[type] += amt;
   });
 
-  const neutralMap = new Map();
+  const p10Map = new Map();
+  const p50Map = new Map();
+  const p90Map = new Map();
   snapRows.forEach(r => {
-    if (String(r[4] || '') !== 'neutral') return;
     const ym = String(r[3] || '');
+    const scenario = String(r[4] || '');
     const pred = Number(r[17] || 0);
     if (!ym || !isFinite(pred)) return;
-    neutralMap.set(ym, pred);
+    if (scenario === 'nega') p10Map.set(ym, pred);
+    if (scenario === 'neutral') p50Map.set(ym, pred);
+    if (scenario === 'posi') p90Map.set(ym, pred);
   });
 
   const ratio = getBaseSpotRatioFromSales_();
-  const months = Array.from(new Set([...actualMap.keys(), ...neutralMap.keys()])).sort();
+  const months = Array.from(new Set([...actualMap.keys(), ...p50Map.keys(), ...p10Map.keys(), ...p90Map.keys()])).sort();
   const rows = months.map(ym => {
-    const predTotal = Number(neutralMap.get(ym) || 0);
+    const hasP50 = p50Map.has(ym);
+    const predTotal = hasP50 ? Number(p50Map.get(ym) || 0) : '';
     const predBase = predTotal * ratio.base;
     const predSpot = predTotal * ratio.spot;
-    const act = actualMap.get(ym) || { BASE: 0, SPOT: 0 };
-    const actTotal = act.BASE + act.SPOT;
-    return [ym, predBase, predSpot, predTotal, act.BASE, act.SPOT, actTotal, actTotal - predTotal];
+    const act = actualMap.get(ym);
+    const hasActual = !!act;
+    const actBase = hasActual ? act.BASE : '';
+    const actSpot = hasActual ? act.SPOT : '';
+    const actTotal = hasActual ? (act.BASE + act.SPOT) : '';
+    const signed = (hasP50 && hasActual) ? (predTotal - actTotal) : '';
+    const absErr = (signed === '') ? '' : Math.abs(signed);
+    const ape = (signed === '' || !hasActual || actTotal === 0) ? '' : (absErr / Math.abs(actTotal));
+    const p10 = p10Map.has(ym) ? Number(p10Map.get(ym) || 0) : '';
+    const p90 = p90Map.has(ym) ? Number(p90Map.get(ym) || 0) : '';
+    const rangeOutside = (hasActual && p10 !== '' && p90 !== '') ? ((actTotal < p10 || actTotal > p90) ? 1 : 0) : '';
+    const note = rangeOutside === 1 ? '要追加調査（P10-P90レンジ逸脱）' : '';
+    return [
+      ym, predBase, predSpot, predTotal, actBase, actSpot, actTotal, (signed === '' ? '' : -signed),
+      p10, hasP50 ? predTotal : '', p90,
+      signed, absErr, ape,
+      quarterLabelFromYm_(ym), halfLabelFromYm_(ym), fyLabelFromYm_(ym),
+      (signed !== '' && signed > 0) ? 1 : 0,
+      (signed !== '' && signed < 0) ? 1 : 0,
+      rangeOutside, note, PLAN_POINT_ESTIMATE_ROLE, RANGE_EXPLANATION_ROLE
+    ];
   });
 
-  sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), 8).clearContent();
-  if (rows.length) sh.getRange(2, 1, rows.length, 8).setValues(rows);
+  sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), 23).clearContent();
+  if (rows.length) {
+    sh.getRange(2, 1, rows.length, 23).setValues(rows);
+    sh.getRange(2, 2, rows.length, 10).setNumberFormat('¥#,##0');
+    sh.getRange(2, 14, rows.length, 1).setNumberFormat('0.0%');
+  }
+  safeSetNote_(sh, 1, 9, 'forecast_total_p10（FORECAST_SNAPSHOT nega）');
+  safeSetNote_(sh, 1, 10, 'forecast_total_p50（FORECAST_SNAPSHOT neutral / planning point estimate）');
+  safeSetNote_(sh, 1, 11, 'forecast_total_p90（FORECAST_SNAPSHOT posi）');
+  safeSetNote_(sh, 1, 12, 'signed_error_p50 = forecast_total_p50 - actual_total（正=過大予測）');
+  safeSetNote_(sh, 1, 14, 'ape_p50 = abs_error_p50 / ABS(actual_total)。actual=0はblank。');
+  safeSetNote_(sh, 1, 20, 'range_outside_flag = 1 if actual<P10 or actual>P90');
+  safeSetNote_(sh, 1, 22, 'planning_point_estimate_label = P50');
+  writeEvaluationSummaryBlocks_(sh, rows);
 }
 
 function getBaseSpotRatioFromSales_() {
@@ -4753,6 +4968,102 @@ function getBaseSpotRatioFromSales_() {
   return { base: base / total, spot: spot / total };
 }
 
+function computeBucketMetrics_(rows, labelKey, labelVal) {
+  const scoped = rows.filter(r => String(r[labelKey] || '') === labelVal && r[10] !== '' && r[6] !== '');
+  const actualDen = scoped.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+  const sumPred = scoped.reduce((a, r) => a + Number(r[9] || 0), 0);
+  const sumAct = scoped.reduce((a, r) => a + Number(r[6] || 0), 0);
+  const sumAbs = scoped.reduce((a, r) => a + Number(r[12] || 0), 0);
+  if (actualDen <= 0) {
+    return { actual: '', p50: '', wape: '', bias: '', over: '', under: '', pass: 'N/A' };
+  }
+  const diff = sumPred - sumAct;
+  return {
+    actual: sumAct,
+    p50: sumPred,
+    wape: sumAbs / actualDen,
+    bias: diff / actualDen,
+    over: Math.max(diff, 0) / actualDen,
+    under: Math.max(-diff, 0) / actualDen,
+    pass: (sumAbs / actualDen) <= HALF_WAPE_CONSTRAINT ? 'PASS' : 'FAIL'
+  };
+}
+
+function writeEvaluationSummaryBlocks_(sh, rows) {
+  const startCol = 25; // Y
+  sh.getRange(1, startCol, Math.max(1, sh.getMaxRows()), 12).clearContent();
+
+  const valid = rows.filter(r => r[10] !== '' && r[6] !== '');
+  const den = valid.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+  const sumPred = valid.reduce((a, r) => a + Number(r[9] || 0), 0);
+  const sumAct = valid.reduce((a, r) => a + Number(r[6] || 0), 0);
+  const sumAbs = valid.reduce((a, r) => a + Number(r[12] || 0), 0);
+  const diff = sumPred - sumAct;
+  const annualAbsErrRate = den > 0 ? Math.abs(diff) / den : '';
+  const annualOverRate = den > 0 ? Math.max(diff, 0) / den : '';
+  const annualUnderRate = den > 0 ? Math.max(-diff, 0) / den : '';
+  const annualBias = den > 0 ? diff / den : '';
+  const annualPass = annualAbsErrRate === '' ? 'N/A' : (annualAbsErrRate <= ANNUAL_ABS_ERROR_CONSTRAINT ? 'PASS' : 'FAIL');
+  const annualOverPass = annualOverRate === '' ? 'N/A' : (annualOverRate <= OVERFORECAST_RATE_CONSTRAINT ? 'PASS' : 'FAIL');
+
+  sh.getRange(1, startCol, 1, 2).setValues([['年間制約サマリー', '値']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const annualRows = [
+    ['annual_actual_total', den > 0 ? sumAct : ''],
+    ['annual_p50_total', den > 0 ? sumPred : ''],
+    ['annual_abs_error_rate', annualAbsErrRate],
+    ['annual_bias_rate', annualBias],
+    ['annual_overforecast_rate', annualOverRate],
+    ['annual_underforecast_rate', annualUnderRate],
+    ['annual_constraint_pass', annualPass],
+    ['annual_overforecast_pass', annualOverPass]
+  ];
+  sh.getRange(2, startCol, annualRows.length, 2).setValues(annualRows);
+  sh.getRange(2, startCol + 1, 2, 1).setNumberFormat('¥#,##0');
+  sh.getRange(4, startCol + 1, 4, 1).setNumberFormat('0.0%');
+
+  const halfLabels = Array.from(new Set(rows.map(r => r[15]).filter(Boolean))).sort();
+  const h1Label = halfLabels.find(v => /-H1$/.test(v)) || 'H1';
+  const h2Label = halfLabels.find(v => /-H2$/.test(v)) || 'H2';
+  const h1v = computeBucketMetrics_(rows, 15, h1Label);
+  const h2v = computeBucketMetrics_(rows, 15, h2Label);
+  const halfStart = 11;
+  sh.getRange(halfStart, startCol, 1, 8).setValues([['半期制約サマリー', 'actual', 'p50', 'half_wape', 'bias', 'over', 'under', 'pass']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(halfStart + 1, startCol, 2, 8).setValues([
+    [h1Label, h1v.actual, h1v.p50, h1v.wape, h1v.bias, h1v.over, h1v.under, h1v.pass],
+    [h2Label, h2v.actual, h2v.p50, h2v.wape, h2v.bias, h2v.over, h2v.under, h2v.pass]
+  ]);
+  sh.getRange(halfStart + 1, startCol + 1, 2, 2).setNumberFormat('¥#,##0');
+  sh.getRange(halfStart + 1, startCol + 3, 2, 4).setNumberFormat('0.0%');
+
+  const qStart = 15;
+  sh.getRange(qStart, startCol, 1, 4).setValues([['Q診断サマリー', 'actual', 'p50', 'abs_error_rate']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const qLabels = ['Q1', 'Q2', 'Q3', 'Q4'];
+  const fyBase = (rows.find(r => r[16]) || [])[16] || '';
+  const qRows = qLabels.map(q => {
+    const label = fyBase ? `${fyBase}-${q}` : q;
+    const scoped = rows.filter(r => String(r[14] || '') === label && r[10] !== '' && r[6] !== '');
+    const qDen = scoped.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+    const qPred = scoped.reduce((a, r) => a + Number(r[9] || 0), 0);
+    const qAct = scoped.reduce((a, r) => a + Number(r[6] || 0), 0);
+    const rate = qDen > 0 ? Math.abs(qPred - qAct) / qDen : '';
+    return [label, qDen > 0 ? qAct : '', qDen > 0 ? qPred : '', rate];
+  });
+  sh.getRange(qStart + 1, startCol, qRows.length, 4).setValues(qRows);
+  sh.getRange(qStart + 1, startCol + 1, qRows.length, 2).setNumberFormat('¥#,##0');
+  sh.getRange(qStart + 1, startCol + 3, qRows.length, 1).setNumberFormat('0.0%');
+
+  const rangeStart = 21;
+  const outsideRows = rows.filter(r => r[19] === 1).map(r => r[0]);
+  sh.getRange(rangeStart, startCol, 1, 2).setValues([['レンジ逸脱サマリー', '値']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(rangeStart + 1, startCol, 3, 2).setValues([
+    ['range_outside_count', outsideRows.length],
+    ['months_outside_range', outsideRows.join(', ')],
+    ['postmortem_required_count', outsideRows.length]
+  ]);
+  safeSetNote_(sh, 1, startCol, 'annual_abs_error_rate<=10%、annual_overforecast_rate<=5%を制約判定します。');
+  safeSetNote_(sh, halfStart, startCol, 'half_wape<=12%、half_overforecast_rate<=5%を監視。Qは診断のみ。');
+}
+
 /**
  * 現場閲覧用サマリー更新。
  * - OUTPUTの理解補助（件数・更新時刻・KPI信号）を表示
@@ -4762,18 +5073,58 @@ function updatePhase1Dashboard() {
   requireStepSuccess_('step4_status', '先にA-9 予測実行を実行してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dash = ss.getSheetByName(SHEETS.DASHBOARD);
-  const rep = ss.getSheetByName(SHEETS.FORECAST_REPORT).getDataRange().getValues();
+  const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY).getDataRange().getValues();
+  const rows = cmp.slice(1).filter(r => r[9] !== '' && r[6] !== '');
+  const den = rows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+  const sumPred = rows.reduce((a, r) => a + Number(r[9] || 0), 0);
+  const sumAct = rows.reduce((a, r) => a + Number(r[6] || 0), 0);
+  const sumAbs = rows.reduce((a, r) => a + Number(r[12] || 0), 0);
+  const annualAbs = den > 0 ? Math.abs(sumPred - sumAct) / den : '';
+  const annualOver = den > 0 ? Math.max(sumPred - sumAct, 0) / den : '';
+  const annualPass = annualAbs === '' ? 'N/A' : (annualAbs <= ANNUAL_ABS_ERROR_CONSTRAINT ? 'PASS' : 'FAIL');
+  const annualOverPass = annualOver === '' ? 'N/A' : (annualOver <= OVERFORECAST_RATE_CONSTRAINT ? 'PASS' : 'FAIL');
+  const h1Rows = rows.filter(r => /-H1$/.test(String(r[15] || '')));
+  const h2Rows = rows.filter(r => /-H2$/.test(String(r[15] || '')));
+  const calcHalf = (arr) => {
+    const d = arr.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+    if (d <= 0) return { wape: '', over: '', pass: 'N/A' };
+    const a = arr.reduce((x, r) => x + Number(r[6] || 0), 0);
+    const p = arr.reduce((x, r) => x + Number(r[9] || 0), 0);
+    const ab = arr.reduce((x, r) => x + Number(r[12] || 0), 0);
+    const over = Math.max(p - a, 0) / d;
+    return { wape: ab / d, over, pass: (ab / d) <= HALF_WAPE_CONSTRAINT ? 'PASS' : 'FAIL' };
+  };
+  const h1 = calcHalf(h1Rows);
+  const h2 = calcHalf(h2Rows);
+  const outsideCount = rows.filter(r => r[19] === 1).length;
+  const monthlyApeAvg = rows.length ? (rows.reduce((a, r) => a + Number(r[13] || 0), 0) / rows.length) : '';
   dash.clear();
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
-  const total = rep.length - 1;
-  dash.getRange(2,1,4,3).setValues([
-    ['forecast_rows', total, 'FORECAST_REPORT件数'],
-    ['last_updated', new Date(), '更新日時'],
-    ['kpi_smape_signal', 'N/A', 'A-9実行後に算出'],
-    ['dashboard_status', 'ready', '初期ダッシュボード']
-  ]);
-  updateProcessStatus_('step6_status','success','',total,'');
-  logRun_('updatePhase1Dashboard','', 'success', total, new Date(), '');
+  const metrics = [
+    ['plan_point_estimate', PLAN_POINT_ESTIMATE_ROLE, '計画用単一値'],
+    ['range_definition', RANGE_EXPLANATION_ROLE, '説明レンジ定義'],
+    ['annual_abs_error_rate_latest', annualAbs, '年間制約 <=10%'],
+    ['annual_constraint_pass', annualPass, '年間絶対誤差率判定'],
+    ['annual_overforecast_rate_latest', annualOver, '年間over-forecast率 <=5%'],
+    ['annual_overforecast_pass', annualOverPass, '年間over-forecast判定'],
+    ['half1_wape_latest', h1.wape, '半期WAPE <=12%'],
+    ['half2_wape_latest', h2.wape, '半期WAPE <=12%'],
+    ['half1_constraint_pass', h1.pass, 'H1制約判定'],
+    ['half2_constraint_pass', h2.pass, 'H2制約判定'],
+    ['half1_overforecast_rate_latest', h1.over, 'H1 over-forecast<=5%'],
+    ['half2_overforecast_rate_latest', h2.over, 'H2 over-forecast<=5%'],
+    ['range_outside_count_latest', den > 0 ? outsideCount : '', 'P10-P90逸脱月数'],
+    ['monthly_secondary_metric_latest', monthlyApeAvg, '月次APE平均（診断）'],
+    ['dashboard_status', (annualPass === 'FAIL' || annualOverPass === 'FAIL' || h1.pass === 'FAIL' || h2.pass === 'FAIL') ? 'constraint_attention' : 'ready', '制約判定サマリー'],
+    ['last_updated', new Date(), '更新日時']
+  ];
+  dash.getRange(2,1,metrics.length,3).setValues(metrics);
+  dash.getRange(4,2,10,1).setNumberFormat('0.0%');
+  safeSetNote_(dash, 2, 2, 'P50を計画値として採用。');
+  safeSetNote_(dash, 3, 2, 'P10-P90は説明帯であり成功KPIではありません。');
+  safeSetNote_(dash, 6, 2, 'over-forecastはforecast-actualの正側を計測。');
+  updateProcessStatus_('step6_status','success','',metrics.length,'');
+  logRun_('updatePhase1Dashboard','', 'success', metrics.length, new Date(), '');
   ss.setActiveSheet(dash);
 }
 
@@ -4783,8 +5134,25 @@ function updatePhase1LearningInsights() {
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
   const evalSh = ss.getSheetByName(SHEETS.EVAL_LOG);
+  const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   const out = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
+  ensureSheetHeaders_(out, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   const vals = evalSh.getDataRange().getValues().slice(1).filter(r => String(r[2] || '').trim() === client);
+  const cmpRows = cmp.getDataRange().getValues().slice(1).filter(r => r[9] !== '' && r[6] !== '');
+  const den = cmpRows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+  const sumPred = cmpRows.reduce((a, r) => a + Number(r[9] || 0), 0);
+  const sumAct = cmpRows.reduce((a, r) => a + Number(r[6] || 0), 0);
+  const sumAbs = cmpRows.reduce((a, r) => a + Number(r[12] || 0), 0);
+  const annualBreach = den > 0 ? (Math.abs(sumPred - sumAct) / den > ANNUAL_ABS_ERROR_CONSTRAINT) : false;
+  const annualOverBreach = den > 0 ? (Math.max(sumPred - sumAct, 0) / den > OVERFORECAST_RATE_CONSTRAINT) : false;
+  const halfLabels = Array.from(new Set(cmpRows.map(r => String(r[15] || '')).filter(Boolean)));
+  const halfBreach = halfLabels.some(label => {
+    const scoped = cmpRows.filter(r => String(r[15] || '') === label);
+    const d = scoped.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
+    if (d <= 0) return false;
+    const wape = scoped.reduce((a, r) => a + Number(r[12] || 0), 0) / d;
+    return wape > HALF_WAPE_CONSTRAINT;
+  });
 
   const byMonth = new Map();
   vals.forEach(r => {
@@ -4808,19 +5176,43 @@ function updatePhase1LearningInsights() {
     if (!v.hasP50) return;
     const diff = v.actual - v.p50;
     const rate = (v.actual !== 0) ? (diff / Math.abs(v.actual)) : 0;
-    const insight = (Math.abs(rate) < 0.1)
+    const cmpRow = cmpRows.find(x => String(x[0] || '') === month) || [];
+    const rangeBreach = Number(cmpRow[19] || 0) === 1;
+    const overBreach = Number(cmpRow[17] || 0) === 1 && Math.abs(rate) > OVERFORECAST_RATE_CONSTRAINT;
+    const insight = (Math.abs(rate) < 0.1 && !rangeBreach)
       ? '予測精度は概ね良好。継続運用。'
       : (rate > 0
         ? '実績が予測超過。増加要因（スポット案件・大型失注回避等）を追加学習。'
         : '実績が予測未達。失注・延期・単価低下要因を確認。');
-    const nextAction = (Math.abs(rate) < 0.1)
+    const nextAction = (Math.abs(rate) < 0.1 && !rangeBreach)
       ? '現行手順を継続し、次月も同手順で検証。'
-      : 'B-3で要因を記録し、A-3〜A-7入力項目へ反映。';
-    rows.push([new Date(), client, month, v.actual, v.p50, diff, rate, insight, nextAction]);
+      : '追加調査 / 前提見直し / 入力項目反映 を実施。';
+    rows.push([
+      new Date(), client, month, v.actual, v.p50, diff, rate, insight, nextAction,
+      rangeBreach ? 'range_breach' : 'monthly_diagnostic',
+      annualBreach ? 1 : 0,
+      halfBreach ? 1 : 0,
+      (annualOverBreach || overBreach) ? 1 : 0,
+      rangeBreach ? 1 : 0,
+      '',
+      rangeBreach ? 'range_outside' : (rate > 0 ? 'over_forecast' : 'under_forecast'),
+      'CONFIG:環境前提',
+      'A-3〜A-8入力シート',
+      (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'update' : 'keep',
+      (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? '次回サイクルで前提更新を反映' : '現行運用を継続',
+      '',
+      '',
+      (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'open' : 'monitoring',
+      /\/(03|06|09|12)$/.test(month) ? 'quarterly_full' : 'monthly_light'
+    ]);
   });
 
-  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),9).clearContent();
-  if (rows.length) out.getRange(2,1,rows.length,9).setValues(rows);
+  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),24).clearContent();
+  if (rows.length) out.getRange(2,1,rows.length,24).setValues(rows);
+  safeSetNote_(out, 1, 10, 'diagnostic_type: monthly_diagnostic / range_breach 等。');
+  safeSetNote_(out, 1, 13, 'overforecast_breach は過大予測制約違反の有無。');
+  safeSetNote_(out, 1, 19, 'action_type: add/update/remove/keep の管理。');
+  safeSetNote_(out, 1, 24, 'review_cycle: quarterly_full=四半期正式レビュー、monthly_light=月次軽量監視。');
   updateProcessStatus_('step7_status', 'success', client, rows.length, '');
   logRun_('updatePhase1LearningInsights', client, 'success', rows.length, new Date(), '');
   ss.setActiveSheet(out);
@@ -4857,6 +5249,34 @@ function logRun_(fn, client, status, count, startedAt, err) {
   const params = JSON.stringify({N_SIM, SPIKE_CLIP_MIN, SPIKE_CLIP_MAX, TREND_FACTOR_MIN, TREND_FACTOR_MAX});
   const hash = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, `${fn}|${client}|${end.toISOString()}`));
   sh.appendRow([Utilities.getUuid(), end, Session.getActiveUser().getEmail()||'unknown', fn, client||'', status, count||0, VERSION, params, hash, sec, err||'']);
+}
+
+function safeSetNote_(sh, row, col, note) {
+  if (!sh || !note) return;
+  sh.getRange(row, col).setNote(note);
+}
+
+function quarterLabelFromYm_(ym) {
+  const dt = parseYM_(ym);
+  if (!dt) return '';
+  const fy = (dt.getMonth() >= 3) ? dt.getFullYear() : (dt.getFullYear() - 1);
+  const q = Math.floor(((dt.getMonth() + 9) % 12) / 3) + 1;
+  return `FY${fy}-Q${q}`;
+}
+
+function halfLabelFromYm_(ym) {
+  const dt = parseYM_(ym);
+  if (!dt) return '';
+  const fy = (dt.getMonth() >= 3) ? dt.getFullYear() : (dt.getFullYear() - 1);
+  const hm = ((dt.getMonth() + 9) % 12) + 1;
+  return hm <= 6 ? `FY${fy}-H1` : `FY${fy}-H2`;
+}
+
+function fyLabelFromYm_(ym) {
+  const dt = parseYM_(ym);
+  if (!dt) return '';
+  const fy = (dt.getMonth() >= 3) ? dt.getFullYear() : (dt.getFullYear() - 1);
+  return `FY${fy}`;
 }
 
 function parseYM_(s) {
