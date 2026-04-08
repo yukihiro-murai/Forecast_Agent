@@ -1686,22 +1686,18 @@ function buildGUIDE_() {
     ['前提', '業務前提', '1 client = 1 book。前提はCONFIGの環境前提ブロックで管理・更新する。']
   ];
   sh.getRange(policyStart + 2, 1, policyRows.length, 3).setValues(policyRows);
-  const inputChecklistStart = policyStart + 12;
-  sh.getRange(inputChecklistStart, 1, 1, 3).setValues([['入力チェックリスト（必須/任意）', '対象シート', '内容']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(inputChecklistStart + 1, 1, 6, 3).setValues([
-    ['必須', 'CONFIG', 'メーカー名 / FY / 担当者'],
-    ['必須', 'FACTORS_PRODUCT', '担当者・対象製品・Step（必要行のみ）'],
-    ['必須', 'FACTORS_CLIENT', '担当者・Step（必要行のみ）'],
-    ['必須', 'OPINIONS', 'CONFIGで指定した担当者全員分'],
-    ['任意', 'DEV_SPOT', '既知案件がある場合のみ入力'],
-    ['任意', 'CONFIG 環境前提', '未入力でも実行可（説明性向上のため推奨）']
-  ]);
+  const flowStart = policyStart + 12;
+  sh.getRange(flowStart, 1, 1, 3).setValues([['因果経路フローチャート（全体像）', '', '']]).setBackground('#d9ead3').setFontWeight('bold').merge();
+  sh.getRange(flowStart + 1, 1, 1, 3).setValues([['直接目的', '代理指標/計算', '制約/学習ループ']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]).setBackground('#f3f3f3');
   safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
   safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
   safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
   safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
-  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, inputChecklistStart - 1]);
+  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, flowStart - 1]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -1755,16 +1751,16 @@ function buildCONFIG_() {
   sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
   const infoStart = 15;
-  const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
+  const infoHdr = [['予測運用ポリシー（最重要）', '定義（マクロ→ミクロ）']];
   const infoRows = [
-    ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
-    ['残差シミュレーション', `過去残差をランダム抽出して ${N_SIM} 回シミュレーション。P10/P50/P90 を算出。`],
-    ['製品別要因（FACTORS_PRODUCT）', 'kProd = 1 + Σ(製品構成比×累積step)。月次で乗算。'],
-    ['クライアント要因（FACTORS_CLIENT）', 'kClient = 1 + 累積step。月次で乗算。'],
-    ['担当者意見（OPINIONS）', '担当者ごとの (1 + step×confidence) を合成（内部では±5%の小さな揺らぎあり）。'],
-    ['AI調査（AI_RESEARCH_STRUCTURED）', '最新eventと業界内相対benchmarkをblendしてtopic別scoreを作成。AI効果上限は±3%。'],
-    ['固定額（DEV_SPOT）', 'amount×confidence をknown spotとして加算。背景SPOTは定量側で別管理。'],
-    ['定性差分の校正 / Seasonal Weighted', 'calibration対象はSubjective Continuous Overlayのみ（Known Spotは対象外）。Seasonal推計は比較用の参照値。']
+    ['直接目的（最上位）', '年間予算の外しすぎ抑制 / 半期見通し精度向上 / クライアント別予実管理の底上げ。'],
+    ['代理目的（目的関数の代理）', 'P50を基準に signed_error・abs_error・WAPE を継続監視し、前提更新へ接続。'],
+    ['中間目的①', '極端な楽観/悲観の抑制（過大予測を優先抑制）。'],
+    ['中間目的②', 'P10-P90レンジ逸脱時の追加調査を標準運用化。'],
+    ['中間目的③', 'B-3で原因仮説→前提更新→次サイクル反映を管理。'],
+    ['制約①', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
+    ['制約②', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
+    ['制約③', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%`]
   ];
   sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
@@ -1773,15 +1769,14 @@ function buildCONFIG_() {
     safeSetNote_(sh, infoStart + 1 + i, 1, `説明: ${r[0]}。\nこの項目は予測ロジック理解のための参照情報で、通常は編集不要です。`);
   });
 
-  // A-9 注意ロジック（実装定数と連動）
+  // 代理指標と運用ループ
   const warnStart = 25;
-  const a9Hdr = [['A-9 実行前チェック', '閾値と挙動（定数連動）']];
+  const a9Hdr = [['代理目的 / 指標の考え方', '説明']];
   const a9Rows = [
-    ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 強警告/極端値', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}%（極端値目安 ${Math.round(STEP_BLOCK_THRESHOLD * 100)}%） ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['合成係数 警告', `kTotal < ${K_TOTAL_WARN_MIN.toFixed(2)} または > ${K_TOTAL_WARN_MAX.toFixed(2)} ：警告表示（OKで続行 / Cancelで中断）`],
-    ['合成係数 極端値', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['解消手順', '1) 表示された1件を修正 → 2) A-9を再実行 → 3) 次の注意が出たら同様に修正（同時に複数表示しない）']
+    ['automatic optimization', '現段階では新設しない（既存forecast engineを維持）。'],
+    ['運用改善アプローチ', 'B-2/B-3で評価指標を観測し、前提・入力運用を更新する。'],
+    ['計画値とレンジの役割', '計画値=P50。P10/P90は説明帯。coverageは診断用途。'],
+    ['1 client = 1 book', '現行前提を維持。']
   ];
   sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
@@ -1823,7 +1818,7 @@ function buildCONFIG_() {
   });
 
   const policyStart = 56;
-  sh.getRange(policyStart, 1, 1, 2).setValues([['予測運用ポリシー', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
   const policyRows = [
     ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
     ['計画用単一値', 'P50（neutral/baseline）'],
@@ -1839,14 +1834,17 @@ function buildCONFIG_() {
   sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
 
   const proxyStart = policyStart + 13;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['代理目的 / 指標の考え方', '説明']]).setBackground('#d9ead3').setFontWeight('bold');
-  sh.getRange(proxyStart + 1, 1, 3, 2).setValues([
-    ['automatic optimization', '現段階では新設しない（既存forecast engineは維持）。'],
-    ['運用改善アプローチ', 'B-2/B-3で定義済み評価指標を継続観測し、前提・入力運用を更新する。'],
-    ['バイアス管理方針', 'underよりover-forecast抑制を優先。制約逸脱時は調査トーンを強化。']
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart + 1, 1, 6, 2).setValues([
+    ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
+    ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
+    ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
+    ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
+    ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
+    ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
   ]);
 
-  const envStart = proxyStart + 6;
+  const envStart = proxyStart + 9;
   sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
   const envRows = [
     ['市場 / 制度前提', ''],
@@ -1873,7 +1871,16 @@ function buildCONFIG_() {
   safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
   safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
   safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
-  applySectionGapRows_(sh, [14, 24, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
+  const noteMaxRow = envStart + envRows.length;
+  const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
+  const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
+  for (let i = 0; i < colAValues.length; i++) {
+    const title = String(colAValues[i][0] || '').trim();
+    const curNote = String(colANotes[i][0] || '').trim();
+    if (!title || curNote) continue;
+    safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
+  }
+  applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
