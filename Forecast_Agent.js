@@ -436,7 +436,7 @@ function showInitialSetupDialog_() {
         <input id="p${i+1}" type="text" placeholder="例：赤木" />
       `).join('')}
     </div>
-    <div class="hint">空欄は無視され、CONFIG!B10 にカンマ区切りで保存されます。</div>
+    <div class="hint">空欄は無視され、CONFIG!B4（互換:B10）にカンマ区切りで保存されます。</div>
   </div>
 
   <div class="btns">
@@ -499,7 +499,8 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
 
   cfg.getRange('B2').setValue(String(clientName || '').trim());
   cfg.getRange('B3').setValue(fy);
-  cfg.getRange('B10').setValue(String(peopleCSV || '').trim());
+  cfg.getRange('B4').setValue(String(peopleCSV || '').trim());
+  cfg.getRange('B10').setFormula('=B4');
 
   // GUIDE更新（更新履歴は保持されます）
   buildGUIDE_();
@@ -709,7 +710,7 @@ function openProductTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
   const products = getProductNameListFromSales_();
@@ -747,7 +748,7 @@ function openClientTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -779,7 +780,7 @@ function openOpinionsEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -813,7 +814,7 @@ function openDevEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B10 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -1715,7 +1716,7 @@ function buildCONFIG_() {
   sh.setColumnWidth(1, 312);
   sh.setColumnWidth(2, 504);
 
-  // 重要情報を上段に配置（必須→任意→固定）
+  // 重要情報を上段に配置（互換セルB10は維持）
   const rows = [
     ['項目', '値'],
     ['[必須] メーカー名（外部集計キー）', ''],
@@ -1726,6 +1727,7 @@ function buildCONFIG_() {
     ['[任意] 決算期メモ', '3月末'],
     ['[固定] Monte Carlo試行回数', N_SIM],
     ['[固定] 未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
+    ['[互換] 担当者（既存参照セルB10）', ''],
     ['[固定] スパイクならし下限比', SPIKE_CLIP_MIN],
     ['[固定] スパイクならし上限比', SPIKE_CLIP_MAX],
     ['[固定] 季節性保護（MAD倍率）', SEASONAL_MAD_K]
@@ -1734,12 +1736,10 @@ function buildCONFIG_() {
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
 
-  sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B4').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B2').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B3').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B2:B4').setBackground(COLOR_OBJECTIVE);
+  sh.getRange('B10').setFormula('=B4');
   sh.getRange('B5:B6').setBackground('#fff2cc');
+  sh.getRange('B10').setBackground('#f3f3f3');
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
@@ -1747,13 +1747,14 @@ function buildCONFIG_() {
   sh.getRange('A5').setNote('予測に影響あり（高）。計画値はP50で固定します。任意変更不可。');
   sh.getRange('A6').setNote('予測に影響あり（中）。P10/P90は説明帯であり、必須入力ではありません。');
   sh.getRange('A7').setNote('予測に影響なし（低）。メモ用途の任意項目です。');
-  sh.getRange('A8').setNote('Monte Carlo試行回数（既定1000）。予測に影響あり（中）。通常は固定運用、精度検証時のみ調整。');
+  sh.getRange('A8').setNote('Monte Carlo試行回数（既定1000）。予測に影響あり（中）。通常は固定運用。');
   sh.getRange('A9').setNote('予測に影響あり（高）。未確定月補完ロジックの説明です。');
-  sh.getRange('A10').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
-  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
-  sh.getRange('A12').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
+  sh.getRange('A10').setNote('既存コードとの互換のためB10セルを維持しています。B4に入力すると自動反映されます。');
+  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
+  sh.getRange('A12').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
+  sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
-  const infoStart = 13;
+  const infoStart = 15;
   const infoHdr = [['入力パラメータ', '計算上の扱い（要点）']];
   const infoRows = [
     ['客観ベース（Ops）', 'SALESのBASE 48ヶ月を維持し、未確定月は同月トレンド補完後の系列でトレンド+12ヶ月季節性を推定します。'],
@@ -1773,12 +1774,11 @@ function buildCONFIG_() {
   });
 
   // A-9 注意ロジック（実装定数と連動）
-  const warnStart = 23;
+  const warnStart = 25;
   const a9Hdr = [['A-9 実行前チェック', '閾値と挙動（定数連動）']];
   const a9Rows = [
     ['Step 警告', `|Step| >= ${Math.round(STEP_WARN_THRESHOLD * 100)}% ：警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 強警告', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
-    ['Step 極端値', `|Step| >= ${Math.round(STEP_BLOCK_THRESHOLD * 100)}% ：強い警告表示（OKで続行 / Cancelで中断）`],
+    ['Step 強警告/極端値', `|Step| >= ${Math.round(STEP_STRONG_THRESHOLD * 100)}%（極端値目安 ${Math.round(STEP_BLOCK_THRESHOLD * 100)}%） ：強い警告表示（OKで続行 / Cancelで中断）`],
     ['合成係数 警告', `kTotal < ${K_TOTAL_WARN_MIN.toFixed(2)} または > ${K_TOTAL_WARN_MAX.toFixed(2)} ：警告表示（OKで続行 / Cancelで中断）`],
     ['合成係数 極端値', `kTotal < ${K_TOTAL_BLOCK_MIN.toFixed(2)} または > ${K_TOTAL_BLOCK_MAX.toFixed(2)} ：強い警告表示（OKで続行 / Cancelで中断）`],
     ['解消手順', '1) 表示された1件を修正 → 2) A-9を再実行 → 3) 次の注意が出たら同様に修正（同時に複数表示しない）']
@@ -1873,7 +1873,7 @@ function buildCONFIG_() {
   safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
   safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
   safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
-  applySectionGapRows_(sh, [13, 22, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
+  applySectionGapRows_(sh, [14, 24, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
@@ -2287,7 +2287,7 @@ function validateAllInputsOrThrow_(fy) {
   const people = getPeopleListFromConfig_();
   if (!client) throw new Error('CONFIG!B2（メーカー名）が未入力です。');
   if (!isFinite(fyNum) || fyNum <= 2000) throw new Error('CONFIG!B3（予測年度FY）が不正です。');
-  if (people.length === 0) throw new Error('CONFIG!B10（担当者）が未入力です。');
+  if (people.length === 0) throw new Error('CONFIG!B4（互換:B10）（担当者）が未入力です。');
 
   // SALES（数値かどうか）
   const sales = ss.getSheetByName(SHEETS.SALES);
@@ -2666,7 +2666,9 @@ function getPeopleListFromConfig_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   if (!cfg) return [];
-  const raw = String(cfg.getRange('B10').getValue() || '');
+  const rawTop = String(cfg.getRange('B4').getValue() || '').trim();
+  const rawCompat = String(cfg.getRange('B10').getValue() || '').trim();
+  const raw = rawTop || rawCompat;
   return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 }
 
