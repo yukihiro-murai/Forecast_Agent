@@ -171,6 +171,9 @@ const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
 const AI_MAX_AGE_MONTHS = 6;
 const AI_EVENT_DECAY_HALF_LIFE_MONTHS = 3;
 const AI_MAD_CLIP_K = 3.0;
+const AI_TOTAL_NEUTRAL_THRESHOLD = 10.0;
+const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
+const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -1241,7 +1244,7 @@ function writeOutputFY_(result) {
   const coverageText = AI_TOPICS.map(topic => {
     const m = aiMeta[topic] || {};
     const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
-    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / latest=${latest} / capped=${!!m.capped}`;
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}`;
   }).join(' | ');
   sh.getRange(20, 1, 1, 11).merge();
   sh.getRange(20, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
@@ -1259,8 +1262,17 @@ function writeOutputFY_(result) {
   if (missingBench.length) {
     sh.getRange(21, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
   }
+  sh.getRange(22, 1, 1, 11).merge();
+  const allTopicNeutralized = AI_TOPICS.every(topic => !!(((aiMeta || {})[topic] || {}).neutralized));
+  const aiNeutralizedFlag = !!((dTop || {}).aiNeutralized);
+  if (allTopicNeutralized || aiNeutralizedFlag) {
+    sh.getRange(22, 1).setValue('AIスコアは信頼度不足のため予測への影響を中立化しました（kAI=1.00 / 予測は過去実績ベースのみで算出）')
+      .setBackground('#d9ead3').setFontColor('#274e13').setFontWeight('bold');
+  } else {
+    sh.getRange(22, 1).setValue('').setBackground('#ffffff').setFontWeight('normal');
+  }
 
-  let row = 22;
+  let row = 23;
 
   const seasonalWeightedCore = forecastSeasonalWeighted48_({
     adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
@@ -1844,7 +1856,10 @@ function buildCONFIG_() {
     ['SEASONAL_YEAR_WEIGHT_Y4（最新年重み）', SEASONAL_YEAR_WEIGHT_Y4],
     ['SEASONAL_OPEN_MONTH_WEIGHT_MULT（未確定月信頼度係数）', SEASONAL_OPEN_MONTH_WEIGHT_MULT],
     ['SEASONAL_WEIGHTED_MAD_K（季節推計MAD倍率）', SEASONAL_WEIGHTED_MAD_K],
-    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD]
+    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD],
+    ['AI_TOTAL_NEUTRAL_THRESHOLD（AI中立化閾値）', AI_TOTAL_NEUTRAL_THRESHOLD],
+    ['AI_QUALITY_NEUTRAL_THRESHOLD（品質中立化閾値）', AI_QUALITY_NEUTRAL_THRESHOLD],
+    ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -1898,7 +1913,7 @@ function buildCONFIG_() {
   sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
   sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
   sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
-  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B53 は既存チューニング参照です。この下段に運用思想を追記しています。');
+  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B56 は既存チューニング参照です。この下段に運用思想を追記しています。');
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
@@ -1920,7 +1935,7 @@ function buildCONFIG_() {
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
   applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
-  applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
+  applySectionGapRows_(sh, [14, 24, 30, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
@@ -2742,7 +2757,10 @@ function readModelTuningFromConfig_() {
     seasonalYearWeightY4: SEASONAL_YEAR_WEIGHT_Y4,
     seasonalOpenMonthWeightMult: SEASONAL_OPEN_MONTH_WEIGHT_MULT,
     seasonalWeightedMadK: SEASONAL_WEIGHTED_MAD_K,
-    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD
+    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD,
+    aiTotalNeutralThreshold: AI_TOTAL_NEUTRAL_THRESHOLD,
+    aiQualityNeutralThreshold: AI_QUALITY_NEUTRAL_THRESHOLD,
+    aiQualityPartialThreshold: AI_QUALITY_PARTIAL_THRESHOLD
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2776,6 +2794,9 @@ function readModelTuningFromConfig_() {
   out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getNum('B51', out.seasonalOpenMonthWeightMult)));
   out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getNum('B52', out.seasonalWeightedMadK)));
   out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getNum('B53', out.seasonalCompareWarnThreshold)));
+  out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getNum('B54', out.aiTotalNeutralThreshold)));
+  out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getNum('B55', out.aiQualityNeutralThreshold)));
+  out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getNum('B56', out.aiQualityPartialThreshold)));
   return out;
 }
 
@@ -3313,6 +3334,9 @@ function readAIResearchScores_() {
   }
 
   const topicsMissingBenchmark = [];
+  const tuningAi = readModelTuningFromConfig_();
+  const qualityNeutralThreshold = isFinite(tuningAi.aiQualityNeutralThreshold) ? tuningAi.aiQualityNeutralThreshold : AI_QUALITY_NEUTRAL_THRESHOLD;
+  const qualityPartialThreshold = isFinite(tuningAi.aiQualityPartialThreshold) ? tuningAi.aiQualityPartialThreshold : AI_QUALITY_PARTIAL_THRESHOLD;
   AI_TOPICS.forEach(topic => {
     const benchAgg = robustWeightedTopicScore_(benchArr[topic], AI_MAD_CLIP_K);
     const eventAgg = robustWeightedTopicScore_(eventArr[topic], AI_MAD_CLIP_K);
@@ -3329,7 +3353,20 @@ function readAIResearchScores_() {
     if (bAvg === null && eAvg !== null) finalScore = eAvg;
     else if (bAvg !== null && eAvg === null) finalScore = bAvg;
     else if (bAvg !== null && eAvg !== null) finalScore = bAvg * blend[topic][0] + eAvg * blend[topic][1];
-    if (degradedMode === 'event_only') finalScore *= 0.5;
+    const qualityRaw = (benchCount * 2 + eventCount) / 4;
+    const qualityScore = clamp_(qualityRaw, 0, 1);
+    const degradedMultiplier = (degradedMode === 'event_only') ? 0.5 : 1;
+    let qualityMultiplier = 1;
+    let neutralized = false;
+    if (qualityScore < qualityNeutralThreshold) {
+      qualityMultiplier = 0;
+      neutralized = true;
+    } else if (qualityScore < qualityPartialThreshold) {
+      qualityMultiplier = 0.5;
+      neutralized = true;
+    }
+    const effectiveMultiplier = Math.min(degradedMultiplier, qualityMultiplier);
+    finalScore *= effectiveMultiplier;
     const capped = Math.abs(finalScore) > 40;
     const clampedFinal = capped ? (finalScore > 0 ? 40 : -40) : finalScore;
     result[topic] = Math.round(clampedFinal * 10) / 10;
@@ -3346,7 +3383,10 @@ function readAIResearchScores_() {
       clamped: !!(benchAgg.clamped || eventAgg.clamped),
       no_data: !!noData,
       capped: !!capped,
-      degradedMode
+      degradedMode,
+      qualityScore,
+      neutralized,
+      effectiveMultiplier
     };
   });
   result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
@@ -3734,9 +3774,12 @@ function forecastMonteCarloMixed_(model, opt) {
   const aiTotalScore = (aiScores.Market || 0) + (aiScores.Competitor || 0) + (aiScores.Channel || 0) + (aiScores.DX || 0);
   const aiWeight = isFinite(opt.aiWeight) ? opt.aiWeight : AI_WEIGHT_DEFAULT;
   const aiMaxAbsEffect = isFinite(opt.aiMaxAbsEffect) ? opt.aiMaxAbsEffect : AI_MAX_ABS_EFFECT;
+  const aiTotalNeutralThreshold = isFinite(tuning.aiTotalNeutralThreshold) ? tuning.aiTotalNeutralThreshold : AI_TOTAL_NEUTRAL_THRESHOLD;
   const aiRawEffect = aiTotalScore * aiWeight;
   const aiClampedEffect = Math.max(-aiMaxAbsEffect, Math.min(aiMaxAbsEffect, aiRawEffect));
-  const kAI = 1 + aiClampedEffect;
+  const aiNeutralizedTotal = Math.abs(aiTotalScore) < aiTotalNeutralThreshold;
+  if (aiScores && aiScores.meta) aiScores.meta.neutralizedTotal = aiNeutralizedTotal;
+  const kAI = aiNeutralizedTotal ? 1.0 : (1 + aiClampedEffect);
 
   const startT = 48;
   const totalRawSimByMonth = Array.from({ length: 12 }, () => []);
@@ -3871,7 +3914,8 @@ function forecastMonteCarloMixed_(model, opt) {
       AI_WEIGHT: aiWeight,
       aiRawEffect,
       aiClampedEffect,
-      aiMaxAbsEffect
+      aiMaxAbsEffect,
+      aiNeutralized: aiNeutralizedTotal
     }
   };
 }
@@ -5856,8 +5900,8 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
  * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
  * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
- * 10) DXのみbenchmark欠落の場合、DXのmodeがevent_onlyになり、row21にdegraded modeとbenchmark不足が併記されることを確認する。
- * 11) 全topicがevent_onlyの場合、各topic scoreに0.5係数が掛かり、mode=event_onlyで表示されることを確認する。
- * 12) invalid=0のクリーン入力時、F2:F4のinvalidサンプルが空で、step3a_summaryのinvalid_reasonsが全0であることを確認する。
- * 13) 列数不足行が混入した場合、invalid_reason_colcountが加算され、F2:F4に該当行サンプルが表示されることを確認する。
+ * 10) AI行が0件の場合、各topic score=0・mode=no_data・neutralized表示になり、AI中立化帯（row22）が表示されることを確認する。
+ * 11) 1topicのみbenchmark有りの場合、そのtopicはbenchmark_only、他topicはno_data/event_onlyとなり、degraded表示が出ることを確認する。
+ * 12) 全topic event_onlyの場合、effectiveMultiplierが0.5以下で適用され、mode=event_onlyかつquality情報がrow20に表示されることを確認する。
+ * 13) 通常blended入力（benchmark/event十分）ではneutralized=false、AI中立化帯が非表示で従来同等の出力になることを確認する。
  */
