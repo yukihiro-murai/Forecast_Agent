@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v1.4
+ * Forecast Agent v1.5
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * v1.2（今回反映）
@@ -11,7 +11,7 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -91,6 +91,7 @@ const COLOR_MIX_LABEL = '#f4cccc'; // 混合ラベル薄赤
 const COLOR_OBJ_LABEL = '#cfe2f3'; // 客観ラベル薄青
 const COLOR_HEADER = '#eeeeee';
 const COLOR_P50_HILITE = '#fff2cc'; // P50強調（薄黄）
+const COLOR_SECTION_SOFT = '#e2f0d9'; // セクション見出し薄緑
 
 // OUTPUTの意味色（表＆グラフ）
 const COLOR_NEG = '#f4cccc'; // ネガ薄赤
@@ -166,6 +167,13 @@ const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual�
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
 const AI_MAX_ABS_EFFECT = 0.03;   // AI係数の絶対上限（±3%）
+const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
+const AI_MAX_AGE_MONTHS = 6;
+const AI_EVENT_DECAY_HALF_LIFE_MONTHS = 3;
+const AI_MAD_CLIP_K = 3.0;
+const AI_TOTAL_NEUTRAL_THRESHOLD = 10.0;
+const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
+const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -313,6 +321,7 @@ function setupForecastBook() {
 
   try {
     resetWorkbookSheets_(ss, order);
+    clearAllNotesOnSheets_(ss, order);
 
     buildGUIDE_();
     buildCONFIG_();
@@ -323,6 +332,9 @@ function setupForecastBook() {
     buildDEV_();
     buildPhase1Sheets_();
     buildOUTPUT_();
+    normalizeAllSheetNotes_();
+    validateNotesIntegrity_();
+    applyDefaultAlignmentForAllSheets_();
     applyTabColors_();
     hideNonUserSheets_();
     const guide = ss.getSheetByName(SHEETS.GUIDE);
@@ -1123,7 +1135,7 @@ function writeOutputFY_(result) {
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
   sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
-  sh.setFrozenRows(2);
+  sh.setFrozenRows(0);
   sh.getRange(1, 1, sh.getMaxRows(), 12).setHorizontalAlignment('left');
 
   // 予測運用ポリシー（成功KPI/制約を上部で明示）
@@ -1136,6 +1148,9 @@ function writeOutputFY_(result) {
   safeSetNote_(sh, 2, 1, '成功KPI/制約と診断KPIを分離して運用するための説明ブロックです。');
   safeSetNote_(sh, 3, 1, '計画の単一値はP50。P10/P90は説明用レンジです。');
   safeSetNote_(sh, 4, 1, '本ツールは過大予測（forecast>actual）の抑制を優先して監視します。');
+  const step3aWarn = readStep3aWarningSummary_();
+  sh.getRange(6, 1, 1, 6).merge();
+  sh.getRange(6, 1).setValue(step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし').setFontColor(step3aWarn ? '#b71c1c' : '#666666').setFontSize(10);
 
   // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
@@ -1226,8 +1241,38 @@ function writeOutputFY_(result) {
   if (aiAllZero) {
     sh.getRange(19, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
   }
+  const coverageText = AI_TOPICS.map(topic => {
+    const m = aiMeta[topic] || {};
+    const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}`;
+  }).join(' | ');
+  sh.getRange(20, 1, 1, 11).merge();
+  sh.getRange(20, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
+  const missingBench = Array.isArray(aiMeta.topicsMissingBenchmark) ? aiMeta.topicsMissingBenchmark : [];
+  const degradedTopics = AI_TOPICS.filter(topic => {
+    const mode = String(((aiMeta || {})[topic] || {}).degradedMode || '');
+    return mode === 'event_only' || mode === 'benchmark_only';
+  });
+  sh.getRange(21, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
+  sh.getRange(21, 1, 1, 6).merge();
+  sh.getRange(21, 7, 1, 5).merge();
+  if (degradedTopics.length) {
+    sh.getRange(21, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
+  }
+  if (missingBench.length) {
+    sh.getRange(21, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
+  }
+  sh.getRange(22, 1, 1, 11).merge();
+  const allTopicNeutralized = AI_TOPICS.every(topic => !!(((aiMeta || {})[topic] || {}).neutralized));
+  const aiNeutralizedFlag = !!((dTop || {}).aiNeutralized);
+  if (allTopicNeutralized || aiNeutralizedFlag) {
+    sh.getRange(22, 1).setValue('AIスコアは信頼度不足のため予測への影響を中立化しました（kAI=1.00 / 予測は過去実績ベースのみで算出）')
+      .setBackground('#d9ead3').setFontColor('#274e13').setFontWeight('bold');
+  } else {
+    sh.getRange(22, 1).setValue('').setBackground('#ffffff').setFontWeight('normal');
+  }
 
-  let row = 20;
+  let row = 23;
 
   const seasonalWeightedCore = forecastSeasonalWeighted48_({
     adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
@@ -1251,7 +1296,7 @@ function writeOutputFY_(result) {
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上（客観）と担当者情報（主観）を混合させたシミュレーション予測',
-    labelBg: COLOR_MIX_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.mixed,
     regTotal: result.regTotal,
@@ -1268,7 +1313,7 @@ function writeOutputFY_(result) {
   // ===== セクション2：客観のみ =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上のみ（客観）によるシミュレーション予測',
-    labelBg: COLOR_OBJ_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.objOnly,
     regTotal: result.regTotal,
@@ -1558,20 +1603,24 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(splitHeaderRow, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
   sh.getRange(splitHeaderRow, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
-  // グラフ：Month + Neg + Neu + Pos + Reg（A〜E）
-  const chartRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 5);
+  // グラフ系列（凡例順）：Upside → Baseline → Downside → Linear Regression
+  const chartMonthRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 1);
+  const chartUpsideRange = sh.getRange(monthTableHeaderRow, 4, table.length + 1, 1);
+  const chartBaselineRange = sh.getRange(monthTableHeaderRow, 3, table.length + 1, 1);
+  const chartDownsideRange = sh.getRange(monthTableHeaderRow, 2, table.length + 1, 1);
+  const chartLinearRange = sh.getRange(monthTableHeaderRow, 5, table.length + 1, 1);
 
   const chartRow = startRow + 1;
   const chartCol = 8; // H列開始
 
-  // 凡例テキスト（邪魔にならない小さめ）
-  sh.getRange(chartRow - 1, chartCol).setValue('Legend: red=Downside(P10) / yellow=Baseline(P50) / blue=Upside(P90) / gray=Linear Regression')
-    .setFontSize(10).setFontColor('#666666');
-  sh.getRange(chartRow - 1, chartCol, 1, 6).merge();
-
   const chart = sh.newChart()
     .asLineChart()
-    .addRange(chartRange)
+    .addRange(chartMonthRange)
+    .addRange(chartUpsideRange)
+    .addRange(chartBaselineRange)
+    .addRange(chartDownsideRange)
+    .addRange(chartLinearRange)
+    .setNumHeaders(1)
     .setPosition(chartRow, chartCol, 0, 0)
     .setOption('title', opt.chartTitle)
     .setOption('legend', { position: 'right' })
@@ -1580,8 +1629,8 @@ function writeSectionBlock_(sh, startRow, opt) {
     .setOption('pointSize', 0)
     .setOption('hAxis', { slantedText: true, slantedTextAngle: 45, showTextEvery: 1 })
     .setOption('vAxis', { format: '¥#,##0' })
-    // 色：Downside=赤 / Baseline=黄 / Upside=青 / 回帰=灰
-    .setOption('colors', ['#ea4335', '#fbbc04', '#1a73e8', COLOR_REG])
+    // 色：Upside=青 / Baseline=黄 / Downside=赤 / 回帰=灰
+    .setOption('colors', ['#1a73e8', '#fbbc04', '#ea4335', COLOR_REG])
     .setOption('series', { 0:{ lineWidth:3 }, 1:{ lineWidth:4 }, 2:{ lineWidth:3 }, 3:{ lineWidth:3 } })
     .setOption('width', 820)
     .setOption('height', 340)
@@ -1710,7 +1759,7 @@ function buildCONFIG_() {
   sh.clearFormats();
 
   sh.setColumnWidth(1, 312);
-  sh.setColumnWidth(2, 504);
+  sh.setColumnWidth(2, 656);
 
   // 重要情報を上段に配置（互換セルB10は維持）
   const rows = [
@@ -1807,7 +1856,10 @@ function buildCONFIG_() {
     ['SEASONAL_YEAR_WEIGHT_Y4（最新年重み）', SEASONAL_YEAR_WEIGHT_Y4],
     ['SEASONAL_OPEN_MONTH_WEIGHT_MULT（未確定月信頼度係数）', SEASONAL_OPEN_MONTH_WEIGHT_MULT],
     ['SEASONAL_WEIGHTED_MAD_K（季節推計MAD倍率）', SEASONAL_WEIGHTED_MAD_K],
-    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD]
+    ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD],
+    ['AI_TOTAL_NEUTRAL_THRESHOLD（AI中立化閾値）', AI_TOTAL_NEUTRAL_THRESHOLD],
+    ['AI_QUALITY_NEUTRAL_THRESHOLD（品質中立化閾値）', AI_QUALITY_NEUTRAL_THRESHOLD],
+    ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -1817,7 +1869,8 @@ function buildCONFIG_() {
     safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
   });
 
-  const policyStart = 56;
+  const sectionGapRows = 1;
+  const policyStart = tuneStart + tuneRows.length + sectionGapRows + 1;
   sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
   const policyRows = [
     ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
@@ -1833,44 +1886,45 @@ function buildCONFIG_() {
   ];
   sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
 
-  const proxyStart = policyStart + 13;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
-  sh.getRange(proxyStart + 1, 1, 6, 2).setValues([
+  const proxyRows = [
     ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
     ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
     ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
     ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
-  ]);
+  ];
+  const proxyStart = policyStart + policyRows.length + sectionGapRows + 1;
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
 
-  const envStart = proxyStart + 9;
+  const envStart = proxyStart + proxyRows.length + sectionGapRows + 1;
   sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
   const envRows = [
-    ['市場 / 制度前提', ''],
-    ['クライアント予算 / 体制前提', ''],
-    ['製品 / 適応前提', ''],
-    ['チャネル / MR / 販促前提', ''],
-    ['競合前提', ''],
-    ['Spot / 開発案件前提', ''],
-    ['情報源', ''],
-    ['最終更新日', new Date()]
+    ['マクロ｜市場 / 制度前提', ''],
+    ['マクロ｜競合前提', ''],
+    ['メソ｜クライアント予算 / 体制前提', ''],
+    ['メソ｜チャネル / MR / 販促前提', ''],
+    ['ミクロ｜製品 / 適応前提', ''],
+    ['ミクロ｜Spot / 開発案件前提', ''],
+    ['ミクロ｜情報源', ''],
+    ['ミクロ｜最終更新日', new Date()]
   ];
   sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
   sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
   sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
-  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B53 は既存チューニング参照です。この下段に運用思想を追記しています。');
+  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B56 は既存チューニング参照です。この下段に運用思想を追記しています。');
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
-  safeSetNote_(sh, envStart + 1, 1, '市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
-  safeSetNote_(sh, envStart + 2, 1, 'クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
-  safeSetNote_(sh, envStart + 3, 1, '製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
-  safeSetNote_(sh, envStart + 4, 1, 'チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 5, 1, '競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
-  safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
-  safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  safeSetNote_(sh, envStart + 1, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 3, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
   const noteMaxRow = envStart + envRows.length;
   const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
   const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
@@ -1880,7 +1934,8 @@ function buildCONFIG_() {
     if (!title || curNote) continue;
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
-  applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
+  applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
+  applySectionGapRows_(sh, [14, 24, 30, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
 function buildSALES_() {
@@ -2702,7 +2757,10 @@ function readModelTuningFromConfig_() {
     seasonalYearWeightY4: SEASONAL_YEAR_WEIGHT_Y4,
     seasonalOpenMonthWeightMult: SEASONAL_OPEN_MONTH_WEIGHT_MULT,
     seasonalWeightedMadK: SEASONAL_WEIGHTED_MAD_K,
-    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD
+    seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD,
+    aiTotalNeutralThreshold: AI_TOTAL_NEUTRAL_THRESHOLD,
+    aiQualityNeutralThreshold: AI_QUALITY_NEUTRAL_THRESHOLD,
+    aiQualityPartialThreshold: AI_QUALITY_PARTIAL_THRESHOLD
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2736,6 +2794,9 @@ function readModelTuningFromConfig_() {
   out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getNum('B51', out.seasonalOpenMonthWeightMult)));
   out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getNum('B52', out.seasonalWeightedMadK)));
   out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getNum('B53', out.seasonalCompareWarnThreshold)));
+  out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getNum('B54', out.aiTotalNeutralThreshold)));
+  out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getNum('B55', out.aiQualityNeutralThreshold)));
+  out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getNum('B56', out.aiQualityPartialThreshold)));
   return out;
 }
 
@@ -3220,56 +3281,115 @@ function readAIResearchScores_() {
   const blend = { Market: [0.65, 0.35], Competitor: [0.70, 0.30], Channel: [0.65, 0.35], DX: [0.50, 0.50] };
   const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
-  const latestBenchMeta = { Market: null, Competitor: null, Channel: null, DX: null };
-
+  const latestMeta = { Market: null, Competitor: null, Channel: null, DX: null };
   const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : (q === 'low' ? 0.5 : 1)));
+  const now = new Date();
   for (let i = 1; i < vals.length; i++) {
-    const topic = String(vals[i][topicIdx] || '').trim();
+    const topic = normalizeAiTopic_(vals[i][topicIdx]);
     if (eventArr[topic] === undefined) continue;
-    const rowType = rowTypeIdx === undefined ? 'event' : String(vals[i][rowTypeIdx] || 'event').trim().toLowerCase();
+    const rowTypeRaw = rowTypeIdx === undefined ? 'event' : normalizeAiCellValue_(vals[i][rowTypeIdx]);
+    const rowType = (rowTypeRaw === 'benchmark') ? 'benchmark' : 'event';
+    const asOf = toDate_(asOfIdx === undefined ? '' : normalizeAiCellValue_(vals[i][asOfIdx]));
+    if (asOf && (!latestMeta[topic] || latestMeta[topic].asOf < asOf)) {
+      latestMeta[topic] = {
+        asOf,
+        label: String(labelIdx === undefined ? '' : vals[i][labelIdx] || ''),
+        universe: String(peerUIdx === undefined ? '' : vals[i][peerUIdx] || ''),
+        basis: String(peerBIdx === undefined ? '' : vals[i][peerBIdx] || '')
+      };
+    }
 
     let eventScore = Number(eventScoreIdx === undefined ? NaN : vals[i][eventScoreIdx]);
     if (!isFinite(eventScore) && oldAdjIdx !== undefined) {
-      const direction = String(vals[i][directionIdx] || '').trim().toLowerCase();
+      const direction = normalizeAiDirection_(directionIdx === undefined ? '' : vals[i][directionIdx]);
       const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
-      const impact = Number(vals[i][impactIdx] || NaN);
-      const conf = Number(vals[i][confIdx] || NaN);
+      const impact = parseAiNumericScore_(impactIdx === undefined ? '' : vals[i][impactIdx], 'impact_score');
+      const conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
       if (isFinite(impact) && isFinite(conf)) eventScore = sign * Math.abs(impact - 50) * conf;
     }
+    if (isFinite(eventScore)) eventScore = clamp_(eventScore, -50, 50);
+
     let benchScore = Number(benchmarkScoreIdx === undefined ? NaN : vals[i][benchmarkScoreIdx]);
     if (!isFinite(benchScore) && relPctIdx !== undefined && relConfIdx !== undefined) {
-      const relPct = Number(vals[i][relPctIdx] || NaN);
-      const relConf = Number(vals[i][relConfIdx] || NaN);
-      const q = String(vals[i][qualityIdx] || '').trim().toLowerCase();
+      const relPct = parseAiPercentile_(vals[i][relPctIdx]);
+      const relConf = parseAiConfidence_(vals[i][relConfIdx]);
+      const q = String(normalizeAiCellValue_(qualityIdx === undefined ? '' : vals[i][qualityIdx]) || '').toLowerCase();
       if (isFinite(relPct) && isFinite(relConf)) benchScore = (relPct - 50) * relConf * qualityMul(q);
     }
+    if (isFinite(benchScore)) benchScore = clamp_(benchScore, -50, 50);
 
     if (rowType === 'benchmark') {
-      if (isFinite(benchScore)) benchArr[topic].push(benchScore);
-      const asOf = toDate_(asOfIdx === undefined ? '' : vals[i][asOfIdx]) || new Date(0);
-      if (!latestBenchMeta[topic] || latestBenchMeta[topic].asOf < asOf) {
-        latestBenchMeta[topic] = {
-          asOf,
-          label: String(labelIdx === undefined ? '' : vals[i][labelIdx] || ''),
-          universe: String(peerUIdx === undefined ? '' : vals[i][peerUIdx] || ''),
-          basis: String(peerBIdx === undefined ? '' : vals[i][peerBIdx] || '')
-        };
-      }
+      const relConf = parseAiConfidence_(relConfIdx === undefined ? '' : vals[i][relConfIdx]);
+      const q = String(normalizeAiCellValue_(qualityIdx === undefined ? '' : vals[i][qualityIdx]) || '').toLowerCase();
+      const wt = isFinite(relConf) ? Math.max(0, relConf) * qualityMul(q) : 0;
+      if (isFinite(benchScore) && wt > 0) benchArr[topic].push({ score: benchScore, weight: wt });
     } else {
-      if (isFinite(eventScore)) eventArr[topic].push(eventScore);
+      const conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
+      const months = asOf ? monthDiffFloor_(asOf, now) : AI_MAX_AGE_MONTHS + 1;
+      if (!isFinite(months) || months > AI_MAX_AGE_MONTHS) continue;
+      const decay = Math.pow(0.5, Math.max(0, months) / AI_EVENT_DECAY_HALF_LIFE_MONTHS);
+      const wt = isFinite(conf) ? Math.max(0, conf) * decay : 0;
+      if (isFinite(eventScore) && wt > 0) eventArr[topic].push({ score: eventScore, weight: wt });
     }
   }
 
-  ['Market', 'Competitor', 'Channel', 'DX'].forEach(topic => {
-    const eAvg = eventArr[topic].length ? avg_(eventArr[topic]) : null;
-    const bAvg = benchArr[topic].length ? avg_(benchArr[topic]) : null;
+  const topicsMissingBenchmark = [];
+  const tuningAi = readModelTuningFromConfig_();
+  const qualityNeutralThreshold = isFinite(tuningAi.aiQualityNeutralThreshold) ? tuningAi.aiQualityNeutralThreshold : AI_QUALITY_NEUTRAL_THRESHOLD;
+  const qualityPartialThreshold = isFinite(tuningAi.aiQualityPartialThreshold) ? tuningAi.aiQualityPartialThreshold : AI_QUALITY_PARTIAL_THRESHOLD;
+  AI_TOPICS.forEach(topic => {
+    const benchAgg = robustWeightedTopicScore_(benchArr[topic], AI_MAD_CLIP_K);
+    const eventAgg = robustWeightedTopicScore_(eventArr[topic], AI_MAD_CLIP_K);
+    const bAvg = benchAgg.avg;
+    const eAvg = eventAgg.avg;
+    const benchCount = benchArr[topic].length;
+    const eventCount = eventArr[topic].length;
+    const degradedMode = (benchCount === 0 && eventCount >= 1)
+      ? 'event_only'
+      : ((benchCount >= 1 && eventCount === 0)
+        ? 'benchmark_only'
+        : ((benchCount === 0 && eventCount === 0) ? 'no_data' : 'blended'));
     let finalScore = 0;
     if (bAvg === null && eAvg !== null) finalScore = eAvg;
     else if (bAvg !== null && eAvg === null) finalScore = bAvg;
     else if (bAvg !== null && eAvg !== null) finalScore = bAvg * blend[topic][0] + eAvg * blend[topic][1];
-    result[topic] = Math.round(finalScore * 10) / 10;
-    result.meta[topic] = latestBenchMeta[topic] || { label: '', universe: '', basis: '' };
+    const qualityRaw = (benchCount * 2 + eventCount) / 4;
+    const qualityScore = clamp_(qualityRaw, 0, 1);
+    const degradedMultiplier = (degradedMode === 'event_only') ? 0.5 : 1;
+    let qualityMultiplier = 1;
+    let neutralized = false;
+    if (qualityScore < qualityNeutralThreshold) {
+      qualityMultiplier = 0;
+      neutralized = true;
+    } else if (qualityScore < qualityPartialThreshold) {
+      qualityMultiplier = 0.5;
+      neutralized = true;
+    }
+    const effectiveMultiplier = Math.min(degradedMultiplier, qualityMultiplier);
+    finalScore *= effectiveMultiplier;
+    const capped = Math.abs(finalScore) > 40;
+    const clampedFinal = capped ? (finalScore > 0 ? 40 : -40) : finalScore;
+    result[topic] = Math.round(clampedFinal * 10) / 10;
+    const latest = latestMeta[topic] || {};
+    const noData = (benchCount === 0 && eventCount === 0);
+    if (benchCount === 0) topicsMissingBenchmark.push(topic);
+    result.meta[topic] = {
+      label: latest.label || '',
+      universe: latest.universe || '',
+      basis: latest.basis || '',
+      coverageEventRows: eventCount,
+      coverageBenchmarkRows: benchCount,
+      latestAsOfDate: latest.asOf ? Utilities.formatDate(new Date(latest.asOf), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+      clamped: !!(benchAgg.clamped || eventAgg.clamped),
+      no_data: !!noData,
+      capped: !!capped,
+      degradedMode,
+      qualityScore,
+      neutralized,
+      effectiveMultiplier
+    };
   });
+  result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
 
   return result;
 }
@@ -3361,7 +3481,7 @@ function sanitizeAiReportText_(txt) {
 }
 
 function normalizeAiDirection_(v) {
-  const s = String(v || '').trim().toLowerCase();
+  const s = normalizeAiCellValue_(v).toLowerCase();
   if (!s) return '';
   if (/(up|positive|posi|上昇|増)/.test(s)) return 'up';
   if (/(down|negative|nega|低下|減)/.test(s)) return 'down';
@@ -3370,9 +3490,10 @@ function normalizeAiDirection_(v) {
 }
 
 function parseAiNumericScore_(v, fieldName) {
-  const n = Number(v);
+  const s0 = normalizeAiCellValue_(v);
+  const n = Number(s0);
   if (isFinite(n)) return n;
-  const s = String(v || '').trim().toLowerCase();
+  const s = s0.toLowerCase();
   if (!s) return NaN;
   if (fieldName === 'impact_score') {
     if (s === 'high') return 80;
@@ -3383,9 +3504,13 @@ function parseAiNumericScore_(v, fieldName) {
 }
 
 function parseAiConfidence_(v) {
-  const n = Number(v);
-  if (isFinite(n)) return n;
-  const s = String(v || '').trim().toLowerCase();
+  const s0 = normalizeAiCellValue_(v);
+  const n = Number(s0);
+  if (isFinite(n)) {
+    if (n > 1 && n <= 100) return n / 100;
+    return n;
+  }
+  const s = s0.toLowerCase();
   if (s === 'high') return 0.90;
   if (s === 'medium') return 0.70;
   if (s === 'low') return 0.50;
@@ -3393,22 +3518,101 @@ function parseAiConfidence_(v) {
 }
 
 function parseAiPercentile_(v) {
-  const n = Number(v);
+  const s0 = normalizeAiCellValue_(v);
+  const n = Number(s0);
   if (isFinite(n)) return n;
-  const s = String(v || '').trim().toLowerCase();
+  const s = s0.toLowerCase();
   if (!s) return NaN;
   if (/top\s*10|上位\s*10/.test(s)) return 90;
   if (/top\s*20|上位\s*20/.test(s)) return 80;
   if (/top\s*25|上位\s*25/.test(s)) return 75;
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+  if (m) return Number(m[1]);
   return NaN;
 }
 
+function normalizeAiCellValue_(v) {
+  let s = String(v === null || v === undefined ? '' : v);
+  if (!s) return '';
+  const fwMap = {
+    '　': ' ', '％': '%', '，': ',', '－': '-', '−': '-', '’': "'", '“': '"', '”': '"',
+    '「': '', '」': '', '『': '', '』': '', '＃': '#', '／': '/', '：': ':'
+  };
+  Object.keys(fwMap).forEach(k => { s = s.split(k).join(fwMap[k]); });
+  s = s.replace(/[“”"']/g, '');
+  s = s.trim();
+  if (/^(-|n\/a|na|不明)$/i.test(s)) return '';
+  return s;
+}
+
+function normalizeAiTopic_(v) {
+  const s = normalizeAiCellValue_(v);
+  return AI_TOPICS.indexOf(s) >= 0 ? s : '';
+}
+
+function robustWeightedTopicScore_(pairs, madK) {
+  const out = { avg: null, clamped: false };
+  if (!pairs || !pairs.length) return out;
+  const clean = pairs.filter(p => isFinite(Number(p.score)) && isFinite(Number(p.weight)) && Number(p.weight) > 0)
+    .map(p => ({ score: Number(p.score), weight: Number(p.weight) }));
+  if (!clean.length) return out;
+  let scores = clean.map(p => p.score);
+  if (clean.length >= 3) {
+    const med = median_(scores);
+    const mad = median_(scores.map(v => Math.abs(v - med)));
+    if (isFinite(mad) && mad > 0) {
+      const lo = med - madK * mad;
+      const hi = med + madK * mad;
+      const clipped = clean.map(p => {
+        const s = clamp_(p.score, lo, hi);
+        if (s !== p.score) out.clamped = true;
+        return { score: s, weight: p.weight };
+      });
+      scores = clipped.map(p => p.score);
+      const den = clipped.reduce((a, p) => a + p.weight, 0);
+      out.avg = den > 0 ? clipped.reduce((a, p) => a + p.score * p.weight, 0) / den : null;
+      return out;
+    }
+  }
+  const den = clean.reduce((a, p) => a + p.weight, 0);
+  out.avg = den > 0 ? clean.reduce((a, p) => a + p.score * p.weight, 0) / den : null;
+  return out;
+}
+
+function monthDiffFloor_(past, now) {
+  if (!(past instanceof Date) || !(now instanceof Date)) return NaN;
+  const y = now.getFullYear() - past.getFullYear();
+  const m = now.getMonth() - past.getMonth();
+  return y * 12 + m;
+}
+
+function median_(arr) {
+  const v = (arr || []).filter(x => isFinite(Number(x))).map(Number).sort((a, b) => a - b);
+  if (!v.length) return NaN;
+  const mid = Math.floor(v.length / 2);
+  if (v.length % 2) return v[mid];
+  return (v[mid - 1] + v[mid]) / 2;
+}
+
+function pushInvalidSample_(samples, rowNo, reason, rawLine) {
+  if (!samples || samples.length >= 3) return;
+  const preview = String(rawLine || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  samples.push({ rowNo, reason, preview });
+}
+
 function buildAiParseWarningText_(opt) {
-  const msgs = [];
-  if (opt.hasReport && (opt.validEvent + opt.validBenchmark === 0)) msgs.push('AI report_textはあるが有効AI行が0件');
-  if (opt.validBenchmark === 0) msgs.push('benchmark行が0件');
-  if (opt.invalid > 0) msgs.push(`invalid行 ${opt.invalid} 件`);
-  return msgs.join(' / ');
+  const missing = (opt.topicsMissingBenchmark || []).join(',');
+  const reasons = opt.invalidReasons || {};
+  return [
+    `ai_rows=${Number(opt.rawRows || 0)}`,
+    `valid_event=${Number(opt.validEvent || 0)}`,
+    `valid_benchmark=${Number(opt.validBenchmark || 0)}`,
+    `invalid=${Number(opt.invalid || 0)}`,
+    `warn_clamp=${Number(opt.warnClamp || 0)}`,
+    `warn_coerced=${Number(opt.warnCoerced || 0)}`,
+    `topics_missing_benchmark=[${missing}]`,
+    `invalid_reasons={colcount:${Number(reasons.colcount || 0)}, topic:${Number(reasons.topic || 0)}, peer_missing:${Number(reasons.peer_missing || 0)}, dir_impact_missing:${Number(reasons.dir_impact_missing || 0)}, score_unparseable:${Number(reasons.score_unparseable || 0)}}`
+  ].join('; ');
 }
 
 
@@ -3570,9 +3774,12 @@ function forecastMonteCarloMixed_(model, opt) {
   const aiTotalScore = (aiScores.Market || 0) + (aiScores.Competitor || 0) + (aiScores.Channel || 0) + (aiScores.DX || 0);
   const aiWeight = isFinite(opt.aiWeight) ? opt.aiWeight : AI_WEIGHT_DEFAULT;
   const aiMaxAbsEffect = isFinite(opt.aiMaxAbsEffect) ? opt.aiMaxAbsEffect : AI_MAX_ABS_EFFECT;
+  const aiTotalNeutralThreshold = isFinite(tuning.aiTotalNeutralThreshold) ? tuning.aiTotalNeutralThreshold : AI_TOTAL_NEUTRAL_THRESHOLD;
   const aiRawEffect = aiTotalScore * aiWeight;
   const aiClampedEffect = Math.max(-aiMaxAbsEffect, Math.min(aiMaxAbsEffect, aiRawEffect));
-  const kAI = 1 + aiClampedEffect;
+  const aiNeutralizedTotal = Math.abs(aiTotalScore) < aiTotalNeutralThreshold;
+  if (aiScores && aiScores.meta) aiScores.meta.neutralizedTotal = aiNeutralizedTotal;
+  const kAI = aiNeutralizedTotal ? 1.0 : (1 + aiClampedEffect);
 
   const startT = 48;
   const totalRawSimByMonth = Array.from({ length: 12 }, () => []);
@@ -3707,7 +3914,8 @@ function forecastMonteCarloMixed_(model, opt) {
       AI_WEIGHT: aiWeight,
       aiRawEffect,
       aiClampedEffect,
-      aiMaxAbsEffect
+      aiMaxAbsEffect,
+      aiNeutralized: aiNeutralizedTotal
     }
   };
 }
@@ -4402,6 +4610,93 @@ function applySectionGapRows_(sh, rows) {
   });
 }
 
+function normalizeAllSheetNotes_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => clearOrphanNotesOnSheet_(sh));
+}
+
+function clearAllNotesOnSheets_(ss, sheetNames) {
+  if (!ss || !sheetNames || !sheetNames.length) return;
+  const uniq = Array.from(new Set(sheetNames));
+  uniq.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearNote();
+  });
+}
+
+function clearOrphanNotesOnSheet_(sh) {
+  if (!sh) return;
+  const range = sh.getDataRange();
+  const values = range.getValues();
+  const notes = range.getNotes();
+  const normalized = notes.map((row, r) => row.map((note, c) => {
+    const hasValue = String(values[r][c] !== null ? values[r][c] : '').trim() !== '';
+    if (!note) return '';
+    return hasValue ? note : '';
+  }));
+  range.setNotes(normalized);
+}
+
+function validateNotesIntegrity_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const problems = [];
+  ss.getSheets().forEach(sh => {
+    const range = sh.getDataRange();
+    const values = range.getValues();
+    const notes = range.getNotes();
+    for (let r = 0; r < notes.length; r++) {
+      for (let c = 0; c < notes[r].length; c++) {
+        const note = String(notes[r][c] || '').trim();
+        if (!note) continue;
+        const value = values[r][c];
+        const hasValue = String(value !== null ? value : '').trim() !== '';
+        if (hasValue) continue;
+        problems.push(`${sh.getName()}!${toA1Notation_(r + 1, c + 1)}`);
+        if (problems.length >= 10) break;
+      }
+      if (problems.length >= 10) break;
+    }
+  });
+  if (problems.length) {
+    throw new Error(`NOTE整合性エラー（空セルにNOTE）: ${problems.join(', ')}`);
+  }
+}
+
+function toA1Notation_(row, col) {
+  let n = col;
+  let letters = '';
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return `${letters}${row}`;
+}
+
+function applyDefaultAlignmentForAllSheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => {
+    const range = sh.getDataRange();
+    if (!range) return;
+    range.setVerticalAlignment('middle');
+    applyValueTypeAlignment_(sh, 1, range.getNumRows(), range.getNumColumns());
+  });
+}
+
+function applyValueTypeAlignment_(sh, startRow, numRows, numCols) {
+  if (!sh || !isFinite(startRow) || !isFinite(numRows) || !isFinite(numCols) || numRows < 1 || numCols < 1) return;
+  const range = sh.getRange(startRow, 1, numRows, numCols);
+  const values = range.getValues();
+  const aligns = values.map(row => row.map(v => {
+    if (typeof v === 'number' || Object.prototype.toString.call(v) === '[object Date]') return 'right';
+    return 'left';
+  }));
+  range.setHorizontalAlignments(aligns);
+}
+
 function initializeProcessStatus_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status'];
@@ -4677,9 +4972,9 @@ function parseAIResearchPaste_() {
   const tsvMatch = raw.match(/(?:###|===)TSV_START(?:###|===)([\s\S]*?)(?:###|===)TSV_END(?:###|===)/);
   if (!tsvMatch) return 0;
 
-  const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => l.trim());
+  const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => String(l || '').trim());
   if (!tsvLines.length) return 0;
-  const header = tsvLines[0].split('\t').map(v => String(v || '').trim());
+  const header = tsvLines[0].split('\t').map(v => normalizeAiCellValue_(v));
   const idx = {};
   header.forEach((h, i) => { idx[h] = i; });
   const oldFormat = header.indexOf('row_type') < 0;
@@ -4692,45 +4987,119 @@ function parseAIResearchPaste_() {
   let validEvent = 0;
   let validBenchmark = 0;
   let invalid = 0;
+  let warnClamp = 0;
+  let warnCoerced = 0;
+  const invalidReasons = {
+    colcount: 0,
+    topic: 0,
+    peer_missing: 0,
+    dir_impact_missing: 0,
+    score_unparseable: 0
+  };
+  const invalidSamples = [];
+  const benchmarkCovered = { Market: false, Competitor: false, Channel: false, DX: false };
+
+  const clampWithWarn = (n, lo, hi) => {
+    if (!isFinite(n)) return NaN;
+    const c = clamp_(n, lo, hi);
+    if (c !== n) warnClamp++;
+    return c;
+  };
+
   for (let i = 1; i < tsvLines.length; i++) {
-    let cols = tsvLines[i].split('\t');
-    if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/);
+    const rawLine = String(tsvLines[i] || '');
+    let cols = tsvLines[i].split('\t').map(v => normalizeAiCellValue_(v));
+    if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/).map(v => normalizeAiCellValue_(v));
+    if (cols.length < header.length) {
+      invalid++;
+      invalidReasons.colcount++;
+      pushInvalidSample_(invalidSamples, i + 1, 'colcount', rawLine);
+      continue;
+    }
     if (!cols.length) continue;
-    const impact = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
-    const conf = parseAiConfidence_(pick(cols, 'confidence', ''));
+
+    const topic = normalizeAiTopic_(pick(cols, 'topic', ''));
+    if (!topic) {
+      invalid++;
+      invalidReasons.topic++;
+      pushInvalidSample_(invalidSamples, i + 1, 'topic', rawLine);
+      continue;
+    }
+
+    let rowType = normalizeAiCellValue_(pick(cols, 'row_type', oldFormat ? 'event' : '')).toLowerCase();
+    if (rowType !== 'benchmark' && rowType !== 'event') {
+      rowType = 'event';
+      warnCoerced++;
+    }
+
+    const impactRaw = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
+    const confRaw = parseAiConfidence_(pick(cols, 'confidence', ''));
+    const relPctRaw = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
+    const relConfRaw = parseAiConfidence_(pick(cols, 'relative_confidence', ''));
+    const impact = clampWithWarn(impactRaw, 0, 100);
+    const conf = clampWithWarn(confRaw, 0, 1);
+    const relPct = clampWithWarn(relPctRaw, 0, 100);
+    const relConf = clampWithWarn(relConfRaw, 0, 1);
+
     const direction = normalizeAiDirection_(pick(cols, 'direction', ''));
-    const rowType = String(pick(cols, 'row_type', oldFormat ? 'event' : '') || '').trim() || 'event';
+    const peerUniverse = normalizeAiCellValue_(pick(cols, 'peer_universe', ''));
+    const peerBasis = normalizeAiCellValue_(pick(cols, 'peer_basis', ''));
+    if (rowType === 'benchmark' && !peerUniverse && !peerBasis) {
+      invalid++;
+      invalidReasons.peer_missing++;
+      pushInvalidSample_(invalidSamples, i + 1, 'benchmark_peer_missing', rawLine);
+      continue;
+    }
+    if (rowType === 'event' && !direction && !isFinite(impact)) {
+      invalid++;
+      invalidReasons.dir_impact_missing++;
+      pushInvalidSample_(invalidSamples, i + 1, 'event_direction_impact_missing', rawLine);
+      continue;
+    }
+
     const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
-    const eventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : '';
-    const relPct = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
-    const relConf = parseAiConfidence_(pick(cols, 'relative_confidence', ''));
-    const quality = String(pick(cols, 'benchmark_quality', '') || '').trim().toLowerCase();
+    const rawEventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : NaN;
+    const eventScore = isFinite(rawEventScore) ? clampWithWarn(rawEventScore, -50, 50) : '';
+    const quality = normalizeAiCellValue_(pick(cols, 'benchmark_quality', '')).toLowerCase();
     const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : (quality === 'low' ? 0.5 : 1));
-    const benchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : '';
+    const rawBenchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : NaN;
+    const benchmarkScore = isFinite(rawBenchmarkScore) ? clampWithWarn(rawBenchmarkScore, -50, 50) : '';
     const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
-    if (!isValid) invalid++;
-    if (rowType === 'benchmark' && isValid) validBenchmark++;
-    if (rowType !== 'benchmark' && isValid) validEvent++;
+    if (!isValid) {
+      invalid++;
+      invalidReasons.score_unparseable++;
+      pushInvalidSample_(invalidSamples, i + 1, 'score_unparseable', rawLine);
+      continue;
+    }
+    if (rowType === 'benchmark') {
+      validBenchmark++;
+      benchmarkCovered[topic] = true;
+    } else {
+      validEvent++;
+    }
+
+    const parsedAsOf = toDate_(pick(cols, 'as_of_date', ''));
+    const asOfStr = parsedAsOf ? Utilities.formatDate(parsedAsOf, Session.getScriptTimeZone(), 'yyyy-MM-dd') : normalizeAiCellValue_(pick(cols, 'as_of_date', ''));
     rows.push([
-      pick(cols, 'client', ''),
-      pick(cols, 'as_of_date', ''),
-      pick(cols, 'topic', ''),
+      normalizeAiCellValue_(pick(cols, 'client', '')),
+      asOfStr,
+      topic,
       rowType,
       direction,
       isFinite(impact) ? impact : '',
       isFinite(conf) ? conf : '',
-      pick(cols, 'evidence', ''),
-      pick(cols, 'time_horizon', ''),
-      pick(cols, 'business_relevance_reason', ''),
-      pick(cols, 'market_size_ref', ''),
-      pick(cols, 'peer_universe', ''),
-      pick(cols, 'peer_basis', ''),
-      pick(cols, 'relative_position_label', ''),
+      normalizeAiCellValue_(pick(cols, 'evidence', '')),
+      normalizeAiCellValue_(pick(cols, 'time_horizon', '')),
+      normalizeAiCellValue_(pick(cols, 'business_relevance_reason', '')),
+      normalizeAiCellValue_(pick(cols, 'market_size_ref', '')),
+      peerUniverse,
+      peerBasis,
+      normalizeAiCellValue_(pick(cols, 'relative_position_label', '')),
       isFinite(relPct) ? relPct : '',
       isFinite(relConf) ? relConf : '',
-      pick(cols, 'benchmark_quality', ''),
-      pick(cols, 'relative_reason', ''),
-      rows.length === 0 ? sanitizeAiReportText_(pick(cols, 'report_text', '') || report) : '',
+      normalizeAiCellValue_(pick(cols, 'benchmark_quality', '')),
+      normalizeAiCellValue_(pick(cols, 'relative_reason', '')),
+      rows.length === 0 ? sanitizeAiReportText_(normalizeAiCellValue_(pick(cols, 'report_text', '')) || report) : '',
       eventScore,
       benchmarkScore,
       ''
@@ -4739,18 +5108,27 @@ function parseAIResearchPaste_() {
 
   out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
   if (rows.length) out.getRange(2, 1, rows.length, 22).setValues(rows);
+  sh.getRange(1, 6).setValue('invalid_samples').setFontWeight('bold').setBackground(COLOR_HEADER);
+  sh.getRange(2, 6, 3, 1).clearContent();
+  const sampleRows = invalidSamples.slice(0, 3).map(s => [`${s.rowNo}\t${s.reason}\t${s.preview}`]);
+  if (sampleRows.length) sh.getRange(2, 6, sampleRows.length, 1).setValues(sampleRows);
 
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
+  const topicsMissingBenchmark = AI_TOPICS.filter(t => !benchmarkCovered[t]);
   const warnText = buildAiParseWarningText_({
     rawRows: Math.max(0, tsvLines.length - 1),
     validEvent,
     validBenchmark,
     invalid,
+    warnClamp,
+    warnCoerced,
+    invalidReasons,
+    topicsMissingBenchmark,
     hasReport: !!report
   });
   updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
-  return { rows: rows.length, validEvent, validBenchmark, invalid, warning: warnText };
+  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, invalidReasons, topicsMissingBenchmark, warning: warnText };
 }
 function runPhase1Forecast() {
   try {
@@ -5235,6 +5613,62 @@ function updateProcessStatus_(stepKey, status, targetClient, count, err) {
   sh.appendRow([stepKey,new Date(),Session.getActiveUser().getEmail()||'unknown',status,targetClient||'',count||0,err||'']);
 }
 
+function readStep3aWarningSummary_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
+  if (!sh) return '';
+  const vals = sh.getDataRange().getValues();
+  for (let i = 1; i < vals.length; i++) {
+    if (String(vals[i][0] || '') !== 'step3a_status') continue;
+    return String(vals[i][6] || '').trim();
+  }
+  return '';
+}
+
+function diagnoseLastAIParse_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const statusSh = ss.getSheetByName(SHEETS.PROCESS_STATUS);
+  const promptSh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  const summary = readStep3aWarningSummary_();
+  const samples = promptSh ? promptSh.getRange(2, 6, 3, 1).getValues().flat().filter(v => String(v || '').trim()) : [];
+  const parsed = {
+    raw: summary,
+    ai_rows: null,
+    valid_event: null,
+    valid_benchmark: null,
+    invalid: null,
+    warn_clamp: null,
+    warn_coerced: null,
+    topics_missing_benchmark: [],
+    invalid_reasons: {},
+    invalid_samples: samples
+  };
+  String(summary || '').split(';').map(s => s.trim()).forEach(part => {
+    if (!part) return;
+    const m = part.match(/^([a-z_]+)=(.*)$/i);
+    if (!m) return;
+    const key = m[1];
+    const val = String(m[2] || '').trim();
+    if (key === 'topics_missing_benchmark') {
+      parsed.topics_missing_benchmark = val.replace(/^\[/, '').replace(/\]$/, '').split(',').map(v => String(v || '').trim()).filter(Boolean);
+      return;
+    }
+    if (key === 'invalid_reasons') {
+      const inner = val.replace(/^\{/, '').replace(/\}$/, '');
+      inner.split(',').forEach(kv => {
+        const p = kv.split(':');
+        if (p.length < 2) return;
+        parsed.invalid_reasons[String(p[0] || '').trim()] = Number(p[1] || 0);
+      });
+      return;
+    }
+    if (parsed.hasOwnProperty(key)) parsed[key] = Number(val);
+  });
+  Logger.log(JSON.stringify(parsed, null, 2));
+  if (statusSh) Logger.log(`step3a_status summary: ${summary}`);
+  if (samples.length) Logger.log(`invalid samples: ${samples.join(' | ')}`);
+  return parsed;
+}
+
 function requireStepSuccess_(stepKey, message) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const vals = sh.getDataRange().getValues();
@@ -5454,3 +5888,20 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
+
+/**
+ * HOW TO TEST
+ * 1) A-1 初期セットアップを実行し、CONFIGシートのB列幅が以前より広い（約1.3倍）ことを確認する。
+ * 2) CONFIGシート「環境前提（編集可）」の並びがマクロ→メソ→ミクロで、ラベル付きであることを確認する。
+ * 3) A-1 実行時にNOTE整合性エラーが出ないこと（空セルNOTEが検出されないこと）を確認する。
+ * 4) CONFIG含む全シートで、値が空のセルにMEMO（Note）が残っていないことを確認する。
+ * 5) 全シートで縦方向が中央揃え、横方向がテキスト左揃え・数値右揃えになっていることを確認する。
+ * 6) OUTPUTシートで行固定が解除されていること（固定なし）を確認する。
+ * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
+ * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
+ * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
+ * 10) AI行が0件の場合、各topic score=0・mode=no_data・neutralized表示になり、AI中立化帯（row22）が表示されることを確認する。
+ * 11) 1topicのみbenchmark有りの場合、そのtopicはbenchmark_only、他topicはno_data/event_onlyとなり、degraded表示が出ることを確認する。
+ * 12) 全topic event_onlyの場合、effectiveMultiplierが0.5以下で適用され、mode=event_onlyかつquality情報がrow20に表示されることを確認する。
+ * 13) 通常blended入力（benchmark/event十分）ではneutralized=false、AI中立化帯が非表示で従来同等の出力になることを確認する。
+ */
