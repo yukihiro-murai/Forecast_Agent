@@ -91,6 +91,7 @@ const COLOR_MIX_LABEL = '#f4cccc'; // 混合ラベル薄赤
 const COLOR_OBJ_LABEL = '#cfe2f3'; // 客観ラベル薄青
 const COLOR_HEADER = '#eeeeee';
 const COLOR_P50_HILITE = '#fff2cc'; // P50強調（薄黄）
+const COLOR_SECTION_SOFT = '#e2f0d9'; // セクション見出し薄緑
 
 // OUTPUTの意味色（表＆グラフ）
 const COLOR_NEG = '#f4cccc'; // ネガ薄赤
@@ -1127,7 +1128,7 @@ function writeOutputFY_(result) {
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
   sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
-  sh.setFrozenRows(2);
+  sh.setFrozenRows(0);
   sh.getRange(1, 1, sh.getMaxRows(), 12).setHorizontalAlignment('left');
 
   // 予測運用ポリシー（成功KPI/制約を上部で明示）
@@ -1255,7 +1256,7 @@ function writeOutputFY_(result) {
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上（客観）と担当者情報（主観）を混合させたシミュレーション予測',
-    labelBg: COLOR_MIX_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.mixed,
     regTotal: result.regTotal,
@@ -1272,7 +1273,7 @@ function writeOutputFY_(result) {
   // ===== セクション2：客観のみ =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上のみ（客観）によるシミュレーション予測',
-    labelBg: COLOR_OBJ_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.objOnly,
     regTotal: result.regTotal,
@@ -1562,20 +1563,24 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(splitHeaderRow, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
   sh.getRange(splitHeaderRow, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
-  // グラフ：Month + Neg + Neu + Pos + Reg（A〜E）
-  const chartRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 5);
+  // グラフ系列（凡例順）：Upside → Baseline → Downside → Linear Regression
+  const chartMonthRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 1);
+  const chartUpsideRange = sh.getRange(monthTableHeaderRow, 4, table.length + 1, 1);
+  const chartBaselineRange = sh.getRange(monthTableHeaderRow, 3, table.length + 1, 1);
+  const chartDownsideRange = sh.getRange(monthTableHeaderRow, 2, table.length + 1, 1);
+  const chartLinearRange = sh.getRange(monthTableHeaderRow, 5, table.length + 1, 1);
 
   const chartRow = startRow + 1;
   const chartCol = 8; // H列開始
 
-  // 凡例テキスト（邪魔にならない小さめ）
-  sh.getRange(chartRow - 1, chartCol).setValue('Legend: red=Downside(P10) / yellow=Baseline(P50) / blue=Upside(P90) / gray=Linear Regression')
-    .setFontSize(10).setFontColor('#666666');
-  sh.getRange(chartRow - 1, chartCol, 1, 6).merge();
-
   const chart = sh.newChart()
     .asLineChart()
-    .addRange(chartRange)
+    .addRange(chartMonthRange)
+    .addRange(chartUpsideRange)
+    .addRange(chartBaselineRange)
+    .addRange(chartDownsideRange)
+    .addRange(chartLinearRange)
+    .setNumHeaders(1)
     .setPosition(chartRow, chartCol, 0, 0)
     .setOption('title', opt.chartTitle)
     .setOption('legend', { position: 'right' })
@@ -1584,8 +1589,8 @@ function writeSectionBlock_(sh, startRow, opt) {
     .setOption('pointSize', 0)
     .setOption('hAxis', { slantedText: true, slantedTextAngle: 45, showTextEvery: 1 })
     .setOption('vAxis', { format: '¥#,##0' })
-    // 色：Downside=赤 / Baseline=黄 / Upside=青 / 回帰=灰
-    .setOption('colors', ['#ea4335', '#fbbc04', '#1a73e8', COLOR_REG])
+    // 色：Upside=青 / Baseline=黄 / Downside=赤 / 回帰=灰
+    .setOption('colors', ['#1a73e8', '#fbbc04', '#ea4335', COLOR_REG])
     .setOption('series', { 0:{ lineWidth:3 }, 1:{ lineWidth:4 }, 2:{ lineWidth:3 }, 3:{ lineWidth:3 } })
     .setOption('width', 820)
     .setOption('height', 340)
@@ -5556,5 +5561,8 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) A-1 実行時にNOTE整合性エラーが出ないこと（空セルNOTEが検出されないこと）を確認する。
  * 4) CONFIG含む全シートで、値が空のセルにMEMO（Note）が残っていないことを確認する。
  * 5) 全シートで縦方向が中央揃え、横方向がテキスト左揃え・数値右揃えになっていることを確認する。
- * 6) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
+ * 6) OUTPUTシートで行固定が解除されていること（固定なし）を確認する。
+ * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
+ * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
+ * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
  */
