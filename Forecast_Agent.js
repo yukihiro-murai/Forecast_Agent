@@ -1241,17 +1241,23 @@ function writeOutputFY_(result) {
   const coverageText = AI_TOPICS.map(topic => {
     const m = aiMeta[topic] || {};
     const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
-    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / latest=${latest} / capped=${!!m.capped} / no_data=${!!m.no_data}`;
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / latest=${latest} / capped=${!!m.capped}`;
   }).join(' | ');
   sh.getRange(20, 1, 1, 11).merge();
   sh.getRange(20, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
   const missingBench = Array.isArray(aiMeta.topicsMissingBenchmark) ? aiMeta.topicsMissingBenchmark : [];
-  sh.getRange(21, 1, 1, 11).merge();
+  const degradedTopics = AI_TOPICS.filter(topic => {
+    const mode = String(((aiMeta || {})[topic] || {}).degradedMode || '');
+    return mode === 'event_only' || mode === 'benchmark_only';
+  });
+  sh.getRange(21, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
+  sh.getRange(21, 1, 1, 6).merge();
+  sh.getRange(21, 7, 1, 5).merge();
+  if (degradedTopics.length) {
+    sh.getRange(21, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
+  }
   if (missingBench.length) {
-    sh.getRange(21, 1).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
-  } else {
-    sh.getRange(21, 1).setValue('');
-    sh.getRange(21, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal');
+    sh.getRange(21, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
   }
 
   let row = 22;
@@ -3312,26 +3318,35 @@ function readAIResearchScores_() {
     const eventAgg = robustWeightedTopicScore_(eventArr[topic], AI_MAD_CLIP_K);
     const bAvg = benchAgg.avg;
     const eAvg = eventAgg.avg;
+    const benchCount = benchArr[topic].length;
+    const eventCount = eventArr[topic].length;
+    const degradedMode = (benchCount === 0 && eventCount >= 1)
+      ? 'event_only'
+      : ((benchCount >= 1 && eventCount === 0)
+        ? 'benchmark_only'
+        : ((benchCount === 0 && eventCount === 0) ? 'no_data' : 'blended'));
     let finalScore = 0;
     if (bAvg === null && eAvg !== null) finalScore = eAvg;
     else if (bAvg !== null && eAvg === null) finalScore = bAvg;
     else if (bAvg !== null && eAvg !== null) finalScore = bAvg * blend[topic][0] + eAvg * blend[topic][1];
+    if (degradedMode === 'event_only') finalScore *= 0.5;
     const capped = Math.abs(finalScore) > 40;
     const clampedFinal = capped ? (finalScore > 0 ? 40 : -40) : finalScore;
     result[topic] = Math.round(clampedFinal * 10) / 10;
     const latest = latestMeta[topic] || {};
-    const noData = (benchArr[topic].length === 0 && eventArr[topic].length === 0);
-    if (benchArr[topic].length === 0) topicsMissingBenchmark.push(topic);
+    const noData = (benchCount === 0 && eventCount === 0);
+    if (benchCount === 0) topicsMissingBenchmark.push(topic);
     result.meta[topic] = {
       label: latest.label || '',
       universe: latest.universe || '',
       basis: latest.basis || '',
-      coverageEventRows: eventArr[topic].length,
-      coverageBenchmarkRows: benchArr[topic].length,
+      coverageEventRows: eventCount,
+      coverageBenchmarkRows: benchCount,
       latestAsOfDate: latest.asOf ? Utilities.formatDate(new Date(latest.asOf), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
       clamped: !!(benchAgg.clamped || eventAgg.clamped),
       no_data: !!noData,
-      capped: !!capped
+      capped: !!capped,
+      degradedMode
     };
   });
   result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
@@ -3539,8 +3554,15 @@ function median_(arr) {
   return (v[mid - 1] + v[mid]) / 2;
 }
 
+function pushInvalidSample_(samples, rowNo, reason, rawLine) {
+  if (!samples || samples.length >= 3) return;
+  const preview = String(rawLine || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  samples.push({ rowNo, reason, preview });
+}
+
 function buildAiParseWarningText_(opt) {
   const missing = (opt.topicsMissingBenchmark || []).join(',');
+  const reasons = opt.invalidReasons || {};
   return [
     `ai_rows=${Number(opt.rawRows || 0)}`,
     `valid_event=${Number(opt.validEvent || 0)}`,
@@ -3548,7 +3570,8 @@ function buildAiParseWarningText_(opt) {
     `invalid=${Number(opt.invalid || 0)}`,
     `warn_clamp=${Number(opt.warnClamp || 0)}`,
     `warn_coerced=${Number(opt.warnCoerced || 0)}`,
-    `topics_missing_benchmark=[${missing}]`
+    `topics_missing_benchmark=[${missing}]`,
+    `invalid_reasons={colcount:${Number(reasons.colcount || 0)}, topic:${Number(reasons.topic || 0)}, peer_missing:${Number(reasons.peer_missing || 0)}, dir_impact_missing:${Number(reasons.dir_impact_missing || 0)}, score_unparseable:${Number(reasons.score_unparseable || 0)}}`
   ].join('; ');
 }
 
@@ -4922,6 +4945,14 @@ function parseAIResearchPaste_() {
   let invalid = 0;
   let warnClamp = 0;
   let warnCoerced = 0;
+  const invalidReasons = {
+    colcount: 0,
+    topic: 0,
+    peer_missing: 0,
+    dir_impact_missing: 0,
+    score_unparseable: 0
+  };
+  const invalidSamples = [];
   const benchmarkCovered = { Market: false, Competitor: false, Channel: false, DX: false };
 
   const clampWithWarn = (n, lo, hi) => {
@@ -4932,10 +4963,13 @@ function parseAIResearchPaste_() {
   };
 
   for (let i = 1; i < tsvLines.length; i++) {
+    const rawLine = String(tsvLines[i] || '');
     let cols = tsvLines[i].split('\t').map(v => normalizeAiCellValue_(v));
     if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/).map(v => normalizeAiCellValue_(v));
     if (cols.length < header.length) {
       invalid++;
+      invalidReasons.colcount++;
+      pushInvalidSample_(invalidSamples, i + 1, 'colcount', rawLine);
       continue;
     }
     if (!cols.length) continue;
@@ -4943,6 +4977,8 @@ function parseAIResearchPaste_() {
     const topic = normalizeAiTopic_(pick(cols, 'topic', ''));
     if (!topic) {
       invalid++;
+      invalidReasons.topic++;
+      pushInvalidSample_(invalidSamples, i + 1, 'topic', rawLine);
       continue;
     }
 
@@ -4966,10 +5002,14 @@ function parseAIResearchPaste_() {
     const peerBasis = normalizeAiCellValue_(pick(cols, 'peer_basis', ''));
     if (rowType === 'benchmark' && !peerUniverse && !peerBasis) {
       invalid++;
+      invalidReasons.peer_missing++;
+      pushInvalidSample_(invalidSamples, i + 1, 'benchmark_peer_missing', rawLine);
       continue;
     }
     if (rowType === 'event' && !direction && !isFinite(impact)) {
       invalid++;
+      invalidReasons.dir_impact_missing++;
+      pushInvalidSample_(invalidSamples, i + 1, 'event_direction_impact_missing', rawLine);
       continue;
     }
 
@@ -4983,6 +5023,8 @@ function parseAIResearchPaste_() {
     const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
     if (!isValid) {
       invalid++;
+      invalidReasons.score_unparseable++;
+      pushInvalidSample_(invalidSamples, i + 1, 'score_unparseable', rawLine);
       continue;
     }
     if (rowType === 'benchmark') {
@@ -5022,6 +5064,10 @@ function parseAIResearchPaste_() {
 
   out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
   if (rows.length) out.getRange(2, 1, rows.length, 22).setValues(rows);
+  sh.getRange(1, 6).setValue('invalid_samples').setFontWeight('bold').setBackground(COLOR_HEADER);
+  sh.getRange(2, 6, 3, 1).clearContent();
+  const sampleRows = invalidSamples.slice(0, 3).map(s => [`${s.rowNo}\t${s.reason}\t${s.preview}`]);
+  if (sampleRows.length) sh.getRange(2, 6, sampleRows.length, 1).setValues(sampleRows);
 
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -5033,11 +5079,12 @@ function parseAIResearchPaste_() {
     invalid,
     warnClamp,
     warnCoerced,
+    invalidReasons,
     topicsMissingBenchmark,
     hasReport: !!report
   });
   updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
-  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, topicsMissingBenchmark, warning: warnText };
+  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, invalidReasons, topicsMissingBenchmark, warning: warnText };
 }
 function runPhase1Forecast() {
   try {
@@ -5533,6 +5580,51 @@ function readStep3aWarningSummary_() {
   return '';
 }
 
+function diagnoseLastAIParse_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const statusSh = ss.getSheetByName(SHEETS.PROCESS_STATUS);
+  const promptSh = ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
+  const summary = readStep3aWarningSummary_();
+  const samples = promptSh ? promptSh.getRange(2, 6, 3, 1).getValues().flat().filter(v => String(v || '').trim()) : [];
+  const parsed = {
+    raw: summary,
+    ai_rows: null,
+    valid_event: null,
+    valid_benchmark: null,
+    invalid: null,
+    warn_clamp: null,
+    warn_coerced: null,
+    topics_missing_benchmark: [],
+    invalid_reasons: {},
+    invalid_samples: samples
+  };
+  String(summary || '').split(';').map(s => s.trim()).forEach(part => {
+    if (!part) return;
+    const m = part.match(/^([a-z_]+)=(.*)$/i);
+    if (!m) return;
+    const key = m[1];
+    const val = String(m[2] || '').trim();
+    if (key === 'topics_missing_benchmark') {
+      parsed.topics_missing_benchmark = val.replace(/^\[/, '').replace(/\]$/, '').split(',').map(v => String(v || '').trim()).filter(Boolean);
+      return;
+    }
+    if (key === 'invalid_reasons') {
+      const inner = val.replace(/^\{/, '').replace(/\}$/, '');
+      inner.split(',').forEach(kv => {
+        const p = kv.split(':');
+        if (p.length < 2) return;
+        parsed.invalid_reasons[String(p[0] || '').trim()] = Number(p[1] || 0);
+      });
+      return;
+    }
+    if (parsed.hasOwnProperty(key)) parsed[key] = Number(val);
+  });
+  Logger.log(JSON.stringify(parsed, null, 2));
+  if (statusSh) Logger.log(`step3a_status summary: ${summary}`);
+  if (samples.length) Logger.log(`invalid samples: ${samples.join(' | ')}`);
+  return parsed;
+}
+
 function requireStepSuccess_(stepKey, message) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const vals = sh.getDataRange().getValues();
@@ -5764,8 +5856,8 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
  * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
  * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
- * 10) AI_RESEARCH_STRUCTURED が空のとき、AIスコアが0で暴走せず、coverage/no_data診断が表示されることを確認する。
- * 11) AI_RESEARCH_STRUCTURED が1行のみのとき、異常終了せずに topic 集約できることを確認する。
- * 12) impact/confidence/percentile の極端値（例: 999, -20, 150%）混入時に clamp 警告が step3a_status に記録されることを確認する。
- * 13) 各topicで benchmark 欠損時に OUTPUTの診断行で「⚠ benchmark不足」が表示されることを確認する。
+ * 10) DXのみbenchmark欠落の場合、DXのmodeがevent_onlyになり、row21にdegraded modeとbenchmark不足が併記されることを確認する。
+ * 11) 全topicがevent_onlyの場合、各topic scoreに0.5係数が掛かり、mode=event_onlyで表示されることを確認する。
+ * 12) invalid=0のクリーン入力時、F2:F4のinvalidサンプルが空で、step3a_summaryのinvalid_reasonsが全0であることを確認する。
+ * 13) 列数不足行が混入した場合、invalid_reason_colcountが加算され、F2:F4に該当行サンプルが表示されることを確認する。
  */
