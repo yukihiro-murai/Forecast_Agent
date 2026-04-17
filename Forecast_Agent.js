@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v1.4
+ * Forecast Agent v1.5
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * v1.2（今回反映）
@@ -11,7 +11,7 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -313,6 +313,7 @@ function setupForecastBook() {
 
   try {
     resetWorkbookSheets_(ss, order);
+    clearAllNotesOnSheets_(ss, order);
 
     buildGUIDE_();
     buildCONFIG_();
@@ -323,6 +324,9 @@ function setupForecastBook() {
     buildDEV_();
     buildPhase1Sheets_();
     buildOUTPUT_();
+    normalizeAllSheetNotes_();
+    validateNotesIntegrity_();
+    applyDefaultAlignmentForAllSheets_();
     applyTabColors_();
     hideNonUserSheets_();
     const guide = ss.getSheetByName(SHEETS.GUIDE);
@@ -1710,7 +1714,7 @@ function buildCONFIG_() {
   sh.clearFormats();
 
   sh.setColumnWidth(1, 312);
-  sh.setColumnWidth(2, 504);
+  sh.setColumnWidth(2, 656);
 
   // 重要情報を上段に配置（互換セルB10は維持）
   const rows = [
@@ -1882,6 +1886,7 @@ function buildCONFIG_() {
     if (!title || curNote) continue;
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
+  applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
   applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
@@ -4404,6 +4409,93 @@ function applySectionGapRows_(sh, rows) {
   });
 }
 
+function normalizeAllSheetNotes_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => clearOrphanNotesOnSheet_(sh));
+}
+
+function clearAllNotesOnSheets_(ss, sheetNames) {
+  if (!ss || !sheetNames || !sheetNames.length) return;
+  const uniq = Array.from(new Set(sheetNames));
+  uniq.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearNote();
+  });
+}
+
+function clearOrphanNotesOnSheet_(sh) {
+  if (!sh) return;
+  const range = sh.getDataRange();
+  const values = range.getValues();
+  const notes = range.getNotes();
+  const normalized = notes.map((row, r) => row.map((note, c) => {
+    const hasValue = String(values[r][c] !== null ? values[r][c] : '').trim() !== '';
+    if (!note) return '';
+    return hasValue ? note : '';
+  }));
+  range.setNotes(normalized);
+}
+
+function validateNotesIntegrity_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const problems = [];
+  ss.getSheets().forEach(sh => {
+    const range = sh.getDataRange();
+    const values = range.getValues();
+    const notes = range.getNotes();
+    for (let r = 0; r < notes.length; r++) {
+      for (let c = 0; c < notes[r].length; c++) {
+        const note = String(notes[r][c] || '').trim();
+        if (!note) continue;
+        const value = values[r][c];
+        const hasValue = String(value !== null ? value : '').trim() !== '';
+        if (hasValue) continue;
+        problems.push(`${sh.getName()}!${toA1Notation_(r + 1, c + 1)}`);
+        if (problems.length >= 10) break;
+      }
+      if (problems.length >= 10) break;
+    }
+  });
+  if (problems.length) {
+    throw new Error(`NOTE整合性エラー（空セルにNOTE）: ${problems.join(', ')}`);
+  }
+}
+
+function toA1Notation_(row, col) {
+  let n = col;
+  let letters = '';
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return `${letters}${row}`;
+}
+
+function applyDefaultAlignmentForAllSheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => {
+    const range = sh.getDataRange();
+    if (!range) return;
+    range.setVerticalAlignment('middle');
+    applyValueTypeAlignment_(sh, 1, range.getNumRows(), range.getNumColumns());
+  });
+}
+
+function applyValueTypeAlignment_(sh, startRow, numRows, numCols) {
+  if (!sh || !isFinite(startRow) || !isFinite(numRows) || !isFinite(numCols) || numRows < 1 || numCols < 1) return;
+  const range = sh.getRange(startRow, 1, numRows, numCols);
+  const values = range.getValues();
+  const aligns = values.map(row => row.map(v => {
+    if (typeof v === 'number' || Object.prototype.toString.call(v) === '[object Date]') return 'right';
+    return 'left';
+  }));
+  range.setHorizontalAlignments(aligns);
+}
+
 function initializeProcessStatus_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status'];
@@ -5456,3 +5548,13 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
+
+/**
+ * HOW TO TEST
+ * 1) A-1 初期セットアップを実行し、CONFIGシートのB列幅が以前より広い（約1.3倍）ことを確認する。
+ * 2) CONFIGシート「環境前提（編集可）」の並びがマクロ→メソ→ミクロで、ラベル付きであることを確認する。
+ * 3) A-1 実行時にNOTE整合性エラーが出ないこと（空セルNOTEが検出されないこと）を確認する。
+ * 4) CONFIG含む全シートで、値が空のセルにMEMO（Note）が残っていないことを確認する。
+ * 5) 全シートで縦方向が中央揃え、横方向がテキスト左揃え・数値右揃えになっていることを確認する。
+ * 6) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
+ */
