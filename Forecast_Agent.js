@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v1.4
+ * Forecast Agent v1.5
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * v1.2（今回反映）
@@ -11,7 +11,7 @@
  * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
  ***************************************/
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -91,6 +91,7 @@ const COLOR_MIX_LABEL = '#f4cccc'; // 混合ラベル薄赤
 const COLOR_OBJ_LABEL = '#cfe2f3'; // 客観ラベル薄青
 const COLOR_HEADER = '#eeeeee';
 const COLOR_P50_HILITE = '#fff2cc'; // P50強調（薄黄）
+const COLOR_SECTION_SOFT = '#e2f0d9'; // セクション見出し薄緑
 
 // OUTPUTの意味色（表＆グラフ）
 const COLOR_NEG = '#f4cccc'; // ネガ薄赤
@@ -313,6 +314,7 @@ function setupForecastBook() {
 
   try {
     resetWorkbookSheets_(ss, order);
+    clearAllNotesOnSheets_(ss, order);
 
     buildGUIDE_();
     buildCONFIG_();
@@ -323,6 +325,9 @@ function setupForecastBook() {
     buildDEV_();
     buildPhase1Sheets_();
     buildOUTPUT_();
+    normalizeAllSheetNotes_();
+    validateNotesIntegrity_();
+    applyDefaultAlignmentForAllSheets_();
     applyTabColors_();
     hideNonUserSheets_();
     const guide = ss.getSheetByName(SHEETS.GUIDE);
@@ -1123,7 +1128,7 @@ function writeOutputFY_(result) {
   sh.getRange(1, 1).setValue(`FY${fy} 売上予測（${client} / ${fmtYM_(start)} 〜 ${fmtYM_(end)}）`);
   sh.getRange(1, 1, 1, 6).merge();
   sh.getRange(1, 1).setFontSize(16).setFontWeight('bold');
-  sh.setFrozenRows(2);
+  sh.setFrozenRows(0);
   sh.getRange(1, 1, sh.getMaxRows(), 12).setHorizontalAlignment('left');
 
   // 予測運用ポリシー（成功KPI/制約を上部で明示）
@@ -1251,7 +1256,7 @@ function writeOutputFY_(result) {
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上（客観）と担当者情報（主観）を混合させたシミュレーション予測',
-    labelBg: COLOR_MIX_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.mixed,
     regTotal: result.regTotal,
@@ -1268,7 +1273,7 @@ function writeOutputFY_(result) {
   // ===== セクション2：客観のみ =====
   row = writeSectionBlock_(sh, row, {
     label: '過去売上のみ（客観）によるシミュレーション予測',
-    labelBg: COLOR_OBJ_LABEL,
+    labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.objOnly,
     regTotal: result.regTotal,
@@ -1558,20 +1563,24 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(splitHeaderRow, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
   sh.getRange(splitHeaderRow, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
-  // グラフ：Month + Neg + Neu + Pos + Reg（A〜E）
-  const chartRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 5);
+  // グラフ系列（凡例順）：Upside → Baseline → Downside → Linear Regression
+  const chartMonthRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 1);
+  const chartUpsideRange = sh.getRange(monthTableHeaderRow, 4, table.length + 1, 1);
+  const chartBaselineRange = sh.getRange(monthTableHeaderRow, 3, table.length + 1, 1);
+  const chartDownsideRange = sh.getRange(monthTableHeaderRow, 2, table.length + 1, 1);
+  const chartLinearRange = sh.getRange(monthTableHeaderRow, 5, table.length + 1, 1);
 
   const chartRow = startRow + 1;
   const chartCol = 8; // H列開始
 
-  // 凡例テキスト（邪魔にならない小さめ）
-  sh.getRange(chartRow - 1, chartCol).setValue('Legend: red=Downside(P10) / yellow=Baseline(P50) / blue=Upside(P90) / gray=Linear Regression')
-    .setFontSize(10).setFontColor('#666666');
-  sh.getRange(chartRow - 1, chartCol, 1, 6).merge();
-
   const chart = sh.newChart()
     .asLineChart()
-    .addRange(chartRange)
+    .addRange(chartMonthRange)
+    .addRange(chartUpsideRange)
+    .addRange(chartBaselineRange)
+    .addRange(chartDownsideRange)
+    .addRange(chartLinearRange)
+    .setNumHeaders(1)
     .setPosition(chartRow, chartCol, 0, 0)
     .setOption('title', opt.chartTitle)
     .setOption('legend', { position: 'right' })
@@ -1580,8 +1589,8 @@ function writeSectionBlock_(sh, startRow, opt) {
     .setOption('pointSize', 0)
     .setOption('hAxis', { slantedText: true, slantedTextAngle: 45, showTextEvery: 1 })
     .setOption('vAxis', { format: '¥#,##0' })
-    // 色：Downside=赤 / Baseline=黄 / Upside=青 / 回帰=灰
-    .setOption('colors', ['#ea4335', '#fbbc04', '#1a73e8', COLOR_REG])
+    // 色：Upside=青 / Baseline=黄 / Downside=赤 / 回帰=灰
+    .setOption('colors', ['#1a73e8', '#fbbc04', '#ea4335', COLOR_REG])
     .setOption('series', { 0:{ lineWidth:3 }, 1:{ lineWidth:4 }, 2:{ lineWidth:3 }, 3:{ lineWidth:3 } })
     .setOption('width', 820)
     .setOption('height', 340)
@@ -1710,7 +1719,7 @@ function buildCONFIG_() {
   sh.clearFormats();
 
   sh.setColumnWidth(1, 312);
-  sh.setColumnWidth(2, 504);
+  sh.setColumnWidth(2, 656);
 
   // 重要情報を上段に配置（互換セルB10は維持）
   const rows = [
@@ -1817,7 +1826,8 @@ function buildCONFIG_() {
     safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
   });
 
-  const policyStart = 56;
+  const sectionGapRows = 1;
+  const policyStart = tuneStart + tuneRows.length + sectionGapRows + 1;
   sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
   const policyRows = [
     ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
@@ -1833,28 +1843,29 @@ function buildCONFIG_() {
   ];
   sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
 
-  const proxyStart = policyStart + 13;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
-  sh.getRange(proxyStart + 1, 1, 6, 2).setValues([
+  const proxyRows = [
     ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
     ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
     ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
     ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
-  ]);
+  ];
+  const proxyStart = policyStart + policyRows.length + sectionGapRows + 1;
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
 
-  const envStart = proxyStart + 9;
+  const envStart = proxyStart + proxyRows.length + sectionGapRows + 1;
   sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
   const envRows = [
-    ['市場 / 制度前提', ''],
-    ['クライアント予算 / 体制前提', ''],
-    ['製品 / 適応前提', ''],
-    ['チャネル / MR / 販促前提', ''],
-    ['競合前提', ''],
-    ['Spot / 開発案件前提', ''],
-    ['情報源', ''],
-    ['最終更新日', new Date()]
+    ['マクロ｜市場 / 制度前提', ''],
+    ['マクロ｜競合前提', ''],
+    ['メソ｜クライアント予算 / 体制前提', ''],
+    ['メソ｜チャネル / MR / 販促前提', ''],
+    ['ミクロ｜製品 / 適応前提', ''],
+    ['ミクロ｜Spot / 開発案件前提', ''],
+    ['ミクロ｜情報源', ''],
+    ['ミクロ｜最終更新日', new Date()]
   ];
   sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
   sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
@@ -1863,14 +1874,14 @@ function buildCONFIG_() {
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
-  safeSetNote_(sh, envStart + 1, 1, '市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
-  safeSetNote_(sh, envStart + 2, 1, 'クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
-  safeSetNote_(sh, envStart + 3, 1, '製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
-  safeSetNote_(sh, envStart + 4, 1, 'チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 5, 1, '競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
-  safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
-  safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  safeSetNote_(sh, envStart + 1, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 3, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
   const noteMaxRow = envStart + envRows.length;
   const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
   const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
@@ -1880,6 +1891,7 @@ function buildCONFIG_() {
     if (!title || curNote) continue;
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
+  applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
   applySectionGapRows_(sh, [14, 24, 30, 54, policyStart - 1, proxyStart - 1, envStart - 1]);
 }
 
@@ -4402,6 +4414,93 @@ function applySectionGapRows_(sh, rows) {
   });
 }
 
+function normalizeAllSheetNotes_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => clearOrphanNotesOnSheet_(sh));
+}
+
+function clearAllNotesOnSheets_(ss, sheetNames) {
+  if (!ss || !sheetNames || !sheetNames.length) return;
+  const uniq = Array.from(new Set(sheetNames));
+  uniq.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearNote();
+  });
+}
+
+function clearOrphanNotesOnSheet_(sh) {
+  if (!sh) return;
+  const range = sh.getDataRange();
+  const values = range.getValues();
+  const notes = range.getNotes();
+  const normalized = notes.map((row, r) => row.map((note, c) => {
+    const hasValue = String(values[r][c] !== null ? values[r][c] : '').trim() !== '';
+    if (!note) return '';
+    return hasValue ? note : '';
+  }));
+  range.setNotes(normalized);
+}
+
+function validateNotesIntegrity_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const problems = [];
+  ss.getSheets().forEach(sh => {
+    const range = sh.getDataRange();
+    const values = range.getValues();
+    const notes = range.getNotes();
+    for (let r = 0; r < notes.length; r++) {
+      for (let c = 0; c < notes[r].length; c++) {
+        const note = String(notes[r][c] || '').trim();
+        if (!note) continue;
+        const value = values[r][c];
+        const hasValue = String(value !== null ? value : '').trim() !== '';
+        if (hasValue) continue;
+        problems.push(`${sh.getName()}!${toA1Notation_(r + 1, c + 1)}`);
+        if (problems.length >= 10) break;
+      }
+      if (problems.length >= 10) break;
+    }
+  });
+  if (problems.length) {
+    throw new Error(`NOTE整合性エラー（空セルにNOTE）: ${problems.join(', ')}`);
+  }
+}
+
+function toA1Notation_(row, col) {
+  let n = col;
+  let letters = '';
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letters = String.fromCharCode(65 + mod) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return `${letters}${row}`;
+}
+
+function applyDefaultAlignmentForAllSheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  sheets.forEach(sh => {
+    const range = sh.getDataRange();
+    if (!range) return;
+    range.setVerticalAlignment('middle');
+    applyValueTypeAlignment_(sh, 1, range.getNumRows(), range.getNumColumns());
+  });
+}
+
+function applyValueTypeAlignment_(sh, startRow, numRows, numCols) {
+  if (!sh || !isFinite(startRow) || !isFinite(numRows) || !isFinite(numCols) || numRows < 1 || numCols < 1) return;
+  const range = sh.getRange(startRow, 1, numRows, numCols);
+  const values = range.getValues();
+  const aligns = values.map(row => row.map(v => {
+    if (typeof v === 'number' || Object.prototype.toString.call(v) === '[object Date]') return 'right';
+    return 'left';
+  }));
+  range.setHorizontalAlignments(aligns);
+}
+
 function initializeProcessStatus_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status'];
@@ -5454,3 +5553,16 @@ function syncSalesFromSalesInput_(fy, client) {
   sales.getRange(2,2,2,totalMonths).setBackground(COLOR_OBJECTIVE);
   sales.getRange(4,1,1,1+totalMonths).setBackground('#eeeeee').setFontWeight('bold');
 }
+
+/**
+ * HOW TO TEST
+ * 1) A-1 初期セットアップを実行し、CONFIGシートのB列幅が以前より広い（約1.3倍）ことを確認する。
+ * 2) CONFIGシート「環境前提（編集可）」の並びがマクロ→メソ→ミクロで、ラベル付きであることを確認する。
+ * 3) A-1 実行時にNOTE整合性エラーが出ないこと（空セルNOTEが検出されないこと）を確認する。
+ * 4) CONFIG含む全シートで、値が空のセルにMEMO（Note）が残っていないことを確認する。
+ * 5) 全シートで縦方向が中央揃え、横方向がテキスト左揃え・数値右揃えになっていることを確認する。
+ * 6) OUTPUTシートで行固定が解除されていること（固定なし）を確認する。
+ * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
+ * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
+ * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
+ */
