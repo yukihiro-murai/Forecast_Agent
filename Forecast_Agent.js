@@ -1817,7 +1817,8 @@ function buildCONFIG_() {
     safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
   });
 
-  const policyStart = 56;
+  const sectionGapRows = 1;
+  const policyStart = tuneStart + tuneRows.length + sectionGapRows + 1;
   sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
   const policyRows = [
     ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
@@ -1833,28 +1834,29 @@ function buildCONFIG_() {
   ];
   sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
 
-  const proxyStart = policyStart + 13;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
-  sh.getRange(proxyStart + 1, 1, 6, 2).setValues([
+  const proxyRows = [
     ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
     ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
     ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
     ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
-  ]);
+  ];
+  const proxyStart = policyStart + policyRows.length + sectionGapRows + 1;
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
 
-  const envStart = proxyStart + 9;
+  const envStart = proxyStart + proxyRows.length + sectionGapRows + 1;
   sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
   const envRows = [
-    ['市場 / 制度前提', ''],
-    ['クライアント予算 / 体制前提', ''],
-    ['製品 / 適応前提', ''],
-    ['チャネル / MR / 販促前提', ''],
-    ['競合前提', ''],
-    ['Spot / 開発案件前提', ''],
-    ['情報源', ''],
-    ['最終更新日', new Date()]
+    ['マクロ｜市場 / 制度前提', ''],
+    ['マクロ｜競合前提', ''],
+    ['メソ｜クライアント予算 / 体制前提', ''],
+    ['メソ｜チャネル / MR / 販促前提', ''],
+    ['ミクロ｜製品 / 適応前提', ''],
+    ['ミクロ｜Spot / 開発案件前提', ''],
+    ['ミクロ｜情報源', ''],
+    ['ミクロ｜最終更新日', new Date()]
   ];
   sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
   sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
@@ -1863,14 +1865,14 @@ function buildCONFIG_() {
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
-  safeSetNote_(sh, envStart + 1, 1, '市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
-  safeSetNote_(sh, envStart + 2, 1, 'クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
-  safeSetNote_(sh, envStart + 3, 1, '製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
-  safeSetNote_(sh, envStart + 4, 1, 'チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 5, 1, '競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 6, 1, 'Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
-  safeSetNote_(sh, envStart + 7, 1, '情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
-  safeSetNote_(sh, envStart + 8, 1, '最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  safeSetNote_(sh, envStart + 1, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 3, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
   const noteMaxRow = envStart + envRows.length;
   const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
   const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
