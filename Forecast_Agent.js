@@ -1703,6 +1703,7 @@ function buildGUIDE_() {
 
   const C_A = '#d9e8fb';
   const C_B = '#d9ead3';
+  const C_C = '#f4cccc';
   const C_AUTO = '#d9e8fb';
   const C_USER = '#fff2cc';
   const C_OUT = '#f4cccc';
@@ -1737,7 +1738,7 @@ function buildGUIDE_() {
     ['C-四半期レビュー', 'C-2 承認済み提案を適用', '承認行だけCALIBRATION_STATEへ反映し履歴を更新。'],
     ['C-四半期レビュー', 'C-3 過去の提案履歴を開く', 'QUARTERLY_REVIEW_LOGを表示して履歴を閲覧。']
   ];
-  sh.getRange(16, 1, cRows.length, 3).setValues(cRows).setBackground('#ead1dc');
+  sh.getRange(16, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
 
   sh.getRange(20, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
@@ -1752,6 +1753,8 @@ function buildGUIDE_() {
     ['出力用', SHEETS.OUTPUT, '予測出力'],
     ['出力用', SHEETS.FORECAST_REPORT, '予測レポート'],
     ['出力用', SHEETS.DASHBOARD, 'ダッシュボード'],
+    ['出力用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
+    ['出力用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）'],
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
@@ -1794,15 +1797,15 @@ function buildGUIDE_() {
   const flowStart = policyStart + 12;
   sh.getRange(flowStart, 1, 1, 3).setValues([['因果経路フローチャート（全体像）', '', '']]).setBackground('#d9ead3').setFontWeight('bold').merge();
   sh.getRange(flowStart + 1, 1, 1, 3).setValues([['直接目的', '代理指標/計算', '制約/学習ループ']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]).setBackground('#f3f3f3');
-  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]).setBackground('#f3f3f3');
-  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]);
+  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]);
+  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]);
   safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
   safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
   safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
   safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
-  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, flowStart - 1]);
+  applySectionGapRows_(sh, [19, last + 1, policyStart - 1, flowStart - 1]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -6025,6 +6028,10 @@ function syncSalesFromSalesInput_(fy, client) {
  * 14) C-3 で QUARTERLY_REVIEW_LOG が表示され、履歴閲覧トーストが出ることを確認。
  * 15) CALIBRATION_STATE を手動編集して A-9 実行時、手動値が予測に反映されることを確認。
  * 16) ai_topic_disable_json を設定して A-9 実行時、該当topicが0点かつ AI_IMPACT_HISTORY に反映されることを確認。
+ * 17) GUIDEのA/B/C行で同一グループは同一背景色（A=青/B=緑/C=赤）で統一されていることを確認。
+ * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
+ * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
+ * 20) CONFIGで担当者入力はA4/B4のみで、B10は互換用参照（=B4）として動作することを確認。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
