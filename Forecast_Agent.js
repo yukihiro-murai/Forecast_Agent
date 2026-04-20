@@ -1758,7 +1758,9 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
-    ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト']
+    ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト'],
+    ['出力用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
+    ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
   setGuideLinkTable_(sh, 21, links);
 
