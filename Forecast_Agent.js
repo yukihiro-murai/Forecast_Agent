@@ -1703,7 +1703,7 @@ function buildGUIDE_() {
 
   const C_A = '#d9e8fb';
   const C_B = '#d9ead3';
-  const C_C = '#f4cccc';
+  const C_C = '#d9ead3';
   const C_AUTO = '#d9e8fb';
   const C_USER = '#fff2cc';
   const C_OUT = '#f4cccc';
@@ -1759,7 +1759,7 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
     ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト'],
-    ['出力用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
+    ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
   setGuideLinkTable_(sh, 21, links);
@@ -6028,7 +6028,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 14) C-3 で QUARTERLY_REVIEW_LOG が表示され、履歴閲覧トーストが出ることを確認。
  * 15) CALIBRATION_STATE を手動編集して A-9 実行時、手動値が予測に反映されることを確認。
  * 16) ai_topic_disable_json を設定して A-9 実行時、該当topicが0点かつ AI_IMPACT_HISTORY に反映されることを確認。
- * 17) GUIDEのA/B/C行で同一グループは同一背景色（A=青/B=緑/C=赤）で統一されていることを確認。
+ * 17) GUIDEのA/B/C行で同一グループは同一背景色（A=青/B=緑/C=緑）で統一されていることを確認。
  * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
  * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
  * 20) CONFIGで担当者入力はA4/B4のみで、B10は互換用参照（=B4）として動作することを確認。
