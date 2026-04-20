@@ -1198,6 +1198,12 @@ function writeOutputFY_(result) {
   const calText = buildOutputCalibrationSummary_(result);
   sh.getRange(6, 1, 1, 6).merge();
   sh.getRange(6, 1).setValue((step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText).setFontColor((step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666').setFontSize(10).setWrap(true);
+  const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
+  const coerceCount = coerceMatch ? Number(coerceMatch[1]) : 0;
+  if (coerceCount >= 3) {
+    sh.getRange(6, 1).setBackground('#fce5cd');
+    sh.getRange(6, 1).setNote(`warn_coerced=${coerceCount} 件検知。Gem出力の形式違反が多発しています。\n詳細は warn_coerced_detail を参照し、Gem側の出力形式を見直してください。`);
+  }
 
   // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
@@ -3393,7 +3399,7 @@ function readAIResearchScores_(calibration) {
   const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const latestMeta = { Market: null, Competitor: null, Channel: null, DX: null };
-  const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : (q === 'low' ? 0.5 : 1)));
+  const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : 0.5));
   const now = new Date();
   for (let i = 1; i < vals.length; i++) {
     const topic = normalizeAiTopic_(vals[i][topicIdx]);
@@ -3424,15 +3430,15 @@ function readAIResearchScores_(calibration) {
     if (!isFinite(benchScore) && relPctIdx !== undefined && relConfIdx !== undefined) {
       const relPct = parseAiPercentile_(vals[i][relPctIdx]);
       const relConf = parseAiConfidence_(vals[i][relConfIdx]);
-      const q = String(normalizeAiCellValue_(qualityIdx === undefined ? '' : vals[i][qualityIdx]) || '').toLowerCase();
-      if (isFinite(relPct) && isFinite(relConf)) benchScore = (relPct - 50) * relConf * qualityMul(q);
+      const qInfo = coerceBenchmarkQuality_(qualityIdx === undefined ? '' : vals[i][qualityIdx]);
+      if (isFinite(relPct) && isFinite(relConf)) benchScore = (relPct - 50) * relConf * qualityMul(qInfo.value);
     }
     if (isFinite(benchScore)) benchScore = clamp_(benchScore, -50, 50);
 
     if (rowType === 'benchmark') {
       const relConf = parseAiConfidence_(relConfIdx === undefined ? '' : vals[i][relConfIdx]);
-      const q = String(normalizeAiCellValue_(qualityIdx === undefined ? '' : vals[i][qualityIdx]) || '').toLowerCase();
-      const wt = isFinite(relConf) ? Math.max(0, relConf) * qualityMul(q) : 0;
+      const qInfo = coerceBenchmarkQuality_(qualityIdx === undefined ? '' : vals[i][qualityIdx]);
+      const wt = isFinite(relConf) ? Math.max(0, relConf) * qualityMul(qInfo.value) : 0;
       if (isFinite(benchScore) && wt > 0) benchArr[topic].push({ score: benchScore, weight: wt });
     } else {
       const conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
@@ -3618,10 +3624,13 @@ function parseAiNumericScore_(v, fieldName) {
 
 function parseAiConfidence_(v) {
   const s0 = normalizeAiCellValue_(v);
+  if (!s0) return NaN;
   const n = Number(s0);
   if (isFinite(n)) {
-    if (n > 1 && n <= 100) return n / 100;
-    return n;
+    if (n >= 0 && n <= 1) return n;
+    if (n > 1 && n <= 5) return NaN;
+    if (n > 5 && n <= 100) return n / 100;
+    return NaN;
   }
   const s = s0.toLowerCase();
   if (s === 'high') return 0.90;
@@ -3632,16 +3641,36 @@ function parseAiConfidence_(v) {
 
 function parseAiPercentile_(v) {
   const s0 = normalizeAiCellValue_(v);
+  if (!s0) return NaN;
   const n = Number(s0);
   if (isFinite(n)) return n;
   const s = s0.toLowerCase();
-  if (!s) return NaN;
   if (/top\s*10|上位\s*10/.test(s)) return 90;
   if (/top\s*20|上位\s*20/.test(s)) return 80;
   if (/top\s*25|上位\s*25/.test(s)) return 75;
   const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
   if (m) return Number(m[1]);
   return NaN;
+}
+
+function inferPercentileFromLabel_(label) {
+  const s = String(label || '').trim().toLowerCase();
+  if (!s) return NaN;
+  if (s === 'top') return 90;
+  if (s === 'upper') return 75;
+  if (s === 'middle') return 50;
+  if (s === 'lower') return 25;
+  if (s === 'bottom') return 10;
+  return NaN;
+}
+
+function coerceBenchmarkQuality_(raw) {
+  const s = normalizeAiCellValue_(raw).toLowerCase();
+  if (s === 'high' || s === 'medium' || s === 'low') {
+    return { value: s, coerced: false };
+  }
+  // 不正値はmediumに寄せて処理継続
+  return { value: 'medium', coerced: true };
 }
 
 function normalizeAiCellValue_(v) {
@@ -3716,6 +3745,8 @@ function pushInvalidSample_(samples, rowNo, reason, rawLine) {
 function buildAiParseWarningText_(opt) {
   const missing = (opt.topicsMissingBenchmark || []).join(',');
   const reasons = opt.invalidReasons || {};
+  const coerceDetail = opt.warnCoercedDetail || {};
+  const coerceStr = `{colcount:${Number(coerceDetail.colcount_padded || 0)}, conf15:${Number(coerceDetail.confidence_1to5 || 0)}, pct_from_label:${Number(coerceDetail.percentile_from_label || 0)}, quality:${Number(coerceDetail.quality_coerced || 0)}, rowtype:${Number(coerceDetail.row_type_default || 0)}}`;
   return [
     `ai_rows=${Number(opt.rawRows || 0)}`,
     `valid_event=${Number(opt.validEvent || 0)}`,
@@ -3723,6 +3754,7 @@ function buildAiParseWarningText_(opt) {
     `invalid=${Number(opt.invalid || 0)}`,
     `warn_clamp=${Number(opt.warnClamp || 0)}`,
     `warn_coerced=${Number(opt.warnCoerced || 0)}`,
+    `warn_coerced_detail=${coerceStr}`,
     `topics_missing_benchmark=[${missing}]`,
     `invalid_reasons={colcount:${Number(reasons.colcount || 0)}, topic:${Number(reasons.topic || 0)}, peer_missing:${Number(reasons.peer_missing || 0)}, dir_impact_missing:${Number(reasons.dir_impact_missing || 0)}, score_unparseable:${Number(reasons.score_unparseable || 0)}}`
   ].join('; ');
@@ -5108,6 +5140,13 @@ function parseAIResearchPaste_() {
   let invalid = 0;
   let warnClamp = 0;
   let warnCoerced = 0;
+  const warnCoercedDetail = {
+    colcount_padded: 0,
+    confidence_1to5: 0,
+    percentile_from_label: 0,
+    quality_coerced: 0,
+    row_type_default: 0
+  };
   const invalidReasons = {
     colcount: 0,
     topic: 0,
@@ -5130,10 +5169,17 @@ function parseAIResearchPaste_() {
     let cols = tsvLines[i].split('\t').map(v => normalizeAiCellValue_(v));
     if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/).map(v => normalizeAiCellValue_(v));
     if (cols.length < header.length) {
-      invalid++;
-      invalidReasons.colcount++;
-      pushInvalidSample_(invalidSamples, i + 1, 'colcount', rawLine);
-      continue;
+      if (cols.length < Math.floor(header.length / 2)) {
+        invalid++;
+        invalidReasons.colcount++;
+        pushInvalidSample_(invalidSamples, i + 1, `colcount_too_short(${cols.length})`, rawLine);
+        continue;
+      }
+      const originalLen = cols.length;
+      while (cols.length < header.length) cols.push('');
+      warnCoerced++;
+      warnCoercedDetail.colcount_padded++;
+      pushInvalidSample_(invalidSamples, i + 1, `colcount_padded(${originalLen}→${header.length})`, rawLine);
     }
     if (!cols.length) continue;
 
@@ -5149,12 +5195,33 @@ function parseAIResearchPaste_() {
     if (rowType !== 'benchmark' && rowType !== 'event') {
       rowType = 'event';
       warnCoerced++;
+      warnCoercedDetail.row_type_default++;
     }
 
     const impactRaw = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
-    const confRaw = parseAiConfidence_(pick(cols, 'confidence', ''));
-    const relPctRaw = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
-    const relConfRaw = parseAiConfidence_(pick(cols, 'relative_confidence', ''));
+    const confSrc = normalizeAiCellValue_(pick(cols, 'confidence', ''));
+    const relConfSrc = normalizeAiCellValue_(pick(cols, 'relative_confidence', ''));
+    const confRaw = parseAiConfidence_(confSrc);
+    let relPctRaw = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
+    const relConfRaw = parseAiConfidence_(relConfSrc);
+    if (!isFinite(relPctRaw)) {
+      const inferredPct = inferPercentileFromLabel_(pick(cols, 'relative_position_label', ''));
+      if (isFinite(inferredPct)) {
+        relPctRaw = inferredPct;
+        warnCoerced++;
+        warnCoercedDetail.percentile_from_label++;
+      }
+    }
+    const confNum = Number(confSrc);
+    if (confSrc && isFinite(confNum) && confNum > 1 && confNum <= 5 && !isFinite(confRaw)) {
+      warnCoerced++;
+      warnCoercedDetail.confidence_1to5++;
+    }
+    const relConfNum = Number(relConfSrc);
+    if (relConfSrc && isFinite(relConfNum) && relConfNum > 1 && relConfNum <= 5 && !isFinite(relConfRaw)) {
+      warnCoerced++;
+      warnCoercedDetail.confidence_1to5++;
+    }
     const impact = clampWithWarn(impactRaw, 0, 100);
     const conf = clampWithWarn(confRaw, 0, 1);
     const relPct = clampWithWarn(relPctRaw, 0, 100);
@@ -5179,8 +5246,13 @@ function parseAIResearchPaste_() {
     const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
     const rawEventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : NaN;
     const eventScore = isFinite(rawEventScore) ? clampWithWarn(rawEventScore, -50, 50) : '';
-    const quality = normalizeAiCellValue_(pick(cols, 'benchmark_quality', '')).toLowerCase();
-    const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : (quality === 'low' ? 0.5 : 1));
+    const qualityCoerce = coerceBenchmarkQuality_(pick(cols, 'benchmark_quality', ''));
+    const quality = qualityCoerce.value;
+    if (qualityCoerce.coerced && rowType === 'benchmark') {
+      warnCoerced++;
+      warnCoercedDetail.quality_coerced++;
+    }
+    const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : 0.5);
     const rawBenchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : NaN;
     const benchmarkScore = isFinite(rawBenchmarkScore) ? clampWithWarn(rawBenchmarkScore, -50, 50) : '';
     const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
@@ -5231,6 +5303,17 @@ function parseAIResearchPaste_() {
   sh.getRange(2, 6, 3, 1).clearContent();
   const sampleRows = invalidSamples.slice(0, 3).map(s => [`${s.rowNo}\t${s.reason}\t${s.preview}`]);
   if (sampleRows.length) sh.getRange(2, 6, sampleRows.length, 1).setValues(sampleRows);
+  sh.getRange(1, 7).setValue('tsv_diagnostics').setFontWeight('bold').setBackground(COLOR_HEADER);
+  sh.getRange(2, 7, 10, 1).clearContent();
+  const diagRows = tsvLines.slice(0, 10).map((line, dIdx) => {
+    const tabs = (String(line || '').match(/\t/g) || []).length;
+    const parts = String(line || '').split('\t');
+    const firstCol = String(parts[0] || '').slice(0, 20);
+    const topicCol = String(parts[2] || '').slice(0, 15);
+    return [`row${dIdx + 1}: tabs=${tabs} / col1=\"${firstCol}\" / topic=\"${topicCol}\"`];
+  });
+  if (diagRows.length) sh.getRange(2, 7, diagRows.length, 1).setValues(diagRows);
+  sh.setColumnWidth(7, 380);
 
   const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -5242,12 +5325,13 @@ function parseAIResearchPaste_() {
     invalid,
     warnClamp,
     warnCoerced,
+    warnCoercedDetail,
     invalidReasons,
     topicsMissingBenchmark,
     hasReport: !!report
   });
   updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
-  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, invalidReasons, topicsMissingBenchmark, warning: warnText };
+  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, warnCoercedDetail, invalidReasons, topicsMissingBenchmark, warning: warnText };
 }
 function runPhase1Forecast() {
   try {
@@ -6032,6 +6116,11 @@ function syncSalesFromSalesInput_(fy, client) {
  * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
  * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
  * 20) CONFIGで担当者入力はA4/B4のみで、B10は互換用参照（=B4）として動作することを確認。
+ * 21) Gem出力の confidence 列に整数「4」を入れて A-9 実行時、warn_coerced_detail.conf15 が計上されることを確認。
+ * 22) Gem出力の relative_percentile を空欄＋relative_position_label のみで投入し、label逆引き補完が動くことを確認。
+ * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、warn_coerced_detail.quality が計上されることを確認。
+ * 24) Gem event 行のタブ不足TSVで A-9 実行時、warn_coerced_detail.colcount が増え、半分未満行のみinvalidになることを確認。
+ * 25) AI_RESEARCH_PROMPT!G列に tsv_diagnostics が出力され、各行のタブ数/topic が確認できることを確認。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
