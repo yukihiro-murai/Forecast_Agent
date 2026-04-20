@@ -1,14 +1,14 @@
 /***************************************
- * Forecast Agent v1.5
+ * Forecast Agent v1.6
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
- * v1.2（今回反映）
- * - 未確定月補完：月別（同月）トレンドで補完し、補完後に途中実績より下がらない
- * - 未確定月判定：実行日ベースで可変（当月以降=未確定 / 前月まで=確定）
- * - FACTORS/OPINIONS/DEV_SPOT：必要情報が揃った行のみ計算に使用
- * - 入力異常検出：変な入力があれば実行前にエラー表示して停止
- * - OUTPUT：B=ネガ / C=中立 / D=ポジ、配色も統一（表＆グラフ）
- * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
+ * v1.6（今回反映）
+ * - 四半期レビュー（C-1/C-2/C-3）を追加
+ * - AI履歴（AI_SCORE_HISTORY / AI_IMPACT_HISTORY）を永続追記
+ * - キャリブレーション状態（CALIBRATION_STATE）をA-9へ適用
+ * - 承認制ワークフロー（提案→承認→適用）を履歴保存
+ * - FORECAST_SNAPSHOT末尾に calibration_applied_json を追加
+ * - HOW TO TEST を四半期運用向けに更新
  ***************************************/
 
 const VERSION = '1.6';
@@ -180,6 +180,8 @@ const AI_MAD_CLIP_K = 3.0;
 const AI_TOTAL_NEUTRAL_THRESHOLD = 10.0;
 const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
 const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
+const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
+const QUARTERLY_APPROVAL_PENDING = '保留';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -6044,16 +6046,26 @@ function createDefaultCalibrationState_(client) {
   };
 }
 
+function getCalibrationStateContext_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.CALIBRATION_STATE);
+  if (!sh) throw new Error('CALIBRATION_STATE がありません');
+  const values = sh.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  header.forEach((h, i) => { idx[String(h || '')] = i; });
+  return { sh, values, header, idx };
+}
+
 function readCalibrationState_(client) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(SHEETS.CALIBRATION_STATE);
-    if (!sh) throw new Error('CALIBRATION_STATE がありません');
-    const rows = sh.getDataRange().getValues();
-    const header = rows[0] || [];
-    const idx = {};
-    header.forEach((h, i) => idx[String(h || '')] = i);
+    const ctx = getCalibrationStateContext_();
+    const sh = ctx.sh;
+    const rows = ctx.values;
+    const idx = ctx.idx;
+    const header = ctx.header;
     const target = String(client || '').trim();
+    if (!target) return createDefaultCalibrationState_('');
     for (let i = 1; i < rows.length; i++) {
       if (String(rows[i][idx.client] || '').trim() !== target) continue;
       return {
@@ -6072,8 +6084,11 @@ function readCalibrationState_(client) {
         note: rows[i][idx.note] || ''
       };
     }
-    writeCalibrationState_(target, createDefaultCalibrationState_(target));
-    return createDefaultCalibrationState_(target);
+    // 未登録時はデフォルト行を1回だけ作成して返す（再帰禁止）
+    const def = createDefaultCalibrationState_(target);
+    const row = header.map(k => (def[k] !== undefined ? def[k] : ''));
+    sh.appendRow(row);
+    return def;
   } catch (err) {
     throw err;
   }
@@ -6081,22 +6096,21 @@ function readCalibrationState_(client) {
 
 function writeCalibrationState_(client, partial) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(SHEETS.CALIBRATION_STATE);
-    if (!sh) throw new Error('CALIBRATION_STATE がありません');
-    const rows = sh.getDataRange().getValues();
-    const header = rows[0] || [];
-    const idx = {};
-    header.forEach((h, i) => idx[String(h || '')] = i);
-    const base = readCalibrationState_(client);
+    const ctx = getCalibrationStateContext_();
+    const sh = ctx.sh;
+    const rows = ctx.values;
+    const header = ctx.header;
+    const idx = ctx.idx;
+    const target = String(client || '').trim();
+    const base = readCalibrationState_(target);
     const merged = Object.assign({}, base, partial || {});
-    merged.client = String(client || '').trim();
+    merged.client = target;
     merged.updated_at = new Date();
     merged.updated_by = Session.getActiveUser().getEmail() || 'unknown';
     const out = header.map(k => merged[k] !== undefined ? merged[k] : '');
     let found = -1;
     for (let i = 1; i < rows.length; i++) {
-      if (String(rows[i][idx.client] || '').trim() === merged.client) {
+      if (String(rows[i][idx.client] || '').trim() === target) {
         found = i + 1;
         break;
       }
@@ -6284,7 +6298,7 @@ function appendProposalsToLog_(reviewId, data, proposals) {
   const qStart = data.months[0];
   const qEnd = data.months[data.months.length - 1];
   const qLabel = quarterLabelFromYm_(qEnd);
-  const rows = proposals.map(p => [reviewId, p.proposal_id, now, data.client, qLabel, qStart, qEnd, p.phase, p.target_field, p.current_value, p.proposed_value, p.confidence, p.rationale, p.impact_estimate, p.rollback_hint, '保留', '', '', 0, '', p.diagnostic_metrics_json || '{}']);
+  const rows = proposals.map(p => [reviewId, p.proposal_id, now, data.client, qLabel, qStart, qEnd, p.phase, p.target_field, p.current_value, p.proposed_value, p.confidence, p.rationale, p.impact_estimate, p.rollback_hint, QUARTERLY_APPROVAL_PENDING, '', '', 0, '', p.diagnostic_metrics_json || '{}']);
   writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
 }
 
@@ -6310,7 +6324,7 @@ function writeQuarterlyReviewSheet_(ctx) {
   sh.getRange(7, 1, 1, 9).setValues([['提案ID','対象','現在値','提案値','自信度','根拠','影響見積もり','承認列','ロールバック']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const rows = (ctx.proposals || []).map(p => [p.proposal_id, p.target_field, p.current_value, p.proposed_value, p.confidence, p.rationale, p.impact_estimate, '', p.rollback_hint]);
   if (rows.length) sh.getRange(8, 1, rows.length, 9).setValues(rows);
-  const rule = SpreadsheetApp.newDataValidation().requireValueInList(['承認','却下','保留'], true).setAllowInvalid(true).build();
+  const rule = SpreadsheetApp.newDataValidation().requireValueInList(QUARTERLY_APPROVAL_OPTIONS, true).setAllowInvalid(true).build();
   if (rows.length) sh.getRange(8, 8, rows.length, 1).setDataValidation(rule);
   sh.getRange(8, 10).setValue(ctx.reviewId);
   sh.hideColumns(10);
@@ -6339,7 +6353,7 @@ function applyQuarterlyProposals() {
       const pid = String(reviewVals[i][0] || '').trim();
       if (!pid) continue;
       const d = String(reviewVals[i][7] || '').trim();
-      decisionMap.set(pid, d || '保留');
+      decisionMap.set(pid, d || QUARTERLY_APPROVAL_PENDING);
     }
     const now = new Date();
     const by = Session.getActiveUser().getEmail() || 'unknown';
@@ -6351,7 +6365,7 @@ function applyQuarterlyProposals() {
     for (let r = 1; r < logData.length; r++) {
       if (String(logData[r][idx.review_id] || '') !== reviewId) continue;
       const pid = String(logData[r][idx.proposal_id] || '');
-      const decision = decisionMap.has(pid) ? decisionMap.get(pid) : '保留';
+      const decision = decisionMap.has(pid) ? decisionMap.get(pid) : QUARTERLY_APPROVAL_PENDING;
       logData[r][idx.approval_status] = decision;
       logData[r][idx.approval_decided_at] = now;
       logData[r][idx.approval_decided_by] = by;
