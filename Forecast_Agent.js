@@ -1753,6 +1753,8 @@ function buildGUIDE_() {
     ['出力用', SHEETS.OUTPUT, '予測出力'],
     ['出力用', SHEETS.FORECAST_REPORT, '予測レポート'],
     ['出力用', SHEETS.DASHBOARD, 'ダッシュボード'],
+    ['出力用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
+    ['出力用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）'],
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
