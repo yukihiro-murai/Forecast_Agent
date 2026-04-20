@@ -1,17 +1,17 @@
 /***************************************
- * Forecast Agent v1.5
+ * Forecast Agent v1.6
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
- * v1.2（今回反映）
- * - 未確定月補完：月別（同月）トレンドで補完し、補完後に途中実績より下がらない
- * - 未確定月判定：実行日ベースで可変（当月以降=未確定 / 前月まで=確定）
- * - FACTORS/OPINIONS/DEV_SPOT：必要情報が揃った行のみ計算に使用
- * - 入力異常検出：変な入力があれば実行前にエラー表示して停止
- * - OUTPUT：B=ネガ / C=中立 / D=ポジ、配色も統一（表＆グラフ）
- * - 実行中メッセージ：計算ステップが分かるtoastを追加（読み取り時間も確保）
+ * v1.6（今回反映）
+ * - 四半期レビュー（C-1/C-2/C-3）を追加
+ * - AI履歴（AI_SCORE_HISTORY / AI_IMPACT_HISTORY）を永続追記
+ * - キャリブレーション状態（CALIBRATION_STATE）をA-9へ適用
+ * - 承認制ワークフロー（提案→承認→適用）を履歴保存
+ * - FORECAST_SNAPSHOT末尾に calibration_applied_json を追加
+ * - HOW TO TEST を四半期運用向けに更新
  ***************************************/
 
-const VERSION = '1.5';
+const VERSION = '1.6';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -81,7 +81,13 @@ const SHEETS = {
   DETERMINISTIC_FACTORS: 'DETERMINISTIC_FACTORS',
   FORECAST_REPORT: 'FORECAST_REPORT',
   DASHBOARD: 'DASHBOARD',
-  CHANGELOG: 'CHANGELOG'
+  CHANGELOG: 'CHANGELOG',
+  AI_SCORE_HISTORY: 'AI_SCORE_HISTORY',
+  AI_IMPACT_HISTORY: 'AI_IMPACT_HISTORY',
+  CALIBRATION_STATE: 'CALIBRATION_STATE',
+  CALIBRATION_HISTORY: 'CALIBRATION_HISTORY',
+  QUARTERLY_REVIEW: 'QUARTERLY_REVIEW',
+  QUARTERLY_REVIEW_LOG: 'QUARTERLY_REVIEW_LOG'
 };
 
 // 入力セル背景
@@ -174,6 +180,8 @@ const AI_MAD_CLIP_K = 3.0;
 const AI_TOTAL_NEUTRAL_THRESHOLD = 10.0;
 const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
 const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
+const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
+const QUARTERLY_APPROVAL_PENDING = '保留';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -216,6 +224,10 @@ function onOpen() {
     .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
     .addItem('B-3 検証インサイトを更新', 'updatePhase1LearningInsights')
+    .addSeparator()
+    .addItem('C-1 四半期レビューを実行（3か月に1回）', 'runQuarterlyReview')
+    .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
+    .addItem('C-3 過去の提案履歴を開く', 'openQuarterlyReviewLog')
     .addToUi();
 }
 
@@ -316,7 +328,13 @@ function setupForecastBook() {
     SHEETS.AI_RESEARCH_STRUCTURED,
     SHEETS.RUN_LOG,
     SHEETS.FORECAST_SNAPSHOT,
-    SHEETS.PROCESS_STATUS
+    SHEETS.PROCESS_STATUS,
+    SHEETS.AI_SCORE_HISTORY,
+    SHEETS.AI_IMPACT_HISTORY,
+    SHEETS.CALIBRATION_STATE,
+    SHEETS.CALIBRATION_HISTORY,
+    SHEETS.QUARTERLY_REVIEW,
+    SHEETS.QUARTERLY_REVIEW_LOG
   ];
 
   try {
@@ -952,6 +970,17 @@ function runForecastFYCore_(fy, clientName) {
 
   const salesData = readSales48Months_(sales);
   const tuning = readModelTuningFromConfig_();
+
+  // ========== v1.6 NEW: quarterly review ==========
+  let calibration = null;
+  let calibrationWarning = '';
+  try {
+    calibration = readCalibrationState_(clientName);
+  } catch (err) {
+    calibrationWarning = '⚠ calibration読み込み失敗 / fallbackで実行';
+    calibration = createDefaultCalibrationState_(clientName);
+  }
+  const tuningApplied = applyCalibrationToTuning_(tuning, calibration);
   const runDate = new Date();
   const ctx = getForecastContext_(fy, runDate, salesData.headerMonths || []);
 
@@ -1012,7 +1041,7 @@ function runForecastFYCore_(fy, clientName) {
   const opinions = readOpinions_(fy);
 
   // AI調査スコア（topic別：benchmark/event blend）
-  const aiScores = readAIResearchScores_();
+  const aiScores = readAIResearchScores_(calibration);
   const aiReportText = readAIReportTextForClient_(clientName);
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
@@ -1051,9 +1080,9 @@ function runForecastFYCore_(fy, clientName) {
     nSim: N_SIM,
     months,
     sourceByMonth,
-    aiWeight: tuning.aiWeight,
-    aiMaxAbsEffect: tuning.aiMaxAbsEffect,
-    tuning,
+    aiWeight: tuningApplied.aiWeight,
+    aiMaxAbsEffect: tuningApplied.aiMaxAbsEffect,
+    tuning: tuningApplied,
     spotBgModel,
     knownSpotProjectsByMonth: devProjectsByMonth,
     knownSpotBgSuppressRate: isFinite(tuning.knownSpotBgSuppressRate) ? tuning.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE
@@ -1076,11 +1105,25 @@ function runForecastFYCore_(fy, clientName) {
     regTotal[i] = a;
   }
 
+  const biasCorrectionFactor = isFinite(calibration && calibration.bias_correction_factor) ? Number(calibration.bias_correction_factor) : 1.0;
+  if (biasCorrectionFactor !== 1.0) {
+    mixed.p10 = mixed.p10.map(v => Number(v || 0) * biasCorrectionFactor);
+    mixed.p50 = mixed.p50.map(v => Number(v || 0) * biasCorrectionFactor);
+    mixed.p90 = mixed.p90.map(v => Number(v || 0) * biasCorrectionFactor);
+    if (mixed.raw) {
+      mixed.raw.p10 = (mixed.raw.p10 || []).map(v => Number(v || 0) * biasCorrectionFactor);
+      mixed.raw.p50 = (mixed.raw.p50 || []).map(v => Number(v || 0) * biasCorrectionFactor);
+      mixed.raw.p90 = (mixed.raw.p90 || []).map(v => Number(v || 0) * biasCorrectionFactor);
+    }
+  }
+
   if (factorsProduct.length > 0 && mixed.diagnostics && mixed.diagnostics.kProdByMonth && mixed.diagnostics.kProdByMonth.every(k => Math.abs(Number(k || 1) - 1) < 1e-9)) {
     throw new Error('FACTORS_PRODUCT に有効行がありますが、kProd が全月1.0です。製品名キーの整合を確認してください。');
   }
 
   return {
+    runId: Utilities.getUuid(),
+    runAt: runDate,
     fy,
     clientName,
     months,
@@ -1104,7 +1147,10 @@ function runForecastFYCore_(fy, clientName) {
     lastClosedMonthStart: ctx.lastClosedMonthStart,
     opsModel: model,
     aiScores,
-    aiReportText
+    aiReportText,
+    calibration,
+    calibrationWarning,
+    tuningApplied
   };
 }
 
@@ -1149,8 +1195,9 @@ function writeOutputFY_(result) {
   safeSetNote_(sh, 3, 1, '計画の単一値はP50。P10/P90は説明用レンジです。');
   safeSetNote_(sh, 4, 1, '本ツールは過大予測（forecast>actual）の抑制を優先して監視します。');
   const step3aWarn = readStep3aWarningSummary_();
+  const calText = buildOutputCalibrationSummary_(result);
   sh.getRange(6, 1, 1, 6).merge();
-  sh.getRange(6, 1).setValue(step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし').setFontColor(step3aWarn ? '#b71c1c' : '#666666').setFontSize(10);
+  sh.getRange(6, 1).setValue((step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText).setFontColor((step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666').setFontSize(10).setWrap(true);
 
   // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
@@ -1656,6 +1703,7 @@ function buildGUIDE_() {
 
   const C_A = '#d9e8fb';
   const C_B = '#d9ead3';
+  const C_C = '#d9ead3';
   const C_AUTO = '#d9e8fb';
   const C_USER = '#fff2cc';
   const C_OUT = '#f4cccc';
@@ -1685,7 +1733,14 @@ function buildGUIDE_() {
   ];
   sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
-  sh.getRange(17, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const cRows = [
+    ['C-四半期レビュー', 'C-1 四半期レビューを実行（3か月に1回）', 'AI診断と全体キャリブレーション提案を生成。'],
+    ['C-四半期レビュー', 'C-2 承認済み提案を適用', '承認行だけCALIBRATION_STATEへ反映し履歴を更新。'],
+    ['C-四半期レビュー', 'C-3 過去の提案履歴を開く', 'QUARTERLY_REVIEW_LOGを表示して履歴を閲覧。']
+  ];
+  sh.getRange(16, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
+
+  sh.getRange(20, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT_MONTHLY, '予測入力（月次案件一覧）'],
@@ -1701,11 +1756,13 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
-    ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト']
+    ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト'],
+    ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
+    ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
-  setGuideLinkTable_(sh, 18, links);
+  setGuideLinkTable_(sh, 21, links);
 
-  const last = 18 + links.length;
+  const last = 21 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 10, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
@@ -1738,15 +1795,15 @@ function buildGUIDE_() {
   const flowStart = policyStart + 12;
   sh.getRange(flowStart, 1, 1, 3).setValues([['因果経路フローチャート（全体像）', '', '']]).setBackground('#d9ead3').setFontWeight('bold').merge();
   sh.getRange(flowStart + 1, 1, 1, 3).setValues([['直接目的', '代理指標/計算', '制約/学習ループ']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]).setBackground('#f3f3f3');
-  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]).setBackground('#f3f3f3');
-  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]).setBackground('#f3f3f3');
+  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]);
+  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]);
+  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]);
   safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
   safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
   safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
   safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
-  applySectionGapRows_(sh, [16, last + 1, policyStart - 1, flowStart - 1]);
+  applySectionGapRows_(sh, [19, last + 1, policyStart - 1, flowStart - 1]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -1859,7 +1916,17 @@ function buildCONFIG_() {
     ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD],
     ['AI_TOTAL_NEUTRAL_THRESHOLD（AI中立化閾値）', AI_TOTAL_NEUTRAL_THRESHOLD],
     ['AI_QUALITY_NEUTRAL_THRESHOLD（品質中立化閾値）', AI_QUALITY_NEUTRAL_THRESHOLD],
-    ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD]
+    ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD],
+    ['QUARTERLY_REVIEW_PERIOD_MONTHS', 3],
+    ['BIAS_CORRECTION_DAMPING', 0.5],
+    ['BIAS_CORRECTION_CLIP_LOW', 0.80],
+    ['BIAS_CORRECTION_CLIP_HIGH', 1.20],
+    ['BIAS_CORRECTION_MIN_TRIGGER', 0.03],
+    ['AI_DIRECTION_HIT_STRONG', 0.65],
+    ['AI_DIRECTION_HIT_WEAK', 0.40],
+    ['AI_EFFECT_MIN_MEANINGFUL', 0.005],
+    ['AI_WEIGHT_PROPOSAL_MIN', 0.00005],
+    ['AI_WEIGHT_PROPOSAL_MAX', 0.002]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -2760,7 +2827,17 @@ function readModelTuningFromConfig_() {
     seasonalCompareWarnThreshold: SEASONAL_COMPARE_WARN_THRESHOLD,
     aiTotalNeutralThreshold: AI_TOTAL_NEUTRAL_THRESHOLD,
     aiQualityNeutralThreshold: AI_QUALITY_NEUTRAL_THRESHOLD,
-    aiQualityPartialThreshold: AI_QUALITY_PARTIAL_THRESHOLD
+    aiQualityPartialThreshold: AI_QUALITY_PARTIAL_THRESHOLD,
+    quarterlyReviewPeriodMonths: 3,
+    biasCorrectionDamping: 0.5,
+    biasCorrectionClipLow: 0.80,
+    biasCorrectionClipHigh: 1.20,
+    biasCorrectionMinTrigger: 0.03,
+    aiDirectionHitStrong: 0.65,
+    aiDirectionHitWeak: 0.40,
+    aiEffectMinMeaningful: 0.005,
+    aiWeightProposalMin: 0.00005,
+    aiWeightProposalMax: 0.002
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2769,6 +2846,21 @@ function readModelTuningFromConfig_() {
 
   const getNum = (aCell, def) => {
     const v = Number(cfg.getRange(aCell).getValue());
+    return isFinite(v) ? v : def;
+  };
+  const labelMap = {};
+  try {
+    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
+    rows.forEach(r => {
+      const key = String(r[0] || '').trim();
+      if (!key) return;
+      labelMap[key] = Number(r[1]);
+    });
+  } catch (err) {
+    // CONFIG読取失敗時は既定値
+  }
+  const getNumByLabel = (label, def) => {
+    const v = Number(labelMap[label]);
     return isFinite(v) ? v : def;
   };
 
@@ -2797,6 +2889,16 @@ function readModelTuningFromConfig_() {
   out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getNum('B54', out.aiTotalNeutralThreshold)));
   out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getNum('B55', out.aiQualityNeutralThreshold)));
   out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getNum('B56', out.aiQualityPartialThreshold)));
+  out.quarterlyReviewPeriodMonths = Math.max(3, Math.min(12, getNumByLabel('QUARTERLY_REVIEW_PERIOD_MONTHS', out.quarterlyReviewPeriodMonths)));
+  out.biasCorrectionDamping = Math.max(0.01, Math.min(1, getNumByLabel('BIAS_CORRECTION_DAMPING', out.biasCorrectionDamping)));
+  out.biasCorrectionClipLow = Math.max(0.5, Math.min(1, getNumByLabel('BIAS_CORRECTION_CLIP_LOW', out.biasCorrectionClipLow)));
+  out.biasCorrectionClipHigh = Math.max(1, Math.min(2, getNumByLabel('BIAS_CORRECTION_CLIP_HIGH', out.biasCorrectionClipHigh)));
+  out.biasCorrectionMinTrigger = Math.max(0, Math.min(0.5, getNumByLabel('BIAS_CORRECTION_MIN_TRIGGER', out.biasCorrectionMinTrigger)));
+  out.aiDirectionHitStrong = Math.max(0.5, Math.min(1, getNumByLabel('AI_DIRECTION_HIT_STRONG', out.aiDirectionHitStrong)));
+  out.aiDirectionHitWeak = Math.max(0.1, Math.min(out.aiDirectionHitStrong, getNumByLabel('AI_DIRECTION_HIT_WEAK', out.aiDirectionHitWeak)));
+  out.aiEffectMinMeaningful = Math.max(0, Math.min(0.1, getNumByLabel('AI_EFFECT_MIN_MEANINGFUL', out.aiEffectMinMeaningful)));
+  out.aiWeightProposalMin = Math.max(0, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MIN', out.aiWeightProposalMin)));
+  out.aiWeightProposalMax = Math.max(out.aiWeightProposalMin, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MAX', out.aiWeightProposalMax)));
   return out;
 }
 
@@ -3247,7 +3349,7 @@ function readOpinions_(fy) {
  * AI_RESEARCH_STRUCTURED から topic 別のAIスコアを読み取り、
  * benchmark/event blend の最終スコアを返す。
  */
-function readAIResearchScores_() {
+function readAIResearchScores_(calibration) {
   const result = { Market: 0, Competitor: 0, Channel: 0, DX: 0, meta: { Market: {}, Competitor: {}, Channel: {}, DX: {} } };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
@@ -3278,6 +3380,13 @@ function readAIResearchScores_() {
   const asOfIdx = idx.as_of_date;
   const oldAdjIdx = idx.adjusted_score;
 
+  const disabledTopics = new Set();
+  try {
+    const arr = JSON.parse(String((calibration && calibration.ai_topic_disable_json) || '[]'));
+    (Array.isArray(arr) ? arr : []).forEach(t => disabledTopics.add(normalizeAiTopic_(t)));
+  } catch (err) {
+    // JSON不正時は無効化なしで継続
+  }
   const blend = { Market: [0.65, 0.35], Competitor: [0.70, 0.30], Channel: [0.65, 0.35], DX: [0.50, 0.50] };
   const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
@@ -3369,7 +3478,8 @@ function readAIResearchScores_() {
     finalScore *= effectiveMultiplier;
     const capped = Math.abs(finalScore) > 40;
     const clampedFinal = capped ? (finalScore > 0 ? 40 : -40) : finalScore;
-    result[topic] = Math.round(clampedFinal * 10) / 10;
+    const scoreOut = Math.round(clampedFinal * 10) / 10;
+    result[topic] = disabledTopics.has(topic) ? 0 : scoreOut;
     const latest = latestMeta[topic] || {};
     const noData = (benchCount === 0 && eventCount === 0);
     if (benchCount === 0) topicsMissingBenchmark.push(topic);
@@ -3386,7 +3496,8 @@ function readAIResearchScores_() {
       degradedMode,
       qualityScore,
       neutralized,
-      effectiveMultiplier
+      effectiveMultiplier,
+      disabled: disabledTopics.has(topic)
     };
   });
   result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
@@ -3937,7 +4048,7 @@ function calibrateSubjectiveContinuousDelta_(opt) {
   const enabled = isFinite(tuning.qualCalibrationEnabled) ? Number(tuning.qualCalibrationEnabled) > 0 : !!QUAL_CALIBRATION_ENABLED;
   const sourceByMonth = opt.sourceByMonth || new Array(12).fill('forecast_open');
 
-  const scaleCandidates = buildCoarseToFineScaleCandidates_(enabled);
+  const scaleCandidates = isFinite(tuning.qualScaleOverride) ? [Number(tuning.qualScaleOverride)] : buildCoarseToFineScaleCandidates_(enabled);
   let best = null;
   let bestInBand = null;
   for (let i = 0; i < scaleCandidates.length; i++) {
@@ -4575,11 +4686,17 @@ function buildPhase1Sheets_() {
   ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT).getRange('D:D').setNumberFormat('@');
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
-  buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date']);
+  buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
   buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
   buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
+  buildSimpleSheet_(ss, SHEETS.AI_SCORE_HISTORY, ['run_id','run_at','client','topic','blended_score','quality_score','degraded_mode','neutralized','coverage_event_rows','coverage_benchmark_rows','latest_as_of_date']);
+  buildSimpleSheet_(ss, SHEETS.AI_IMPACT_HISTORY, ['run_id','run_at','client','target_month','k_ai','ai_total_score','ai_direction','pred_p50','pred_p50_quant_only','ai_neutralized','disabled_topics_count']);
+  buildSimpleSheet_(ss, SHEETS.CALIBRATION_STATE, ['client','updated_at','updated_by','ai_weight_override','ai_max_abs_effect_override','ai_topic_disable_json','bias_correction_factor','qual_scale_override','residual_month_bias_json','last_applied_quarter','last_applied_review_id','auto_update_enabled','note']);
+  buildSimpleSheet_(ss, SHEETS.CALIBRATION_HISTORY, ['change_id','changed_at','changed_by','client','quarter_label','review_id','factor_name','old_value','new_value','rollback_hint']);
+  buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW, ['section','key','value']);
+  buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW_LOG, ['review_id','proposal_id','reviewed_at','client','quarter_label','quarter_start_month','quarter_end_month','phase','target_field','current_value','proposed_value','confidence','rationale','impact_estimate','rollback_hint','approval_status','approval_decided_at','approval_decided_by','applied','applied_at','diagnostic_metrics_json']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
   initializeProcessStatus_();
@@ -5150,6 +5267,7 @@ function runPhase1Forecast() {
     if (aiAllZero) SpreadsheetApp.getActiveSpreadsheet().toast('⚠ AIスコアが全topicで0.0です。AI_RESEARCH_STRUCTUREDの形式を確認してください。', MENU_NAME, 8);
     writeOutputFY_(result);
     writeForecastArtifacts_(result, client);
+    writeAIHistoriesForRun_(result, result.runId);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}`);
@@ -5176,7 +5294,7 @@ function writeForecastArtifacts_(result, client) {
   scenarios.forEach(sc=>{
     result.months.forEach((m,i)=>{
       const deterministicAdj = (result.spotFixedByMonth && isFinite(result.spotFixedByMonth[i])) ? result.spotFixedByMonth[i] : (result.devFixedByMonth[i] || 0);
-      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null]);
+      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null,JSON.stringify(buildCalibrationAppliedPayload_(result))]);
     });
   });
   const r0 = snap.getLastRow()+1;
@@ -5790,7 +5908,8 @@ function hideNonUserSheets_() {
     SHEETS.ACTUAL_EVAL_MONTHLY,
     SHEETS.EVAL_COMPARE_MONTHLY,
     SHEETS.EVAL_INSIGHTS,
-    SHEETS.DASHBOARD
+    SHEETS.DASHBOARD,
+    SHEETS.QUARTERLY_REVIEW
   ]);
 
   ss.getSheets().forEach(sh => {
@@ -5890,18 +6009,419 @@ function syncSalesFromSalesInput_(fy, client) {
 }
 
 /**
- * HOW TO TEST
- * 1) A-1 初期セットアップを実行し、CONFIGシートのB列幅が以前より広い（約1.3倍）ことを確認する。
- * 2) CONFIGシート「環境前提（編集可）」の並びがマクロ→メソ→ミクロで、ラベル付きであることを確認する。
- * 3) A-1 実行時にNOTE整合性エラーが出ないこと（空セルNOTEが検出されないこと）を確認する。
- * 4) CONFIG含む全シートで、値が空のセルにMEMO（Note）が残っていないことを確認する。
- * 5) 全シートで縦方向が中央揃え、横方向がテキスト左揃え・数値右揃えになっていることを確認する。
- * 6) OUTPUTシートで行固定が解除されていること（固定なし）を確認する。
- * 7) OUTPUTのセクション見出し（例: 20行目・57行目付近）が薄緑で表示されることを確認する。
- * 8) OUTPUTグラフの凡例テキストが表示され、順番が Upside→Baseline→Downside→Linear Regression であることを確認する。
- * 9) GUIDE見出しのバージョン表記が v1.5 になっていることを確認する。
- * 10) AI行が0件の場合、各topic score=0・mode=no_data・neutralized表示になり、AI中立化帯（row22）が表示されることを確認する。
- * 11) 1topicのみbenchmark有りの場合、そのtopicはbenchmark_only、他topicはno_data/event_onlyとなり、degraded表示が出ることを確認する。
- * 12) 全topic event_onlyの場合、effectiveMultiplierが0.5以下で適用され、mode=event_onlyかつquality情報がrow20に表示されることを確認する。
- * 13) 通常blended入力（benchmark/event十分）ではneutralized=false、AI中立化帯が非表示で従来同等の出力になることを確認する。
+ * HOW TO TEST (v1.6)
+ * 1) A-1 初期セットアップで6新シート作成を確認（QUARTERLY_REVIEWのみ表示、他5枚は非表示）。
+ * 2) A-9 を実行し AI_SCORE_HISTORY に4行、AI_IMPACT_HISTORY に12行追記されることを確認。
+ * 3) A-9 を複数回実行し、上書きでなく履歴が累積することを確認。
+ * 4) FORECAST_SNAPSHOT 末尾に calibration_applied_json が保存されることを確認。
+ * 5) OUTPUT上部に「適用中の四半期チューニング」表示（初回はなし）が出ることを確認。
+ * 6) 実績3か月未満で C-1 実行時、提案ゼロ・ログ未追記・期間不足ダイアログで正常終了することを確認。
+ * 7) 実績3か月以上で C-1 実行時、QUARTERLY_REVIEW 表示と QUARTERLY_REVIEW_LOG 追記（保留/applied=0）を確認。
+ * 8) 同一四半期で C-1 再実行時、review_id が新規で履歴追記されることを確認。
+ * 9) QUARTERLY_REVIEW Section5 の承認列プルダウン（承認/却下/保留）を確認。
+ * 10) 承認列空欄で C-2 実行時、保留扱いで記録されることを確認。
+ * 11) 承認行のみ CALIBRATION_STATE に反映され、LOG の applied/applied_at が更新されることを確認。
+ * 12) 同じ review_id で C-2 を再実行すると早期終了することを確認。
+ * 13) auto_update_enabled=0 で C-2 実行時、CALIBRATION_STATE は不変で LOG だけ更新されることを確認。
+ * 14) C-3 で QUARTERLY_REVIEW_LOG が表示され、履歴閲覧トーストが出ることを確認。
+ * 15) CALIBRATION_STATE を手動編集して A-9 実行時、手動値が予測に反映されることを確認。
+ * 16) ai_topic_disable_json を設定して A-9 実行時、該当topicが0点かつ AI_IMPACT_HISTORY に反映されることを確認。
+ * 17) GUIDEのA/B/C行で同一グループは同一背景色（A=青/B=緑/C=緑）で統一されていることを確認。
+ * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
+ * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
+ * 20) CONFIGで担当者入力はA4/B4のみで、B10は互換用参照（=B4）として動作することを確認。
  */
+
+// ========== v1.6 NEW: quarterly review ==========
+function createDefaultCalibrationState_(client) {
+  return {
+    client: String(client || ''),
+    updated_at: '',
+    updated_by: '',
+    ai_weight_override: '',
+    ai_max_abs_effect_override: '',
+    ai_topic_disable_json: '[]',
+    bias_correction_factor: 1.0,
+    qual_scale_override: '',
+    residual_month_bias_json: '',
+    last_applied_quarter: '',
+    last_applied_review_id: '',
+    auto_update_enabled: 1,
+    note: ''
+  };
+}
+
+function getCalibrationStateContext_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.CALIBRATION_STATE);
+  if (!sh) throw new Error('CALIBRATION_STATE がありません');
+  const values = sh.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  header.forEach((h, i) => { idx[String(h || '')] = i; });
+  return { sh, values, header, idx };
+}
+
+function readCalibrationState_(client) {
+  try {
+    const ctx = getCalibrationStateContext_();
+    const sh = ctx.sh;
+    const rows = ctx.values;
+    const idx = ctx.idx;
+    const header = ctx.header;
+    const target = String(client || '').trim();
+    if (!target) return createDefaultCalibrationState_('');
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][idx.client] || '').trim() !== target) continue;
+      return {
+        client: target,
+        updated_at: rows[i][idx.updated_at] || '',
+        updated_by: rows[i][idx.updated_by] || '',
+        ai_weight_override: rows[i][idx.ai_weight_override],
+        ai_max_abs_effect_override: rows[i][idx.ai_max_abs_effect_override],
+        ai_topic_disable_json: rows[i][idx.ai_topic_disable_json] || '[]',
+        bias_correction_factor: Number(rows[i][idx.bias_correction_factor] || 1),
+        qual_scale_override: rows[i][idx.qual_scale_override],
+        residual_month_bias_json: rows[i][idx.residual_month_bias_json] || '',
+        last_applied_quarter: rows[i][idx.last_applied_quarter] || '',
+        last_applied_review_id: rows[i][idx.last_applied_review_id] || '',
+        auto_update_enabled: Number(rows[i][idx.auto_update_enabled] || 1),
+        note: rows[i][idx.note] || ''
+      };
+    }
+    // 未登録時はデフォルト行を1回だけ作成して返す（再帰禁止）
+    const def = createDefaultCalibrationState_(target);
+    const row = header.map(k => (def[k] !== undefined ? def[k] : ''));
+    sh.appendRow(row);
+    return def;
+  } catch (err) {
+    throw err;
+  }
+}
+
+function writeCalibrationState_(client, partial) {
+  try {
+    const ctx = getCalibrationStateContext_();
+    const sh = ctx.sh;
+    const rows = ctx.values;
+    const header = ctx.header;
+    const idx = ctx.idx;
+    const target = String(client || '').trim();
+    const base = readCalibrationState_(target);
+    const merged = Object.assign({}, base, partial || {});
+    merged.client = target;
+    merged.updated_at = new Date();
+    merged.updated_by = Session.getActiveUser().getEmail() || 'unknown';
+    const out = header.map(k => merged[k] !== undefined ? merged[k] : '');
+    let found = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][idx.client] || '').trim() === target) {
+        found = i + 1;
+        break;
+      }
+    }
+    if (found > 0) sh.getRange(found, 1, 1, out.length).setValues([out]);
+    else sh.appendRow(out);
+    return merged;
+  } catch (err) {
+    throw err;
+  }
+}
+
+function applyCalibrationToTuning_(tuning, calibration) {
+  const out = Object.assign({}, tuning || {});
+  const cal = calibration || {};
+  if (isFinite(Number(cal.ai_weight_override))) out.aiWeight = Number(cal.ai_weight_override);
+  if (isFinite(Number(cal.ai_max_abs_effect_override))) out.aiMaxAbsEffect = Number(cal.ai_max_abs_effect_override);
+  if (isFinite(Number(cal.qual_scale_override))) out.qualScaleOverride = Number(cal.qual_scale_override);
+  out.disabledTopics = [];
+  try {
+    const arr = JSON.parse(String(cal.ai_topic_disable_json || '[]'));
+    if (Array.isArray(arr)) out.disabledTopics = arr.map(normalizeAiTopic_).filter(Boolean);
+  } catch (err) {
+    out.disabledTopics = [];
+  }
+  return out;
+}
+
+function buildCalibrationAppliedPayload_(result) {
+  const cal = (result && result.calibration) || createDefaultCalibrationState_('');
+  return {
+    version: VERSION,
+    quarter: cal.last_applied_quarter || '',
+    ai_weight_override: cal.ai_weight_override || '',
+    ai_max_abs_effect_override: cal.ai_max_abs_effect_override || '',
+    ai_topic_disable_json: cal.ai_topic_disable_json || '[]',
+    bias_correction_factor: cal.bias_correction_factor || 1,
+    qual_scale_override: cal.qual_scale_override || '',
+    residual_month_bias_json: cal.residual_month_bias_json || ''
+  };
+}
+
+function buildOutputCalibrationSummary_(result) {
+  const cal = (result && result.calibration) || createDefaultCalibrationState_('');
+  const q = cal.last_applied_quarter || 'なし（全項目既定値）';
+  const lines = [];
+  lines.push(`適用中の四半期チューニング: ${q}`);
+  if (q === 'なし（全項目既定値）') {
+    lines.push('3か月以上の実績確定後に C-1 を実行してください。');
+  } else {
+    lines.push(`・ai_weight_override: ${cal.ai_weight_override || '既定'}`);
+    lines.push(`・ai_topic_disable: ${cal.ai_topic_disable_json || '[]'}`);
+    lines.push(`・bias_correction_factor: ${cal.bias_correction_factor || 1.0}`);
+    lines.push('次回の四半期レビューは3か月後に C-1 を実行してください。');
+  }
+  if (result && result.calibrationWarning) lines.push(result.calibrationWarning);
+  return lines.join(' / ');
+}
+
+function writeAIHistoriesForRun_(result, runId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const shScore = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
+    const shImpact = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY);
+    const runAt = result && result.runAt ? result.runAt : new Date();
+    const client = String((result && result.clientName) || '');
+    const ai = (result && result.aiScores) || {};
+    const meta = ai.meta || {};
+    const scoreRows = AI_TOPICS.map(topic => {
+      const m = meta[topic] || {};
+      return [runId, runAt, client, topic, Number(ai[topic] || 0), Number(m.qualityScore || 0), m.degradedMode || '', m.neutralized ? 1 : 0, Number(m.coverageEventRows || 0), Number(m.coverageBenchmarkRows || 0), m.latestAsOfDate || ''];
+    });
+    if (scoreRows.length) writeRowsInChunks_(shScore, shScore.getLastRow() + 1, 1, scoreRows, 500);
+
+    const kByMonth = (((result || {}).mixed || {}).diagnostics || {}).kAIByMonth || new Array(12).fill(1);
+    const aiTotal = ((((result || {}).mixed || {}).diagnostics || {}).aiTotalScore) || 0;
+    const aiNeutralized = ((((result || {}).mixed || {}).diagnostics || {}).aiNeutralized) ? 1 : 0;
+    const disabledCount = ((result && result.tuningApplied && result.tuningApplied.disabledTopics) || []).length;
+    const impactRows = (result.months || []).map((m, i) => {
+      const k = Number(kByMonth[i] || 1);
+      const dir = k > 1.01 ? 'up' : (k < 0.99 ? 'down' : 'flat');
+      return [runId, runAt, client, fmtYM_(m), k, aiTotal, dir, Number((result.mixed.p50 || [])[i] || 0), Number(((result.quantOnly || {}).p50 || [])[i] || 0), aiNeutralized, disabledCount];
+    });
+    if (impactRows.length) writeRowsInChunks_(shImpact, shImpact.getLastRow() + 1, 1, impactRows, 500);
+  } catch (err) {
+    // 履歴書き込み失敗時も本処理は継続
+  }
+}
+
+function runQuarterlyReview() {
+  const started = new Date();
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+    const data = collectQuarterlyReviewData_(client);
+    if (!data.ready) {
+      writeQuarterlyReviewInsufficient_(data);
+      SpreadsheetApp.getUi().alert(`実績が${data.missingMonths}月分不足しています。3か月分の実績確定後に再実行してください`);
+      logRun_('runQuarterlyReview', client, 'success', 0, started, 'insufficient_months');
+      return;
+    }
+    const proposals = generateQuarterlyProposals_(data);
+    const reviewId = Utilities.getUuid();
+    appendProposalsToLog_(reviewId, data, proposals);
+    writeQuarterlyReviewSheet_({ reviewId, data, proposals });
+    updateProcessStatus_('quarterly_review_status', 'success', client, proposals.length, '');
+    logRun_('runQuarterlyReview', client, 'success', proposals.length, started, '');
+    ss.setActiveSheet(ss.getSheetByName(SHEETS.QUARTERLY_REVIEW));
+  } catch (err) {
+    logRun_('runQuarterlyReview', '', 'error', 0, started, String(err.message || err));
+    SpreadsheetApp.getUi().alert('C-1 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function collectQuarterlyReviewData_(client) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const evalRows = ss.getSheetByName(SHEETS.EVAL_LOG).getDataRange().getValues().slice(1)
+      .filter(r => String(r[2] || '') === client && String(r[4] || '') === 'neutral' && String(r[21] || '') === '1');
+    const months = Array.from(new Set(evalRows.map(r => String(r[3] || '')))).sort();
+    const last3 = months.slice(-3);
+    if (last3.length < 3) {
+      return { ready: false, missingMonths: 3 - last3.length, months: last3, client };
+    }
+    const impacts = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY).getDataRange().getValues().slice(1)
+      .filter(r => String(r[2] || '') === client && last3.indexOf(String(r[3] || '')) >= 0);
+    const scores = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY).getDataRange().getValues().slice(1)
+      .filter(r => String(r[2] || '') === client);
+    return { ready: true, client, months: last3, evalRows, impacts, scores, calibration: readCalibrationState_(client) };
+  } catch (err) {
+    throw err;
+  }
+}
+
+function generateQuarterlyProposals_(data) {
+  const proposals = [];
+  const cal = data.calibration || createDefaultCalibrationState_(data.client);
+  const tuning = readModelTuningFromConfig_();
+  const evalMap = new Map(data.evalRows.map(r => [String(r[3] || ''), Number(r[6] || 0)]));
+  let hit = 0; let den = 0;
+  data.impacts.forEach(r => {
+    const ym = String(r[3] || '');
+    const aiDir = String(r[6] || 'flat');
+    const actual = Number(evalMap.get(ym) || 0);
+    const q = Number(r[8] || 0);
+    const actualDir = actual > q * 1.01 ? 'up' : (actual < q * 0.99 ? 'down' : 'flat');
+    if (actualDir === 'flat') return;
+    den += 1;
+    if (actualDir === aiDir) hit += 1;
+  });
+  const hitRate = den > 0 ? hit / den : 0;
+  const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[4] || 1) - 1))) : 0;
+  const curWeight = isFinite(Number(cal.ai_weight_override)) ? Number(cal.ai_weight_override) : readModelTuningFromConfig_().aiWeight;
+  let proposedWeight = null;
+  let conf = '';
+  if (hitRate < 0.4 && meanAbs > 0.015) { proposedWeight = curWeight * 0.5; conf = '高'; }
+  else if (hitRate >= 0.4 && hitRate < 0.65 && meanAbs > 0.01) { proposedWeight = curWeight * 0.7; conf = '中'; }
+  else if (hitRate > 0.65 && meanAbs < 0.005) { proposedWeight = curWeight * 1.5; conf = '中'; }
+  if (isFinite(proposedWeight) && proposedWeight >= tuning.aiWeightProposalMin && proposedWeight <= tuning.aiWeightProposalMax) {
+    proposals.push(makeProposal_('A', 'ai_weight_override', curWeight, proposedWeight, conf, `AI方向一致率=${(hitRate*100).toFixed(1)}% / mean|kAI-1|=${(meanAbs*100).toFixed(2)}%`, `次期AI寄与を${Math.round((proposedWeight/curWeight)*100)}%へ調整`, 'C-2で却下または手動で元値に戻す', { hitRate, meanAbs }));
+  }
+  return proposals;
+}
+
+function makeProposal_(phase, field, currentValue, proposedValue, confidence, rationale, impact, rollback, metrics) {
+  return {
+    proposal_id: `P-${phase}-${Utilities.getUuid().slice(0, 6)}`,
+    phase,
+    target_field: field,
+    current_value: String(currentValue),
+    proposed_value: String(proposedValue),
+    confidence: confidence || '中',
+    rationale: rationale || '',
+    impact_estimate: impact || '',
+    rollback_hint: rollback || '',
+    diagnostic_metrics_json: JSON.stringify(metrics || {})
+  };
+}
+
+function appendProposalsToLog_(reviewId, data, proposals) {
+  if (!proposals || !proposals.length) return;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW_LOG);
+  const now = new Date();
+  const qStart = data.months[0];
+  const qEnd = data.months[data.months.length - 1];
+  const qLabel = quarterLabelFromYm_(qEnd);
+  const rows = proposals.map(p => [reviewId, p.proposal_id, now, data.client, qLabel, qStart, qEnd, p.phase, p.target_field, p.current_value, p.proposed_value, p.confidence, p.rationale, p.impact_estimate, p.rollback_hint, QUARTERLY_APPROVAL_PENDING, '', '', 0, '', p.diagnostic_metrics_json || '{}']);
+  writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
+}
+
+function writeQuarterlyReviewInsufficient_(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
+  sh.clear();
+  sh.getRange(1, 1).setValue(`⚠ 検証期間不足（${(data.months || []).length}か月のみ確定）`).setFontColor('#b71c1c').setFontWeight('bold');
+  sh.getRange(2, 1).setValue('実績が3か月分確定後に C-1 を再実行してください。');
+}
+
+function writeQuarterlyReviewSheet_(ctx) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
+  sh.clear();
+  const data = ctx.data;
+  const now = new Date();
+  const qLabel = quarterLabelFromYm_(data.months[data.months.length - 1]);
+  sh.getRange(1, 1).setValue(`【四半期レビュー: ${qLabel}】`).setFontWeight('bold').setBackground('#d9ead3');
+  sh.getRange(2, 1).setValue(`検証期間: ${data.months[0]} 〜 ${data.months[data.months.length - 1]}（実績確定済み）`);
+  sh.getRange(3, 1).setValue(`実行日時: ${Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm')}`);
+  sh.getRange(5, 1).setValue('Section 5 の承認列を入力後、C-2 を実行してください。');
+  sh.getRange(7, 1, 1, 9).setValues([['提案ID','対象','現在値','提案値','自信度','根拠','影響見積もり','承認列','ロールバック']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  const rows = (ctx.proposals || []).map(p => [p.proposal_id, p.target_field, p.current_value, p.proposed_value, p.confidence, p.rationale, p.impact_estimate, '', p.rollback_hint]);
+  if (rows.length) sh.getRange(8, 1, rows.length, 9).setValues(rows);
+  const rule = SpreadsheetApp.newDataValidation().requireValueInList(QUARTERLY_APPROVAL_OPTIONS, true).setAllowInvalid(true).build();
+  if (rows.length) sh.getRange(8, 8, rows.length, 1).setDataValidation(rule);
+  sh.getRange(8, 10).setValue(ctx.reviewId);
+  sh.hideColumns(10);
+}
+
+function applyQuarterlyProposals() {
+  const started = new Date();
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
+    const reviewId = String(sh.getRange(8, 10).getValue() || '').trim();
+    if (!reviewId) throw new Error('C-1 を再実行してください。');
+    const logSh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW_LOG);
+    const all = logSh.getDataRange().getValues();
+    const header = all[0] || [];
+    const idx = {}; header.forEach((h,i)=>idx[String(h||'')]=i);
+    const logRows = all.slice(1).filter(r => String(r[idx.review_id] || '') === reviewId);
+    if (!logRows.length) throw new Error('対象レビューが見つかりません。C-1を再実行してください。');
+    if (logRows.some(r => Number(r[idx.applied] || 0) === 1)) {
+      SpreadsheetApp.getUi().alert('このレビューは適用済みです。C-1 を再実行して新しい review_id を作ってください');
+      return;
+    }
+    const reviewVals = sh.getDataRange().getValues();
+    const decisionMap = new Map();
+    for (let i = 7; i < reviewVals.length; i++) {
+      const pid = String(reviewVals[i][0] || '').trim();
+      if (!pid) continue;
+      const d = String(reviewVals[i][7] || '').trim();
+      decisionMap.set(pid, d || QUARTERLY_APPROVAL_PENDING);
+    }
+    const now = new Date();
+    const by = Session.getActiveUser().getEmail() || 'unknown';
+    const client = String(logRows[0][idx.client] || '');
+    const cal = readCalibrationState_(client);
+    const autoUpdate = Number(cal.auto_update_enabled || 1) === 1;
+    let a=0,d=0,p=0;
+    const logData = logSh.getDataRange().getValues();
+    for (let r = 1; r < logData.length; r++) {
+      if (String(logData[r][idx.review_id] || '') !== reviewId) continue;
+      const pid = String(logData[r][idx.proposal_id] || '');
+      const decision = decisionMap.has(pid) ? decisionMap.get(pid) : QUARTERLY_APPROVAL_PENDING;
+      logData[r][idx.approval_status] = decision;
+      logData[r][idx.approval_decided_at] = now;
+      logData[r][idx.approval_decided_by] = by;
+      if (decision === '承認') {
+        a += 1;
+        if (autoUpdate) {
+          const field = String(logData[r][idx.target_field] || '');
+          const val = logData[r][idx.proposed_value];
+          const oldVal = cal[field];
+          const patch = {}; patch[field] = val;
+          patch.last_applied_review_id = reviewId;
+          patch.last_applied_quarter = String(logData[r][idx.quarter_label] || '');
+          writeCalibrationState_(client, patch);
+          appendCalibrationHistory_(client, logData[r][idx.quarter_label], reviewId, field, oldVal, val, logData[r][idx.rollback_hint]);
+          logData[r][idx.applied] = 1;
+          logData[r][idx.applied_at] = now;
+        }
+      } else if (decision === '却下') d += 1;
+      else p += 1;
+    }
+    logSh.getRange(1, 1, logData.length, logData[0].length).setValues(logData);
+    updateProcessStatus_('quarterly_review_status', 'success', client, a, '');
+    logRun_('applyQuarterlyProposals', client, 'success', a, started, `rejected=${d};hold=${p}`);
+    SpreadsheetApp.getUi().alert(`四半期レビューを適用しました。\n- 承認・適用: ${a} 件\n- 却下: ${d} 件\n- 保留: ${p} 件` + (autoUpdate ? '' : '\nauto_update_enabled=0 のため CALIBRATION_STATE は変更されませんでした'));
+  } catch (err) {
+    logRun_('applyQuarterlyProposals', '', 'error', 0, started, String(err.message || err));
+    SpreadsheetApp.getUi().alert('C-2 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function appendCalibrationHistory_(client, quarterLabel, reviewId, factorName, oldValue, newValue, rollbackHint) {
+  try {
+    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CALIBRATION_HISTORY);
+    sh.appendRow([Utilities.getUuid(), new Date(), Session.getActiveUser().getEmail() || 'unknown', client, quarterLabel || '', reviewId || '', factorName || '', String(oldValue || ''), String(newValue || ''), rollbackHint || '']);
+  } catch (err) {
+    // 履歴失敗は処理継続
+  }
+}
+
+function openQuarterlyReviewLog() {
+  const started = new Date();
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW_LOG);
+    if (!sh) throw new Error('QUARTERLY_REVIEW_LOG がありません');
+    sh.showSheet();
+    ss.setActiveSheet(sh);
+    ss.toast('閲覧を終えたら閉じるかシートを非表示にできます', MENU_NAME, 6);
+    logRun_('openQuarterlyReviewLog', '', 'success', Math.max(0, sh.getLastRow() - 1), started, '');
+  } catch (err) {
+    logRun_('openQuarterlyReviewLog', '', 'error', 0, started, String(err.message || err));
+    SpreadsheetApp.getUi().alert('C-3 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
