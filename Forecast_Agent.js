@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / step 3c-3b
+ * Forecast Agent v8 track / step 3c-3c prep
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -9,8 +9,8 @@
  * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
  ***************************************/
 
-const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step3c3b-lmdi';
+const VERSION = '2.1.0-dev';
+const BUILD_STAGE = 'v8-step3c3c-prep';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -198,7 +198,7 @@ const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視�
 const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
 const DLM_Z10 = -1.2815515594;             // 標準正規10%点
 const DLM_Z90 =  1.2815515594;             // 標準正規90%点
-const DLM_BUILD_STAGE = 'v8-step3c3b-lmdi';
+const DLM_BUILD_STAGE = 'v8-step3c3c-prep';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -1254,6 +1254,30 @@ function buildEngineModeText_(result) {
   return '予測エンジン: 既存Ops（トレンド+季節）';
 }
 
+function buildReliabilityText_(result) {
+  const apply = !!(result && result.reliabilityApply);
+  const count = Number((result && result.nonDefaultReliabilityCount) || 0);
+  const map = (((result || {}).reliabilityInputs || {}).reliabilityMap) || new Map();
+  const active = [];
+  if (map && typeof map.forEach === 'function') {
+    map.forEach((value, source) => {
+      const r = Number(value);
+      if (!isFinite(r) || Math.abs(r - 1) <= 1e-9) return;
+      active.push(`${source}=${r.toFixed(2)}`);
+    });
+  }
+  active.sort();
+  let detail = '';
+  if (apply && active.length > 0) {
+    const shown = active.slice(0, 5);
+    if (active.length > 5) shown.push(`ほか ${active.length - 5}件`);
+    detail = ` / 適用中=${shown.join(', ')}`;
+  } else if (apply) {
+    detail = ' / （手入力なし＝全ソース中立1.0 / 予測は信頼度未適用と同じ）';
+  }
+  return `Source Reliability: ${apply ? 'ON' : 'OFF'} / 非1.0ソース数=${count}${detail} / SPOT上限基準=${(result && result.spotCapBasis) || 'dlm'}`;
+}
+
 function writeOutputFY_(result) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
@@ -1297,7 +1321,7 @@ function writeOutputFY_(result) {
   const calText = buildOutputCalibrationSummary_(result);
   const engineText = buildEngineModeText_(result);
   const subjectiveCapText = '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。';
-  const reliabilityText = `Source Reliability: ${result.reliabilityApply ? 'ON' : 'OFF'} / 非1.0ソース数=${Number(result.nonDefaultReliabilityCount || 0)} / SPOT上限基準=${result.spotCapBasis || 'dlm'}`;
+  const reliabilityText = buildReliabilityText_(result);
   sh.getRange(6, 1, 1, 6).merge();
   sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
@@ -2194,7 +2218,7 @@ function buildCONFIG_() {
   sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
   sh.getRange(warnStart + 1, 2, a9Rows.length, 1).setWrap(true);
 
-  // 管理者が参照しやすいよう固定位置に配置（B32以降を実値として利用）
+  // 管理者が参照しやすいよう上段に配置（読取はラベルキー照合）
   const tuneStart = 31;
   const tuneHdr = [['モデル調整パラメータ', '値（必要時のみ調整）']];
   const tuneRows = [
@@ -2239,7 +2263,7 @@ function buildCONFIG_() {
     ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01],
     ['DLM_ENGINE_MODE（off/shadow/primary）', 'off'],
     ['DLM_PRIMARY_SPOT_CAP_BASIS（dlm/ols）', 'dlm'],
-    ['RELIABILITY_APPLY_ENABLED（0/1）', 0],
+    ['RELIABILITY_APPLY_ENABLED（0/1）', 1],
     ['RELIABILITY_R_MIN', 0.0],
     ['RELIABILITY_R_MAX', 1.5],
     ['RELIABILITY_SHRINKAGE_K', 4],
@@ -2299,7 +2323,7 @@ function buildCONFIG_() {
   sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
   sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
   sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
-  safeSetNote_(sh, policyStart, 1, 'CONFIG!B32:B56 は既存チューニング参照です。この下段に運用思想を追記しています。');
+  safeSetNote_(sh, policyStart, 1, 'CONFIGのモデル調整パラメータはラベルキーで参照します。この下段に運用思想を追記しています。');
   safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
   safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
@@ -3120,6 +3144,33 @@ function getPeopleListFromConfig_() {
   return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 }
 
+/** CONFIGラベルから「（」または「(」より前のキー部分を切り出す */
+function configKeyOf_(label) {
+  const s = String(label || '').trim();
+  const idx = s.search(/[（(]/);
+  return (idx >= 0 ? s.slice(0, idx) : s).trim();
+}
+
+/** CONFIG A:B 全体を読み、キー切り出し＋完全一致のマップを返す */
+function readConfigLabelMap_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const map = {};
+  if (!cfg) return map;
+  try {
+    const last = cfg.getLastRow();
+    if (last < 1) return map;
+    const rows = cfg.getRange(1, 1, last, 2).getValues();
+    rows.forEach(r => {
+      const key = configKeyOf_(r[0]);
+      if (key) map[key] = r[1];
+    });
+  } catch (err) {
+    // CONFIG読取失敗時は空mapとして扱い、呼び出し側で既定値へフォールバックする
+  }
+  return map;
+}
+
 function readModelTuningFromConfig_() {
   const out = {
     spotBgShrink: SPOT_BG_SHRINK,
@@ -3167,137 +3218,79 @@ function readModelTuningFromConfig_() {
     reliabilityMinChange: 0.05
   };
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) return out;
-
-  const getNum = (aCell, def) => {
-    const v = Number(cfg.getRange(aCell).getValue());
-    return isFinite(v) ? v : def;
-  };
-  const labelMap = {};
-  try {
-    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
-    rows.forEach(r => {
-      const key = String(r[0] || '').trim();
-      if (!key) return;
-      labelMap[key] = Number(r[1]);
-    });
-  } catch (err) {
-    // CONFIG読取失敗時は既定値
-  }
-  const getNumByLabel = (label, def) => {
-    const v = Number(labelMap[label]);
+  const labelMap = readConfigLabelMap_();
+  const getCfg = (key, def) => {
+    const v = Number(labelMap[key]);
     return isFinite(v) ? v : def;
   };
 
-  out.spotBgShrink = Math.max(0, Math.min(1, getNum('B32', out.spotBgShrink)));
-  out.spotBgFloorRate = Math.max(0, Math.min(1, getNum('B33', out.spotBgFloorRate)));
-  out.spotBgCapRate = Math.max(0, Math.min(1, getNum('B34', out.spotBgCapRate)));
-  out.aiWeight = Math.max(0, Math.min(0.01, getNum('B35', out.aiWeight)));
-  out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getNum('B36', out.aiMaxAbsEffect)));
-  out.spotSpikeMadK = Math.max(0.5, Math.min(10, getNum('B37', out.spotSpikeMadK)));
-  out.knownSpotOffsetRate = Math.max(0, Math.min(1, getNum('B38', out.knownSpotOffsetRate)));
-  out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getNum('B39', out.knownSpotBgSuppressRate)));
-  out.qualShareAlertThreshold = Math.max(0, Math.min(1, getNum('B40', out.qualShareAlertThreshold)));
-  out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getNum('B41', out.qualShareTargetCenter)));
-  out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getNum('B42', out.qualShareTargetLow)));
-  out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getNum('B43', out.qualShareTargetHigh)));
-  out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getNum('B45', out.qualSubjectiveMonthlyCap)));
-  out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getNum('B46', out.qualCalibrationEnabled))));
-  out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getNum('B47', out.seasonalYearWeightY1)));
-  out.seasonalYearWeightY2 = Math.max(0, Math.min(1, getNum('B48', out.seasonalYearWeightY2)));
-  out.seasonalYearWeightY3 = Math.max(0, Math.min(1, getNum('B49', out.seasonalYearWeightY3)));
-  out.seasonalYearWeightY4 = Math.max(0, Math.min(1, getNum('B50', out.seasonalYearWeightY4)));
-  out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getNum('B51', out.seasonalOpenMonthWeightMult)));
-  out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getNum('B52', out.seasonalWeightedMadK)));
-  out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getNum('B53', out.seasonalCompareWarnThreshold)));
-  out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getNum('B54', out.aiTotalNeutralThreshold)));
-  out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getNum('B55', out.aiQualityNeutralThreshold)));
-  out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getNum('B56', out.aiQualityPartialThreshold)));
-  out.quarterlyReviewPeriodMonths = Math.max(3, Math.min(12, getNumByLabel('QUARTERLY_REVIEW_PERIOD_MONTHS', out.quarterlyReviewPeriodMonths)));
-  out.biasCorrectionDamping = Math.max(0.01, Math.min(1, getNumByLabel('BIAS_CORRECTION_DAMPING', out.biasCorrectionDamping)));
-  out.biasCorrectionClipLow = Math.max(0.5, Math.min(1, getNumByLabel('BIAS_CORRECTION_CLIP_LOW', out.biasCorrectionClipLow)));
-  out.biasCorrectionClipHigh = Math.max(1, Math.min(2, getNumByLabel('BIAS_CORRECTION_CLIP_HIGH', out.biasCorrectionClipHigh)));
-  out.biasCorrectionMinTrigger = Math.max(0, Math.min(0.5, getNumByLabel('BIAS_CORRECTION_MIN_TRIGGER', out.biasCorrectionMinTrigger)));
-  out.aiDirectionHitStrong = Math.max(0.5, Math.min(1, getNumByLabel('AI_DIRECTION_HIT_STRONG', out.aiDirectionHitStrong)));
-  out.aiDirectionHitWeak = Math.max(0.1, Math.min(out.aiDirectionHitStrong, getNumByLabel('AI_DIRECTION_HIT_WEAK', out.aiDirectionHitWeak)));
-  out.aiEffectMinMeaningful = Math.max(0, Math.min(0.1, getNumByLabel('AI_EFFECT_MIN_MEANINGFUL', out.aiEffectMinMeaningful)));
-  out.aiWeightProposalMin = Math.max(0, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MIN', out.aiWeightProposalMin)));
-  out.aiWeightProposalMax = Math.max(out.aiWeightProposalMin, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MAX', out.aiWeightProposalMax)));
-  out.dlmBacktestMinMonths = Math.round(Math.max(12, Math.min(48, getNumByLabel('DLM_BACKTEST_MIN_MONTHS（バックテスト最低確定月数）', out.dlmBacktestMinMonths))));
-  out.dlmBacktestStartOrigin = Math.round(Math.max(12, Math.min(47, getNumByLabel('DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', out.dlmBacktestStartOrigin))));
-  out.dlmForecastHorizon = Math.round(Math.max(1, Math.min(12, getNumByLabel('DLM_FORECAST_HORIZON（バックテスト先読み月数）', out.dlmForecastHorizon))));
-  out.dlmLogEpsilonRate = Math.max(0.0001, Math.min(0.5, getNumByLabel('DLM_LOG_EPSILON_RATE（対数下限=median比）', out.dlmLogEpsilonRate)));
-  out.reliabilityRMin = Math.max(0, Math.min(1, getNumByLabel('RELIABILITY_R_MIN', out.reliabilityRMin)));
-  out.reliabilityRMax = Math.max(out.reliabilityRMin, Math.min(3, getNumByLabel('RELIABILITY_R_MAX', out.reliabilityRMax)));
-  out.reliabilityShrinkageK = Math.max(0, Math.min(50, getNumByLabel('RELIABILITY_SHRINKAGE_K', out.reliabilityShrinkageK)));
-  out.reliabilityMinSamples = Math.round(Math.max(1, Math.min(12, getNumByLabel('RELIABILITY_MIN_SAMPLES', out.reliabilityMinSamples))));
-  out.reliabilityMinChange = Math.max(0, Math.min(1, getNumByLabel('RELIABILITY_MIN_CHANGE', out.reliabilityMinChange)));
+  out.spotBgShrink = Math.max(0, Math.min(1, getCfg('SPOT_BG_SHRINK', out.spotBgShrink)));
+  out.spotBgFloorRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_FLOOR_RATE', out.spotBgFloorRate)));
+  out.spotBgCapRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_CAP_RATE', out.spotBgCapRate)));
+  out.aiWeight = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT', out.aiWeight)));
+  out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getCfg('AI_MAX_ABS_EFFECT', out.aiMaxAbsEffect)));
+  out.spotSpikeMadK = Math.max(0.5, Math.min(10, getCfg('SPOT_SPIKE_MAD_K', out.spotSpikeMadK)));
+  out.knownSpotOffsetRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_OFFSET_RATE', out.knownSpotOffsetRate)));
+  out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_BG_SUPPRESS_RATE', out.knownSpotBgSuppressRate)));
+  out.qualShareAlertThreshold = Math.max(0, Math.min(1, getCfg('QUAL_SHARE_ALERT_THRESHOLD', out.qualShareAlertThreshold)));
+  out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getCfg('QUAL_SHARE_TARGET_CENTER', out.qualShareTargetCenter)));
+  out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getCfg('QUAL_SHARE_TARGET_LOW', out.qualShareTargetLow)));
+  out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getCfg('QUAL_SHARE_TARGET_HIGH', out.qualShareTargetHigh)));
+  out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getCfg('QUAL_SUBJECTIVE_MONTHLY_CAP', out.qualSubjectiveMonthlyCap)));
+  out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getCfg('QUAL_CALIBRATION_ENABLED', out.qualCalibrationEnabled))));
+  out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getCfg('SEASONAL_YEAR_WEIGHT_Y1', out.seasonalYearWeightY1)));
+  out.seasonalYearWeightY2 = Math.max(0, Math.min(1, getCfg('SEASONAL_YEAR_WEIGHT_Y2', out.seasonalYearWeightY2)));
+  out.seasonalYearWeightY3 = Math.max(0, Math.min(1, getCfg('SEASONAL_YEAR_WEIGHT_Y3', out.seasonalYearWeightY3)));
+  out.seasonalYearWeightY4 = Math.max(0, Math.min(1, getCfg('SEASONAL_YEAR_WEIGHT_Y4', out.seasonalYearWeightY4)));
+  out.seasonalOpenMonthWeightMult = Math.max(0.1, Math.min(1, getCfg('SEASONAL_OPEN_MONTH_WEIGHT_MULT', out.seasonalOpenMonthWeightMult)));
+  out.seasonalWeightedMadK = Math.max(0.5, Math.min(10, getCfg('SEASONAL_WEIGHTED_MAD_K', out.seasonalWeightedMadK)));
+  out.seasonalCompareWarnThreshold = Math.max(0.01, Math.min(1, getCfg('SEASONAL_COMPARE_WARN_THRESHOLD', out.seasonalCompareWarnThreshold)));
+  out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getCfg('AI_TOTAL_NEUTRAL_THRESHOLD', out.aiTotalNeutralThreshold)));
+  out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getCfg('AI_QUALITY_NEUTRAL_THRESHOLD', out.aiQualityNeutralThreshold)));
+  out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getCfg('AI_QUALITY_PARTIAL_THRESHOLD', out.aiQualityPartialThreshold)));
+  out.quarterlyReviewPeriodMonths = Math.max(3, Math.min(12, getCfg('QUARTERLY_REVIEW_PERIOD_MONTHS', out.quarterlyReviewPeriodMonths)));
+  out.biasCorrectionDamping = Math.max(0.01, Math.min(1, getCfg('BIAS_CORRECTION_DAMPING', out.biasCorrectionDamping)));
+  out.biasCorrectionClipLow = Math.max(0.5, Math.min(1, getCfg('BIAS_CORRECTION_CLIP_LOW', out.biasCorrectionClipLow)));
+  out.biasCorrectionClipHigh = Math.max(1, Math.min(2, getCfg('BIAS_CORRECTION_CLIP_HIGH', out.biasCorrectionClipHigh)));
+  out.biasCorrectionMinTrigger = Math.max(0, Math.min(0.5, getCfg('BIAS_CORRECTION_MIN_TRIGGER', out.biasCorrectionMinTrigger)));
+  out.aiDirectionHitStrong = Math.max(0.5, Math.min(1, getCfg('AI_DIRECTION_HIT_STRONG', out.aiDirectionHitStrong)));
+  out.aiDirectionHitWeak = Math.max(0.1, Math.min(out.aiDirectionHitStrong, getCfg('AI_DIRECTION_HIT_WEAK', out.aiDirectionHitWeak)));
+  out.aiEffectMinMeaningful = Math.max(0, Math.min(0.1, getCfg('AI_EFFECT_MIN_MEANINGFUL', out.aiEffectMinMeaningful)));
+  out.aiWeightProposalMin = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT_PROPOSAL_MIN', out.aiWeightProposalMin)));
+  out.aiWeightProposalMax = Math.max(out.aiWeightProposalMin, Math.min(0.01, getCfg('AI_WEIGHT_PROPOSAL_MAX', out.aiWeightProposalMax)));
+  out.dlmBacktestMinMonths = Math.round(Math.max(12, Math.min(48, getCfg('DLM_BACKTEST_MIN_MONTHS', out.dlmBacktestMinMonths))));
+  out.dlmBacktestStartOrigin = Math.round(Math.max(12, Math.min(47, getCfg('DLM_BACKTEST_START_ORIGIN', out.dlmBacktestStartOrigin))));
+  out.dlmForecastHorizon = Math.round(Math.max(1, Math.min(12, getCfg('DLM_FORECAST_HORIZON', out.dlmForecastHorizon))));
+  out.dlmLogEpsilonRate = Math.max(0.0001, Math.min(0.5, getCfg('DLM_LOG_EPSILON_RATE', out.dlmLogEpsilonRate)));
+  out.reliabilityRMin = Math.max(0, Math.min(1, getCfg('RELIABILITY_R_MIN', out.reliabilityRMin)));
+  out.reliabilityRMax = Math.max(out.reliabilityRMin, Math.min(3, getCfg('RELIABILITY_R_MAX', out.reliabilityRMax)));
+  out.reliabilityShrinkageK = Math.max(0, Math.min(50, getCfg('RELIABILITY_SHRINKAGE_K', out.reliabilityShrinkageK)));
+  out.reliabilityMinSamples = Math.round(Math.max(1, Math.min(12, getCfg('RELIABILITY_MIN_SAMPLES', out.reliabilityMinSamples))));
+  out.reliabilityMinChange = Math.max(0, Math.min(1, getCfg('RELIABILITY_MIN_CHANGE', out.reliabilityMinChange)));
   return out;
 }
 
 function readDlmEngineMode_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) return 'off';
-  try {
-    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || '').indexOf('DLM_ENGINE_MODE') === 0) {
-        const v = String(rows[i][1] || '').trim().toLowerCase();
-        return (v === 'shadow' || v === 'primary') ? v : 'off';
-      }
-    }
-  } catch (e) {
-    // 読取失敗時は既定off
-  }
+  const labelMap = readConfigLabelMap_();
+  const v = String(labelMap.DLM_ENGINE_MODE || '').trim().toLowerCase();
+  if (v === 'shadow' || v === 'primary') return v;
   return 'off';
 }
 
 function readReliabilityApplyEnabled_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) return false;
-  try {
-    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || '').indexOf('RELIABILITY_APPLY_ENABLED（0/1）') === 0) {
-        return Number(rows[i][1] || 0) > 0;
-      }
-    }
-  } catch (e) {}
-  return false;
+  const labelMap = readConfigLabelMap_();
+  return Number(labelMap.RELIABILITY_APPLY_ENABLED || 0) > 0;
 }
 
 function readLmdiDecompositionEnabled_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) return false;
-  try {
-    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || '').indexOf('LMDI_DECOMPOSITION_ENABLED') === 0) {
-        return Number(rows[i][1] || 0) > 0;
-      }
-    }
-  } catch (e) {}
-  return false;
+  const labelMap = readConfigLabelMap_();
+  return Number(labelMap.LMDI_DECOMPOSITION_ENABLED || 0) > 0;
 }
 
 function readDlmPrimarySpotCapBasis_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) return 'dlm';
-  try {
-    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || '').indexOf('DLM_PRIMARY_SPOT_CAP_BASIS（dlm/ols）') === 0) {
-        const v = String(rows[i][1] || '').trim().toLowerCase();
-        return v === 'ols' ? 'ols' : 'dlm';
-      }
-    }
-  } catch (e) {}
+  const labelMap = readConfigLabelMap_();
+  const v = String(labelMap.DLM_PRIMARY_SPOT_CAP_BASIS || '').trim().toLowerCase();
+  if (v === 'ols') return 'ols';
   return 'dlm';
 }
 
@@ -5706,6 +5699,20 @@ function ensureSheetHeaders_(sh, headers) {
   }
 }
 
+function headerIndexMap_(header) {
+  const idx = {};
+  (header || []).forEach((h, i) => {
+    const key = String(h || '').trim();
+    if (key) idx[key] = i;
+  });
+  return idx;
+}
+
+function requireHeaderIndex_(idx, sheetName, key) {
+  if (idx[key] === undefined) throw new Error(`${sheetName} に ${key} 列がありません。`);
+  return idx[key];
+}
+
 function applySectionGapRows_(sh, rows) {
   if (!sh || !rows || !rows.length) return;
   rows.forEach(r => {
@@ -6444,10 +6451,12 @@ function updatePhase1EvaluationReport() {
     const scenario = String(r[4] || '');
     const role = scenario === 'neutral' ? 'P50' : (scenario === 'nega' ? 'P10' : (scenario === 'posi' ? 'P90' : ''));
     const rangeContains = (p10Map.has(r[3]) && p90Map.has(r[3])) ? ((act >= p10Map.get(r[3]) && act <= p90Map.get(r[3])) ? 1 : 0) : '';
+    const isPlanningPoint = (scenario === 'neutral') ? 1 : 0;
+    const constraintRelevant = (scenario === 'neutral') ? 1 : 0;
     evalRows.push([
       Utilities.getUuid(), new Date(), r[2], r[3], scenario, pred, act, ape, 0, 'model_limitation',
       role,
-      scenario === 'neutral' ? 1 : 0,
+      isPlanningPoint,
       signed,
       absErr,
       signed > 0 ? 'over' : (signed < 0 ? 'under' : 'exact'),
@@ -6457,7 +6466,7 @@ function updatePhase1EvaluationReport() {
       fyLabelFromYm_(r[3]),
       VERSION,
       EVALUATION_POLICY_VERSION,
-      scenario === 'neutral' ? 1 : 0
+      constraintRelevant
     ]);
   });
   const out = ss.getSheetByName(SHEETS.EVAL_LOG);
@@ -7148,7 +7157,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、warn_coerced_detail.quality が計上されることを確認。
  * 24) Gem event 行のタブ不足TSVで A-9 実行時、warn_coerced_detail.colcount が増え、半分未満行のみinvalidになることを確認。
  * 25) AI_RESEARCH_PROMPT!G列に tsv_diagnostics が出力され、各行のタブ数/topic が確認できることを確認。
- * 26) RELIABILITY_APPLY_ENABLED=0 かつ SOURCE_RELIABILITY 空で、A-9 の OUTPUT が 3c-1 と一致（no-op）。
+ * 26) RELIABILITY_APPLY_ENABLED 既定=1。SOURCE_RELIABILITY 空なら、A-9 の OUTPUT が信頼度OFF時と一致（no-op）。
  * 27) A-1 で SUBJECTIVE_IMPACT_HISTORY が新規・非表示で作成され、A-9 で push 行が追記される。
  * 28) SOURCE_RELIABILITY に opinion:担当者=0.5 を手入力＋ENABLED=1 で、その担当者のopinion寄与が約半減。
  * 29) ai_topic:Market=0 を設定すると Market が kAI に寄与しない。
@@ -7156,6 +7165,14 @@ function syncSalesFromSalesInput_(fy, client) {
  * 31) 実績3か月未満で C-1 が reliability 提案を出さず正常終了。
  * 32) 実績3か月以上で reliability:* 提案が QUARTERLY_REVIEW に出て承認列が効く。
  * 33) C-2 承認で SOURCE_RELIABILITY upsert・CALIBRATION_HISTORY 追記・LOG applied=1、auto_update_enabled=0 で SOURCE_RELIABILITY 不変。
+ *
+ * HOW TO TEST (v1.8)
+ * 1) CONFIG tuneRowsに一時ダミー行を挿入してもA-9のチューニング値が正しい（番地非依存化）。
+ * 2) RELIABILITY_APPLY_ENABLED 既定=1。SOURCE_RELIABILITY 空ならA-9結果は信頼度OFF時と一致（no-op）。
+ * 3) SOURCE_RELIABILITY に ai_topic:Market=0.5 → OUTPUTに内訳表示、kAI寄与が半減。
+ * 4) 3か月分の neutral 実績が揃った状態でC-1 → reliability:* 提案が出る。
+ * 5) EVAL_LOG等のヘッダ列順を入替えてもC-1突合が壊れない（idx参照化）。
+ * 6) is_planning_point_estimate と constraint_relevant_flag を別変数で定義しても従来と同じ値が入る。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
@@ -7479,21 +7496,46 @@ function runQuarterlyReview() {
 function collectQuarterlyReviewData_(client) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const evalRows = ss.getSheetByName(SHEETS.EVAL_LOG).getDataRange().getValues().slice(1)
-      .filter(r => String(r[2] || '') === client && String(r[4] || '') === 'neutral' && String(r[21] || '') === '1');
-    const months = Array.from(new Set(evalRows.map(r => String(r[3] || '')))).sort();
+    const evalValues = ss.getSheetByName(SHEETS.EVAL_LOG).getDataRange().getValues();
+    const evalIdx = headerIndexMap_(evalValues[0] || []);
+    const evalClientIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'client');
+    const evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
+    const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
+    requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
+    const evalConstraintIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'constraint_relevant_flag');
+    const evalRows = evalValues.slice(1)
+      .filter(r => String(r[evalClientIdx] || '') === client && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
+    const months = Array.from(new Set(evalRows.map(r => String(r[evalTargetMonthIdx] || '')))).sort();
     const last3 = months.slice(-3);
     if (last3.length < 3) {
-      return { ready: false, missingMonths: 3 - last3.length, months: last3, client };
+      return { ready: false, missingMonths: 3 - last3.length, months: last3, client, evalIdx };
     }
-    const impacts = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY).getDataRange().getValues().slice(1)
-      .filter(r => String(r[2] || '') === client && last3.indexOf(String(r[3] || '')) >= 0);
+    const impactValues = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY).getDataRange().getValues();
+    const impactIdx = headerIndexMap_(impactValues[0] || []);
+    const impactClientIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'client');
+    const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
+    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
+    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
+    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+    const impacts = impactValues.slice(1)
+      .filter(r => String(r[impactClientIdx] || '') === client && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
     const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
-    const subjectiveImpacts = subjSh ? subjSh.getDataRange().getValues().slice(1)
-      .filter(r => String(r[2] || '') === client && last3.indexOf(String(r[3] || '')) >= 0) : [];
+    let subjectiveImpactIdx = {};
+    let subjectiveImpacts = [];
+    if (subjSh) {
+      const subjectiveValues = subjSh.getDataRange().getValues();
+      subjectiveImpactIdx = headerIndexMap_(subjectiveValues[0] || []);
+      const subjClientIdx = requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'client');
+      const subjTargetMonthIdx = requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
+      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
+      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
+      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
+      subjectiveImpacts = subjectiveValues.slice(1)
+        .filter(r => String(r[subjClientIdx] || '') === client && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
+    }
     const scores = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY).getDataRange().getValues().slice(1)
       .filter(r => String(r[2] || '') === client);
-    return { ready: true, client, months: last3, evalRows, impacts, scores, subjectiveImpacts, calibration: readCalibrationState_(client) };
+    return { ready: true, client, months: last3, evalRows, impacts, scores, subjectiveImpacts, evalIdx, impactIdx, subjectiveImpactIdx, calibration: readCalibrationState_(client) };
   } catch (err) {
     throw err;
   }
@@ -7503,20 +7545,28 @@ function generateQuarterlyProposals_(data) {
   const proposals = [];
   const cal = data.calibration || createDefaultCalibrationState_(data.client);
   const tuning = readModelTuningFromConfig_();
-  const evalMap = new Map(data.evalRows.map(r => [String(r[3] || ''), Number(r[6] || 0)]));
+  const evalIdx = data.evalIdx || {};
+  const impactIdx = data.impactIdx || {};
+  const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
+  const evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
+  const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
+  const impactKIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
+  const impactDirectionIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
+  const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+  const evalMap = new Map(data.evalRows.map(r => [String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0)]));
   let hit = 0; let den = 0;
   data.impacts.forEach(r => {
-    const ym = String(r[3] || '');
-    const aiDir = String(r[6] || 'flat');
+    const ym = String(r[impactTargetMonthIdx] || '');
+    const aiDir = String(r[impactDirectionIdx] || 'flat');
     const actual = Number(evalMap.get(ym) || 0);
-    const q = Number(r[8] || 0);
+    const q = Number(r[impactQuantOnlyIdx] || 0);
     const actualDir = actual > q * 1.01 ? 'up' : (actual < q * 0.99 ? 'down' : 'flat');
     if (actualDir === 'flat') return;
     den += 1;
     if (actualDir === aiDir) hit += 1;
   });
   const hitRate = den > 0 ? hit / den : 0;
-  const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[4] || 1) - 1))) : 0;
+  const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[impactKIdx] || 1) - 1))) : 0;
   const curWeight = isFinite(Number(cal.ai_weight_override)) ? Number(cal.ai_weight_override) : readModelTuningFromConfig_().aiWeight;
   let proposedWeight = null;
   let conf = '';
@@ -7531,31 +7581,44 @@ function generateQuarterlyProposals_(data) {
 
 function generateReliabilityProposals_(data) {
   if (!data || !data.ready || !data.months || data.months.length < 3) return [];
+  if (!data.subjectiveImpacts || !data.subjectiveImpacts.length) return [];
   const tuning = readModelTuningFromConfig_();
   const current = readSourceReliability_(data.client);
+  const evalIdx = data.evalIdx || {};
+  const impactIdx = data.impactIdx || {};
+  const subjectiveIdx = data.subjectiveImpactIdx || {};
+  const evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
+  const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
+  const evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
+  const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
+  const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+  const subjTargetMonthIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
+  const subjTypeIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
+  const subjKeyIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
+  const subjPushDirectionIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
   const evalActualByMonth = new Map();
   (data.evalRows || []).forEach(r => {
-    if (String(r[4] || '') !== 'neutral') return;
-    evalActualByMonth.set(String(r[3] || ''), Number(r[6] || 0));
+    if (String(r[evalScenarioIdx] || '') !== 'neutral') return;
+    evalActualByMonth.set(String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0));
   });
   const quantByMonth = new Map();
   (data.impacts || []).forEach(r => {
-    const ym = String(r[3] || '');
+    const ym = String(r[impactTargetMonthIdx] || '');
     if (!ym) return;
-    quantByMonth.set(ym, Number(r[8] || 0));
+    quantByMonth.set(ym, Number(r[impactQuantOnlyIdx] || 0));
   });
 
   const grouped = new Map();
   (data.subjectiveImpacts || []).forEach(r => {
-    const ym = String(r[3] || '');
+    const ym = String(r[subjTargetMonthIdx] || '');
     const actual = Number(evalActualByMonth.get(ym));
     const quant = Number(quantByMonth.get(ym));
     if (!isFinite(actual) || !isFinite(quant)) return;
     const surpriseDir = Math.sign(actual - quant);
     if (!surpriseDir) return;
-    const type = String(r[4] || '').trim();
-    const key = String(r[5] || '').trim();
-    const pushDir = Math.sign(Number(r[7] || 0));
+    const type = String(r[subjTypeIdx] || '').trim();
+    const key = String(r[subjKeyIdx] || '').trim();
+    const pushDir = Math.sign(Number(r[subjPushDirectionIdx] || 0));
     if (!type || !key || !pushDir) return;
     const gKey = `${type}:${key}`;
     if (!grouped.has(gKey)) grouped.set(gKey, { type, key, n: 0, hit: 0 });
