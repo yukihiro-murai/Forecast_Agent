@@ -11,7 +11,8 @@
  * - HOW TO TEST を四半期運用向けに更新
  ***************************************/
 
-const VERSION = '1.6';
+const VERSION = '2.0.0-dev';
+const BUILD_STAGE = 'v8-step1-foundation';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -87,7 +88,15 @@ const SHEETS = {
   CALIBRATION_STATE: 'CALIBRATION_STATE',
   CALIBRATION_HISTORY: 'CALIBRATION_HISTORY',
   QUARTERLY_REVIEW: 'QUARTERLY_REVIEW',
-  QUARTERLY_REVIEW_LOG: 'QUARTERLY_REVIEW_LOG'
+  QUARTERLY_REVIEW_LOG: 'QUARTERLY_REVIEW_LOG',
+  DLM_STATE: 'DLM_STATE',
+  SOURCE_RELIABILITY: 'SOURCE_RELIABILITY',
+  POOL_PRIOR: 'POOL_PRIOR',
+  BUDGET_FROZEN: 'BUDGET_FROZEN',
+  LANDING_FORECAST: 'LANDING_FORECAST',
+  BACKTEST_REPORT: 'BACKTEST_REPORT',
+  AI_RESEARCH_EXTERNAL: 'AI_RESEARCH_EXTERNAL',
+  AI_RESEARCH_WEB: 'AI_RESEARCH_WEB'
 };
 
 // 入力セル背景
@@ -334,7 +343,15 @@ function setupForecastBook() {
     SHEETS.CALIBRATION_STATE,
     SHEETS.CALIBRATION_HISTORY,
     SHEETS.QUARTERLY_REVIEW,
-    SHEETS.QUARTERLY_REVIEW_LOG
+    SHEETS.QUARTERLY_REVIEW_LOG,
+    SHEETS.DLM_STATE,
+    SHEETS.SOURCE_RELIABILITY,
+    SHEETS.POOL_PRIOR,
+    SHEETS.BUDGET_FROZEN,
+    SHEETS.LANDING_FORECAST,
+    SHEETS.BACKTEST_REPORT,
+    SHEETS.AI_RESEARCH_EXTERNAL,
+    SHEETS.AI_RESEARCH_WEB
   ];
 
   try {
@@ -4733,6 +4750,14 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW_LOG, ['review_id','proposal_id','reviewed_at','client','quarter_label','quarter_start_month','quarter_end_month','phase','target_field','current_value','proposed_value','confidence','rationale','impact_estimate','rollback_hint','approval_status','approval_decided_at','approval_decided_by','applied','applied_at','diagnostic_metrics_json']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
+  buildSimpleSheet_(ss, SHEETS.DLM_STATE, ['client','fy','updated_at','updated_by','last_observed_month','level_mu','trend_beta','seasonal_json','covariance_json','hyperparams_json','note']);
+  buildSimpleSheet_(ss, SHEETS.SOURCE_RELIABILITY, ['client','source_type','source_key','reliability_r','sample_count','last_eval_window','updated_at','updated_by','note']);
+  buildSimpleSheet_(ss, SHEETS.POOL_PRIOR, ['pool_scope','param_key','pooled_value','precision','n_clients','updated_at','updated_by','note']);
+  buildSimpleSheet_(ss, SHEETS.BUDGET_FROZEN, ['client','fy','target_month','budget_p50','frozen_at','frozen_by','source_run_id','note']);
+  buildSimpleSheet_(ss, SHEETS.LANDING_FORECAST, ['client','fy','target_month','as_of_month','landing_p10','landing_p50','landing_p90','updated_at','source_run_id','note']);
+  buildSimpleSheet_(ss, SHEETS.BACKTEST_REPORT, ['client','fy','run_at','run_by','n_points','smape','wape','bias_rate','coverage_rate','hyperparams_json','note']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_EXTERNAL, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_WEB, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
   initializeProcessStatus_();
 }
 
@@ -4973,35 +4998,35 @@ function classifyServiceType_(serviceCategoryRaw) {
   return 'OTHER';
 }
 
-function importMonthlyFromExternal_(targetSheetName, withStatus) {
-  const started = new Date();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(targetSheetName);
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const targetClient = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
-  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+/**
+ * 取得元アダプタ：外部実績ソースから、指定クライアント・指定月レンジの
+ * 月次レコードを返す。将来 ZAC WebAPI へ差し替える場合は本関数のみ差し替える。
+ * 戻り値: [{ client, serviceType:'BASE'|'SPOT', product, monthStart:Date, amount:Number }]
+ *  - serviceType が 'OTHER' のレコードは含めない（classifyServiceType_ の判定に従う）
+ *  - monthStart は当該月の1日（new Date(y, m, 1)）
+ *  - 並び替えは行わない（呼び出し側の責務）
+ * @param {string} client  メーカー名（正規化前でも可。内部で normalizeClientName_ を適用）
+ * @param {{startMonth:Date, endMonth:Date}} opt  取得月レンジ（両端含む・月初基準）
+ */
+function fetchClientMonthlyRecords_(client, opt) {
+  const targetClient = normalizeClientName_(String(client || '').trim());
   if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
 
+  const startMonth = opt && opt.startMonth;
+  const endMonth = opt && opt.endMonth;
   const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
   const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
-
-  const isSalesInput = targetSheetName === SHEETS.SALES_INPUT_MONTHLY;
-  const start = isSalesInput ? new Date(fy - 4, 3, 1) : new Date(fy - 3, 3, 1);
-  const end = isSalesInput ? new Date(fy, 2, 1) : new Date(fy + 1, 2, 1);
-  const rows = [];
-  const now = new Date();
-  const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const records = [];
 
   sheets.forEach(sht => {
-    toastProgress_(ss, `取り込み中: ${sht.getName()}（${rows.length}行取得済み）…`, 3);
     const lastRow = sht.getLastRow();
     if (lastRow < 2) return;
     const readCols = Math.max(EXT_COL_AMOUNT, EXT_COL_DATE_PRIMARY, EXT_COL_DATE_SECONDARY, EXT_COL_SERVICE_CATEGORY, EXT_COL_CATEGORY, EXT_COL_CLIENT);
     const vals = sht.getRange(2, 1, lastRow - 1, readCols).getValues();
     for (let i = 0; i < vals.length; i++) {
       const r = vals[i];
-      const client = String(r[EXT_COL_CLIENT - 1] || '').trim();
-      if (!isSameClient_(client, targetClient)) continue;
+      const rowClient = String(r[EXT_COL_CLIENT - 1] || '').trim();
+      if (!isSameClient_(rowClient, targetClient)) continue;
 
       const serviceCategory = String(r[EXT_COL_SERVICE_CATEGORY - 1] || '').trim();
       const serviceType = classifyServiceType_(serviceCategory);
@@ -5015,19 +5040,46 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
       }
       if (!dt) continue;
       const ym = new Date(dt.getFullYear(), dt.getMonth(), 1);
-      if (ym < start || ym > end) continue;
+      if (ym < startMonth || ym > endMonth) continue;
 
       const product = String(r[EXT_COL_CATEGORY - 1] || '').trim() || serviceType;
       const amount = Number(r[EXT_COL_AMOUNT - 1] || 0);
       if (!isFinite(amount)) continue;
 
-      if (withStatus) {
-        const status = ym >= currMonth ? 'open' : 'closed';
-        rows.push([normalizeClientName_(client), serviceType, product, fmtYM_(ym), amount, status, new Date()]);
-      } else {
-        const closed = ym < currMonth ? 1 : 0;
-        rows.push([normalizeClientName_(client), serviceType, product, fmtYM_(ym), amount, closed, new Date()]);
-      }
+      records.push({ client: normalizeClientName_(rowClient), serviceType, product, monthStart: ym, amount });
+    }
+  });
+
+  return records;
+}
+
+function importMonthlyFromExternal_(targetSheetName, withStatus) {
+  const started = new Date();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(targetSheetName);
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const targetClient = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
+  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+  if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+
+  const isSalesInput = targetSheetName === SHEETS.SALES_INPUT_MONTHLY;
+  const start = isSalesInput ? new Date(fy - 4, 3, 1) : new Date(fy - 3, 3, 1);
+  const end = isSalesInput ? new Date(fy, 2, 1) : new Date(fy + 1, 2, 1);
+  const rows = [];
+  const now = new Date();
+  const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  toastProgress_(ss, '外部実績を取得中…', 3);
+  const records = fetchClientMonthlyRecords_(targetClient, { startMonth: start, endMonth: end });
+  records.forEach(record => {
+    const ym = record.monthStart;
+    const client = normalizeClientName_(record.client);
+    if (withStatus) {
+      const status = ym >= currMonth ? 'open' : 'closed';
+      rows.push([client, record.serviceType, record.product, fmtYM_(ym), record.amount, status, new Date()]);
+    } else {
+      const closed = ym < currMonth ? 1 : 0;
+      rows.push([client, record.serviceType, record.product, fmtYM_(ym), record.amount, closed, new Date()]);
     }
   });
 
@@ -5884,7 +5936,7 @@ function logRun_(fn, client, status, count, startedAt, err) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.RUN_LOG);
   const end = new Date();
   const sec = Math.round((end - startedAt) / 1000);
-  const params = JSON.stringify({N_SIM, SPIKE_CLIP_MIN, SPIKE_CLIP_MAX, TREND_FACTOR_MIN, TREND_FACTOR_MAX});
+  const params = JSON.stringify({N_SIM, SPIKE_CLIP_MIN, SPIKE_CLIP_MAX, TREND_FACTOR_MIN, TREND_FACTOR_MAX, BUILD_STAGE});
   const hash = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, `${fn}|${client}|${end.toISOString()}`));
   sh.appendRow([Utilities.getUuid(), end, Session.getActiveUser().getEmail()||'unknown', fn, client||'', status, count||0, VERSION, params, hash, sec, err||'']);
 }
@@ -5964,18 +6016,21 @@ function applyTabColors_() {
   const colorOutput = '#990000';
   const colorEval = '#38761d';
   const colorGuide = '#666666';
+  const colorInternal = '#434343';
 
   const manual = [SHEETS.FACTORS_PRODUCT, SHEETS.FACTORS_CLIENT, SHEETS.OPINIONS, SHEETS.DEV_SPOT];
   const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
   const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
   const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
+  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB];
 
   manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
   auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
   output.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorOutput); });
   evalSheets.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorEval); });
   guide.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorGuide); });
+  internal.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorInternal); });
 }
 
 function hideNonUserSheets_() {
