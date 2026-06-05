@@ -1,18 +1,16 @@
 /***************************************
- * Forecast Agent v1.6
+ * Forecast Agent v8 track / step 3c-1
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
- * v1.6（今回反映）
- * - 四半期レビュー（C-1/C-2/C-3）を追加
- * - AI履歴（AI_SCORE_HISTORY / AI_IMPACT_HISTORY）を永続追記
- * - キャリブレーション状態（CALIBRATION_STATE）をA-9へ適用
- * - 承認制ワークフロー（提案→承認→適用）を履歴保存
- * - FORECAST_SNAPSHOT末尾に calibration_applied_json を追加
- * - HOW TO TEST を四半期運用向けに更新
+ * 現行反映:
+ * - DLM_ENGINE_MODE（off/shadow/primary）でBASEエンジンを制御
+ * - primary時のみDLMをBASEへ反映、off/shadowは従来挙動を維持
+ * - 主観入力は月次cap内でそのまま反映（overlay率ターゲット探索は撤去）
+ * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step3b-dlm-primary';
+const BUILD_STAGE = 'v8-step3c1-subjective-cap';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -177,7 +175,6 @@ const QUAL_SHARE_ALERT_THRESHOLD = 0.20;  // 定性寄与率アラート閾値�
 const QUAL_SHARE_TARGET_CENTER = 0.15;     // 定性寄与率の目標中心
 const QUAL_SHARE_TARGET_LOW = 0.10;        // 定性寄与率の許容下限
 const QUAL_SHARE_TARGET_HIGH = 0.20;       // 定性寄与率の許容上限
-const QUAL_SUBJECTIVE_MAX_SCALE = 2.50;    // 主観連続差分の最大スケール
 const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual比）
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
@@ -339,8 +336,8 @@ function adminInitDLMAndBacktest() {
   }
 }
 
-// TODO(step-3c): calibrator撤去とSOURCE_RELIABILITYによる主観/AIの学習重み化入口を整理する。
-// TODO(step-3c): primary時の背景SPOT上限基準をDLM基準へ寄せるか検証する。
+// DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
+// TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化と、primary時の背景SPOT上限基準をDLM基準へ寄せるか検証する。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -1328,8 +1325,9 @@ function writeOutputFY_(result) {
   const step3aWarn = readStep3aWarningSummary_();
   const calText = buildOutputCalibrationSummary_(result);
   const engineText = buildEngineModeText_(result);
+  const subjectiveCapText = '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。';
   sh.getRange(6, 1, 1, 6).merge();
-  sh.getRange(6, 1).setValue(engineText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
+  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
     .setFontSize(10).setWrap(true);
   const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
@@ -1352,9 +1350,10 @@ function writeOutputFY_(result) {
   const overlayCalKpi = computeSubjectiveOverlayKpi_(quantP50, subjectiveCalP50, result.sourceByMonth || []);
   const knownSpotKpi = computeKnownSpotKpi_(quantP50, knownSpotP50, result.sourceByMonth || []);
   const hasOpenMonths = !!kpiCal.hasOpenMonths;
+  const subjectiveCap = isFinite(tuningTop.qualSubjectiveMonthlyCap) ? tuningTop.qualSubjectiveMonthlyCap : QUAL_SUBJECTIVE_MONTHLY_CAP;
   const qualWarn = !hasOpenMonths
     ? 'N/A（予測対象月なし）'
-    : ((overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH) ? '⚠ 主観オーバーレイ率が目標帯外です' : 'OK');
+    : `参考: 主観オーバーレイ率 ${(overlayCalKpi.overlayShare * 100).toFixed(1)}%（cap=${(subjectiveCap * 100).toFixed(1)}%）`;
 
   sh.getRange(7, 1).setValue('予測構成サマリー（診断指標）').setFontWeight('bold').setBackground('#e2f0d9');
   sh.getRange(7, 1, 1, 6).merge();
@@ -1370,16 +1369,13 @@ function writeOutputFY_(result) {
   sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(9, 1, 1, 5).setValues([kpiVal]);
   sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
-  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / calibrated）】\nFACTORS_PRODUCT/FACTORS_CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした比率です。\nKnown Spotは含みません。');
+  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / capped）】\nFACTORS_PRODUCT/FACTORS_CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした参考比率です。\nKnown Spotは含みません。3c-1以降、この率は予測制御には使いません。');
   sh.getRange(summaryHeaderRow, 3).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
   sh.getRange(summaryHeaderRow, 4).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
-  sh.getRange(summaryHeaderRow, 5).setNote('【警告】\n主観オーバーレイ率の帯外、AI行不足、レンジ過大など運用注意を表示します。');
+  sh.getRange(summaryHeaderRow, 5).setNote('【警告/参考】\nAI行不足、レンジ過大など運用注意と、主観オーバーレイ率の参考値を表示します。');
   if (hasOpenMonths) {
     sh.getRange(9, 1, 1, 3).setNumberFormat('0.0%');
     sh.getRange(9, 4).setNumberFormat('¥#,##0');
-  }
-  if (hasOpenMonths && (overlayCalKpi.overlayShare < SUBJECTIVE_OVERLAY_TARGET_LOW || overlayCalKpi.overlayShare > SUBJECTIVE_OVERLAY_TARGET_HIGH)) {
-    sh.getRange(9, 5).setBackground('#f4cccc').setFontWeight('bold');
   }
   const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
   const compRow = compDen > 0
@@ -1742,7 +1738,7 @@ function writeOutputFY_(result) {
       row++;
 
       const tailNote = (result.dlmMode === 'primary')
-        ? '※ primaryモード：上記DLM BASEが計画値（上部P50/P10/P90）に反映されています。主観・SPOT・キャリブレータは従来どおりこの上に乗算/加算されます。'
+        ? '※ primaryモード：上記DLM BASEが計画値（上部P50/P10/P90）に反映されています。主観は月次cap内でそのまま、SPOTは従来どおりこの上に乗算/加算されます。'
         : (result.dlmMode === 'primary_fallback')
           ? '※ primary要求でしたが実績不足のためフォールバック。計画値は既存Opsで算出しています。'
           : '※ shadowモード：上記DLM予測は比較・検証用で、計画値には反映していません。primary化はSTEP 3bで実装済み（CONFIGで切替）。';
@@ -1985,7 +1981,7 @@ function buildGUIDE_() {
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
   sh.getRange(last + 3, 1, 10, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
-    ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見）、AI調査、DEV_SPOT。'],
+    ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見、月次cap内でそのまま反映）、AI調査、DEV_SPOT。'],
     ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示します。'],
     ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
     ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
@@ -2006,7 +2002,7 @@ function buildGUIDE_() {
     ['成功KPI/制約', '年間制約', 'annual_abs_error_rate <= 10%'],
     ['成功KPI/制約', '半期制約', 'half_wape <= 12%（将来目標 10%）'],
     ['成功KPI/制約', 'バイアス制約', 'half/annual over-forecast rate <= 5%（underも監視するが優先度はover）'],
-    ['診断KPI', '月次/Q/構成寄与', '月次APE・Q差分・定量寄与率/主観オーバーレイ率/Known Spot寄与率は診断指標として扱う。'],
+    ['診断KPI', '月次/Q/構成寄与', '月次APE・Q差分・定量寄与率/主観オーバーレイ率/Known Spot寄与率は診断指標として扱う（主観overlay率は制御目標ではない）。'],
     ['事後検証', 'レンジ逸脱時の運用', 'actualがP10-P90外ならB-3(EVAL_INSIGHTS)で追加調査を必須化。'],
     ['前提', '業務前提', '1 client = 1 book。前提はCONFIGの環境前提ブロックで管理・更新する。']
   ];
@@ -2123,9 +2119,9 @@ function buildCONFIG_() {
     ['QUAL_SHARE_TARGET_CENTER（定性寄与率目標中心）', QUAL_SHARE_TARGET_CENTER],
     ['QUAL_SHARE_TARGET_LOW（定性寄与率目標下限）', QUAL_SHARE_TARGET_LOW],
     ['QUAL_SHARE_TARGET_HIGH（定性寄与率目標上限）', QUAL_SHARE_TARGET_HIGH],
-    ['QUAL_SUBJECTIVE_MAX_SCALE（主観連続差分の最大スケール）', QUAL_SUBJECTIVE_MAX_SCALE],
-    ['QUAL_SUBJECTIVE_MONTHLY_CAP（月次cap/quantOps基準）', QUAL_SUBJECTIVE_MONTHLY_CAP],
-    ['QUAL_CALIBRATION_ENABLED（1=有効,0=無効）', QUAL_CALIBRATION_ENABLED],
+    ['QUAL_SUBJECTIVE_MAX_SCALE（3c-1で廃止 / 参照しません）', '廃止'],
+    ['QUAL_SUBJECTIVE_MONTHLY_CAP（主観の月次上限 / 唯一の制御点）', QUAL_SUBJECTIVE_MONTHLY_CAP],
+    ['QUAL_CALIBRATION_ENABLED（1=月次cap適用,0=capなし）', QUAL_CALIBRATION_ENABLED],
     ['SEASONAL_YEAR_WEIGHT_Y1（最古年重み）', SEASONAL_YEAR_WEIGHT_Y1],
     ['SEASONAL_YEAR_WEIGHT_Y2', SEASONAL_YEAR_WEIGHT_Y2],
     ['SEASONAL_YEAR_WEIGHT_Y3', SEASONAL_YEAR_WEIGHT_Y3],
@@ -2170,7 +2166,7 @@ function buildCONFIG_() {
     ['成功KPI/制約', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
     ['成功KPI/制約', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
     ['バイアス制約', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%（overを優先管理）`],
-    ['診断KPI', '月次APE、Q差分、quant share、subjective overlay share、known spot share、range outside count。'],
+    ['診断KPI', '月次APE、Q差分、quant share、subjective overlay share（表示のみ）、known spot share、range outside count。'],
     ['レンジ逸脱対応', 'actualがP10-P90外の月はB-3で追加調査（原因仮説・前提更新・入力反映）。'],
     ['前提', '1 client = 1 book'],
     ['評価ポリシーversion', EVALUATION_POLICY_VERSION]
@@ -3039,7 +3035,6 @@ function readModelTuningFromConfig_() {
     qualShareTargetCenter: QUAL_SHARE_TARGET_CENTER,
     qualShareTargetLow: QUAL_SHARE_TARGET_LOW,
     qualShareTargetHigh: QUAL_SHARE_TARGET_HIGH,
-    qualSubjectiveMaxScale: QUAL_SUBJECTIVE_MAX_SCALE,
     qualSubjectiveMonthlyCap: QUAL_SUBJECTIVE_MONTHLY_CAP,
     qualCalibrationEnabled: QUAL_CALIBRATION_ENABLED,
     seasonalYearWeightY1: SEASONAL_YEAR_WEIGHT_Y1,
@@ -3104,7 +3099,6 @@ function readModelTuningFromConfig_() {
   out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getNum('B41', out.qualShareTargetCenter)));
   out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getNum('B42', out.qualShareTargetLow)));
   out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getNum('B43', out.qualShareTargetHigh)));
-  out.qualSubjectiveMaxScale = Math.max(0.1, Math.min(10, getNum('B44', out.qualSubjectiveMaxScale)));
   out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getNum('B45', out.qualSubjectiveMonthlyCap)));
   out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getNum('B46', out.qualCalibrationEnabled))));
   out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getNum('B47', out.seasonalYearWeightY1)));
@@ -4703,7 +4697,8 @@ function forecastMonteCarloMixed_(model, opt) {
     }
   }
 
-  // TODO(step-3c): キャリブレータを撤去し、SOURCE_RELIABILITYの学習信頼度で主観/AIを重み付けする差し替え点。
+  // DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
+  // TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化（縮小推定・承認ゲート）。
   const calibrated = calibrateSubjectiveContinuousDelta_({
     quantOpsSimByMonth,
     subjectiveContinuousDeltaSimByMonth,
@@ -4777,7 +4772,7 @@ function forecastMonteCarloMixed_(model, opt) {
         rawTotalQualShare: qualDiag.rawTotalQualShare,
         calibratedSubjectiveShare: qualDiag.calibratedSubjectiveShare,
         calibratedTotalQualShare: qualDiag.calibratedTotalQualShare,
-        qualScale: calibrated.chosenScale,
+        qualScale: calibrated.scale,
         qualCapHit: capHit,
         targetReached: calibrated.bandHit,
         achievedQualShare: calibrated.achievedQualShare,
@@ -4803,7 +4798,8 @@ function quantilesFromSimByMonth_(simByMonth) {
   };
 }
 
-// TODO(step-3c): キャリブレータを撤去し、SOURCE_RELIABILITYの学習信頼度で主観/AIを重み付けする差し替え点。
+// DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
+// TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化（縮小推定・承認ゲート）。
 function calibrateSubjectiveContinuousDelta_(opt) {
   const tuning = opt && opt.tuning ? opt.tuning : {};
   const targetCenter = SUBJECTIVE_OVERLAY_TARGET_CENTER;
@@ -4813,50 +4809,68 @@ function calibrateSubjectiveContinuousDelta_(opt) {
   const enabled = isFinite(tuning.qualCalibrationEnabled) ? Number(tuning.qualCalibrationEnabled) > 0 : !!QUAL_CALIBRATION_ENABLED;
   const sourceByMonth = opt.sourceByMonth || new Array(12).fill('forecast_open');
 
-  const scaleCandidates = isFinite(tuning.qualScaleOverride) ? [Number(tuning.qualScaleOverride)] : buildCoarseToFineScaleCandidates_(enabled);
-  let best = null;
-  let bestInBand = null;
-  for (let i = 0; i < scaleCandidates.length; i++) {
-    const scale = scaleCandidates[i];
-    const evalResult = evaluateScaleWithExistingSims_({
-      scale,
-      monthlyCap,
-      quantOpsSimByMonth: opt.quantOpsSimByMonth,
-      subjectiveContinuousDeltaSimByMonth: opt.subjectiveContinuousDeltaSimByMonth,
-      knownSpotSimByMonth: opt.knownSpotSimByMonth,
-      bgSpotSimByMonth: opt.bgSpotSimByMonth,
-      sourceByMonth
-    });
-    const dist = evalResult.hasOpenMonths ? Math.abs(evalResult.overlayShare - targetCenter) : Number.POSITIVE_INFINITY;
-    const cand = { scale, dist, ...evalResult };
-    if (!best || cand.dist < best.dist) best = cand;
-    if (cand.hasOpenMonths && cand.overlayShare >= targetLow && cand.overlayShare <= targetHigh) {
-      if (!bestInBand || cand.dist < bestInBand.dist) bestInBand = cand;
-    }
-  }
-  const chosen = bestInBand || best || {
-    scale: 1,
-    overlayShare: 0,
-    hasOpenMonths: false,
-    capHit: false,
-    mixedSimByMonth: Array.from({ length: 12 }, () => []),
-    scaledSubjectiveSimByMonth: Array.from({ length: 12 }, () => [])
-  };
-  const missReason = !chosen.hasOpenMonths ? 'forecast_open月がないため判定不能'
-    : (bestInBand ? '' : '探索レンジ内で目標帯(10%-20%)に未到達');
+  const applied = applySubjectiveCap_({
+    monthlyCap,
+    capEnabled: enabled,
+    quantOpsSimByMonth: opt.quantOpsSimByMonth,
+    subjectiveContinuousDeltaSimByMonth: opt.subjectiveContinuousDeltaSimByMonth,
+    knownSpotSimByMonth: opt.knownSpotSimByMonth,
+    bgSpotSimByMonth: opt.bgSpotSimByMonth,
+    sourceByMonth
+  });
   return {
-    scale: chosen.scale,
+    scale: 1,
     monthlyCap,
     targetCenter,
     targetLow,
     targetHigh,
-    achievedQualShare: chosen.overlayShare,
-    bandHit: !!bestInBand,
-    missReason,
-    capHit: !!chosen.capHit,
-    mixedSimByMonth: chosen.mixedSimByMonth,
-    scaledSubjectiveSimByMonth: chosen.scaledSubjectiveSimByMonth
+    achievedQualShare: applied.overlayShare,
+    bandHit: null,
+    missReason: 'band-targeting removed in 3c-1 (cap pass-through)',
+    capHit: !!applied.capHit,
+    mixedSimByMonth: applied.mixedSimByMonth,
+    scaledSubjectiveSimByMonth: applied.scaledSubjectiveSimByMonth
   };
+}
+
+/**
+ * 主観連続差分を探索スケールなしでそのまま反映し、必要に応じて月次capだけを適用する。
+ * capEnabled=false の場合は主観差分を無制限に通す（CONFIGのQUAL_CALIBRATION_ENABLED=0）。
+ */
+function applySubjectiveCap_(opt) {
+  const nMonth = 12;
+  const mixedSimByMonth = Array.from({ length: nMonth }, () => []);
+  const scaledSubjectiveSimByMonth = Array.from({ length: nMonth }, () => []);
+  const monthlyCap = Math.max(0, Number(opt.monthlyCap || 0));
+  const capEnabled = !!opt.capEnabled;
+  let capHit = false;
+
+  for (let i = 0; i < nMonth; i++) {
+    const qArr = (opt.quantOpsSimByMonth || [])[i] || [];
+    const subjArr = (opt.subjectiveContinuousDeltaSimByMonth || [])[i] || [];
+    const kArr = (opt.knownSpotSimByMonth || [])[i] || [];
+    const bgArr = (opt.bgSpotSimByMonth || [])[i] || [];
+    const n = qArr.length;
+    for (let s = 0; s < n; s++) {
+      const rawSubj = Number(subjArr[s] || 0);
+      const quantOpsBase = Math.max(0, Number(qArr[s] || 0));
+      const limit = quantOpsBase * monthlyCap;
+      const scaled = capEnabled ? clamp_(rawSubj, -limit, limit) : rawSubj;
+      if (capEnabled && Math.abs(scaled - rawSubj) > 1e-6) capHit = true;
+      scaledSubjectiveSimByMonth[i].push(scaled);
+      mixedSimByMonth[i].push(Math.max(0, Number(qArr[s] || 0) + Number(bgArr[s] || 0) + Number(kArr[s] || 0) + scaled));
+    }
+  }
+
+  const quantP50ByMonth = Array.from({ length: nMonth }, (_, i) => {
+    const qArr = (opt.quantOpsSimByMonth || [])[i] || [];
+    const bgArr = (opt.bgSpotSimByMonth || [])[i] || [];
+    const qTotalArr = qArr.map((q, s) => Number(q || 0) + Number(bgArr[s] || 0));
+    return percentile_(qTotalArr, 0.50);
+  });
+  const scaledSubjectiveP50ByMonth = scaledSubjectiveSimByMonth.map(arr => percentile_(arr, 0.50));
+  const overlayKpi = computeSubjectiveOverlayKpi_(quantP50ByMonth, scaledSubjectiveP50ByMonth, opt.sourceByMonth || []);
+  return { ...overlayKpi, capHit, mixedSimByMonth, scaledSubjectiveSimByMonth };
 }
 
 function buildQualShareDiagnostics_(opt) {
@@ -4866,66 +4880,22 @@ function buildQualShareDiagnostics_(opt) {
   const rawTotalQualShare = rawKpi.hasOpenMonths ? rawKpi.qualShare : 0;
   const calibratedSubjectiveShare = calKpi.hasOpenMonths ? calKpi.qualShare : 0;
   const calibratedTotalQualShare = calKpi.hasOpenMonths ? calKpi.qualShare : 0;
-  const targetReached = calKpi.hasOpenMonths && calibratedTotalQualShare >= QUAL_SHARE_TARGET_LOW && calibratedTotalQualShare <= QUAL_SHARE_TARGET_HIGH;
   let warningText = '';
   if (!calKpi.hasOpenMonths) warningText = 'N/A（forecast_open月がありません）';
-  else if (!targetReached) warningText = `⚠ Qual share target未達（cal=${(calibratedTotalQualShare * 100).toFixed(1)}%）`;
-  if (opt.capHit) warningText = `${warningText} ⚠ monthly cap hit`;
+  if (opt.capHit) warningText = `${warningText} monthly cap hit`;
   if (opt.missReason) warningText = `${warningText} ${opt.missReason}`;
   return {
     rawSubjectiveShare,
     rawTotalQualShare,
     calibratedSubjectiveShare,
     calibratedTotalQualShare,
-    targetReached,
+    targetReached: null,
     chosenScale: opt.chosenScale,
     achievedQualShare: opt.achievedQualShare,
     bandHit: opt.bandHit,
     missReason: opt.missReason,
     warningText: warningText.trim()
   };
-}
-
-function buildCoarseToFineScaleCandidates_(enabled) {
-  if (!enabled) return [1];
-  const coarse = [];
-  for (let s = 0; s <= 12; s += 0.25) coarse.push(Number(s.toFixed(3)));
-  const fine = [];
-  for (let s = 0; s <= 12; s += 0.05) fine.push(Number(s.toFixed(3)));
-  return Array.from(new Set(coarse.concat(fine))).sort((a, b) => a - b);
-}
-
-function evaluateScaleWithExistingSims_(opt) {
-  const nMonth = 12;
-  const mixedSimByMonth = Array.from({ length: nMonth }, () => []);
-  const scaledSubjectiveSimByMonth = Array.from({ length: nMonth }, () => []);
-  let capHit = false;
-  for (let i = 0; i < nMonth; i++) {
-    const qArr = opt.quantOpsSimByMonth[i] || [];
-    const subjArr = opt.subjectiveContinuousDeltaSimByMonth[i] || [];
-    const kArr = opt.knownSpotSimByMonth[i] || [];
-    const bgArr = opt.bgSpotSimByMonth[i] || [];
-    const n = qArr.length;
-    for (let s = 0; s < n; s++) {
-      const rawSubj = Number(subjArr[s] || 0);
-      const quantOpsBase = Math.max(0, Number(qArr[s] || 0));
-      const scaled = clamp_(rawSubj * opt.scale, -quantOpsBase * opt.monthlyCap, quantOpsBase * opt.monthlyCap);
-      if (Math.abs(scaled - rawSubj * opt.scale) > 1e-6) capHit = true;
-      scaledSubjectiveSimByMonth[i].push(scaled);
-      mixedSimByMonth[i].push(Math.max(0, Number(qArr[s] || 0) + Number(bgArr[s] || 0) + Number(kArr[s] || 0) + scaled));
-    }
-  }
-
-  const mixedP50ByMonth = mixedSimByMonth.map(arr => percentile_(arr, 0.50));
-  const quantP50ByMonth = Array.from({ length: nMonth }, (_, i) => {
-    const qArr = opt.quantOpsSimByMonth[i] || [];
-    const bgArr = opt.bgSpotSimByMonth[i] || [];
-    const qTotalArr = qArr.map((q, s) => Number(q || 0) + Number(bgArr[s] || 0));
-    return percentile_(qTotalArr, 0.50);
-  });
-  const scaledSubjectiveP50ByMonth = scaledSubjectiveSimByMonth.map(arr => percentile_(arr, 0.50));
-  const overlayKpi = computeSubjectiveOverlayKpi_(quantP50ByMonth, scaledSubjectiveP50ByMonth, opt.sourceByMonth || []);
-  return { ...overlayKpi, capHit, mixedSimByMonth, scaledSubjectiveSimByMonth };
 }
 
 function computeDisplayedQualKpi_(quantP50ByMonth, mixedP50ByMonth, sourceByMonth) {
@@ -7040,7 +7010,6 @@ function applyCalibrationToTuning_(tuning, calibration) {
   const cal = calibration || {};
   if (isFinite(Number(cal.ai_weight_override))) out.aiWeight = Number(cal.ai_weight_override);
   if (isFinite(Number(cal.ai_max_abs_effect_override))) out.aiMaxAbsEffect = Number(cal.ai_max_abs_effect_override);
-  if (isFinite(Number(cal.qual_scale_override))) out.qualScaleOverride = Number(cal.qual_scale_override);
   out.disabledTopics = [];
   try {
     const arr = JSON.parse(String(cal.ai_topic_disable_json || '[]'));
