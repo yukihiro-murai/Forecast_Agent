@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / step 3c-1
+ * Forecast Agent v8 track / step 3c-3b
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -10,7 +10,7 @@
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step3c3a-cleanup';
+const BUILD_STAGE = 'v8-step3c3b-lmdi';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -198,7 +198,7 @@ const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視�
 const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
 const DLM_Z10 = -1.2815515594;             // 標準正規10%点
 const DLM_Z90 =  1.2815515594;             // 標準正規90%点
-const DLM_BUILD_STAGE = 'v8-step3c3a-cleanup';
+const DLM_BUILD_STAGE = 'v8-step3c3b-lmdi';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -338,7 +338,7 @@ function adminInitDLMAndBacktest() {
 }
 
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
-// TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+// DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
 // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
 
 /**
@@ -1072,6 +1072,7 @@ function runForecastFYCore_(fy, clientName) {
   const sourceReliabilityMap = readSourceReliability_(clientName);
   const reliabilityMap = reliabilityApply ? sourceReliabilityMap : new Map();
   const nonDefaultReliabilityCount = Array.from(sourceReliabilityMap.values()).filter(v => Math.abs(Number(v || 1) - 1) > 1e-9).length;
+  const lmdiEnabled = readLmdiDecompositionEnabled_();
 
   // 既知SPOT（DEV_SPOT）と背景SPOTを分離
   const devProjectsByMonth = readDevSpotProjects12Months_(fy);
@@ -1158,7 +1159,8 @@ function runForecastFYCore_(fy, clientName) {
     knownSpotBgSuppressRate: isFinite(tuning.knownSpotBgSuppressRate) ? tuning.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE,
     dlmBaseLogByMonth: dlmPrimaryActive ? dlmForecast.logByMonth : null,
     reliabilityApply,
-    reliabilityMap
+    reliabilityMap,
+    lmdiEnabled
   });
 
   const opinionsSummaryTop = summarizeOpinionsTop_(opinions);
@@ -1718,6 +1720,125 @@ function writeOutputFY_(result) {
       row++;
     }
   }
+  row = writeLmdiDecompositionBlock_(sh, row, result);
+}
+
+function writeLmdiDecompositionBlock_(sh, row, result) {
+  const d = result && result.mixedDiagnostics ? result.mixedDiagnostics : {};
+  const lmdi = d.lmdi;
+  if (!lmdi) return row;
+
+  const sourceByMonth = result.sourceByMonth || [];
+  const openIdx = [];
+  for (let i = 0; i < (result.months || []).length; i++) {
+    if (sourceByMonth[i] !== 'actual_closed') openIdx.push(i);
+  }
+  if (!openIdx.length) return row;
+
+  const sumOpen = arr => openIdx.reduce((a, i) => a + Number((arr || [])[i] || 0), 0);
+  const quantMeanByMonth = (d.quantOpsSimByMonth || []).map(meanArr_);
+  const bgMeanByMonth = (d.bgSpotSimByMonth || []).map(meanArr_);
+  const knownMeanByMonth = (d.knownSpotSimByMonth || []).map(meanArr_);
+  const lMean = lmdi.meanContribByMonth || {};
+  const capMean = lmdi.meanCapAdjByMonth || new Array(12).fill(0);
+
+  const meanItems = [
+    { label: '定量土台(Q)', value: sumOpen(quantMeanByMonth) },
+    { label: '背景SPOT(B)', value: sumOpen(bgMeanByMonth) },
+    { label: 'Known Spot(K)', value: sumOpen(knownMeanByMonth) },
+    { label: '主観:FACTORS_PRODUCT(kProd)', value: sumOpen(lMean.kProd || []) },
+    { label: '主観:FACTORS_CLIENT(kClient)', value: sumOpen(lMean.kClient || []) },
+    { label: '主観:OPINIONS(kOpinion)', value: sumOpen(lMean.kOpinion || []) },
+    { label: '主観:AI(kAI)', value: sumOpen(lMean.kAI || []) },
+    { label: 'cap調整(cap_adj)', value: sumOpen(capMean) }
+  ];
+  const meanTotal = meanItems.reduce((a, x) => a + Number(x.value || 0), 0);
+  const p50Total = openIdx.reduce((a, i) => a + Number(((result.mixed || {}).p50 || [])[i] || 0), 0);
+
+  row += 2;
+  sh.getRange(row, 1).setValue('主観寄与の厳密加法分解（LMDI / 参考診断）').setFontWeight('bold').setBackground('#d9ead3');
+  sh.getRange(row, 1, 1, 8).merge();
+  row++;
+  sh.getRange(row, 1).setValue('Σ(各ソース) + cap調整 = 主観オーバーレイ(S_scaled)。シェアは全sim平均で厳密加法、表示円額はP50_totalに按分。')
+    .setFontColor('#666666').setFontSize(10);
+  sh.getRange(row, 1, 1, 8).merge();
+  row++;
+
+  const shareHdr = ['寄与ソース', 'シェア(%)', '按分額(円/P50基準)', '平均寄与(円)'];
+  sh.getRange(row, 1, 1, shareHdr.length).setValues([shareHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const shareRows = meanItems.map(x => {
+    const share = Math.abs(meanTotal) > 1e-9 ? Number(x.value || 0) / meanTotal : 0;
+    return [x.label, share, share * p50Total, Number(x.value || 0)];
+  });
+  shareRows.push(['合計', Math.abs(meanTotal) > 1e-9 ? 1 : 0, p50Total, meanTotal]);
+  sh.getRange(row, 1, shareRows.length, shareHdr.length).setValues(shareRows);
+  sh.getRange(row, 2, shareRows.length, 1).setNumberFormat('0.0%');
+  sh.getRange(row, 3, shareRows.length, 2).setNumberFormat('¥#,##0');
+  sh.getRange(row + shareRows.length - 1, 1, 1, shareHdr.length).setBackground('#f3f3f3').setFontWeight('bold');
+  row += shareRows.length + 2;
+
+  sh.getRange(row, 1).setValue('絶対寄与レンジは土台Qの揺れを含む総振れ（その主観要因でいくら金額が動きうるか）。')
+    .setFontColor('#666666').setFontSize(10);
+  sh.getRange(row, 1, 1, 16).merge();
+  row++;
+  const absHdr = ['Month',
+    'FACTORS_PRODUCT P10', 'FACTORS_PRODUCT P50', 'FACTORS_PRODUCT P90',
+    'FACTORS_CLIENT P10', 'FACTORS_CLIENT P50', 'FACTORS_CLIENT P90',
+    'OPINIONS P10', 'OPINIONS P50', 'OPINIONS P90',
+    'AI P10', 'AI P50', 'AI P90',
+    'cap調整 P10', 'cap調整 P50', 'cap調整 P90'
+  ];
+  sh.getRange(row, 1, 1, absHdr.length).setValues([absHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const abs = lmdi.absRangeByMonth || {};
+  const absRows = openIdx.map(i => [
+    fmtYM_(result.months[i]),
+    (((abs.kProd || {}).p10 || [])[i]) || 0, (((abs.kProd || {}).p50 || [])[i]) || 0, (((abs.kProd || {}).p90 || [])[i]) || 0,
+    (((abs.kClient || {}).p10 || [])[i]) || 0, (((abs.kClient || {}).p50 || [])[i]) || 0, (((abs.kClient || {}).p90 || [])[i]) || 0,
+    (((abs.kOpinion || {}).p10 || [])[i]) || 0, (((abs.kOpinion || {}).p50 || [])[i]) || 0, (((abs.kOpinion || {}).p90 || [])[i]) || 0,
+    (((abs.kAI || {}).p10 || [])[i]) || 0, (((abs.kAI || {}).p50 || [])[i]) || 0, (((abs.kAI || {}).p90 || [])[i]) || 0,
+    (((abs.capAdj || {}).p10 || [])[i]) || 0, (((abs.capAdj || {}).p50 || [])[i]) || 0, (((abs.capAdj || {}).p90 || [])[i]) || 0
+  ]);
+  sh.getRange(row, 1, absRows.length, absHdr.length).setValues(absRows);
+  sh.getRange(row, 2, absRows.length, absHdr.length - 1).setNumberFormat('¥#,##0');
+  row += absRows.length + 2;
+
+  sh.getRange(row, 1).setValue('相対寄与レンジはQを除いた主観そのものの揺れ。sim不変なFACTORS/AIは幅ゼロ、jitterのあるOPINIONSのみ幅が出る。')
+    .setFontColor('#666666').setFontSize(10);
+  sh.getRange(row, 1, 1, 13).merge();
+  row++;
+  const relHdr = ['Month',
+    'FACTORS_PRODUCT P10', 'FACTORS_PRODUCT P50', 'FACTORS_PRODUCT P90',
+    'FACTORS_CLIENT P10', 'FACTORS_CLIENT P50', 'FACTORS_CLIENT P90',
+    'OPINIONS P10', 'OPINIONS P50', 'OPINIONS P90',
+    'AI P10', 'AI P50', 'AI P90'
+  ];
+  sh.getRange(row, 1, 1, relHdr.length).setValues([relHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const rel = lmdi.relRangeByMonth || {};
+  const relRows = openIdx.map(i => [
+    fmtYM_(result.months[i]),
+    (((rel.kProd || {}).p10 || [])[i]) || 0, (((rel.kProd || {}).p50 || [])[i]) || 0, (((rel.kProd || {}).p90 || [])[i]) || 0,
+    (((rel.kClient || {}).p10 || [])[i]) || 0, (((rel.kClient || {}).p50 || [])[i]) || 0, (((rel.kClient || {}).p90 || [])[i]) || 0,
+    (((rel.kOpinion || {}).p10 || [])[i]) || 0, (((rel.kOpinion || {}).p50 || [])[i]) || 0, (((rel.kOpinion || {}).p90 || [])[i]) || 0,
+    (((rel.kAI || {}).p10 || [])[i]) || 0, (((rel.kAI || {}).p50 || [])[i]) || 0, (((rel.kAI || {}).p90 || [])[i]) || 0
+  ]);
+  sh.getRange(row, 1, relRows.length, relHdr.length).setValues(relRows);
+  sh.getRange(row, 2, relRows.length, relHdr.length - 1).setNumberFormat('0.000');
+  row += relRows.length + 1;
+  sh.getRange(row, 1).setValue('FACTORS_PRODUCT/FACTORS_CLIENT/AIの幅が0なのは、現行モデルでこれらが月内定数（sim不変）のため。OPINIONSはsim毎に±5%揺らす設計。')
+    .setFontColor('#666666').setFontSize(10);
+  sh.getRange(row, 1, 1, 13).merge();
+  row++;
+
+  const fallbackCount = Number(lmdi.fallbackCount || 0);
+  const nSim = Number(lmdi.nSim || 0);
+  sh.getRange(row, 1).setValue(`LMDI線形フォールバック発生sim数: ${fallbackCount} / ${nSim}（Πk<=0 等で対数分解不能だった回数。多い場合は極端な主観入力を確認）`)
+    .setFontColor('#666666').setFontSize(10);
+  sh.getRange(row, 1, 1, 8).merge();
+  if (fallbackCount > 0) sh.getRange(row, 1).setBackground('#fce5cd');
+  return row + 1;
 }
 
 /** セクションブロック（表＋グラフ） */
@@ -2123,7 +2244,8 @@ function buildCONFIG_() {
     ['RELIABILITY_R_MAX', 1.5],
     ['RELIABILITY_SHRINKAGE_K', 4],
     ['RELIABILITY_MIN_SAMPLES', 2],
-    ['RELIABILITY_MIN_CHANGE', 0.05]
+    ['RELIABILITY_MIN_CHANGE', 0.05],
+    ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -3141,6 +3263,21 @@ function readReliabilityApplyEnabled_() {
     const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
     for (let i = 0; i < rows.length; i++) {
       if (String(rows[i][0] || '').indexOf('RELIABILITY_APPLY_ENABLED（0/1）') === 0) {
+        return Number(rows[i][1] || 0) > 0;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+function readLmdiDecompositionEnabled_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) return false;
+  try {
+    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').indexOf('LMDI_DECOMPOSITION_ENABLED') === 0) {
         return Number(rows[i][1] || 0) > 0;
       }
     }
@@ -4674,6 +4811,8 @@ function forecastMonteCarloMixed_(model, opt) {
   const knownSpotBgSuppressRate = isFinite(opt.knownSpotBgSuppressRate) ? opt.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE;
   const dlmBaseLogByMonth = opt.dlmBaseLogByMonth || null;
   const tuning = opt.tuning || {};
+  const lmdiEnabled = !!opt.lmdiEnabled;
+  const mk12 = () => Array.from({ length: 12 }, () => []);
 
   const reliabilityMap = opt.reliabilityApply ? (opt.reliabilityMap || new Map()) : new Map();
   const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights, reliabilityMap));
@@ -4702,6 +4841,10 @@ function forecastMonteCarloMixed_(model, opt) {
   const knownSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const bgSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const opinionKByMonth = Array.from({ length: 12 }, () => []);
+  const lmdiContribSimByMonth = lmdiEnabled ? { kProd: mk12(), kClient: mk12(), kOpinion: mk12(), kAI: mk12() } : null;
+  const lmdiRelContribSimByMonth = lmdiEnabled ? { kProd: mk12(), kClient: mk12(), kOpinion: mk12(), kAI: mk12() } : null;
+  const lmdiCapAdjSimByMonth = lmdiEnabled ? mk12() : null;
+  let lmdiFallbackCount = 0;
 
   const opsBaseByMonth = Array.from({ length: 12 }, (_, i) => {
     const lp = dlmBaseLogByMonth ? dlmBaseLogByMonth[i] : null;
@@ -4746,11 +4889,25 @@ function forecastMonteCarloMixed_(model, opt) {
       knownSpotSimByMonth[i].push(knownSpot);
       bgSpotSimByMonth[i].push(bgSpot);
       totalRawSimByMonth[i].push(totalRaw);
+      if (lmdiEnabled) {
+        const dec = lmdiDecompose_({
+          kProd: kProdByMonth[i],
+          kClient: kClientByMonth[i],
+          kOpinion,
+          kAI
+        });
+        if (dec.fallback) lmdiFallbackCount++;
+        ['kProd', 'kClient', 'kOpinion', 'kAI'].forEach(name => {
+          const c = Number(dec.contrib[name] || 0);
+          lmdiRelContribSimByMonth[name][i].push(c);
+          lmdiContribSimByMonth[name][i].push(quantOpsAfterResidual * c);
+        });
+      }
     }
   }
 
   // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
-  // TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+  // DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
   // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
   const calibrated = calibrateSubjectiveContinuousDelta_({
     quantOpsSimByMonth,
@@ -4765,6 +4922,16 @@ function forecastMonteCarloMixed_(model, opt) {
   for (let i = 0; i < 12; i++) {
     scaledSubjectiveContinuousDeltaSimByMonth[i] = calibrated.scaledSubjectiveSimByMonth[i].slice();
     totalCalibratedSimByMonth[i] = calibrated.mixedSimByMonth[i].slice();
+  }
+  if (lmdiEnabled) {
+    for (let i = 0; i < 12; i++) {
+      const sRaw = subjectiveContinuousDeltaSimByMonth[i] || [];
+      const sScaled = scaledSubjectiveContinuousDeltaSimByMonth[i] || [];
+      const n = sScaled.length;
+      for (let s = 0; s < n; s++) {
+        lmdiCapAdjSimByMonth[i].push(Number(sScaled[s] || 0) - Number(sRaw[s] || 0));
+      }
+    }
   }
 
   const rawQ = quantilesFromSimByMonth_(totalRawSimByMonth);
@@ -4788,6 +4955,35 @@ function forecastMonteCarloMixed_(model, opt) {
     missReason: calibrated.missReason,
     capHit
   });
+  const collapseStaticRange = q => ({ p10: (q.p50 || []).slice(), p50: (q.p50 || []).slice(), p90: (q.p50 || []).slice() });
+  const relKProdRange = lmdiEnabled ? quantilesTriple_(lmdiRelContribSimByMonth.kProd) : null;
+  const relKClientRange = lmdiEnabled ? quantilesTriple_(lmdiRelContribSimByMonth.kClient) : null;
+  const relKOpinionRange = lmdiEnabled ? quantilesTriple_(lmdiRelContribSimByMonth.kOpinion) : null;
+  const relKAIRange = lmdiEnabled ? quantilesTriple_(lmdiRelContribSimByMonth.kAI) : null;
+  const lmdiDiagnostics = lmdiEnabled ? {
+    meanContribByMonth: {
+      kProd: lmdiContribSimByMonth.kProd.map(meanArr_),
+      kClient: lmdiContribSimByMonth.kClient.map(meanArr_),
+      kOpinion: lmdiContribSimByMonth.kOpinion.map(meanArr_),
+      kAI: lmdiContribSimByMonth.kAI.map(meanArr_)
+    },
+    meanCapAdjByMonth: lmdiCapAdjSimByMonth.map(meanArr_),
+    absRangeByMonth: {
+      kProd: quantilesTriple_(lmdiContribSimByMonth.kProd),
+      kClient: quantilesTriple_(lmdiContribSimByMonth.kClient),
+      kOpinion: quantilesTriple_(lmdiContribSimByMonth.kOpinion),
+      kAI: quantilesTriple_(lmdiContribSimByMonth.kAI),
+      capAdj: quantilesTriple_(lmdiCapAdjSimByMonth)
+    },
+    relRangeByMonth: {
+      kProd: collapseStaticRange(relKProdRange),
+      kClient: collapseStaticRange(relKClientRange),
+      kOpinion: relKOpinionRange,
+      kAI: collapseStaticRange(relKAIRange)
+    },
+    fallbackCount: lmdiFallbackCount,
+    nSim
+  } : null;
 
   return {
     p10: calibratedQ.p10,
@@ -4807,6 +5003,7 @@ function forecastMonteCarloMixed_(model, opt) {
       bgSpotSimByMonth,
       totalRawSimByMonth,
       totalCalibratedSimByMonth,
+      opinionKByMonth: lmdiEnabled ? opinionKByMonth : null,
       subjectiveContinuousP10ByMonth: subjectiveQ.p10,
       subjectiveContinuousP50ByMonth: subjectiveQ.p50,
       subjectiveContinuousP90ByMonth: subjectiveQ.p90,
@@ -4838,7 +5035,8 @@ function forecastMonteCarloMixed_(model, opt) {
       aiRawEffect,
       aiClampedEffect,
       aiMaxAbsEffect,
-      aiNeutralized: aiNeutralizedTotal
+      aiNeutralized: aiNeutralizedTotal,
+      lmdi: lmdiDiagnostics
     }
   };
 }
@@ -4851,8 +5049,53 @@ function quantilesFromSimByMonth_(simByMonth) {
   };
 }
 
+function meanArr_(arr) {
+  return (arr && arr.length) ? arr.reduce((a, b) => a + (Number(b) || 0), 0) / arr.length : 0;
+}
+
+function quantilesTriple_(simByMonth) {
+  return {
+    p10: (simByMonth || []).map(a => percentile_(a, 0.10)),
+    p50: (simByMonth || []).map(a => percentile_(a, 0.50)),
+    p90: (simByMonth || []).map(a => percentile_(a, 0.90))
+  };
+}
+
+/**
+ * 主観乗算因子 Πk-1 を LMDI-I で因子別に厳密加法分解する。
+ * @param {{kProd:number,kClient:number,kOpinion:number,kAI:number}} kj
+ * @return {{contrib:{kProd:number,kClient:number,kOpinion:number,kAI:number}, fallback:boolean}}
+ *   contrib の総和は (Πk - 1) に厳密一致（フォールバック時も和は保存する）。
+ */
+function lmdiDecompose_(kj) {
+  const names = ['kProd', 'kClient', 'kOpinion', 'kAI'];
+  const ks = names.map(n => Number(kj[n]));
+  const prod = ks.reduce((a, v) => a * v, 1);
+  const target = prod - 1;
+  const zero = { kProd: 0, kClient: 0, kOpinion: 0, kAI: 0 };
+
+  if (Math.abs(target) < 1e-12) return { contrib: zero, fallback: false };
+
+  const anyNonPos = (prod <= 0) || ks.some(v => !(v > 0));
+  if (anyNonPos) {
+    const lin = {};
+    const denom = ks.reduce((a, v) => a + (v - 1), 0);
+    if (Math.abs(denom) < 1e-12) {
+      names.forEach(n => { lin[n] = target / names.length; });
+    } else {
+      names.forEach((n, idx) => { lin[n] = (ks[idx] - 1) / denom * target; });
+    }
+    return { contrib: lin, fallback: true };
+  }
+
+  const lmean = (prod - 1) / Math.log(prod);
+  const contrib = {};
+  names.forEach((n, idx) => { contrib[n] = lmean * Math.log(ks[idx]); });
+  return { contrib, fallback: false };
+}
+
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
-// TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+// DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
 // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
 function calibrateSubjectiveContinuousDelta_(opt) {
   const tuning = opt && opt.tuning ? opt.tuning : {};
