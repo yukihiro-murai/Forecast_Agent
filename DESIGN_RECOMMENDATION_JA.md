@@ -1,332 +1,146 @@
-# 売上予測スクリプト 設計アドバイス（改訂版 v7 / 初動実装と強化計画の分離版）
+# 売上予測スクリプト 設計書 v1.8（現行エンジン同期版）
 
 ## 0. 文書の目的
-本設計は以下3目的を達成する。
-1. **予測精度向上**
-2. **透明化（根拠明示・再現性）**
-3. **学習性（継続改善）**
+この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
+旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去した。
+3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
 ---
 
-## 0.5 背景と課題認識
-- 単一回帰だけでは業界変化に追従しづらい。
-- 未確定月（open）が予測を過少方向に歪める。
-- 単発案件がベース需要を歪める。
-- 主観・AIの過剰反映は再現性と学習性を下げる。
+## 0.5 v7からの主要な乖離（同期のために明記）
+- **三角観測は廃止済み**。実装は「単一Opsモデル（線形トレンド×季節指数）＋残差Monte Carlo」が定量土台。
+- **逆sMAPE重み更新（w_i）は存在しない**。重み更新ロジックは実装されていない。
+- **DLM（対数空間の状態空間モデル）が追加**され、CONFIGの DLM_ENGINE_MODE（off/shadow/primary）で制御。
+- **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP）でクリップ。
+  v6の「主観キャリブレータ（オーバーレイ率ターゲット探索）」は撤去済み（cap pass-through）。
+- **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。品質不足時は中立化（kAI=1.0）。
+- **信頼度（SOURCE_RELIABILITY）** が追加され、各ソース（factor_product/factor_client/opinion/ai_topic）の
+  寄与に reliability_r を乗じる。CONFIG RELIABILITY_APPLY_ENABLED で制御（v1.8で既定ON）。
+- **LMDI分解** が追加され、主観乗算 Πk-1 を因子別に厳密加法分解（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
 
 ---
 
-## 1. 実装スコープの明確化（最重要）
+## 1. 実装スコープ
 
-### 1.1 **初動実装（Phase 1: これを作る）**
-- データ分離: `SALES_INPUT_MONTHLY` / `ACTUAL_EVAL_MONTHLY`
-- UIボタン運用（①〜⑥）と依存チェック
-- `PROCESS_STATUS` 管理
-- ④予測実行フロー（open補正、スパイク分離、三角観測、simulation、補正、シナリオ生成）
-- 重み更新（逆sMAPE + 変動制約）
-- ログ・レポート（`RUN_LOG`, `FORECAST_SNAPSHOT`, `EVAL_LOG`, `FORECAST_REPORT`, `OVERRIDE_LOG`）
-- Geminiコピペ運用（BIGM2Y関連性フィルタ + TSV検証）
-- ダッシュボード（シナリオ帯・差分・根拠表示・KPI信号灯）
+### 1.1 現行実装済み
+- データ取込：外部実績SS → SALES_INPUT_MONTHLY（A-2）→ SALES 48ヶ月横持ち BASE/SPOT/TOTAL（A-3）
+- 主観入力：FACTORS_PRODUCT / FACTORS_CLIENT / OPINIONS / DEV_SPOT（A-4〜A-7）
+- AI調査：Gemプロンプト生成→TSV貼付→parse（A-8 / parseAIResearchPaste_）
+- 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT / FORECAST_REPORT 更新
+- ダッシュボード：updatePhase1Dashboard（A-10）
+- 検証：実績取込（B-1）→ EVAL_LOG / EVAL_COMPARE_MONTHLY（B-2）→ EVAL_INSIGHTS（B-3）
+- 四半期レビュー：runQuarterlyReview（C-1）→ applyQuarterlyProposals（C-2）→ ログ閲覧（C-3）
+- 信頼度：SOURCE_RELIABILITY 適用（reliabilityApply）＋ C-1のreliability提案
 
-### 1.2 **強化計画（Phase 2以降: 今後やる）**
-- 構造変化検知（CUSUM/Bai-Perron）
-- 分位点回帰の本格適用・高度モデル（状態空間/階層ベイズ/因果推論）
-- 全件長時間バッチの高度化（運用整合の確認後）
-- 学習窓の動的最適化
+### 1.2 既定OFFのシャドウ機能（検証待ち）
+- DLM_ENGINE_MODE = off（shadow/primaryはCONFIGで切替可）
+- LMDI_DECOMPOSITION_ENABLED = 0
+- ※ v1.8で RELIABILITY_APPLY_ENABLED は 0→1（既定ON）に変更
 
-### 1.3 **初動でやらないこと（明示）**
-- 外部AI APIの完全自動連携
-- スクリプト自動連鎖実行（ユーザ確認なし）
-
----
-
-## 2. 設計原則（理由つき）
-1. 単一モデル禁止（弱点相互補完）
-2. input/eval分離（リーケージ防止）
-3. UI実行主義（追跡可能性）
-4. AI補助限定（客観優先）
-5. 上限制御（モデル無効化防止）
-6. 反復運用（確認→修正→再実行）
-7. 自動連鎖禁止（誤連鎖防止）
+### 1.3 未実装（今後）
+- POOL_PRIOR のクライアント横断自動更新（3c-3c）。現在 readPoolPrior_ は読むのみ、書込み関数なし。
+- 構造変化検知（CUSUM/Bai-Perron）、分位点回帰の本格適用、学習窓の動的最適化。
 
 ---
 
-## 3. 用語集
-- `input`, `eval`, `open`, `closed`, `normalized_actual`
-- `spike_amount`, `base_amount`, `deterministic_factors`
-- `regime`, `regime_detection`, `regime_transition`
-- `scenario`（nega/neutral/posi）
-- `confidence_level`（low/mid/high）
-- `relevance_score`（0-100）
-- `PROCESS_STATUS`, `CLIENT_PARAMS`, `run_log`, `snapshot`, `override`
-- `w1/w2/w3/w4`（線形/季節/レジーム/simulation）
+## 2. 予測エンジンの実体（runForecastFYCore_）
+
+### 2.1 定量土台
+1. SALES から baseSeries48（BASE 48ヶ月）を読む。
+2. adjustForUnclosedMonths_：未確定月（前月までを確定）を同月トレンド係数で補完。補完後は途中実績を下回らない。
+3. fitOpsModelTrendSeason_：OLS線形トレンド＋移動平均ベース季節指数（0.80〜1.20でクリップ）。
+4. buildResidualPool_：確定月の残差%プール（MADクリップ＋中央値方向へ収縮）。
+5. forecastByResidualQuantiles_ で P10/P50/P90 の定量土台を算出。
+6. DLM_ENGINE_MODE=primary かつ実績充足時は、BASEを対数空間DLMの予測へ差し替え（shadowは比較のみ）。
+
+### 2.2 SPOT
+- 背景SPOT（未知の再発）：fitSpotRecurringModel_ が月別の期待値・発生確率・severity標本を作る（BASE P50比でcap）。
+- 既知SPOT（DEV_SPOT）：金額×確度を月別に固定加算（knownSpot）。背景との二重計上はoffset率で調整。
+
+### 2.3 主観乗算（forecastMonteCarloMixed_）
+- kProd = 1 + Σ(製品構成比 × 製品step × reliability)
+- kClient = 1 + Σ(client step × reliability)
+- kOpinion = 担当者別の最新意見を ±5% jitter込みで合成（× reliability）
+- kAI = 1 + clamp(Σ(topicスコア × reliability) × AI_WEIGHT, ±AI_MAX_ABS_EFFECT)。AI合計が中立閾値未満なら 1.0。
+- Monte Carlo（N_SIM=1000）で各simの total を生成し、月次P10/P50/P90を取る。
+- 主観差分は月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、既定0.20）でクリップ（capHitを診断記録）。
+
+### 2.4 信頼度（reliability）
+- readReliabilityApplyEnabled_ が真のとき readSourceReliability_(client) を適用。
+- getSourceReliability_(map, type, key)：未登録は 1.0（中立＝フェイルセーフ）。
+- 適用先：factor_product:person / factor_client:person / opinion:person / ai_topic:topic。
+- v1.8で既定ON。ただし SOURCE_RELIABILITY が空なら全ソース1.0でno-op（予測不変）。
+
+### 2.5 LMDI分解（診断のみ）
+- lmdiDecompose_：Πk-1 を kProd/kClient/kOpinion/kAI に厳密加法分解（全正値はLMDI-I、非正値は線形フォールバックで和保存）。
+- 既定OFF。ONのときOUTPUTに寄与シェア／絶対レンジ／相対レンジを出力。
 
 ---
 
-## 4. データソース・シート定義
+## 3. CONFIG パラメータ（読取方式）
 
-### 4.0 データソース定義
-- 取得元: 外部スプレッドシート
-- 取得方法: `SpreadsheetApp.openById`
-- 取得粒度: 月次（client/product/month）
-- 取得範囲: 初期24か月全量、以降差分取得
-- 差分キー: `client + product + target_month` の未登録行のみ追加（同キー既存は更新）
-- 権限: 実行ユーザに閲覧権限必須
+### 3.1 読取規約（v1.8で堅牢化）
+- readConfigLabelMap_ が CONFIG A:B を読み、configKeyOf_ で「（」または「(」より前をキー化して完全一致マップを作る。
+- readModelTuningFromConfig_ / readDlmEngineMode_ / readReliabilityApplyEnabled_ /
+  readLmdiDecompositionEnabled_ / readDlmPrimarySpotCapBasis_ はすべてこのマップ経由。
+- セル番地直読み（B32〜B56）は廃止。tuneRows に行を挿入しても壊れない。
+- ラベル末尾の注記（全角括弧内）は自由に変更可。キー部分が一致すれば読める。
 
-### 4.1 予測入力
-- `SALES_INPUT_MONTHLY`
-- `client, product, target_month, input_amount, status`
-
-### 4.2 検証実績
-- `ACTUAL_EVAL_MONTHLY`
-- `client, product, target_month, eval_actual_amount, actual_closed_flag`
-
-### 4.3 必須シート
-`AI_RESEARCH_PROMPT`, `AI_RESEARCH_PASTE`, `AI_RESEARCH_STRUCTURED`, `RUN_LOG`, `FORECAST_SNAPSHOT`, `EVAL_LOG`, `OVERRIDE_LOG`, `WEIGHT_UPDATE_LOG`, `SPIKE_LOG`, `PROCESS_STATUS`, `CLIENT_PARAMS`, `DETERMINISTIC_FACTORS`, `FORECAST_REPORT`, `DASHBOARD`, `CHANGELOG`
+### 3.2 主要キー（抜粋）
+- AI_WEIGHT / AI_MAX_ABS_EFFECT / AI_TOTAL_NEUTRAL_THRESHOLD / AI_QUALITY_*_THRESHOLD
+- QUAL_SUBJECTIVE_MONTHLY_CAP / QUAL_CALIBRATION_ENABLED
+- SPOT_BG_* / KNOWN_SPOT_* / SEASONAL_*
+- DLM_ENGINE_MODE / DLM_PRIMARY_SPOT_CAP_BASIS / DLM_BACKTEST_*
+- RELIABILITY_APPLY_ENABLED（v1.8既定1）/ RELIABILITY_R_MIN / R_MAX / SHRINKAGE_K / MIN_SAMPLES / MIN_CHANGE
+- LMDI_DECOMPOSITION_ENABLED
 
 ---
 
-## 5. UIメニュー・依存関係
+## 4. 学習ループ（四半期レビュー C-1〜C-3）
 
-### 5.1 標準メニュー
-1. ①予測入力売上取り込み
-2. ②検証実績取り込み
-3. ③AI調査テンプレ生成
-4. ④予測実行
-5. ⑤予測検証レポート更新
-6. ⑥ダッシュボード更新
+### 4.1 データ収集（collectQuarterlyReviewData_）
+- EVAL_LOG から client一致・scenario=neutral・constraint_relevant_flag=1 の行を抽出（ヘッダidx参照）。
+- 直近3ヶ月（last3）が揃わなければ ready:false（提案ゼロで正常終了）。
+- AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY / AI_SCORE_HISTORY を last3 で結合。
 
-### 5.2 依存関係
-| step | 前提 |
-|---|---|
-| ① | なし |
-| ② | なし |
-| ③ | ①成功（SALES_INPUT参照のため） |
-| ④ | ①成功 |
-| ⑤ | ②成功 + 過去④実行 |
-| ⑥ | ④成功 |
+### 4.2 信頼度提案（generateReliabilityProposals_）
+- 各 (source_type, source_key) について、push方向と「実績−定量(quant_only)」のサプライズ方向の的中率hを集計。
+- rHat = clamp(2h, R_MIN, R_MAX)。POOL_PRIOR（横断事前）と shrinkage_k で収縮 → rShrunk。
+- |rShrunk − 現在値| >= MIN_CHANGE のとき提案化。confidenceは n と変化量で判定。
+- ※ プール入力は「生のhit/n」を母数とすべき（rShrunk再プールは自己強化になるため不可）。3c-3cの設計論点。
 
-### 5.3 ④対象選択仕様（確定）
-- **Phase 1は単一クライアント選択のみ**（ドロップダウン）
-- 全件一括はPhase 2以降の検討
-- 初期選択は前回実行クライアント
+### 4.3 適用（applyQuarterlyProposals）
+- QUARTERLY_REVIEW の承認列（承認/却下/保留）に従う。空欄は保留。
+- 承認かつ auto_update_enabled=1 のときのみ SOURCE_RELIABILITY を upsert ＋ CALIBRATION_HISTORY 記録。
+- 同一 review_id の二重適用は早期終了。
 
 ---
 
-## 6. スクリプト独立アーキテクチャ
-
-### 6.1 原則
-- スクリプト間の直接呼び出し禁止
-- シートI/O連携
-- `PROCESS_STATUS` による前提確認
-
-### 6.2 I/O表
-| script | button | input | output |
-|---|---|---|---|
-| `importSalesInput.gs` | ① | 外部ソース | `SALES_INPUT_MONTHLY` |
-| `importActualEval.gs` | ② | 外部ソース | `ACTUAL_EVAL_MONTHLY` |
-| `generateAIPrompt.gs` | ③ | `SALES_INPUT_MONTHLY` | `AI_RESEARCH_PROMPT` |
-| `parseAIResearch.gs` | ③補助 | `AI_RESEARCH_PASTE` | `AI_RESEARCH_STRUCTURED` |
-| `runForecast.gs` | ④ | `SALES_INPUT_MONTHLY`,`AI_RESEARCH_STRUCTURED`,`DETERMINISTIC_FACTORS` | `FORECAST_OUTPUT`,`FORECAST_SNAPSHOT`,`FORECAST_REPORT` |
-| `runEvaluation.gs` | ⑤ | `ACTUAL_EVAL_MONTHLY`,`FORECAST_SNAPSHOT`,`OVERRIDE_LOG` | `EVAL_LOG`,`WEIGHT_UPDATE_LOG` |
-| `updateDashboard.gs` | ⑥ | `FORECAST_REPORT`,`EVAL_LOG` | `DASHBOARD` |
-
-### 6.3 PROCESS_STATUS仕様
-- 列: `step_key,last_run_date,last_run_by,status,target_client,record_count,error_summary`
-- 状態: `not_run/running/success/error`
-
-### 6.4 GAS 6分制約
-- ④は1クライアント単位
-- `execution_duration_sec` を常時計測
-- 5分超過頻発時は対象月/製品分割
+## 5. 検証ポリシー（KPI）
+- 計画用単一値＝P50。P10/P90は説明帯（hard gateではない）。
+- 制約：annual_abs_error_rate <= 10% / half_wape <= 12%（将来目標10%）/ over-forecast rate <= 5%。
+- 診断：月次APE、Q差分、定量寄与率、主観オーバーレイ率（表示のみ・制御目標ではない）、Known Spot寄与率、レンジ逸脱数。
+- レンジ逸脱月（actualがP10-P90外）はB-3で追加調査を必須化。
+- 1 client = 1 book。
 
 ---
 
-## 7. open補正
-- `open_month_set` を実行時判定
-- `normalized_actual = (途中実績/経過営業日)*全営業日`
-- `confidence_level`: <50 low / 50-80 mid / >80 high
-- lowは学習不使用
+## 6. ログ／永続シート
+- 内部管理：RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS / AI_SCORE_HISTORY / AI_IMPACT_HISTORY /
+  SUBJECTIVE_IMPACT_HISTORY / CALIBRATION_STATE / CALIBRATION_HISTORY / DLM_STATE / BACKTEST_REPORT /
+  SOURCE_RELIABILITY / POOL_PRIOR / LANDING_FORECAST など（原則非表示）。
+- FORECAST_SNAPSHOT 末尾に calibration_applied_json を保存。
 
 ---
 
-## 8. スパイク分離・決定論要因
-- 検出: 直近12か月中央値×2.0超
-- 分離: `base_amount`, `spike_amount`
-- 学習は`base_amount`のみ
-- `SPIKE_LOG`記録 + ④で承認
-
-### 8.5 DETERMINISTIC_FACTORS入力タイミング（確定）
-- **Phase 1は事前手動入力方式（B案）**
-- シート: `DETERMINISTIC_FACTORS`
-- 列: `client,target_month,amount,reason,confirmed_by,input_date`
-- ④開始時に適用一覧を確認ポップアップ表示
+## 7. 今後（3c-3c：POOL_PRIOR 横断集約）の設計論点（未確定）
+1. transport：中央プールbook→各bookローカルPOOL_PRIORへfan-out書込み（推奨）／実行時openById読み／手動。
+2. 集約入力：生hit/n をプール（rShrunk再プール禁止）。各bookのC-1にsource_type別hit/nの永続化が必要。
+3. 粒度：まず reliability:{source_type}。ai_topicは普遍キーなので将来 reliability:ai_topic:{topic} に拡張可。person系は横断不可。
+4. precision導出：初版はn加重平均＋保守的固定precision、将来は経験ベイズ。
+5. フェイルセーフ：min_clients/min_samples未満は中立1.0据え置き、[R_MIN,R_MAX]クリップ、n_clients/updated_at記録。
 
 ---
 
-## 9. 予測エンジン
-
-### 9.0 ④内部フロー
-前提チェック → 対象選択 → open/closed判定 → スパイク検出/承認 → base算出 → 観測1 → 観測2 → 観測3（regime）→ simulation → 合成 → AI補正 → 主観補正入力 → 上限制御/減衰 → シナリオ生成 → 出力/ログ
-
-### 9.1 三角観測
-- `w1`: 線形回帰
-- `w2`: ロバスト季節
-- `w3`: レジーム補正
-- `w4`: simulation
-
-### 9.2 個別モデル仕様（Phase 1固定）
-- 線形回帰: OLS, 時間変数, 学習窓は**全closed固定**
-- ロバスト季節: メディアン季節指数 + Winsorize **P5/P95**
-- レジーム: 直近6か月加重平均で補正
-
-### 9.3 レジーム検知
-- method: `moving_avg_gap`
-- lookback: 6か月
-- threshold: ±15%
-- transition: 2か月漸進
-
-### 9.4 合成
-`final_base = w1*linear + w2*robust + w3*regime + w4*simulation`
-
-### 9.5 重み更新
-- `w_i = (1/sMAPE_i) / Σ(1/sMAPE_j)`
-- 変動幅 ±0.10, 最低 0.05
-- 初回更新条件: closed実績3か月以上
-- それまでは `CLIENT_PARAMS` 初期値、未設定は `0.15/0.40/0.25/0.20`
-
-### 9.6 simulation
-- 実績<36か月: ブートストラップ
-- 実績>=36か月: 分位点回帰追加比較
-- `bootstrap_n` 初期値: **500**（`CLIENT_PARAMS`で可変）
-
-### 9.7 予測ホライズン
-- 基本: 当月+3か月
-- 代替: 年度末
-- 不確実性幅は先行月ごと+5%
-
-### 9.8 シナリオ生成
-- 中立: `final_base + deterministic_factors + subjective_adj + ai_adj`
-- ネガ: `中立 - downside_width(P10)`
-- ポジ: `中立 + upside_width(P90)`
-- `P10/P90` は **simulation出力分布** から算出
-
----
-
-## 10. AI調査 + 主観補正
-
-### 10.1 AI運用
-- Gemで出力しTSVを貼付
-
-### 10.2 BIGM2Y関連性
-- `https://bigm2y.com/service/` 前提
-- 関連薄情報は除外
-
-### 10.3 TSV
-`client	as_of_date	topic	direction	estimated_impact_pct	confidence	evidence	time_horizon	business_relevance_reason	relevance_score`
-
-### 10.4 検証
-- 列数/必須/値域/重複
-- `estimated_impact_pct` ±30超警告
-- `relevance_score` 0-100外拒否
-
-### 10.5 主観補正
-- ④の最終出力前に入力
-- `subjective_reason` 必須
-- 保存先: `FORECAST_SNAPSHOT` と `OVERRIDE_LOG`
-
-### 10.6 減衰
-- `effective_impact = impact_pct * (0.5^(months_since/3))`
-- AI: `as_of_date`基準
-- 主観: `subjective_input_date`基準（補正なしはnull）
-- AIデータは `as_of_date` 6か月超で補正対象外
-
-### 10.7 補正制御
-- 主観±8%、AI±5%
-- `relevance_score < 60` は補正不使用
-
----
-
-## 11. 透明化レポート・ダッシュボード
-
-### 11.1 レポート必須
-3シナリオ、各観測、重み、寄与率、補正量、差分要因、採用理由、前提条件
-
-### 11.2 寄与率
-- v6式を採用
-- 分母が前期実績1%未満なら寄与率算出対象外（絶対額表示）
-
-### 11.3 出力先
-- `FORECAST_REPORT`（client×month×scenario）
-
-### 11.4 ダッシュボード
-- シナリオ帯
-- 観測別トレンド
-- 実績vs予測差分
-- 根拠詳細
-- KPI信号灯
-
----
-
-## 12. ログ仕様
-### 12.1 RUN_LOG
-`run_id,run_at,run_by,function_name,client,status,count,model_version,parameters_snapshot_json,input_data_hash,execution_duration_sec,error_summary`
-
-### 12.2 FORECAST_SNAPSHOT
-`...,subjective_input_date`（補正なしはnull）
-
-### 12.3 OVERRIDE_LOG
-`override_type` は `subjective_input` / `manager_override` を区別
-
-### 12.4 保持期間
-FORECAST 24m / EVAL 36m / RUN 12m（超過はアーカイブ）
-
----
-
-## 13. 学習ループ・KPI
-- ②後にclosed増で候補生成
-- ⑤で重み更新提案→承認時のみ反映
-- KPI閾値: sMAPE, 捕捉率, 根拠欠落率
-- `was_overridden` 別集計
-- 赤信号時アクション5項目
-
----
-
-## 14. CLIENT_PARAMS
-- 初期は管理者投入
-- 未設定は全体デフォルト
-- ⑤提案で更新
-- 推奨追加パラメータ: `winsor_p_low=5`, `winsor_p_high=95`, `bootstrap_n=500`, `ai_max_age_months=6`
-
----
-
-## 15. ガバナンス
-- 上書き理由必須
-- 根拠セットで意思決定
-- AIは補助情報
-- 仕様変更時は `CHANGELOG` 同時更新（`change_date,changed_by,section,change_summary,reason`）
-
----
-
-## 16. Phase移行条件
-- P1→P2: 3か月安定 + sMAPE<=30
-- P2→P3: 捕捉率>=70
-- P3→P4: sMAPE 5%以上改善
-
----
-
-## 17. 強化候補（今後の見通し）
-- CUSUM/Bai-Perron
-- 状態空間/階層ベイズ/因果推論
-- 全件長時間実行の高度化
-- 学習窓の動的最適化
-
----
-
-## 18. 不要/後回し判断
-- **後回し（不要ではない）**: 高度統計モデル、長時間自動連鎖、完全自動AI連携
-- 理由: Phase 1の安定運用と現場定着を優先
-
----
-
-このv7は「初動実装」と「今後強化」を明確に分離し、開発者が判断に迷わない実装仕様として整理した最終版。
+この v1.8 は実装と設計書の乖離を解消し、信頼度ON化の前提を明文化した同期版。
+3c-3c（横断プール）は本体が複数bookで効くことを確認後に着手する。
