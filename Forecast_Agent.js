@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / step 3c-3c-1
+ * Forecast Agent v8 track / step 3c-3c
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -7,10 +7,11 @@
  * - primary時のみDLMをBASEへ反映、off/shadowは従来挙動を維持
  * - 主観入力は月次cap内でそのまま反映（overlay率ターゲット探索は撤去）
  * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
+ * - v1.9: POOL_PRIOR クライアント横断集約（中央集約book + fan-out / 手動）
  ***************************************/
 
-const VERSION = '2.1.2-dev';
-const BUILD_STAGE = 'v8-step3c3c-1';
+const VERSION = '2.2.0-dev';
+const BUILD_STAGE = 'v8-step3c3c';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -92,6 +93,8 @@ const SHEETS = {
   SOURCE_RELIABILITY: 'SOURCE_RELIABILITY',
   RELIABILITY_EVIDENCE: 'RELIABILITY_EVIDENCE',
   POOL_PRIOR: 'POOL_PRIOR',
+  REGISTRY: 'POOL_REGISTRY',
+  POOL_AGGREGATION_LOG: 'POOL_AGGREGATION_LOG',
   BUDGET_FROZEN: 'BUDGET_FROZEN',
   LANDING_FORECAST: 'LANDING_FORECAST',
   BACKTEST_REPORT: 'BACKTEST_REPORT',
@@ -190,6 +193,8 @@ const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
 const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
 const QUARTERLY_APPROVAL_PENDING = '保留';
+const POOL_MIN_CLIENTS_DEFAULT = 2;
+const RELIABILITY_POOL_SOURCE_TYPES = ['factor_product', 'factor_client', 'opinion', 'ai_topic'];
 
 // ===== v8 STEP2: DLM (log-space structural time series) =====
 const DLM_SEASONAL_PERIOD = 12;            // 月次季節
@@ -336,6 +341,296 @@ function adminInitDLMAndBacktest() {
     ui.alert('エラー', msg, ui.ButtonSet.OK);
     safeLogRun_('adminInitDLMAndBacktest', client, 'error', 0, started, msg);
   }
+}
+
+/**
+ * 【管理者用】このbookを横断集約ハブとして初期化します。
+ * - メニューには出しません（スクリプトエディタから手動実行）
+ */
+function adminSetupPoolHub() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.alert(
+    '管理者用：POOL集約ハブ初期化',
+    'この book を横断集約のハブにします。POOL_REGISTRY / POOL_AGGREGATION_LOG / POOL_PRIOR を作成します。\n続行しますか？',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (res !== ui.Button.OK) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const registry = getOrCreateSheet_(ss, SHEETS.REGISTRY);
+  const registryHeaders = getPoolRegistryHeaders_();
+  ensureSheetHeaders_(registry, registryHeaders);
+  registry.getRange('A:A').setNumberFormat('@');
+  registry.setFrozenRows(1);
+  if (registry.getLastRow() < 2) {
+    registry.getRange(2, 1, 1, registryHeaders.length).setValues([['book_idをここに貼付', 'client_name例', 1, 'サンプル行。実運用前に実IDへ置換してください。']]);
+    registry.getRange(2, 1, 1, registryHeaders.length).setNotes([[
+      '各クライアントbookのURL /d/ と /edit の間のIDを貼り付けます。',
+      'ログ表示用の任意名です。',
+      '1 / TRUE の行だけ集約対象です。',
+      '運用メモ欄です。'
+    ]]);
+  }
+  registry.getRange(1, 1).setNote('book_id は各クライアントbookのURL /d/ と /edit の間のID。enabled=1 の行だけ集約対象。');
+
+  const log = getOrCreateSheet_(ss, SHEETS.POOL_AGGREGATION_LOG);
+  ensureSheetHeaders_(log, getPoolAggregationLogHeaders_());
+  log.setFrozenRows(1);
+
+  const pool = getOrCreateSheet_(ss, SHEETS.POOL_PRIOR);
+  ensureSheetHeaders_(pool, getPoolPriorHeaders_());
+  pool.setFrozenRows(1);
+
+  ui.alert('完了', 'POOL集約ハブ用のシートを作成/確認しました。POOL_REGISTRY に各クライアントbookの book_id を登録してください。', ui.ButtonSet.OK);
+}
+
+/**
+ * 【管理者用】登録済みクライアントbookの raw hit/n を集約し、POOL_PRIORへfan-outします。
+ * - メニューには出しません（スクリプトエディタから手動実行）
+ */
+function adminAggregatePoolPriorAcrossBooks() {
+  const started = new Date();
+  const ui = SpreadsheetApp.getUi();
+  const runId = Utilities.getUuid();
+  const runAt = new Date();
+  const runBy = Session.getActiveUser().getEmail() || 'unknown';
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const registry = ss.getSheetByName(SHEETS.REGISTRY);
+    if (!registry) {
+      ui.alert('POOL_REGISTRY 未設定', 'POOL_REGISTRY を作成し、book_id を登録してください（POOL_SETUP 参照）。', ui.ButtonSet.OK);
+      return;
+    }
+    ensureSheetHeaders_(registry, getPoolRegistryHeaders_());
+    const registryRows = readEnabledPoolRegistryRows_(registry);
+    if (!registryRows.length) {
+      ui.alert('POOL_REGISTRY 未設定', 'POOL_REGISTRY を作成し、book_id を登録してください（POOL_SETUP 参照）。', ui.ButtonSet.OK);
+      return;
+    }
+
+    const tuning = readModelTuningFromConfig_();
+    const rMin = isFinite(Number(tuning.reliabilityRMin)) ? Number(tuning.reliabilityRMin) : 0;
+    const rMax = isFinite(Number(tuning.reliabilityRMax)) ? Number(tuning.reliabilityRMax) : 1.5;
+    const shrinkageK = isFinite(Number(tuning.reliabilityShrinkageK)) ? Number(tuning.reliabilityShrinkageK) : 4;
+    const minSamples = isFinite(Number(tuning.reliabilityMinSamples)) ? Number(tuning.reliabilityMinSamples) : 2;
+    const minClients = isFinite(Number(tuning.poolMinClients)) ? Number(tuning.poolMinClients) : POOL_MIN_CLIENTS_DEFAULT;
+    const sourceSet = new Set(RELIABILITY_POOL_SOURCE_TYPES);
+    const perType = {};
+    RELIABILITY_POOL_SOURCE_TYPES.forEach(t => {
+      perType[t] = { sumHit: 0, sumN: 0, clients: new Set() };
+    });
+
+    const bookLogs = [];
+    registryRows.forEach(reg => {
+      const bookLog = {
+        book_id: reg.book_id,
+        client_name: reg.client_name,
+        status: '',
+        rows_read: 0,
+        rows_skipped: 0,
+        fanout_status: '',
+        note: ''
+      };
+      try {
+        if (!reg.book_id) {
+          bookLog.status = 'excluded';
+          bookLog.note = 'book_id空欄';
+          bookLogs.push(bookLog);
+          return;
+        }
+        const ext = SpreadsheetApp.openById(reg.book_id);
+        const sh = ext.getSheetByName(SHEETS.RELIABILITY_EVIDENCE);
+        if (!sh || sh.getLastRow() < 2) {
+          bookLog.status = 'empty';
+          bookLogs.push(bookLog);
+          return;
+        }
+        const values = sh.getDataRange().getValues();
+        const idx = headerIndexMap_(values[0] || []);
+        if (!hasHeaderIndexes_(idx, ['source_type','n','hit'])) {
+          bookLog.status = 'no_columns';
+          bookLog.note = 'source_type/n/hit列なし';
+          bookLogs.push(bookLog);
+          return;
+        }
+        values.slice(1).forEach(r => {
+          const t = String(r[idx.source_type] || '').trim();
+          const n = Number(r[idx.n]);
+          const hit = Number(r[idx.hit]);
+          if (!sourceSet.has(t) || !isFinite(n) || !isFinite(hit) || n < 0 || hit < 0 || hit > n) {
+            bookLog.rows_skipped += 1;
+            return;
+          }
+          perType[t].sumHit += hit;
+          perType[t].sumN += n;
+          perType[t].clients.add(reg.book_id);
+          bookLog.rows_read += 1;
+        });
+        bookLog.status = 'ok';
+        bookLogs.push(bookLog);
+      } catch (err) {
+        bookLog.status = 'excluded';
+        bookLog.note = String((err && err.message) || err);
+        bookLogs.push(bookLog);
+      }
+    });
+
+    const results = RELIABILITY_POOL_SOURCE_TYPES.map(t => {
+      const g = perType[t];
+      const nClients = g.clients.size;
+      const sumHit = g.sumHit;
+      const sumN = g.sumN;
+      const scope = `reliability:${t}`;
+      if (nClients < minClients) {
+        return { scope, param_key: 'reliability_r', written: false, reason: 'min_clients', nClients, sumHit, sumN, hitRate: '', pooled: '', precision: '' };
+      }
+      if (sumN < minSamples) {
+        return { scope, param_key: 'reliability_r', written: false, reason: 'min_samples', nClients, sumHit, sumN, hitRate: '', pooled: '', precision: '' };
+      }
+      const h = sumHit / sumN;
+      const pooled = clamp_(2 * h, rMin, rMax);
+      return { scope, param_key: 'reliability_r', written: true, reason: '', nClients, sumHit, sumN, hitRate: h, pooled, precision: shrinkageK };
+    });
+    const writtenResults = results.filter(r => r.written);
+
+    upsertPoolPriorResultsToSpreadsheet_(ss, writtenResults, runAt, runBy);
+
+    bookLogs.filter(b => b.status === 'ok').forEach(b => {
+      try {
+        if (!writtenResults.length) {
+          b.fanout_status = 'no_written_scopes';
+          return;
+        }
+        const ext = SpreadsheetApp.openById(b.book_id);
+        upsertPoolPriorResultsToSpreadsheet_(ext, writtenResults, runAt, runBy);
+        b.fanout_status = 'ok';
+      } catch (err) {
+        b.fanout_status = 'error';
+        const msg = String((err && err.message) || err);
+        b.note = b.note ? `${b.note}; fanout=${msg}` : `fanout=${msg}`;
+      }
+    });
+
+    writePoolAggregationLog_(ss, runId, runAt, runBy, bookLogs, results);
+
+    const okCount = bookLogs.filter(b => b.status === 'ok').length;
+    const excludedCount = bookLogs.length - okCount;
+    const writtenLines = writtenResults.length
+      ? writtenResults.map(r => `${r.scope}=${Number(r.pooled).toFixed(3)}`).join('\n')
+      : 'なし';
+    const skippedLines = results.filter(r => !r.written).length
+      ? results.filter(r => !r.written).map(r => `${r.scope}: ${r.reason}`).join('\n')
+      : 'なし';
+    ui.alert(
+      'POOL_PRIOR 横断集約完了',
+      `対象book数=${registryRows.length}\nok=${okCount}\n除外=${excludedCount}\n\n書込scope:\n${writtenLines}\n\n未書込scope:\n${skippedLines}`,
+      ui.ButtonSet.OK
+    );
+    safeLogRun_('adminAggregatePoolPriorAcrossBooks', '', 'success', writtenResults.length, started, `books=${registryRows.length}; ok=${okCount}; excluded=${excludedCount}`);
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    ui.alert('POOL_PRIOR 横断集約エラー', msg, ui.ButtonSet.OK);
+    safeLogRun_('adminAggregatePoolPriorAcrossBooks', '', 'error', 0, started, msg);
+  }
+}
+
+function getPoolRegistryHeaders_() {
+  return ['book_id','client_name','enabled','note'];
+}
+
+function getPoolPriorHeaders_() {
+  return ['pool_scope','param_key','pooled_value','precision','n_clients','updated_at','updated_by','note'];
+}
+
+function getPoolAggregationLogHeaders_() {
+  return ['run_id','run_at','run_by','type','book_id','client_name','status','rows_read','rows_skipped','fanout_status','scope','written','reason','n_clients','sum_hit','sum_n','hit_rate','pooled_value','precision','note'];
+}
+
+function isPoolRegistryEnabled_(value) {
+  if (value === true) return true;
+  if (isFinite(Number(value)) && Number(value) > 0) return true;
+  const s = String(value || '').trim().toUpperCase();
+  return s === 'TRUE' || s === '1';
+}
+
+function readEnabledPoolRegistryRows_(sh) {
+  const values = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(values[0] || []);
+  if (!hasHeaderIndexes_(idx, ['book_id','client_name','enabled'])) return [];
+  return values.slice(1)
+    .filter(r => isPoolRegistryEnabled_(r[idx.enabled]))
+    .map(r => ({
+      book_id: String(r[idx.book_id] || '').trim(),
+      client_name: String(r[idx.client_name] || '').trim()
+    }));
+}
+
+function upsertPoolPriorResultsToSpreadsheet_(ss, results, updatedAt, updatedBy) {
+  if (!results || !results.length) return 0;
+  const sh = getOrCreateSheet_(ss, SHEETS.POOL_PRIOR);
+  const headers = getPoolPriorHeaders_();
+  ensureSheetHeaders_(sh, headers);
+  const values = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(values[0] || headers);
+  const rowByKey = new Map();
+  for (let i = 1; i < values.length; i++) {
+    const key = [
+      String(values[i][idx.pool_scope] || '').trim(),
+      String(values[i][idx.param_key] || '').trim()
+    ].join('|');
+    if (key) rowByKey.set(key, i + 1);
+  }
+
+  const updates = [];
+  const appends = [];
+  results.filter(r => r.written).forEach(r => {
+    const note = `v1.9 cross-book agg; clients=${r.nClients}; sumHit=${r.sumHit}; sumN=${r.sumN}`;
+    const row = [r.scope, 'reliability_r', r.pooled, r.precision, r.nClients, updatedAt, updatedBy, note];
+    const key = [r.scope, 'reliability_r'].join('|');
+    const rowNo = rowByKey.get(key);
+    if (rowNo) updates.push({ rowNo, row });
+    else appends.push(row);
+  });
+  writeContiguousRowUpdates_(sh, updates, headers.length);
+  if (appends.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, appends, 500);
+  return updates.length + appends.length;
+}
+
+function writePoolAggregationLog_(ss, runId, runAt, runBy, bookLogs, results) {
+  const sh = getOrCreateSheet_(ss, SHEETS.POOL_AGGREGATION_LOG);
+  const headers = getPoolAggregationLogHeaders_();
+  ensureSheetHeaders_(sh, headers);
+  const rows = [];
+  (bookLogs || []).forEach(b => {
+    rows.push([runId, runAt, runBy, 'book', b.book_id || '', b.client_name || '', b.status || '', Number(b.rows_read || 0), Number(b.rows_skipped || 0), b.fanout_status || '', '', '', '', '', '', '', '', '', '', b.note || '']);
+  });
+  (results || []).forEach(r => {
+    rows.push([runId, runAt, runBy, 'scope', '', '', '', '', '', '', r.scope || '', r.written ? 1 : 0, r.reason || '', Number(r.nClients || 0), Number(r.sumHit || 0), Number(r.sumN || 0), r.hitRate === '' ? '' : Number(r.hitRate || 0), r.pooled === '' ? '' : Number(r.pooled || 0), r.precision === '' ? '' : Number(r.precision || 0), '']);
+  });
+  if (rows.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
+}
+
+function writeContiguousRowUpdates_(sh, updates, width) {
+  if (!updates || !updates.length) return;
+  updates.sort((a, b) => a.rowNo - b.rowNo);
+  let blockStart = 0;
+  let blockRows = [];
+  updates.forEach(u => {
+    if (!blockRows.length) {
+      blockStart = u.rowNo;
+      blockRows = [u.row];
+      return;
+    }
+    if (u.rowNo === blockStart + blockRows.length) {
+      blockRows.push(u.row);
+      return;
+    }
+    sh.getRange(blockStart, 1, blockRows.length, width).setValues(blockRows);
+    blockStart = u.rowNo;
+    blockRows = [u.row];
+  });
+  if (blockRows.length) sh.getRange(blockStart, 1, blockRows.length, width).setValues(blockRows);
 }
 
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
@@ -2270,6 +2565,7 @@ function buildCONFIG_() {
     ['RELIABILITY_SHRINKAGE_K', 4],
     ['RELIABILITY_MIN_SAMPLES', 2],
     ['RELIABILITY_MIN_CHANGE', 0.05],
+    ['POOL_MIN_CLIENTS（横断集約の最低クライアント数）', POOL_MIN_CLIENTS_DEFAULT],
     ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -3213,7 +3509,8 @@ function readModelTuningFromConfig_() {
     reliabilityRMax: 1.5,
     reliabilityShrinkageK: 4,
     reliabilityMinSamples: 2,
-    reliabilityMinChange: 0.05
+    reliabilityMinChange: 0.05,
+    poolMinClients: POOL_MIN_CLIENTS_DEFAULT
   };
 
   const labelMap = readConfigLabelMap_();
@@ -3265,6 +3562,7 @@ function readModelTuningFromConfig_() {
   out.reliabilityShrinkageK = Math.max(0, Math.min(50, getCfg('RELIABILITY_SHRINKAGE_K', out.reliabilityShrinkageK)));
   out.reliabilityMinSamples = Math.round(Math.max(1, Math.min(12, getCfg('RELIABILITY_MIN_SAMPLES', out.reliabilityMinSamples))));
   out.reliabilityMinChange = Math.max(0, Math.min(1, getCfg('RELIABILITY_MIN_CHANGE', out.reliabilityMinChange)));
+  out.poolMinClients = Math.round(Math.max(1, Math.min(50, getCfg('POOL_MIN_CLIENTS', out.poolMinClients))));
   return out;
 }
 
@@ -7191,6 +7489,19 @@ function syncSalesFromSalesInput_(fy, client) {
  * 4) C-1 前後で A-9 を実行し、計画値（OUTPUT の P10/P50/P90）が変わらないことを確認。
  * 5) generateReliabilityProposals_ の提案結果がリファクタ前と一致することを確認（回帰なし）。
  * 6) 実績3か月未満で C-1 → 期間不足で正常終了し、RELIABILITY_EVIDENCE に書かれないことを確認。
+ *
+ * HOW TO TEST (v1.9 cross-book pool)
+ * 1) ハブbookで adminSetupPoolHub を実行 → POOL_REGISTRY / POOL_AGGREGATION_LOG / POOL_PRIOR が作成される。
+ * 2) REGISTRY に2冊以上の client book の book_id を enabled=1 で登録。各bookは事前にC-1実行済みで RELIABILITY_EVIDENCE に行があること。
+ * 3) adminAggregatePoolPriorAcrossBooks を実行 → POOL_AGGREGATION_LOG に per-book 行（ok/除外）と per-scope 行（written/理由/pooled_value）が1 run_id で記録される。
+ * 4) ハブbookの POOL_PRIOR に reliability:{source_type} 行が upsert され、pooled_value=clamp(2*Σhit/Σn,R_MIN,R_MAX)、precision=SHRINKAGE_K、n_clients が入ること。
+ * 5) 登録した各 client book の POOL_PRIOR にも同値が fan-out されていること（full overwrite）。
+ * 6) 判断2：あるsource_typeの寄与クライアントが1冊だけ → そのscopeは written=false / reason=min_clients で POOL_PRIOR に書かれない（空のまま）こと。
+ * 7) 判断4：REGISTRY に無効な book_id（権限なし/存在しない）を1行入れて実行 → その行は status=excluded でログに残り、他bookの集約と fan-out は正常完了すること（全体が止まらない）。
+ * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
+ * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
+ * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
+ * 11) VERSION='2.2.0-dev' / BUILD_STAGE='v8-step3c3c' に更新されていること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
