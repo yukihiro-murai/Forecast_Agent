@@ -10,7 +10,7 @@
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step3c2-source-reliability';
+const BUILD_STAGE = 'v8-step3c3a-cleanup';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -198,7 +198,7 @@ const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視�
 const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
 const DLM_Z10 = -1.2815515594;             // 標準正規10%点
 const DLM_Z90 =  1.2815515594;             // 標準正規90%点
-const DLM_BUILD_STAGE = 'v8-step3b-dlm-primary';
+const DLM_BUILD_STAGE = 'v8-step3c3a-cleanup';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -337,8 +337,9 @@ function adminInitDLMAndBacktest() {
   }
 }
 
-// DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
-// TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
+// DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
+// TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+// TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -645,12 +646,6 @@ function getForecastFYEnd_(fy) {
   // FY終了日は厳密には FY+1/03/31
   return new Date(Number(fy) + 1, 3, 0);
 }
-
-function getForecastFYMonths_(fy) {
-  const start = getForecastFYStart_(fy);
-  return Array.from({ length: 12 }, (_, i) => addMonths_(start, i));
-}
-
 
 /** 外部SSからメーカー候補（最新2年のAO列）を取得 */
 function getClientCandidatesForSetup_() {
@@ -995,59 +990,6 @@ function closeIt(){ google.script.host.close(); }
 </body>
 </html>`;
   ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(360), title);
-}
-
-/** ====== A-9 予測を出力 ====== */
-function executeForecastUsingConfig() {
-  ensureSetupDone_();
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-
-  const client = String(cfg.getRange('B2').getValue() || '').trim();
-  const fy = Number(cfg.getRange('B3').getValue());
-  if (!client || !fy) {
-    SpreadsheetApp.getUi().alert('初期設定が未完了です。A-1 初期セットアップを実行してください。');
-    return;
-  }
-
-  // 入力異常検出（おかしなデータがあれば止める）
-  try {
-    validateAllInputsOrThrow_(fy);
-  } catch (e) {
-    SpreadsheetApp.getUi().alert('入力エラー', e.message, SpreadsheetApp.getUi().ButtonSet.OK);
-    return;
-  }
-
-  // 全員の意見があるか（必須：有効行があるか）
-  const requiredPeople = getPeopleListFromConfig_();
-  const missingPeople = findMissingPeopleOpinionsByValidRows_(requiredPeople);
-  if (missingPeople.length > 0) {
-    SpreadsheetApp.getUi().alert(
-      '担当者の意見が不足しています',
-      `OPINIONSに全員の意見が必要です。\n未入力: ${missingPeople.join(', ')}\n\nA-6で全員分入力してください。`,
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-    return;
-  }
-
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.alert(
-    'シミュレーションを実施しますか？',
-    '※すでにシミュレーション実施している場合は上書きされます',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (res !== ui.Button.OK) return;
-
-  toastProgress_(ss, 'STEP1/6: SALES合算 → 未確定月を月別トレンドで補完（補完後に下がらない）…', 7);
-  syncSalesFromSalesInput_(fy, client);
-  const result = runForecastFYCore_(fy, client);
-
-  toastProgress_(ss, 'STEP6/6: OUTPUTへ書き出し（表＋グラフ）…', 6);
-  writeOutputFY_(result);
-
-  ss.toast('完了：OUTPUTを更新しました', MENU_NAME, 5);
-  ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
 }
 
 /** ====== 予測コア ====== */
@@ -3924,12 +3866,6 @@ function appendDlmBacktestReport_(ss, client, fy, result) {
 }
 
 
-/** SPOT背景（未知案件）を12ヶ月分推定：履歴同月平均を縮小しつつ最低保証を持たせる */
-function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
-  const model = fitSpotRecurringModel_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning);
-  return model.expectedByMonth;
-}
-
 function fitSpotRecurringModel_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
   const src = Array.isArray(spotSeries48) ? spotSeries48 : [];
   const baseRef = Array.isArray(baseP50ByMonth) ? baseP50ByMonth : new Array(12).fill(0);
@@ -4073,40 +4009,6 @@ function sumAcrossProducts_(monthlyByProduct) {
     for (let i = 0; i < n; i++) out[i] += Number(arr[i] || 0);
   });
   return out;
-}
-
-/** 製品構成比：直近の“確定済み12ヶ月”で計算 */
-function computeProductWeightsClosed12_(productNames, monthlyByProduct, seriesStart, lastClosedMonthStart) {
-  const map = new Map();
-  if (!productNames || productNames.length === 0) return map;
-
-  let closedEndIdx = -1;
-  for (let i = 0; i < 48; i++) {
-    const mStart = addMonths_(seriesStart, i);
-    if (mStart <= lastClosedMonthStart) closedEndIdx = i;
-  }
-  if (closedEndIdx < 0) {
-    const w = 1 / productNames.length;
-    productNames.forEach(n => map.set(n, w));
-    return map;
-  }
-
-  const startIdx = Math.max(0, closedEndIdx - 11);
-  const sums = productNames.map((name, i) => {
-    const arr = monthlyByProduct[i] || [];
-    let s = 0;
-    for (let k = startIdx; k <= closedEndIdx; k++) s += Number(arr[k] || 0);
-    return s;
-  });
-  const total = sums.reduce((a,b)=>a+b,0);
-
-  if (total > 0) {
-    productNames.forEach((name, i) => map.set(name, sums[i] / total));
-  } else {
-    const w = 1 / productNames.length;
-    productNames.forEach(name => map.set(name, w));
-  }
-  return map;
 }
 
 /** DEV固定（12ヶ月）※必要情報が揃った行だけ加算 */
@@ -4378,13 +4280,6 @@ function readAIResearchScores_(calibration) {
   result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
 
   return result;
-}
-
-function readAIPasteOutputFullText_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const client = cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '';
-  return readAIReportTextForClient_(client);
 }
 
 function readAIReportTextForClient_(clientName) {
@@ -4854,8 +4749,9 @@ function forecastMonteCarloMixed_(model, opt) {
     }
   }
 
-  // DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
-  // TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
+  // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
+  // TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+  // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
   const calibrated = calibrateSubjectiveContinuousDelta_({
     quantOpsSimByMonth,
     subjectiveContinuousDeltaSimByMonth,
@@ -4955,8 +4851,9 @@ function quantilesFromSimByMonth_(simByMonth) {
   };
 }
 
-// DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
-// TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
+// DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
+// TODO(step-3c-3b): 限界寄与ベースの厳密帰属（leave-one-out分解）。
+// TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
 function calibrateSubjectiveContinuousDelta_(opt) {
   const tuning = opt && opt.tuning ? opt.tuning : {};
   const targetCenter = SUBJECTIVE_OVERLAY_TARGET_CENTER;
@@ -5148,6 +5045,7 @@ function resetOutputSheet_(sh) {
   if (maxRows > 0) sh.setRowHeights(1, maxRows, 21);
 }
 
+// [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
 function validateOutputLayout_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
@@ -5176,6 +5074,7 @@ function applySheetVisualStandards_(sh, profile) {
   });
 }
 
+// [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
 function validateAiParsing_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
@@ -5307,63 +5206,6 @@ function summarizeOpinionsByMonth_(opinions, months) {
       parts.push(`${o.person}:${sign}${pct}%(${conf})`);
     });
     out.push(parts.join(' / '));
-  }
-  return out;
-}
-
-/** ====== スムージング（季節性を潰しにくい単発スパイクならし） ====== */
-function smoothSeriesSeasonalAware_(y) {
-  const n = y.length;
-  if (n !== 48) return y.slice();
-
-  const base = new Array(n).fill(0);
-  for (let i = 0; i < n; i++) {
-    const start = Math.max(0, i - 12);
-    const end = i;
-    const arr = [];
-    for (let j = start; j < end; j++) arr.push(y[j]);
-    base[i] = arr.length ? avg_(arr) : (y[i] || 0);
-  }
-
-  const byM = Array.from({ length: 12 }, () => []);
-  for (let i = 0; i < n; i++) {
-    const b = base[i] || 0;
-    const ratio = b > 0 ? (y[i] / b) : 1;
-    if (isFinite(ratio) && ratio > 0) byM[i % 12].push(ratio);
-  }
-
-  const mMed = new Array(12).fill(1);
-  const mMad = new Array(12).fill(0.1);
-
-  for (let m = 0; m < 12; m++) {
-    const arr = byM[m].slice().sort((a,b)=>a-b);
-    mMed[m] = arr.length ? percentileSorted_(arr, 0.50) : 1;
-
-    const dev = arr.map(v => Math.abs(v - mMed[m])).sort((a,b)=>a-b);
-    mMad[m] = dev.length ? percentileSorted_(dev, 0.50) : 0.1;
-    if (mMad[m] === 0) mMad[m] = 0.05;
-  }
-
-  const out = y.slice();
-  for (let i = 0; i < n; i++) {
-    const b = base[i] || 0;
-    if (b <= 0) continue;
-
-    const ratio = out[i] / b;
-    if (!isFinite(ratio) || ratio <= 0) continue;
-
-    const isSpikeCandidate = (ratio > SPIKE_CLIP_MAX || ratio < SPIKE_CLIP_MIN);
-    if (!isSpikeCandidate) continue;
-
-    const m = i % 12;
-    const lo = Math.max(0.30, mMed[m] - SEASONAL_MAD_K * mMad[m]);
-    const hi = Math.max(lo + 0.05, mMed[m] + SEASONAL_MAD_K * mMad[m]);
-
-    // 季節範囲内なら潰さない
-    if (ratio >= lo && ratio <= hi) continue;
-
-    const clipped = Math.max(SPIKE_CLIP_MIN, Math.min(SPIKE_CLIP_MAX, ratio));
-    out[i] = b * clipped;
   }
   return out;
 }
@@ -6728,11 +6570,6 @@ function updatePhase1LearningInsights() {
   ss.setActiveSheet(out);
 }
 
-function chooseClientFromSalesInput_() {
-  const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
-  return String(cfg.getRange('B2').getValue() || '').trim();
-}
-
 function updateProcessStatus_(stepKey, status, targetClient, count, err) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
   const vals = sh.getDataRange().getValues();
@@ -6756,6 +6593,7 @@ function readStep3aWarningSummary_() {
   return '';
 }
 
+// [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
 function diagnoseLastAIParse_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const statusSh = ss.getSheetByName(SHEETS.PROCESS_STATUS);
