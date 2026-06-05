@@ -12,7 +12,7 @@
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step1-foundation';
+const BUILD_STAGE = 'v8-step2-dlm-core';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -192,6 +192,16 @@ const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
 const QUARTERLY_APPROVAL_PENDING = '保留';
 
+// ===== v8 STEP2: DLM (log-space structural time series) =====
+const DLM_SEASONAL_PERIOD = 12;            // 月次季節
+const DLM_STATE_DIM = 2 + (DLM_SEASONAL_PERIOD - 1); // level, trend, seasonal(11) = 13
+const DLM_Q_GRID = [1e-4, 1e-3, 1e-2, 1e-1]; // q_level/q_trend/q_seasonal の探索格子（obs比）
+const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視する観測数（拡散初期化のため）
+const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
+const DLM_Z10 = -1.2815515594;             // 標準正規10%点
+const DLM_Z90 =  1.2815515594;             // 標準正規90%点
+const DLM_BUILD_STAGE = 'v8-step2-dlm-core';
+
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
 var SEASONAL_YEAR_WEIGHT_Y2 = (typeof SEASONAL_YEAR_WEIGHT_Y2 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y2 : 0.20;
@@ -269,6 +279,68 @@ function adminSetupGuideOnly() {
 
   ui.alert('完了', 'GUIDEシートを作成し、他のタブシートを削除しました。', ui.ButtonSet.OK);
 }
+
+/**
+ * 【管理者用】DLM状態を48ヶ月BASE実績から初期化し、バックテスト結果を永続化します。
+ * - メニューには出しません（STEP2では既存予測に接続しない）
+ */
+function adminInitDLMAndBacktest() {
+  const started = new Date();
+  const ui = SpreadsheetApp.getUi();
+  let client = '';
+
+  try {
+    ensureSetupDone_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
+    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
+    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+
+    const res = ui.alert(
+      '管理者用：DLM初期化',
+      `${client} / FY${fy} のBASE48ヶ月履歴からDLMを初期化し、DLM_STATEとBACKTEST_REPORTへ保存します。\n\n※A-9予測値には反映しません。続行しますか？`,
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (res !== ui.Button.OK) return;
+
+    const sales = ss.getSheetByName(SHEETS.SALES);
+    if (!sales) throw new Error('SALESシートがありません。先にA-3 予測用に売上データを加工 を実行してください。');
+
+    const salesData = readSales48Months_(sales);
+    if (!salesData.isComplete48) throw new Error('SALESシートに48ヶ月分の列がありません。先にA-3を再実行してください。');
+
+    const tuning = readModelTuningFromConfig_();
+    const ctx = getForecastContext_(fy, new Date(), salesData.headerMonths);
+    const result = dlmFitAndBacktest_(salesData.baseSeries48, salesData.headerMonths[0], ctx.lastClosedMonthStart, tuning);
+
+    if (!result.ready) {
+      const min = Number(result.minMonths || tuning.dlmBacktestMinMonths || 24);
+      const msg = `実績が ${min} ヶ月分必要です（現在 ${Number(result.nClosed || 0)} ヶ月）。`;
+      ui.alert('DLM初期化：実績不足', msg, ui.ButtonSet.OK);
+      safeLogRun_('adminInitDLMAndBacktest', client, 'success', 0, started, msg);
+      return;
+    }
+
+    writeDlmState_(ss, client, fy, result);
+    appendDlmBacktestReport_(ss, client, fy, result);
+
+    const msg = [
+      `DLM初期化が完了しました（${client} / FY${fy}）。`,
+      `n_closed=${result.nClosed}, n_points=${result.metrics.nPoints}`,
+      `sMAPE=${formatRateForMessage_(result.metrics.smape)}, WAPE=${formatRateForMessage_(result.metrics.wape)}, coverage=${formatRateForMessage_(result.metrics.coverage)}`
+    ].join('\n');
+    ui.alert('完了', msg, ui.ButtonSet.OK);
+    safeLogRun_('adminInitDLMAndBacktest', client, 'success', result.metrics.nPoints, started, `n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`);
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    ui.alert('エラー', msg, ui.ButtonSet.OK);
+    safeLogRun_('adminInitDLMAndBacktest', client, 'error', 0, started, msg);
+  }
+}
+
+// TODO(step-3): A-9のBASE予測差し替え時にDLM_STATEを読み込み、既存エンジンとの接続点を限定する。
+// TODO(step-3): DLM接続後に主観キャリブレータ、AI上限、TSV貼り付け経路の置換範囲を整理する。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -1951,7 +2023,11 @@ function buildCONFIG_() {
     ['AI_DIRECTION_HIT_WEAK', 0.40],
     ['AI_EFFECT_MIN_MEANINGFUL', 0.005],
     ['AI_WEIGHT_PROPOSAL_MIN', 0.00005],
-    ['AI_WEIGHT_PROPOSAL_MAX', 0.002]
+    ['AI_WEIGHT_PROPOSAL_MAX', 0.002],
+    ['DLM_BACKTEST_MIN_MONTHS（バックテスト最低確定月数）', 24],
+    ['DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', 18],
+    ['DLM_FORECAST_HORIZON（バックテスト先読み月数）', 3],
+    ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -2862,7 +2938,11 @@ function readModelTuningFromConfig_() {
     aiDirectionHitWeak: 0.40,
     aiEffectMinMeaningful: 0.005,
     aiWeightProposalMin: 0.00005,
-    aiWeightProposalMax: 0.002
+    aiWeightProposalMax: 0.002,
+    dlmBacktestMinMonths: 24,
+    dlmBacktestStartOrigin: 18,
+    dlmForecastHorizon: 3,
+    dlmLogEpsilonRate: 0.01
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2924,6 +3004,10 @@ function readModelTuningFromConfig_() {
   out.aiEffectMinMeaningful = Math.max(0, Math.min(0.1, getNumByLabel('AI_EFFECT_MIN_MEANINGFUL', out.aiEffectMinMeaningful)));
   out.aiWeightProposalMin = Math.max(0, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MIN', out.aiWeightProposalMin)));
   out.aiWeightProposalMax = Math.max(out.aiWeightProposalMin, Math.min(0.01, getNumByLabel('AI_WEIGHT_PROPOSAL_MAX', out.aiWeightProposalMax)));
+  out.dlmBacktestMinMonths = Math.round(Math.max(12, Math.min(48, getNumByLabel('DLM_BACKTEST_MIN_MONTHS（バックテスト最低確定月数）', out.dlmBacktestMinMonths))));
+  out.dlmBacktestStartOrigin = Math.round(Math.max(12, Math.min(47, getNumByLabel('DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', out.dlmBacktestStartOrigin))));
+  out.dlmForecastHorizon = Math.round(Math.max(1, Math.min(12, getNumByLabel('DLM_FORECAST_HORIZON（バックテスト先読み月数）', out.dlmForecastHorizon))));
+  out.dlmLogEpsilonRate = Math.max(0.0001, Math.min(0.5, getNumByLabel('DLM_LOG_EPSILON_RATE（対数下限=median比）', out.dlmLogEpsilonRate)));
   return out;
 }
 
@@ -3066,6 +3150,437 @@ function getForecastContext_(fy, runDate, headerMonths) {
   };
 }
 
+function dlmZeros_(r, c) {
+  const out = [];
+  for (let i = 0; i < r; i++) out.push(new Array(c).fill(0));
+  return out;
+}
+
+function dlmIdentity_(n) {
+  const out = dlmZeros_(n, n);
+  for (let i = 0; i < n; i++) out[i][i] = 1;
+  return out;
+}
+
+function dlmTranspose_(A) {
+  const r = A.length;
+  const c = r ? A[0].length : 0;
+  const out = dlmZeros_(c, r);
+  for (let i = 0; i < r; i++) {
+    for (let j = 0; j < c; j++) out[j][i] = A[i][j];
+  }
+  return out;
+}
+
+function dlmMatMul_(A, B) {
+  const r = A.length;
+  const k = r ? A[0].length : 0;
+  const c = B.length ? B[0].length : 0;
+  const out = dlmZeros_(r, c);
+  for (let i = 0; i < r; i++) {
+    for (let p = 0; p < k; p++) {
+      const av = A[i][p];
+      if (!av) continue;
+      for (let j = 0; j < c; j++) out[i][j] += av * B[p][j];
+    }
+  }
+  return out;
+}
+
+function dlmMatVec_(A, x) {
+  const out = new Array(A.length).fill(0);
+  for (let i = 0; i < A.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < x.length; j++) sum += A[i][j] * x[j];
+    out[i] = sum;
+  }
+  return out;
+}
+
+function dlmMatAdd_(A, B) {
+  const out = dlmZeros_(A.length, A.length ? A[0].length : 0);
+  for (let i = 0; i < A.length; i++) {
+    for (let j = 0; j < A[i].length; j++) out[i][j] = A[i][j] + B[i][j];
+  }
+  return out;
+}
+
+function dlmOuter_(u, v) {
+  const out = dlmZeros_(u.length, v.length);
+  for (let i = 0; i < u.length; i++) {
+    for (let j = 0; j < v.length; j++) out[i][j] = u[i] * v[j];
+  }
+  return out;
+}
+
+function dlmDot_(u, v) {
+  let sum = 0;
+  for (let i = 0; i < u.length; i++) sum += u[i] * v[i];
+  return sum;
+}
+
+function dlmCloneMat_(A) {
+  return A.map(r => r.slice());
+}
+
+function dlmBuildTransition_() {
+  const T = dlmZeros_(DLM_STATE_DIM, DLM_STATE_DIM);
+  T[0][0] = 1;
+  T[0][1] = 1;
+  T[1][1] = 1;
+  for (let c = 2; c < DLM_STATE_DIM; c++) T[2][c] = -1;
+  for (let r = 3; r < DLM_STATE_DIM; r++) T[r][r - 1] = 1;
+  return T;
+}
+
+function dlmBuildObservation_() {
+  const H = new Array(DLM_STATE_DIM).fill(0);
+  H[0] = 1;
+  H[2] = 1;
+  return H;
+}
+
+function dlmBuildQ_(qLevel, qTrend, qSeasonal) {
+  const Q = dlmZeros_(DLM_STATE_DIM, DLM_STATE_DIM);
+  Q[0][0] = Math.max(0, Number(qLevel) || 0);
+  Q[1][1] = Math.max(0, Number(qTrend) || 0);
+  Q[2][2] = Math.max(0, Number(qSeasonal) || 0);
+  return Q;
+}
+
+function dlmInitState_(logSeries, closedCount) {
+  const y = (logSeries || []).filter(v => isFinite(Number(v))).map(Number);
+  const recent = y.slice(Math.max(0, y.length - 12));
+  let level = median_(recent.length ? recent : y);
+  if (!isFinite(level)) level = 0;
+
+  let trend = 0;
+  if (closedCount >= 24) {
+    const first12 = (logSeries || []).slice(0, 12).filter(v => isFinite(Number(v))).map(Number);
+    const last12 = (logSeries || []).slice(Math.max(0, closedCount - 12), closedCount).filter(v => isFinite(Number(v))).map(Number);
+    if (first12.length && last12.length) trend = (avg_(last12) - avg_(first12)) / 12;
+  }
+  if (!isFinite(trend)) trend = 0;
+
+  const seasonal = new Array(DLM_SEASONAL_PERIOD).fill(0);
+  for (let m = 0; m < DLM_SEASONAL_PERIOD; m++) {
+    const vals = [];
+    for (let i = m; i < (logSeries || []).length; i += DLM_SEASONAL_PERIOD) {
+      const v = Number(logSeries[i]);
+      if (isFinite(v)) vals.push(v - level);
+    }
+    const med = median_(vals);
+    seasonal[m] = isFinite(med) ? med : 0;
+  }
+  const seasonalMean = avg_(seasonal);
+  for (let i = 0; i < seasonal.length; i++) seasonal[i] -= seasonalMean;
+
+  const a = new Array(DLM_STATE_DIM).fill(0);
+  a[0] = level;
+  a[1] = trend;
+  const finalPos = Math.max(0, Number(closedCount || 1) - 1) % DLM_SEASONAL_PERIOD;
+  for (let j = 0; j < DLM_SEASONAL_PERIOD - 1; j++) {
+    a[2 + j] = seasonal[(finalPos - j + DLM_SEASONAL_PERIOD) % DLM_SEASONAL_PERIOD];
+  }
+
+  const P = dlmIdentity_(DLM_STATE_DIM);
+  for (let i = 0; i < DLM_STATE_DIM; i++) P[i][i] = DLM_DIFFUSE_VAR;
+  return { a, P };
+}
+
+function dlmKalmanFilter_(logSeries, T, H, Q, R, a0, P0, opt) {
+  let a = (a0 || []).slice();
+  let P = dlmCloneMat_(P0 || dlmIdentity_(DLM_STATE_DIM));
+  const TT = dlmTranspose_(T);
+  const aHistory = [];
+  const PHistory = [];
+  const innovations = [];
+  const y = logSeries || [];
+
+  for (let t = 0; t < y.length; t++) {
+    const aPred = dlmMatVec_(T, a);
+    const PPred = dlmMatAdd_(dlmMatMul_(dlmMatMul_(T, P), TT), Q);
+    const obs = Number(y[t]);
+
+    if (isFinite(obs)) {
+      const PH = dlmMatVec_(PPred, H);
+      let F = dlmDot_(H, PH) + Number(R || 0);
+      if (!isFinite(F) || F <= 0) F = 1e-9;
+      const yHat = dlmDot_(H, aPred);
+      const v = obs - yHat;
+
+      if (isFinite(v)) {
+        const K = PH.map(x => x / F);
+        a = aPred.map((x, i) => x + K[i] * v);
+        const kk = dlmOuter_(K, K);
+        P = dlmZeros_(DLM_STATE_DIM, DLM_STATE_DIM);
+        for (let i = 0; i < DLM_STATE_DIM; i++) {
+          for (let j = 0; j < DLM_STATE_DIM; j++) P[i][j] = PPred[i][j] - F * kk[i][j];
+        }
+        innovations.push({ t, v, F });
+      } else {
+        a = aPred;
+        P = PPred;
+      }
+    } else {
+      a = aPred;
+      P = PPred;
+    }
+
+    aHistory.push(a.slice());
+    PHistory.push(dlmCloneMat_(P));
+  }
+
+  return { aFinal: a, PFinal: P, innovations, aHistory, PHistory };
+}
+
+function dlmConcentratedNLL_(innovations) {
+  const used = (innovations || []).filter(x => x && x.t >= DLM_WARMUP_SKIP && isFinite(x.v) && isFinite(x.F) && x.F > 0);
+  const nUsed = used.length;
+  if (!nUsed) return { sigma2Obs: NaN, nll: Infinity, nUsed: 0 };
+
+  const sigma2Obs = Math.max(1e-9, used.reduce((a, x) => a + (x.v * x.v) / Math.max(x.F, 1e-9), 0) / nUsed);
+  const logF = used.reduce((a, x) => a + Math.log(Math.max(x.F, 1e-9)), 0);
+  const nll = 0.5 * logF + 0.5 * nUsed * Math.log(sigma2Obs) + 0.5 * nUsed * (1 + Math.log(2 * Math.PI));
+  return { sigma2Obs, nll, nUsed };
+}
+
+function dlmForecast_(aOrigin, POrigin, T, H, Q, R, sigma2Obs, h) {
+  let a = (aOrigin || []).slice();
+  let P = dlmCloneMat_(POrigin || dlmIdentity_(DLM_STATE_DIM));
+  const TT = dlmTranspose_(T);
+  let out = null;
+  const s2 = Math.max(1e-9, Number(sigma2Obs) || 1e-9);
+
+  for (let k = 1; k <= h; k++) {
+    a = dlmMatVec_(T, a);
+    P = dlmMatAdd_(dlmMatMul_(dlmMatMul_(T, P), TT), Q);
+    const PH = dlmMatVec_(P, H);
+    let varRel = dlmDot_(H, PH) + Number(R || 0);
+    if (!isFinite(varRel) || varRel <= 0) varRel = 1e-9;
+    const muLog = dlmDot_(H, a);
+    const varLog = Math.max(1e-9, varRel * s2);
+    const sd = Math.sqrt(varLog);
+    out = {
+      p50: Math.exp(muLog),
+      p10: Math.exp(muLog + DLM_Z10 * sd),
+      p90: Math.exp(muLog + DLM_Z90 * sd),
+      muLog,
+      varLog
+    };
+  }
+  return out || { p50: NaN, p10: NaN, p90: NaN, muLog: NaN, varLog: NaN };
+}
+
+function dlmFitAndBacktest_(baseSeries48, seriesStart, lastClosedMonthStart, tuning) {
+  const cfg = tuning || {};
+  const minMonths = Math.round(Math.max(12, Math.min(48, Number(cfg.dlmBacktestMinMonths || 24))));
+  const startOriginRaw = Math.round(Math.max(12, Math.min(47, Number(cfg.dlmBacktestStartOrigin || 18))));
+  const horizon = Math.round(Math.max(1, Math.min(12, Number(cfg.dlmForecastHorizon || 3))));
+  const epsRate = Math.max(0.0001, Math.min(0.5, Number(cfg.dlmLogEpsilonRate || 0.01)));
+  const src = Array.isArray(baseSeries48) ? baseSeries48 : [];
+
+  let closedEnd = -1;
+  for (let i = 0; i < Math.min(48, src.length); i++) {
+    const m = addMonths_(seriesStart, i);
+    if (m <= lastClosedMonthStart) closedEnd = i;
+  }
+  if (closedEnd < 0) return { ready: false, nClosed: 0, minMonths };
+
+  let firstIdx = -1;
+  for (let i = 0; i <= closedEnd; i++) {
+    const v = Number(src[i]);
+    if (isFinite(v) && v > 0) {
+      firstIdx = i;
+      break;
+    }
+  }
+  if (firstIdx < 0) return { ready: false, nClosed: 0, minMonths };
+
+  const raw = [];
+  for (let i = firstIdx; i <= closedEnd; i++) {
+    const v = Number(src[i]);
+    raw.push(isFinite(v) ? Math.max(0, v) : NaN);
+  }
+
+  const nClosed = raw.length;
+  if (nClosed < minMonths) return { ready: false, nClosed, minMonths };
+
+  const positive = raw.filter(v => isFinite(v) && v > 0);
+  const medPositive = median_(positive);
+  if (!isFinite(medPositive) || medPositive <= 0) return { ready: false, nClosed: 0, minMonths };
+  const eps = Math.max(1e-9, medPositive * epsRate);
+  const logSeries = raw.map(v => isFinite(v) ? Math.log(Math.max(v, eps)) : NaN);
+
+  const T = dlmBuildTransition_();
+  const H = dlmBuildObservation_();
+  const R = 1;
+  const init = dlmInitState_(logSeries, nClosed);
+  let best = null;
+
+  DLM_Q_GRID.forEach(qLevel => {
+    DLM_Q_GRID.forEach(qTrend => {
+      DLM_Q_GRID.forEach(qSeasonal => {
+        const Q = dlmBuildQ_(qLevel, qTrend, qSeasonal);
+        const filter = dlmKalmanFilter_(logSeries, T, H, Q, R, init.a, init.P, {});
+        const ll = dlmConcentratedNLL_(filter.innovations);
+        if (!isFinite(ll.nll)) return;
+        if (!best || ll.nll < best.nll) {
+          best = { qLevel, qTrend, qSeasonal, sigma2Obs: ll.sigma2Obs, nll: ll.nll, Q, filter };
+        }
+      });
+    });
+  });
+
+  if (!best) throw new Error('DLMハイパラ選択に失敗しました（有効な革新系列がありません）。');
+
+  const originStart = Math.min(startOriginRaw, Math.max(0, nClosed - 2));
+  let nPoints = 0;
+  let smapeSum = 0;
+  let absErrSum = 0;
+  let signedErrSum = 0;
+  let actualAbsSum = 0;
+  let coverageCount = 0;
+
+  for (let o = originStart; o <= nClosed - 2; o++) {
+    const aOrigin = best.filter.aHistory[o];
+    const POrigin = best.filter.PHistory[o];
+    const maxH = Math.min(horizon, nClosed - 1 - o);
+    for (let h = 1; h <= maxH; h++) {
+      const fc = dlmForecast_(aOrigin, POrigin, T, H, best.Q, R, best.sigma2Obs, h);
+      if (h !== 1) continue;
+      const actual = Number(raw[o + h]);
+      const pred = Number(fc.p50);
+      if (!isFinite(actual) || !isFinite(pred)) continue;
+      const absErr = Math.abs(pred - actual);
+      const smapeDen = Math.abs(pred) + Math.abs(actual);
+      smapeSum += smapeDen > 0 ? (2 * absErr / smapeDen) : 0;
+      absErrSum += absErr;
+      signedErrSum += pred - actual;
+      actualAbsSum += Math.abs(actual);
+      if (isFinite(fc.p10) && isFinite(fc.p90) && actual >= fc.p10 && actual <= fc.p90) coverageCount++;
+      nPoints++;
+    }
+  }
+
+  const lastObservedMonth = addMonths_(seriesStart, closedEnd);
+  const seasonalByMonth = dlmSeasonalByMonth_(best.filter.aFinal, lastObservedMonth);
+  const metrics = {
+    smape: nPoints ? smapeSum / nPoints : 0,
+    wape: actualAbsSum > 0 ? absErrSum / actualAbsSum : 0,
+    biasRate: actualAbsSum > 0 ? signedErrSum / actualAbsSum : 0,
+    coverage: nPoints ? coverageCount / nPoints : 0,
+    nPoints
+  };
+
+  return {
+    ready: true,
+    nClosed,
+    qLevel: best.qLevel,
+    qTrend: best.qTrend,
+    qSeasonal: best.qSeasonal,
+    sigma2Obs: best.sigma2Obs,
+    nll: best.nll,
+    aFinal: best.filter.aFinal,
+    PFinal: best.filter.PFinal,
+    levelMu: best.filter.aFinal[0],
+    trendBeta: best.filter.aFinal[1],
+    seasonalByMonth,
+    metrics,
+    lastObservedMonth
+  };
+}
+
+function dlmSeasonalByMonth_(aFinal, lastObservedMonth) {
+  const vals = {};
+  let sum11 = 0;
+  for (let j = 0; j < DLM_SEASONAL_PERIOD - 1; j++) {
+    const m = addMonths_(lastObservedMonth, -j).getMonth() + 1;
+    const v = Number(aFinal[2 + j] || 0);
+    vals[m] = v;
+    sum11 += v;
+  }
+  const missingMonth = addMonths_(lastObservedMonth, -(DLM_SEASONAL_PERIOD - 1)).getMonth() + 1;
+  vals[missingMonth] = -sum11;
+
+  const mean = avg_(Object.keys(vals).map(k => vals[k]));
+  const out = {};
+  for (let m = 1; m <= DLM_SEASONAL_PERIOD; m++) out[String(m)] = Number(vals[m] || 0) - mean;
+  return out;
+}
+
+function writeDlmState_(ss, client, fy, result) {
+  const sh = getOrCreateSheet_(ss, SHEETS.DLM_STATE);
+  const headers = ['client','fy','updated_at','updated_by','last_observed_month','level_mu','trend_beta','seasonal_json','covariance_json','hyperparams_json','note'];
+  ensureSheetHeaders_(sh, headers);
+
+  const now = new Date();
+  const user = Session.getActiveUser().getEmail() || 'unknown';
+  const hyperparams = {
+    qLevel: result.qLevel,
+    qTrend: result.qTrend,
+    qSeasonal: result.qSeasonal,
+    sigma2Obs: result.sigma2Obs,
+    nll: result.nll,
+    stateDim: DLM_STATE_DIM
+  };
+  const row = [
+    client,
+    fy,
+    now,
+    user,
+    fmtYM_(result.lastObservedMonth),
+    result.levelMu,
+    result.trendBeta,
+    JSON.stringify(result.seasonalByMonth),
+    JSON.stringify(result.PFinal),
+    JSON.stringify(hyperparams),
+    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`
+  ];
+
+  let targetRow = sh.getLastRow() + 1;
+  if (sh.getLastRow() >= 2) {
+    const vals = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (let i = 0; i < vals.length; i++) {
+      if (isSameClient_(vals[i][0], client)) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+  }
+  sh.getRange(targetRow, 1, 1, row.length).setValues([row]);
+}
+
+function appendDlmBacktestReport_(ss, client, fy, result) {
+  const sh = getOrCreateSheet_(ss, SHEETS.BACKTEST_REPORT);
+  const headers = ['client','fy','run_at','run_by','n_points','smape','wape','bias_rate','coverage_rate','hyperparams_json','note'];
+  ensureSheetHeaders_(sh, headers);
+
+  const user = Session.getActiveUser().getEmail() || 'unknown';
+  const hyperparams = {
+    qLevel: result.qLevel,
+    qTrend: result.qTrend,
+    qSeasonal: result.qSeasonal,
+    sigma2Obs: result.sigma2Obs,
+    nll: result.nll,
+    stateDim: DLM_STATE_DIM
+  };
+  const row = [
+    client,
+    fy,
+    new Date(),
+    user,
+    result.metrics.nPoints,
+    result.metrics.smape,
+    result.metrics.wape,
+    result.metrics.biasRate,
+    result.metrics.coverage,
+    JSON.stringify(hyperparams),
+    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`
+  ];
+  sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+}
+
 
 /** SPOT背景（未知案件）を12ヶ月分推定：履歴同月平均を縮小しつつ最低保証を持たせる */
 function estimateSpotBackground12Months_(spotSeries48, seriesStart, lastClosedMonthStart, baseP50ByMonth, tuning) {
@@ -3177,13 +3692,6 @@ function sampleSpotBackgroundAmount_(spotModel, monthIdx, suppressRate) {
   const picked = Number(samples[Math.floor(Math.random() * samples.length)] || 0);
   return Math.max(0, picked);
 }
-
-function median_(arr) {
-  if (!arr || !arr.length) return 0;
-  const s = arr.slice().sort((a,b)=>a-b);
-  return percentileSorted_(s, 0.5);
-}
-
 
 function computeProductWeightsFromSalesInputClosed12_(fy, client, ctx) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -5939,6 +6447,21 @@ function logRun_(fn, client, status, count, startedAt, err) {
   const params = JSON.stringify({N_SIM, SPIKE_CLIP_MIN, SPIKE_CLIP_MAX, TREND_FACTOR_MIN, TREND_FACTOR_MAX, BUILD_STAGE});
   const hash = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, `${fn}|${client}|${end.toISOString()}`));
   sh.appendRow([Utilities.getUuid(), end, Session.getActiveUser().getEmail()||'unknown', fn, client||'', status, count||0, VERSION, params, hash, sec, err||'']);
+}
+
+function safeLogRun_(fn, client, status, count, startedAt, err) {
+  try {
+    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.RUN_LOG);
+    if (sh) logRun_(fn, client, status, count, startedAt, err);
+  } catch (logErr) {
+    // 管理関数の本処理結果を優先し、ログ失敗では止めない
+  }
+}
+
+function formatRateForMessage_(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return 'n/a';
+  return `${Math.round(n * 1000) / 10}%`;
 }
 
 function safeSetNote_(sh, row, col, note) {
