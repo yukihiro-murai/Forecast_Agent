@@ -9,7 +9,7 @@
  * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
  ***************************************/
 
-const VERSION = '2.1.0-dev';
+const VERSION = '2.1.1-dev';
 const BUILD_STAGE = 'v8-step3c3c-prep';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
@@ -397,8 +397,6 @@ function setupForecastBook() {
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
-    SHEETS.AI_RESEARCH_PROMPT,
-    SHEETS.OUTPUT,
     SHEETS.FORECAST_REPORT,
     SHEETS.DASHBOARD,
     SHEETS.ACTUAL_EVAL_MONTHLY,
@@ -2921,13 +2919,10 @@ function findFirstExtremeMultiplierIssue_(fy) {
   const monthlyByProduct = salesData.monthlyByProduct || [];
   if (monthlyByProduct.length === 0) return null;
 
-  const productNames = salesData.productNames || [];
-  const totalsByProduct = monthlyByProduct.map(arr => sumArr_(arr));
-  const totalAll = sumArr_(totalsByProduct) || 1;
-  const weights = new Map();
-  for (let i = 0; i < productNames.length; i++) {
-    weights.set(productNames[i], (totalsByProduct[i] || 0) / totalAll);
-  }
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  const client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
+  const ctx = getForecastContext_(fy, new Date(), []);
+  const weights = computeProductWeightsFromSalesInputClosed12_(fy, client, ctx);
 
   const months = [];
   const start = getForecastFYStart_(fy);
@@ -5288,10 +5283,10 @@ function validateOutputLayout_() {
   if (!sh) throw new Error('OUTPUTがありません。');
   const out = {
     staleNotes: sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).getNotes().flat().filter(Boolean).length,
-    hasB7LineBreak: String(sh.getRange('B7').getValue() || '').indexOf('\n') >= 0,
-    aiScoreLabels: sh.getRange(8, 1, 4, 1).getValues().flat(),
-    aiScoreValues: sh.getRange(8, 2, 4, 1).getValues().flat(),
-    kpiLabel: String(sh.getRange(4, 2).getValue() || '')
+    hasB7LineBreak: String(sh.getRange('A6').getValue() || '').indexOf('\n') >= 0,
+    aiScoreLabels: sh.getRange(13, 1, 4, 1).getValues().flat(),
+    aiScoreValues: sh.getRange(13, 2, 4, 1).getValues().flat(),
+    kpiLabel: String(sh.getRange(8, 1).getValue() || '')
   };
   Logger.log(JSON.stringify(out, null, 2));
   return out;
@@ -6573,7 +6568,7 @@ function getBaseSpotRatioFromSales_() {
 }
 
 function computeBucketMetrics_(rows, labelKey, labelVal) {
-  const scoped = rows.filter(r => String(r[labelKey] || '') === labelVal && r[10] !== '' && r[6] !== '');
+  const scoped = rows.filter(r => String(r[labelKey] || '') === labelVal && r[9] !== '' && r[6] !== '');
   const actualDen = scoped.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
   const sumPred = scoped.reduce((a, r) => a + Number(r[9] || 0), 0);
   const sumAct = scoped.reduce((a, r) => a + Number(r[6] || 0), 0);
@@ -6597,7 +6592,7 @@ function writeEvaluationSummaryBlocks_(sh, rows) {
   const startCol = 25; // Y
   sh.getRange(1, startCol, Math.max(1, sh.getMaxRows()), 12).clearContent();
 
-  const valid = rows.filter(r => r[10] !== '' && r[6] !== '');
+  const valid = rows.filter(r => r[9] !== '' && r[6] !== '');
   const den = valid.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
   const sumPred = valid.reduce((a, r) => a + Number(r[9] || 0), 0);
   const sumAct = valid.reduce((a, r) => a + Number(r[6] || 0), 0);
@@ -7173,6 +7168,13 @@ function syncSalesFromSalesInput_(fy, client) {
  * 4) 3か月分の neutral 実績が揃った状態でC-1 → reliability:* 提案が出る。
  * 5) EVAL_LOG等のヘッダ列順を入替えてもC-1突合が壊れない（idx参照化）。
  * 6) is_planning_point_estimate と constraint_relevant_flag を別変数で定義しても従来と同じ値が入る。
+ *
+ * HOW TO TEST (v1.8.1)
+ * 1) FACTORS_PRODUCT に複数製品の中程度Step（例: 各 +25%、単体は30%未満）を入れ、構成比加重で kProd全体が大きくなる状態で A-9 を実行 → kTotal の警告/ブロックが出ることを確認。
+ * 2) 単一製品で ±50% 超 → 従来どおり findFirstExtremeStepIssue_ のStep警告が出ることを確認（回帰なし）。
+ * 3) A-1 初期セットアップ実行後、タブ並びが意図順（重複なし）になることを確認。
+ * 4) validateOutputLayout_ を手動実行し、aiScoreLabels/aiScoreValues が Market/Competitor/Channel/DX を正しく拾うことを Logger で確認。
+ * 5) 既存のB-2出力でサマリー値（年間/半期/Q）が従来と一致することを確認（回帰なし）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
