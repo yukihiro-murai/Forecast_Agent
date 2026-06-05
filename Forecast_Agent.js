@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / step 3c-3c prep
+ * Forecast Agent v8 track / step 3c-3c-1
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -9,8 +9,8 @@
  * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
  ***************************************/
 
-const VERSION = '2.1.1-dev';
-const BUILD_STAGE = 'v8-step3c3c-prep';
+const VERSION = '2.1.2-dev';
+const BUILD_STAGE = 'v8-step3c3c-1';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -90,6 +90,7 @@ const SHEETS = {
   QUARTERLY_REVIEW_LOG: 'QUARTERLY_REVIEW_LOG',
   DLM_STATE: 'DLM_STATE',
   SOURCE_RELIABILITY: 'SOURCE_RELIABILITY',
+  RELIABILITY_EVIDENCE: 'RELIABILITY_EVIDENCE',
   POOL_PRIOR: 'POOL_PRIOR',
   BUDGET_FROZEN: 'BUDGET_FROZEN',
   LANDING_FORECAST: 'LANDING_FORECAST',
@@ -198,7 +199,7 @@ const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視�
 const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
 const DLM_Z10 = -1.2815515594;             // 標準正規10%点
 const DLM_Z90 =  1.2815515594;             // 標準正規90%点
-const DLM_BUILD_STAGE = 'v8-step3c3c-prep';
+const DLM_BUILD_STAGE = 'v8-step3c3c-1';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -339,6 +340,7 @@ function adminInitDLMAndBacktest() {
 
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
 // DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
+// DONE(step-3c-3c-1): raw hit/n を RELIABILITY_EVIDENCE に永続化（予測不変 / 集約の前提）。
 // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
 
 /**
@@ -416,6 +418,7 @@ function setupForecastBook() {
     SHEETS.QUARTERLY_REVIEW_LOG,
     SHEETS.DLM_STATE,
     SHEETS.SOURCE_RELIABILITY,
+    SHEETS.RELIABILITY_EVIDENCE,
     SHEETS.POOL_PRIOR,
     SHEETS.BUDGET_FROZEN,
     SHEETS.LANDING_FORECAST,
@@ -5668,6 +5671,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
   buildSimpleSheet_(ss, SHEETS.DLM_STATE, ['client','fy','updated_at','updated_by','last_observed_month','level_mu','trend_beta','seasonal_json','covariance_json','hyperparams_json','note']);
   buildSimpleSheet_(ss, SHEETS.SOURCE_RELIABILITY, ['client','source_type','source_key','reliability_r','sample_count','last_eval_window','updated_at','updated_by','note']);
+  buildSimpleSheet_(ss, SHEETS.RELIABILITY_EVIDENCE, ['client','source_type','source_key','quarter_label','quarter_end_month','n','hit','hit_rate','computed_at','run_id','note']);
   buildSimpleSheet_(ss, SHEETS.POOL_PRIOR, ['pool_scope','param_key','pooled_value','precision','n_clients','updated_at','updated_by','note']);
   buildSimpleSheet_(ss, SHEETS.BUDGET_FROZEN, ['client','fy','target_month','budget_p50','frozen_at','frozen_by','source_run_id','note']);
   buildSimpleSheet_(ss, SHEETS.LANDING_FORECAST, ['client','fy','target_month','as_of_month','landing_p10','landing_p50','landing_p90','updated_at','source_run_id','note']);
@@ -5706,6 +5710,10 @@ function headerIndexMap_(header) {
 function requireHeaderIndex_(idx, sheetName, key) {
   if (idx[key] === undefined) throw new Error(`${sheetName} に ${key} 列がありません。`);
   return idx[key];
+}
+
+function hasHeaderIndexes_(idx, keys) {
+  return (keys || []).every(key => idx && idx[key] !== undefined);
 }
 
 function applySectionGapRows_(sh, rows) {
@@ -6999,7 +7007,7 @@ function applyTabColors_() {
   const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
   const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
-  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
+  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.RELIABILITY_EVIDENCE, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
 
   manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
   auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
@@ -7175,6 +7183,14 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) A-1 初期セットアップ実行後、タブ並びが意図順（重複なし）になることを確認。
  * 4) validateOutputLayout_ を手動実行し、aiScoreLabels/aiScoreValues が Market/Competitor/Channel/DX を正しく拾うことを Logger で確認。
  * 5) 既存のB-2出力でサマリー値（年間/半期/Q）が従来と一致することを確認（回帰なし）。
+ *
+ * HOW TO TEST (step 3c-3c-1)
+ * 1) A-1 初期セットアップで RELIABILITY_EVIDENCE が作成され、内部色・非表示になることを確認。
+ * 2) 実績3か月（neutral）が揃った状態で C-1 を実行 → RELIABILITY_EVIDENCE に source_type:source_key ごとの行が出る。提案化されない安定ソース（変化<MIN_CHANGE）も n>=1 なら必ず記録されることを確認（QUARTERLY_REVIEW_LOG とは別に全件残る）。
+ * 3) 同じ四半期で C-1 を再実行 → 行が重複せず上書きされることを確認（upsert）。
+ * 4) C-1 前後で A-9 を実行し、計画値（OUTPUT の P10/P50/P90）が変わらないことを確認。
+ * 5) generateReliabilityProposals_ の提案結果がリファクタ前と一致することを確認（回帰なし）。
+ * 6) 実績3か月未満で C-1 → 期間不足で正常終了し、RELIABILITY_EVIDENCE に書かれないことを確認。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
@@ -7482,8 +7498,15 @@ function runQuarterlyReview() {
       logRun_('runQuarterlyReview', client, 'success', 0, started, 'insufficient_months');
       return;
     }
-    const proposals = generateQuarterlyProposals_(data);
     const reviewId = Utilities.getUuid();
+    try {
+      const evidenceStats = computeReliabilityHitStats_(data);
+      const qEnd = data.months[data.months.length - 1];
+      writeReliabilityEvidence_(data.client, quarterLabelFromYm_(qEnd), qEnd, evidenceStats, reviewId);
+    } catch (e) {
+      safeLogRun_('writeReliabilityEvidence_', client, 'warning', 0, started, String(e && e.message || e));
+    }
+    const proposals = generateQuarterlyProposals_(data);
     appendProposalsToLog_(reviewId, data, proposals);
     writeQuarterlyReviewSheet_({ reviewId, data, proposals });
     updateProcessStatus_('quarterly_review_status', 'success', client, proposals.length, '');
@@ -7498,45 +7521,55 @@ function runQuarterlyReview() {
 function collectQuarterlyReviewData_(client) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const evalValues = ss.getSheetByName(SHEETS.EVAL_LOG).getDataRange().getValues();
+    const evalSh = ss.getSheetByName(SHEETS.EVAL_LOG);
+    if (!evalSh || evalSh.getLastRow() < 2) {
+      return { ready: false, missingMonths: 3, months: [], client, evalIdx: {}, impactIdx: {}, subjectiveImpactIdx: {} };
+    }
+    const evalValues = evalSh.getDataRange().getValues();
     const evalIdx = headerIndexMap_(evalValues[0] || []);
-    const evalClientIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'client');
-    const evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
-    const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
-    requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
-    const evalConstraintIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'constraint_relevant_flag');
+    if (!hasHeaderIndexes_(evalIdx, ['client','scenario','target_month','actual','constraint_relevant_flag'])) {
+      return { ready: false, missingMonths: 3, months: [], client, evalIdx, impactIdx: {}, subjectiveImpactIdx: {} };
+    }
+    const evalClientIdx = evalIdx.client;
+    const evalScenarioIdx = evalIdx.scenario;
+    const evalTargetMonthIdx = evalIdx.target_month;
+    const evalConstraintIdx = evalIdx.constraint_relevant_flag;
     const evalRows = evalValues.slice(1)
       .filter(r => String(r[evalClientIdx] || '') === client && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
     const months = Array.from(new Set(evalRows.map(r => String(r[evalTargetMonthIdx] || '')))).sort();
     const last3 = months.slice(-3);
     if (last3.length < 3) {
-      return { ready: false, missingMonths: 3 - last3.length, months: last3, client, evalIdx };
+      return { ready: false, missingMonths: 3 - last3.length, months: last3, client, evalIdx, impactIdx: {}, subjectiveImpactIdx: {} };
     }
-    const impactValues = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY).getDataRange().getValues();
-    const impactIdx = headerIndexMap_(impactValues[0] || []);
-    const impactClientIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'client');
-    const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
-    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
-    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
-    requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
-    const impacts = impactValues.slice(1)
-      .filter(r => String(r[impactClientIdx] || '') === client && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
+    const impactSh = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY);
+    let impactIdx = {};
+    let impacts = [];
+    if (impactSh && impactSh.getLastRow() >= 1) {
+      const impactValues = impactSh.getDataRange().getValues();
+      impactIdx = headerIndexMap_(impactValues[0] || []);
+      if (hasHeaderIndexes_(impactIdx, ['client','target_month','k_ai','ai_direction','pred_p50_quant_only'])) {
+        const impactClientIdx = impactIdx.client;
+        const impactTargetMonthIdx = impactIdx.target_month;
+        impacts = impactValues.slice(1)
+          .filter(r => String(r[impactClientIdx] || '') === client && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
+      }
+    }
     const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
     let subjectiveImpactIdx = {};
     let subjectiveImpacts = [];
-    if (subjSh) {
+    if (subjSh && subjSh.getLastRow() >= 1) {
       const subjectiveValues = subjSh.getDataRange().getValues();
       subjectiveImpactIdx = headerIndexMap_(subjectiveValues[0] || []);
-      const subjClientIdx = requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'client');
-      const subjTargetMonthIdx = requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
-      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
-      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
-      requireHeaderIndex_(subjectiveImpactIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
-      subjectiveImpacts = subjectiveValues.slice(1)
-        .filter(r => String(r[subjClientIdx] || '') === client && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
+      if (hasHeaderIndexes_(subjectiveImpactIdx, ['client','target_month','source_type','source_key','push_direction'])) {
+        const subjClientIdx = subjectiveImpactIdx.client;
+        const subjTargetMonthIdx = subjectiveImpactIdx.target_month;
+        subjectiveImpacts = subjectiveValues.slice(1)
+          .filter(r => String(r[subjClientIdx] || '') === client && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
+      }
     }
-    const scores = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY).getDataRange().getValues().slice(1)
-      .filter(r => String(r[2] || '') === client);
+    const scoreSh = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
+    const scores = scoreSh ? scoreSh.getDataRange().getValues().slice(1)
+      .filter(r => String(r[2] || '') === client) : [];
     return { ready: true, client, months: last3, evalRows, impacts, scores, subjectiveImpacts, evalIdx, impactIdx, subjectiveImpactIdx, calibration: readCalibrationState_(client) };
   } catch (err) {
     throw err;
@@ -7549,55 +7582,60 @@ function generateQuarterlyProposals_(data) {
   const tuning = readModelTuningFromConfig_();
   const evalIdx = data.evalIdx || {};
   const impactIdx = data.impactIdx || {};
-  const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
-  const evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
-  const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
-  const impactKIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
-  const impactDirectionIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
-  const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
-  const evalMap = new Map(data.evalRows.map(r => [String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0)]));
-  let hit = 0; let den = 0;
-  data.impacts.forEach(r => {
-    const ym = String(r[impactTargetMonthIdx] || '');
-    const aiDir = String(r[impactDirectionIdx] || 'flat');
-    const actual = Number(evalMap.get(ym) || 0);
-    const q = Number(r[impactQuantOnlyIdx] || 0);
-    const actualDir = actual > q * 1.01 ? 'up' : (actual < q * 0.99 ? 'down' : 'flat');
-    if (actualDir === 'flat') return;
-    den += 1;
-    if (actualDir === aiDir) hit += 1;
-  });
-  const hitRate = den > 0 ? hit / den : 0;
-  const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[impactKIdx] || 1) - 1))) : 0;
-  const curWeight = isFinite(Number(cal.ai_weight_override)) ? Number(cal.ai_weight_override) : readModelTuningFromConfig_().aiWeight;
-  let proposedWeight = null;
-  let conf = '';
-  if (hitRate < 0.4 && meanAbs > 0.015) { proposedWeight = curWeight * 0.5; conf = '高'; }
-  else if (hitRate >= 0.4 && hitRate < 0.65 && meanAbs > 0.01) { proposedWeight = curWeight * 0.7; conf = '中'; }
-  else if (hitRate > 0.65 && meanAbs < 0.005) { proposedWeight = curWeight * 1.5; conf = '中'; }
-  if (isFinite(proposedWeight) && proposedWeight >= tuning.aiWeightProposalMin && proposedWeight <= tuning.aiWeightProposalMax) {
-    proposals.push(makeProposal_('A', 'ai_weight_override', curWeight, proposedWeight, conf, `AI方向一致率=${(hitRate*100).toFixed(1)}% / mean|kAI-1|=${(meanAbs*100).toFixed(2)}%`, `次期AI寄与を${Math.round((proposedWeight/curWeight)*100)}%へ調整`, 'C-2で却下または手動で元値に戻す', { hitRate, meanAbs }));
+  if (hasHeaderIndexes_(evalIdx, ['target_month','actual']) && hasHeaderIndexes_(impactIdx, ['target_month','k_ai','ai_direction','pred_p50_quant_only'])) {
+    const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
+    const evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
+    const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
+    const impactKIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
+    const impactDirectionIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
+    const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+    const evalMap = new Map(data.evalRows.map(r => [String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0)]));
+    let hit = 0; let den = 0;
+    data.impacts.forEach(r => {
+      const ym = String(r[impactTargetMonthIdx] || '');
+      const aiDir = String(r[impactDirectionIdx] || 'flat');
+      const actual = Number(evalMap.get(ym) || 0);
+      const q = Number(r[impactQuantOnlyIdx] || 0);
+      const actualDir = actual > q * 1.01 ? 'up' : (actual < q * 0.99 ? 'down' : 'flat');
+      if (actualDir === 'flat') return;
+      den += 1;
+      if (actualDir === aiDir) hit += 1;
+    });
+    const hitRate = den > 0 ? hit / den : 0;
+    const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[impactKIdx] || 1) - 1))) : 0;
+    const curWeight = isFinite(Number(cal.ai_weight_override)) ? Number(cal.ai_weight_override) : readModelTuningFromConfig_().aiWeight;
+    let proposedWeight = null;
+    let conf = '';
+    if (hitRate < 0.4 && meanAbs > 0.015) { proposedWeight = curWeight * 0.5; conf = '高'; }
+    else if (hitRate >= 0.4 && hitRate < 0.65 && meanAbs > 0.01) { proposedWeight = curWeight * 0.7; conf = '中'; }
+    else if (hitRate > 0.65 && meanAbs < 0.005) { proposedWeight = curWeight * 1.5; conf = '中'; }
+    if (isFinite(proposedWeight) && proposedWeight >= tuning.aiWeightProposalMin && proposedWeight <= tuning.aiWeightProposalMax) {
+      proposals.push(makeProposal_('A', 'ai_weight_override', curWeight, proposedWeight, conf, `AI方向一致率=${(hitRate*100).toFixed(1)}% / mean|kAI-1|=${(meanAbs*100).toFixed(2)}%`, `次期AI寄与を${Math.round((proposedWeight/curWeight)*100)}%へ調整`, 'C-2で却下または手動で元値に戻す', { hitRate, meanAbs }));
+    }
   }
   return proposals.concat(generateReliabilityProposals_(data));
 }
 
-function generateReliabilityProposals_(data) {
+function computeReliabilityHitStats_(data) {
   if (!data || !data.ready || !data.months || data.months.length < 3) return [];
   if (!data.subjectiveImpacts || !data.subjectiveImpacts.length) return [];
-  const tuning = readModelTuningFromConfig_();
-  const current = readSourceReliability_(data.client);
   const evalIdx = data.evalIdx || {};
   const impactIdx = data.impactIdx || {};
   const subjectiveIdx = data.subjectiveImpactIdx || {};
-  const evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
-  const evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
-  const evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
-  const impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
-  const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
-  const subjTargetMonthIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
-  const subjTypeIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
-  const subjKeyIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
-  const subjPushDirectionIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
+  let evalScenarioIdx, evalTargetMonthIdx, evalActualIdx, impactTargetMonthIdx, impactQuantOnlyIdx, subjTargetMonthIdx, subjTypeIdx, subjKeyIdx, subjPushDirectionIdx;
+  try {
+    evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
+    evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
+    evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
+    impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
+    impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+    subjTargetMonthIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
+    subjTypeIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
+    subjKeyIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
+    subjPushDirectionIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
+  } catch (err) {
+    return [];
+  }
   const evalActualByMonth = new Map();
   (data.evalRows || []).forEach(r => {
     if (String(r[evalScenarioIdx] || '') !== 'neutral') return;
@@ -7623,38 +7661,120 @@ function generateReliabilityProposals_(data) {
     const pushDir = Math.sign(Number(r[subjPushDirectionIdx] || 0));
     if (!type || !key || !pushDir) return;
     const gKey = `${type}:${key}`;
-    if (!grouped.has(gKey)) grouped.set(gKey, { type, key, n: 0, hit: 0 });
+    if (!grouped.has(gKey)) grouped.set(gKey, { source_type: type, source_key: key, n: 0, hit: 0 });
     const g = grouped.get(gKey);
     g.n += 1;
     if (pushDir === surpriseDir) g.hit += 1;
   });
+  return Array.from(grouped.values()).map(g => ({
+    source_type: g.source_type,
+    source_key: g.source_key,
+    n: g.n,
+    hit: g.hit,
+    hit_rate: g.n > 0 ? g.hit / g.n : 0
+  }));
+}
+
+function generateReliabilityProposals_(data) {
+  if (!data || !data.ready || !data.months || data.months.length < 3) return [];
+  const tuning = readModelTuningFromConfig_();
+  const current = readSourceReliability_(data.client);
+  const stats = computeReliabilityHitStats_(data);
 
   const proposals = [];
-  grouped.forEach(g => {
+  stats.forEach(g => {
     if (g.n < tuning.reliabilityMinSamples) return;
     const h = g.n > 0 ? g.hit / g.n : 0;
     const rHat = clamp_(2 * h, tuning.reliabilityRMin, tuning.reliabilityRMax);
-    const pool = readPoolPrior_(`reliability:${g.type}`);
+    const pool = readPoolPrior_(`reliability:${g.source_type}`);
     const rPool = isFinite(Number(pool.value)) ? Number(pool.value) : 1.0;
     const k = (pool.precision !== null && isFinite(Number(pool.precision))) ? Number(pool.precision) : tuning.reliabilityShrinkageK;
     const rShrunk = clamp_((g.n * rHat + k * rPool) / Math.max(1e-9, g.n + k), tuning.reliabilityRMin, tuning.reliabilityRMax);
-    const rCurrent = getSourceReliability_(current, g.type, g.key);
+    const rCurrent = getSourceReliability_(current, g.source_type, g.source_key);
     const delta = Math.abs(rShrunk - rCurrent);
     if (delta < tuning.reliabilityMinChange) return;
     const conf = (g.n >= 6 && delta >= 0.20) ? '高' : ((g.n >= 3 && delta >= 0.10) ? '中' : '低');
     proposals.push(makeProposal_(
       'B',
-      `reliability:${g.type}:${g.key}`,
+      `reliability:${g.source_type}:${g.source_key}`,
       rCurrent,
       rShrunk,
       conf,
       `的中率=${(h * 100).toFixed(0)}% / n=${g.n}`,
-      `次回A-9で ${g.type}:${g.key} の主観/AI寄与を reliability_r=${rShrunk.toFixed(3)} で重み付け`,
+      `次回A-9で ${g.source_type}:${g.source_key} の主観/AI寄与を reliability_r=${rShrunk.toFixed(3)} で重み付け`,
       'C-2で却下、またはSOURCE_RELIABILITYを手動で旧値へ戻す',
       { hitRate: h, n: g.n, rHat, rShrunk, rCurrent }
     ));
   });
   return proposals;
+}
+
+function writeReliabilityEvidence_(client, quarterLabel, quarterEndMonth, stats, runId) {
+  if (!stats || !stats.length) return;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = getOrCreateSheet_(ss, SHEETS.RELIABILITY_EVIDENCE);
+  const headers = ['client','source_type','source_key','quarter_label','quarter_end_month','n','hit','hit_rate','computed_at','run_id','note'];
+  ensureSheetHeaders_(sh, headers);
+  const values = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(values[0] || headers);
+  if (!hasHeaderIndexes_(idx, ['client','source_type','source_key','quarter_label'])) return;
+  const rowByKey = new Map();
+  for (let i = 1; i < values.length; i++) {
+    const key = [
+      String(values[i][idx.client] || '').trim(),
+      String(values[i][idx.source_type] || '').trim(),
+      String(values[i][idx.source_key] || '').trim(),
+      String(values[i][idx.quarter_label] || '').trim()
+    ].join('|');
+    if (key) rowByKey.set(key, i + 1);
+  }
+  const now = new Date();
+  const targetClient = String(client || '').trim();
+  const targetQuarter = String(quarterLabel || '').trim();
+  const updates = [];
+  const appends = [];
+  (stats || []).forEach(s => {
+    const type = String(s.source_type || '').trim();
+    const sourceKey = String(s.source_key || '').trim();
+    if (!type || !sourceKey || !targetQuarter) return;
+    const row = [
+      targetClient,
+      type,
+      sourceKey,
+      targetQuarter,
+      quarterEndMonth || '',
+      Number(s.n || 0),
+      Number(s.hit || 0),
+      Number(s.hit_rate || 0),
+      now,
+      runId || '',
+      ''
+    ];
+    const key = [targetClient, type, sourceKey, targetQuarter].join('|');
+    const rowNo = rowByKey.get(key);
+    if (rowNo) updates.push({ rowNo, row });
+    else appends.push(row);
+  });
+
+  updates.sort((a, b) => a.rowNo - b.rowNo);
+  let blockStart = 0;
+  let blockRows = [];
+  updates.forEach(u => {
+    if (!blockRows.length) {
+      blockStart = u.rowNo;
+      blockRows = [u.row];
+      return;
+    }
+    if (u.rowNo === blockStart + blockRows.length) {
+      blockRows.push(u.row);
+      return;
+    }
+    sh.getRange(blockStart, 1, blockRows.length, headers.length).setValues(blockRows);
+    blockStart = u.rowNo;
+    blockRows = [u.row];
+  });
+  if (blockRows.length) sh.getRange(blockStart, 1, blockRows.length, headers.length).setValues(blockRows);
+  if (appends.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, appends, 500);
 }
 
 function makeProposal_(phase, field, currentValue, proposedValue, confidence, rationale, impact, rollback, metrics) {
