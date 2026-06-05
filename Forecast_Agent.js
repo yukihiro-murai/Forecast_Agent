@@ -12,7 +12,7 @@
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step2-dlm-core';
+const BUILD_STAGE = 'v8-step3a-dlm-shadow';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -200,7 +200,7 @@ const DLM_WARMUP_SKIP = 6;                 // 尤度計算で先頭から無視�
 const DLM_DIFFUSE_VAR = 1e3;               // 初期共分散P0の対角（Infinity禁止・有限の大きい値）
 const DLM_Z10 = -1.2815515594;             // 標準正規10%点
 const DLM_Z90 =  1.2815515594;             // 標準正規90%点
-const DLM_BUILD_STAGE = 'v8-step2-dlm-core';
+const DLM_BUILD_STAGE = 'v8-step3a-dlm-shadow';
 
 // Seasonal Weighted（48M維持）
 var SEASONAL_YEAR_WEIGHT_Y1 = (typeof SEASONAL_YEAR_WEIGHT_Y1 !== 'undefined') ? SEASONAL_YEAR_WEIGHT_Y1 : 0.10; // oldest
@@ -339,8 +339,8 @@ function adminInitDLMAndBacktest() {
   }
 }
 
-// TODO(step-3): A-9のBASE予測差し替え時にDLM_STATEを読み込み、既存エンジンとの接続点を限定する。
-// TODO(step-3): DLM接続後に主観キャリブレータ、AI上限、TSV貼り付け経路の置換範囲を整理する。
+// TODO(step-3b): primary化でmixed/objOnlyのBASEをDLM出力へ置換する接続点を限定する。
+// TODO(step-3b): calibrateSubjectiveContinuousDelta_撤去範囲と主観/AIの学習重み化入口を整理する。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -1210,6 +1210,19 @@ function runForecastFYCore_(fy, clientName) {
     throw new Error('FACTORS_PRODUCT に有効行がありますが、kProd が全月1.0です。製品名キーの整合を確認してください。');
   }
 
+  const dlmModeRaw = readDlmEngineMode_();
+  const dlmMode = (dlmModeRaw === 'off') ? 'off' : 'shadow';
+  let dlmForecast = null;
+  if (dlmMode !== 'off') {
+    try {
+      dlmForecast = computeDlmFyForecast_(
+        salesData.baseSeries48, seriesStart, ctx.lastClosedMonthStart, ctx.forecastMonths, tuning
+      );
+    } catch (e) {
+      dlmForecast = { ready: false, reason: String((e && e.message) || e) };
+    }
+  }
+
   return {
     runId: Utilities.getUuid(),
     runAt: runDate,
@@ -1239,7 +1252,10 @@ function runForecastFYCore_(fy, clientName) {
     aiReportText,
     calibration,
     calibrationWarning,
-    tuningApplied
+    tuningApplied,
+    dlmMode,
+    dlmForecast,
+    dlmModeRaw
   };
 }
 
@@ -1630,6 +1646,70 @@ function writeOutputFY_(result) {
   sh.getRange(row, 1, 1, 4).setValues([[monthRangeRatioAvg, annualRangeRatio, rangeWarn, rawAnnualRangeRatio]]);
   sh.getRange(row, 1, 1, 2).setNumberFormat('0.0%');
   sh.getRange(row, 4).setNumberFormat('0.0%');
+
+  if (result.dlmMode && result.dlmMode !== 'off') {
+    row += 2;
+    sh.getRange(row, 1).setValue('【shadow】DLM BASE予測（対数空間DLM / 計画値には未反映）')
+      .setFontWeight('bold').setBackground('#fff2cc');
+    sh.getRange(row, 1, 1, 7).merge();
+    row++;
+
+    const dlm = result.dlmForecast || {};
+    if (!dlm.ready) {
+      sh.getRange(row, 1).setValue(`DLM予測は算出できませんでした（理由: ${dlm.reason || 'unknown'}）。 adminInitDLMAndBacktest の実績要件を確認してください。`)
+        .setFontColor('#b71c1c');
+      sh.getRange(row, 1, 1, 7).merge();
+      row++;
+    } else {
+      const mt = dlm.metrics || {};
+      sh.getRange(row, 1).setValue(
+        `参考バックテスト: sMAPE=${(Number(mt.smape || 0) * 100).toFixed(1)}% / `
+        + `WAPE=${(Number(mt.wape || 0) * 100).toFixed(1)}% / coverage=${(Number(mt.coverage || 0) * 100).toFixed(1)}%`
+        + `（n=${Number(mt.nPoints || 0)} / 被覆の名目値は80%）`)
+        .setFontColor('#666666').setFontSize(10);
+      sh.getRange(row, 1, 1, 7).merge();
+      row++;
+
+      const hdr = ['Month', 'ForecastSource', 'DLM_BASE P10', 'DLM_BASE P50', 'DLM_BASE P90', '既存Ops_BASE(定量)P50', '差分(DLM-既存)'];
+      sh.getRange(row, 1, 1, hdr.length).setValues([hdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+      row++;
+
+      const quantP50Shadow = ((result.quantOnly || result.objOnly || {}).p50) || [];
+      const bg = result.spotBackgroundByMonth || [];
+      const dlmRows = result.months.map((m, i) => {
+        const opsBaseQuant = Math.max(0, Number(quantP50Shadow[i] || 0) - Number(bg[i] || 0));
+        const d50 = (dlm.p50[i] === null || dlm.p50[i] === undefined) ? '' : Number(dlm.p50[i]);
+        const diff = (d50 === '') ? '' : (d50 - opsBaseQuant);
+        return [
+          fmtYM_(m),
+          (result.sourceByMonth ? (result.sourceByMonth[i] || 'forecast_open') : 'forecast_open'),
+          (dlm.p10[i] === null || dlm.p10[i] === undefined) ? '' : Number(dlm.p10[i]),
+          d50,
+          (dlm.p90[i] === null || dlm.p90[i] === undefined) ? '' : Number(dlm.p90[i]),
+          opsBaseQuant,
+          diff
+        ];
+      });
+      sh.getRange(row, 1, dlmRows.length, hdr.length).setValues(dlmRows);
+      sh.getRange(row, 3, dlmRows.length, 5).setNumberFormat('¥#,##0');
+      row += dlmRows.length + 1;
+
+      const sumD10 = sumArr_((dlm.p10 || []).filter(v => v !== null && v !== undefined));
+      const sumD50 = sumArr_((dlm.p50 || []).filter(v => v !== null && v !== undefined));
+      const sumD90 = sumArr_((dlm.p90 || []).filter(v => v !== null && v !== undefined));
+      const sumOps = result.months.reduce((a, m, i) => a + Math.max(0, Number((quantP50Shadow[i] || 0)) - Number((bg[i] || 0))), 0);
+      sh.getRange(row, 1, 1, 7).setValues([['年度合計（BASE / shadow比較）', 'ΣP10(参考)', 'ΣP50', 'ΣP90(参考)', '既存Ops_BASE ΣP50', '差分(DLM-既存)', '']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+      row++;
+      sh.getRange(row, 1, 1, 7).setValues([['DLM BASE 年度', sumD10, sumD50, sumD90, sumOps, sumD50 - sumOps, '']]);
+      sh.getRange(row, 2, 1, 5).setNumberFormat('¥#,##0');
+      row++;
+
+      sh.getRange(row, 1).setValue('※ shadowモード：上記DLM予測は比較・検証用で、計画値（上部のP50/P10/P90）には反映していません。primary化はSTEP 3bで行います。')
+        .setFontColor('#666666').setFontSize(10);
+      sh.getRange(row, 1, 1, 7).merge();
+      row++;
+    }
+  }
 }
 
 /** セクションブロック（表＋グラフ） */
@@ -2027,7 +2107,8 @@ function buildCONFIG_() {
     ['DLM_BACKTEST_MIN_MONTHS（バックテスト最低確定月数）', 24],
     ['DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', 18],
     ['DLM_FORECAST_HORIZON（バックテスト先読み月数）', 3],
-    ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01]
+    ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01],
+    ['DLM_ENGINE_MODE（off/shadow/primary）', 'off']
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -3011,6 +3092,24 @@ function readModelTuningFromConfig_() {
   return out;
 }
 
+function readDlmEngineMode_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) return 'off';
+  try {
+    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').indexOf('DLM_ENGINE_MODE') === 0) {
+        const v = String(rows[i][1] || '').trim().toLowerCase();
+        return (v === 'shadow' || v === 'primary') ? v : 'off';
+      }
+    }
+  } catch (e) {
+    // 読取失敗時は既定off
+  }
+  return 'off';
+}
+
 function getProductNameListFromSales_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesInput = ss.getSheetByName(SHEETS.SALES_INPUT_MONTHLY);
@@ -3376,7 +3475,6 @@ function dlmFitAndBacktest_(baseSeries48, seriesStart, lastClosedMonthStart, tun
   const cfg = tuning || {};
   const minMonths = Math.round(Math.max(12, Math.min(48, Number(cfg.dlmBacktestMinMonths || 24))));
   const startOriginRaw = Math.round(Math.max(12, Math.min(47, Number(cfg.dlmBacktestStartOrigin || 18))));
-  const horizon = Math.round(Math.max(1, Math.min(12, Number(cfg.dlmForecastHorizon || 3))));
   const epsRate = Math.max(0.0001, Math.min(0.5, Number(cfg.dlmLogEpsilonRate || 0.01)));
   const src = Array.isArray(baseSeries48) ? baseSeries48 : [];
 
@@ -3445,22 +3543,18 @@ function dlmFitAndBacktest_(baseSeries48, seriesStart, lastClosedMonthStart, tun
   for (let o = originStart; o <= nClosed - 2; o++) {
     const aOrigin = best.filter.aHistory[o];
     const POrigin = best.filter.PHistory[o];
-    const maxH = Math.min(horizon, nClosed - 1 - o);
-    for (let h = 1; h <= maxH; h++) {
-      const fc = dlmForecast_(aOrigin, POrigin, T, H, best.Q, R, best.sigma2Obs, h);
-      if (h !== 1) continue;
-      const actual = Number(raw[o + h]);
-      const pred = Number(fc.p50);
-      if (!isFinite(actual) || !isFinite(pred)) continue;
-      const absErr = Math.abs(pred - actual);
-      const smapeDen = Math.abs(pred) + Math.abs(actual);
-      smapeSum += smapeDen > 0 ? (2 * absErr / smapeDen) : 0;
-      absErrSum += absErr;
-      signedErrSum += pred - actual;
-      actualAbsSum += Math.abs(actual);
-      if (isFinite(fc.p10) && isFinite(fc.p90) && actual >= fc.p10 && actual <= fc.p90) coverageCount++;
-      nPoints++;
-    }
+    const fc = dlmForecast_(aOrigin, POrigin, T, H, best.Q, R, best.sigma2Obs, 1);
+    const actual = Number(raw[o + 1]);
+    const pred = Number(fc.p50);
+    if (!isFinite(actual) || !isFinite(pred)) continue;
+    const absErr = Math.abs(pred - actual);
+    const smapeDen = Math.abs(pred) + Math.abs(actual);
+    smapeSum += smapeDen > 0 ? (2 * absErr / smapeDen) : 0;
+    absErrSum += absErr;
+    signedErrSum += pred - actual;
+    actualAbsSum += Math.abs(actual);
+    if (isFinite(fc.p10) && isFinite(fc.p90) && actual >= fc.p10 && actual <= fc.p90) coverageCount++;
+    nPoints++;
   }
 
   const lastObservedMonth = addMonths_(seriesStart, closedEnd);
@@ -3488,6 +3582,52 @@ function dlmFitAndBacktest_(baseSeries48, seriesStart, lastClosedMonthStart, tun
     seasonalByMonth,
     metrics,
     lastObservedMonth
+  };
+}
+
+function computeDlmFyForecast_(baseSeries48, seriesStart, lastClosedMonthStart, forecastMonths, tuning) {
+  const fit = dlmFitAndBacktest_(baseSeries48, seriesStart, lastClosedMonthStart, tuning);
+  if (!fit.ready) {
+    return { ready: false, reason: 'insufficient_history', nClosed: fit.nClosed || 0 };
+  }
+
+  const T = dlmBuildTransition_();
+  const H = dlmBuildObservation_();
+  const Q = dlmBuildQ_(fit.qLevel, fit.qTrend, fit.qSeasonal);
+  const R = 1;
+  const p10 = [];
+  const p50 = [];
+  const p90 = [];
+
+  (forecastMonths || []).forEach(m => {
+    const h = monthIndexFromStart_(m, fit.lastObservedMonth);
+    if (h < 1) {
+      p10.push(null);
+      p50.push(null);
+      p90.push(null);
+      return;
+    }
+    const fc = dlmForecast_(fit.aFinal, fit.PFinal, T, H, Q, R, fit.sigma2Obs, h);
+    p10.push(fc.p10);
+    p50.push(fc.p50);
+    p90.push(fc.p90);
+  });
+
+  return {
+    ready: true,
+    p10,
+    p50,
+    p90,
+    lastObservedMonth: fit.lastObservedMonth,
+    metrics: fit.metrics,
+    hyper: {
+      qLevel: fit.qLevel,
+      qTrend: fit.qTrend,
+      qSeasonal: fit.qSeasonal,
+      sigma2Obs: fit.sigma2Obs,
+      nll: fit.nll,
+      nClosed: fit.nClosed
+    }
   };
 }
 
@@ -3576,7 +3716,7 @@ function appendDlmBacktestReport_(ss, client, fy, result) {
     result.metrics.biasRate,
     result.metrics.coverage,
     JSON.stringify(hyperparams),
-    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`
+    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}; note=hyperparams_in_sample(metrics_optimistic)`
   ];
   sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
 }
@@ -5912,6 +6052,7 @@ function runPhase1Forecast() {
     const aiAllZero = ['Market','Competitor','Channel','DX'].every(k => Math.abs(Number((result.aiScores || {})[k] || 0)) < 1e-9);
     if (aiAllZero) SpreadsheetApp.getActiveSpreadsheet().toast('⚠ AIスコアが全topicで0.0です。AI_RESEARCH_STRUCTUREDの形式を確認してください。', MENU_NAME, 8);
     writeOutputFY_(result);
+    writeDlmShadowLanding_(ss, client, fy, result);
     writeForecastArtifacts_(result, client);
     writeAIHistoriesForRun_(result, result.runId);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
@@ -5923,6 +6064,37 @@ function runPhase1Forecast() {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
+
+function writeDlmShadowLanding_(ss, client, fy, result) {
+  if (!result || !result.dlmMode || result.dlmMode === 'off') return;
+  const dlm = result.dlmForecast;
+  if (!dlm || !dlm.ready) return;
+  const sh = getOrCreateSheet_(ss, SHEETS.LANDING_FORECAST);
+  const headers = ['client','fy','target_month','as_of_month','landing_p10','landing_p50','landing_p90','updated_at','source_run_id','note'];
+  ensureSheetHeaders_(sh, headers);
+
+  const now = new Date();
+  const asOf = fmtYM_(new Date(now.getFullYear(), now.getMonth(), 1));
+  const mt = dlm.metrics || {};
+  const note = `dlm shadow; stage=${DLM_BUILD_STAGE}; smape=${(Number(mt.smape || 0) * 100).toFixed(1)}%; coverage=${(Number(mt.coverage || 0) * 100).toFixed(1)}%`;
+  const rows = [];
+  result.months.forEach((m, i) => {
+    if (dlm.p50[i] === null || dlm.p50[i] === undefined) return;
+    rows.push([
+      client,
+      fy,
+      fmtYM_(m),
+      asOf,
+      Number(dlm.p10[i] || 0),
+      Number(dlm.p50[i] || 0),
+      Number(dlm.p90[i] || 0),
+      now,
+      (result.runId || ''),
+      note
+    ]);
+  });
+  if (rows.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
 }
 
 function writeForecastArtifacts_(result, client) {
