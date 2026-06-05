@@ -10,7 +10,7 @@
  ***************************************/
 
 const VERSION = '2.0.0-dev';
-const BUILD_STAGE = 'v8-step3c1-subjective-cap';
+const BUILD_STAGE = 'v8-step3c2-source-reliability';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -83,6 +83,7 @@ const SHEETS = {
   CHANGELOG: 'CHANGELOG',
   AI_SCORE_HISTORY: 'AI_SCORE_HISTORY',
   AI_IMPACT_HISTORY: 'AI_IMPACT_HISTORY',
+  SUBJECTIVE_IMPACT_HISTORY: 'SUBJECTIVE_IMPACT_HISTORY',
   CALIBRATION_STATE: 'CALIBRATION_STATE',
   CALIBRATION_HISTORY: 'CALIBRATION_HISTORY',
   QUARTERLY_REVIEW: 'QUARTERLY_REVIEW',
@@ -336,8 +337,8 @@ function adminInitDLMAndBacktest() {
   }
 }
 
-// DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
-// TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化と、primary時の背景SPOT上限基準をDLM基準へ寄せるか検証する。
+// DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
+// TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -409,6 +410,7 @@ function setupForecastBook() {
     SHEETS.PROCESS_STATUS,
     SHEETS.AI_SCORE_HISTORY,
     SHEETS.AI_IMPACT_HISTORY,
+    SHEETS.SUBJECTIVE_IMPACT_HISTORY,
     SHEETS.CALIBRATION_STATE,
     SHEETS.CALIBRATION_HISTORY,
     SHEETS.QUARTERLY_REVIEW,
@@ -1102,37 +1104,6 @@ function runForecastFYCore_(fy, clientName) {
   const residP50 = percentile_(residualPct, 0.50);
   const residP90 = percentile_(residualPct, 0.90);
 
-  // 既知SPOT（DEV_SPOT）と背景SPOTを分離
-  const devProjectsByMonth = readDevSpotProjects12Months_(fy);
-  const knownSpotExpectedByMonth = computeKnownSpotExpectedByMonth_(devProjectsByMonth);
-  const devFixedByMonth = knownSpotExpectedByMonth.slice();
-
-  // 背景SPOTの上限を作るため、BASE予測(P50)を先に計算
-  const baseOnlyP50 = forecastByResidualQuantiles_(model, new Array(12).fill(0), { p10: residP10, p50: residP50, p90: residP90 }).p50;
-  const spotBgModel = fitSpotRecurringModel_(
-    salesData.spotSeries48 || [],
-    seriesStart,
-    ctx.lastClosedMonthStart,
-    baseOnlyP50,
-    tuning
-  );
-
-  const knownSpotOffsetRate = isFinite(tuning.knownSpotOffsetRate) ? tuning.knownSpotOffsetRate : KNOWN_SPOT_OFFSET_RATE;
-  const spotBackgroundByMonth = spotBgModel.expectedByMonth.map((v, i) => Math.max(0, Number(v || 0) - Number(knownSpotExpectedByMonth[i] || 0) * knownSpotOffsetRate));
-  const spotFixedByMonth = devFixedByMonth.map((v, i) => Number(v || 0) + Number(spotBackgroundByMonth[i] || 0));
-
-  // 要因（主観係数）※必要情報が揃った行だけ読む
-  const factorsProduct = readFactorsProduct_(fy);
-  const factorsClient = readFactorsClient_(fy);
-  const opinions = readOpinions_(fy);
-
-  // AI調査スコア（topic別：benchmark/event blend）
-  const aiScores = readAIResearchScores_(calibration);
-  const aiReportText = readAIReportTextForClient_(clientName);
-
-  // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
-  const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
-
   // 12ヶ月予測対象（FY開始月〜12ヶ月）
   const months = ctx.forecastMonths;
   const closedOffsetsSet = new Set(ctx.closedForecastMonthOffsets || []);
@@ -1154,6 +1125,49 @@ function runForecastFYCore_(fy, clientName) {
   const dlmMode = (dlmModeRaw === 'off')
     ? 'off'
     : ((dlmModeRaw === 'primary') ? (dlmReady ? 'primary' : 'primary_fallback') : 'shadow');
+  const spotCapBasis = readDlmPrimarySpotCapBasis_();
+  const reliabilityApply = readReliabilityApplyEnabled_();
+  const sourceReliabilityMap = readSourceReliability_(clientName);
+  const reliabilityMap = reliabilityApply ? sourceReliabilityMap : new Map();
+  const nonDefaultReliabilityCount = Array.from(sourceReliabilityMap.values()).filter(v => Math.abs(Number(v || 1) - 1) > 1e-9).length;
+
+  // 既知SPOT（DEV_SPOT）と背景SPOTを分離
+  const devProjectsByMonth = readDevSpotProjects12Months_(fy);
+  const knownSpotExpectedByMonth = computeKnownSpotExpectedByMonth_(devProjectsByMonth);
+  const devFixedByMonth = knownSpotExpectedByMonth.slice();
+
+  // 背景SPOTの上限を作るため、BASE予測(P50)を先に計算
+  const baseOnlyP50 = forecastByResidualQuantiles_(model, new Array(12).fill(0), { p10: residP10, p50: residP50, p90: residP90 }).p50;
+  let baseForSpotCap = baseOnlyP50.slice();
+  if (spotCapBasis === 'dlm' && dlmPrimaryActive && dlmForecast && dlmForecast.ready) {
+    baseForSpotCap = baseOnlyP50.map((ols, i) => {
+      const d = dlmForecast.p50[i];
+      return (d === null || d === undefined) ? ols : Math.max(0, Number(d));
+    });
+  }
+  const spotBgModel = fitSpotRecurringModel_(
+    salesData.spotSeries48 || [],
+    seriesStart,
+    ctx.lastClosedMonthStart,
+    baseForSpotCap,
+    tuning
+  );
+
+  const knownSpotOffsetRate = isFinite(tuning.knownSpotOffsetRate) ? tuning.knownSpotOffsetRate : KNOWN_SPOT_OFFSET_RATE;
+  const spotBackgroundByMonth = spotBgModel.expectedByMonth.map((v, i) => Math.max(0, Number(v || 0) - Number(knownSpotExpectedByMonth[i] || 0) * knownSpotOffsetRate));
+  const spotFixedByMonth = devFixedByMonth.map((v, i) => Number(v || 0) + Number(spotBackgroundByMonth[i] || 0));
+
+  // 要因（主観係数）※必要情報が揃った行だけ読む
+  const factorsProduct = readFactorsProduct_(fy);
+  const factorsClient = readFactorsClient_(fy);
+  const opinions = readOpinions_(fy);
+
+  // AI調査スコア（topic別：benchmark/event blend）
+  const aiScores = readAIResearchScores_(calibration);
+  const aiReportText = readAIReportTextForClient_(clientName);
+
+  // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
+  const productWeights = computeProductWeightsFromSalesInputClosed12_(fy, clientName, ctx);
 
   // 線形回帰（参考）予測：季節性込みモデルのトレンド外挿（参考）
   const regTotal = [];
@@ -1200,7 +1214,9 @@ function runForecastFYCore_(fy, clientName) {
     spotBgModel,
     knownSpotProjectsByMonth: devProjectsByMonth,
     knownSpotBgSuppressRate: isFinite(tuning.knownSpotBgSuppressRate) ? tuning.knownSpotBgSuppressRate : KNOWN_SPOT_BG_SUPPRESS_RATE,
-    dlmBaseLogByMonth: dlmPrimaryActive ? dlmForecast.logByMonth : null
+    dlmBaseLogByMonth: dlmPrimaryActive ? dlmForecast.logByMonth : null,
+    reliabilityApply,
+    reliabilityMap
   });
 
   const opinionsSummaryTop = summarizeOpinionsTop_(opinions);
@@ -1270,7 +1286,18 @@ function runForecastFYCore_(fy, clientName) {
     dlmMode,
     dlmForecast,
     dlmModeRaw,
-    dlmPrimaryActive
+    dlmPrimaryActive,
+    reliabilityApply,
+    nonDefaultReliabilityCount,
+    spotCapBasis,
+    reliabilityInputs: {
+      factorsProduct,
+      factorsClient,
+      opinions,
+      aiScores,
+      productWeights,
+      reliabilityMap
+    }
   };
 }
 
@@ -1326,8 +1353,9 @@ function writeOutputFY_(result) {
   const calText = buildOutputCalibrationSummary_(result);
   const engineText = buildEngineModeText_(result);
   const subjectiveCapText = '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。';
+  const reliabilityText = `Source Reliability: ${result.reliabilityApply ? 'ON' : 'OFF'} / 非1.0ソース数=${Number(result.nonDefaultReliabilityCount || 0)} / SPOT上限基準=${result.spotCapBasis || 'dlm'}`;
   sh.getRange(6, 1, 1, 6).merge();
-  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
+  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
     .setFontSize(10).setWrap(true);
   const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
@@ -2146,7 +2174,14 @@ function buildCONFIG_() {
     ['DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', 18],
     ['DLM_FORECAST_HORIZON（バックテスト先読み月数）', 3],
     ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01],
-    ['DLM_ENGINE_MODE（off/shadow/primary）', 'off']
+    ['DLM_ENGINE_MODE（off/shadow/primary）', 'off'],
+    ['DLM_PRIMARY_SPOT_CAP_BASIS（dlm/ols）', 'dlm'],
+    ['RELIABILITY_APPLY_ENABLED（0/1）', 0],
+    ['RELIABILITY_R_MIN', 0.0],
+    ['RELIABILITY_R_MAX', 1.5],
+    ['RELIABILITY_SHRINKAGE_K', 4],
+    ['RELIABILITY_MIN_SAMPLES', 2],
+    ['RELIABILITY_MIN_CHANGE', 0.05]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -2846,7 +2881,7 @@ function findFirstExtremeMultiplierIssue_(fy) {
   return null;
 }
 
-function opinionExpectedMultiplier_(opinions, targetMonth) {
+function opinionExpectedMultiplier_(opinions, targetMonth, reliabilityMap) {
   if (!opinions || opinions.length === 0) return 1;
 
   const people = new Map();
@@ -2861,7 +2896,7 @@ function opinionExpectedMultiplier_(opinions, targetMonth) {
 
   let k = 1;
   people.forEach(o => {
-    const baseStep = isFinite(o.step) ? o.step : 0;
+    const baseStep = (isFinite(o.step) ? o.step : 0) * getSourceReliability_(reliabilityMap, 'opinion', o.person || '');
     const conf = isFinite(o.confidence) ? o.confidence : 0.7;
     k *= (1 + baseStep * conf);
   });
@@ -3060,7 +3095,12 @@ function readModelTuningFromConfig_() {
     dlmBacktestMinMonths: 24,
     dlmBacktestStartOrigin: 18,
     dlmForecastHorizon: 3,
-    dlmLogEpsilonRate: 0.01
+    dlmLogEpsilonRate: 0.01,
+    reliabilityRMin: 0.0,
+    reliabilityRMax: 1.5,
+    reliabilityShrinkageK: 4,
+    reliabilityMinSamples: 2,
+    reliabilityMinChange: 0.05
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3125,6 +3165,11 @@ function readModelTuningFromConfig_() {
   out.dlmBacktestStartOrigin = Math.round(Math.max(12, Math.min(47, getNumByLabel('DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', out.dlmBacktestStartOrigin))));
   out.dlmForecastHorizon = Math.round(Math.max(1, Math.min(12, getNumByLabel('DLM_FORECAST_HORIZON（バックテスト先読み月数）', out.dlmForecastHorizon))));
   out.dlmLogEpsilonRate = Math.max(0.0001, Math.min(0.5, getNumByLabel('DLM_LOG_EPSILON_RATE（対数下限=median比）', out.dlmLogEpsilonRate)));
+  out.reliabilityRMin = Math.max(0, Math.min(1, getNumByLabel('RELIABILITY_R_MIN', out.reliabilityRMin)));
+  out.reliabilityRMax = Math.max(out.reliabilityRMin, Math.min(3, getNumByLabel('RELIABILITY_R_MAX', out.reliabilityRMax)));
+  out.reliabilityShrinkageK = Math.max(0, Math.min(50, getNumByLabel('RELIABILITY_SHRINKAGE_K', out.reliabilityShrinkageK)));
+  out.reliabilityMinSamples = Math.round(Math.max(1, Math.min(12, getNumByLabel('RELIABILITY_MIN_SAMPLES', out.reliabilityMinSamples))));
+  out.reliabilityMinChange = Math.max(0, Math.min(1, getNumByLabel('RELIABILITY_MIN_CHANGE', out.reliabilityMinChange)));
   return out;
 }
 
@@ -3144,6 +3189,114 @@ function readDlmEngineMode_() {
     // 読取失敗時は既定off
   }
   return 'off';
+}
+
+function readReliabilityApplyEnabled_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) return false;
+  try {
+    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').indexOf('RELIABILITY_APPLY_ENABLED（0/1）') === 0) {
+        return Number(rows[i][1] || 0) > 0;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+function readDlmPrimarySpotCapBasis_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) return 'dlm';
+  try {
+    const rows = cfg.getRange(1, 1, cfg.getLastRow(), 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').indexOf('DLM_PRIMARY_SPOT_CAP_BASIS（dlm/ols）') === 0) {
+        const v = String(rows[i][1] || '').trim().toLowerCase();
+        return v === 'ols' ? 'ols' : 'dlm';
+      }
+    }
+  } catch (e) {}
+  return 'dlm';
+}
+
+function readSourceReliability_(client) {
+  const map = new Map();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.SOURCE_RELIABILITY);
+  if (!sh || sh.getLastRow() < 2) return map;
+  const values = sh.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  header.forEach((h, i) => { idx[String(h || '')] = i; });
+  const target = normalizeClientName_(String(client || '').trim());
+  for (let i = 1; i < values.length; i++) {
+    const rowClient = normalizeClientName_(String(values[i][idx.client] || '').trim());
+    if (target && rowClient !== target) continue;
+    const type = String(values[i][idx.source_type] || '').trim();
+    const key = String(values[i][idx.source_key] || '').trim();
+    if (!type || !key) continue;
+    const r = Number(values[i][idx.reliability_r]);
+    map.set(`${type}:${key}`, isFinite(r) ? r : 1.0);
+  }
+  return map;
+}
+
+function getSourceReliability_(map, type, key) {
+  if (!map || !type || !key) return 1.0;
+  const v = map.get(`${type}:${key}`);
+  return isFinite(Number(v)) ? Number(v) : 1.0;
+}
+
+function writeSourceReliability_(client, sourceType, sourceKey, r, sampleCount, evalWindow, note) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = getOrCreateSheet_(ss, SHEETS.SOURCE_RELIABILITY);
+  const headers = ['client','source_type','source_key','reliability_r','sample_count','last_eval_window','updated_at','updated_by','note'];
+  ensureSheetHeaders_(sh, headers);
+  const values = sh.getDataRange().getValues();
+  const idx = {};
+  (values[0] || headers).forEach((h, i) => { idx[String(h || '')] = i; });
+  const targetClient = String(client || '').trim();
+  const targetType = String(sourceType || '').trim();
+  const targetKey = String(sourceKey || '').trim();
+  const updatedBy = Session.getActiveUser().getEmail() || 'unknown';
+  const rVal = isFinite(Number(r)) ? Number(r) : 1.0;
+  const row = [targetClient, targetType, targetKey, rVal, sampleCount, evalWindow || '', new Date(), updatedBy, note || ''];
+  let rowNo = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idx.client] || '').trim() !== targetClient) continue;
+    if (String(values[i][idx.source_type] || '').trim() !== targetType) continue;
+    if (String(values[i][idx.source_key] || '').trim() !== targetKey) continue;
+    rowNo = i + 1;
+    break;
+  }
+  if (rowNo) sh.getRange(rowNo, 1, 1, headers.length).setValues([row]);
+  else sh.getRange(sh.getLastRow() + 1, 1, 1, headers.length).setValues([row]);
+}
+
+function readPoolPrior_(scope) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.POOL_PRIOR);
+  if (!sh || sh.getLastRow() < 2) return { value: 1.0, precision: null };
+  const values = sh.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  header.forEach((h, i) => { idx[String(h || '')] = i; });
+  const target = String(scope || '').trim();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idx.pool_scope] || '').trim() !== target) continue;
+    if (String(values[i][idx.param_key] || '').trim() !== 'reliability_r') continue;
+    const value = Number(values[i][idx.pooled_value]);
+    const precisionRaw = values[i][idx.precision];
+    const precision = Number(precisionRaw);
+    return {
+      value: isFinite(value) ? value : 1.0,
+      precision: (precisionRaw === '' || precisionRaw === null || precisionRaw === undefined) ? null : (isFinite(precision) ? precision : null)
+    };
+  }
+  return { value: 1.0, precision: null };
 }
 
 function getProductNameListFromSales_() {
@@ -4627,11 +4780,15 @@ function forecastMonteCarloMixed_(model, opt) {
   const dlmBaseLogByMonth = opt.dlmBaseLogByMonth || null;
   const tuning = opt.tuning || {};
 
-  const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights));
-  const kClientByMonth = months.map(m => clientFactorsMultiplier_(factorsClient, m));
+  const reliabilityMap = opt.reliabilityApply ? (opt.reliabilityMap || new Map()) : new Map();
+  const kProdByMonth = months.map(m => productFactorsMultiplier_(factorsProduct, m, productWeights, reliabilityMap));
+  const kClientByMonth = months.map(m => clientFactorsMultiplier_(factorsClient, m, reliabilityMap));
 
   const aiScores = opt.aiScores || { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  const aiTotalScore = (aiScores.Market || 0) + (aiScores.Competitor || 0) + (aiScores.Channel || 0) + (aiScores.DX || 0);
+  let aiTotalScore = 0;
+  AI_TOPICS.forEach(topic => {
+    aiTotalScore += Number(aiScores[topic] || 0) * getSourceReliability_(reliabilityMap, 'ai_topic', topic);
+  });
   const aiWeight = isFinite(opt.aiWeight) ? opt.aiWeight : AI_WEIGHT_DEFAULT;
   const aiMaxAbsEffect = isFinite(opt.aiMaxAbsEffect) ? opt.aiMaxAbsEffect : AI_MAX_ABS_EFFECT;
   const aiTotalNeutralThreshold = isFinite(tuning.aiTotalNeutralThreshold) ? tuning.aiTotalNeutralThreshold : AI_TOTAL_NEUTRAL_THRESHOLD;
@@ -4677,7 +4834,7 @@ function forecastMonteCarloMixed_(model, opt) {
       let ops = quantOpsAfterResidual;
       ops *= kProdByMonth[i];
       ops *= kClientByMonth[i];
-      const kOpinion = sampleOpinionMultiplier_(opinions, months[i]);
+      const kOpinion = sampleOpinionMultiplier_(opinions, months[i], reliabilityMap);
       ops *= kOpinion;
       ops *= kAI;
       const subjectiveContinuousDelta = quantOpsAfterResidual * ((kProdByMonth[i] * kClientByMonth[i] * kOpinion * kAI) - 1);
@@ -4697,8 +4854,8 @@ function forecastMonteCarloMixed_(model, opt) {
     }
   }
 
-  // DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
-  // TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化（縮小推定・承認ゲート）。
+  // DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
+  // TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
   const calibrated = calibrateSubjectiveContinuousDelta_({
     quantOpsSimByMonth,
     subjectiveContinuousDeltaSimByMonth,
@@ -4798,8 +4955,8 @@ function quantilesFromSimByMonth_(simByMonth) {
   };
 }
 
-// DONE(step-3c-1): 主観キャリブレータをcap pass-throughへ置換済み。
-// TODO(step-3c-2): SOURCE_RELIABILITYによる subjective/AI の学習重み化（縮小推定・承認ゲート）。
+// DONE(step-3c-2): DLM-primary時のSPOT上限基準をDLM寄せ＋SOURCE_RELIABILITY学習重み化（承認ゲート）を実装。
+// TODO(step-3c-3): POOL_PRIORのクライアント横断自動更新 / 限界寄与ベースの厳密帰属 / 死にコード整理。
 function calibrateSubjectiveContinuousDelta_(opt) {
   const tuning = opt && opt.tuning ? opt.tuning : {};
   const targetCenter = SUBJECTIVE_OVERLAY_TARGET_CENTER;
@@ -5045,7 +5202,7 @@ function validateAiParsing_() {
 
 
 /** 製品要因：製品別step合算 → 構成比で加重 → 1+加重step */
-function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights) {
+function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights, reliabilityMap) {
   if (!factorsProduct || factorsProduct.length === 0) return 1;
 
   const stepByProduct = new Map();
@@ -5054,7 +5211,8 @@ function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights) 
     const p = f.product;
     if (!p) return;
     const prev = stepByProduct.get(p) || 0;
-    stepByProduct.set(p, prev + (isFinite(f.step) ? f.step : 0));
+    const r = getSourceReliability_(reliabilityMap, 'factor_product', f.person || '');
+    stepByProduct.set(p, prev + (isFinite(f.step) ? f.step * r : 0));
   });
   if (stepByProduct.size === 0) return 1;
 
@@ -5069,13 +5227,13 @@ function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights) 
 }
 
 /** クライアント要因：step合算 → 1+step */
-function clientFactorsMultiplier_(factorsClient, targetMonth) {
+function clientFactorsMultiplier_(factorsClient, targetMonth, reliabilityMap) {
   if (!factorsClient || factorsClient.length === 0) return 1;
 
   let step = 0;
   factorsClient.forEach(f => {
     if (!f.month || f.month > targetMonth) return;
-    step += (isFinite(f.step) ? f.step : 0);
+    step += (isFinite(f.step) ? f.step * getSourceReliability_(reliabilityMap, 'factor_client', f.person || '') : 0);
   });
 
   const mult = 1 + step;
@@ -5083,7 +5241,7 @@ function clientFactorsMultiplier_(factorsClient, targetMonth) {
 }
 
 /** 意見係数：担当者別に最新意見を取り、±5%のランダム揺らしを入れて合成 */
-function sampleOpinionMultiplier_(opinions, targetMonth) {
+function sampleOpinionMultiplier_(opinions, targetMonth, reliabilityMap) {
   if (!opinions || opinions.length === 0) return 1;
 
   const people = new Map();
@@ -5098,7 +5256,7 @@ function sampleOpinionMultiplier_(opinions, targetMonth) {
 
   let k = 1;
   people.forEach(o => {
-    const baseStep = o.step;
+    const baseStep = (isFinite(o.step) ? o.step : 0) * getSourceReliability_(reliabilityMap, 'opinion', o.person || '');
     const conf = isFinite(o.confidence) ? o.confidence : 0.7;
 
     const jitter = (Math.floor(Math.random() * 3) - 1) * 0.05; // -0.05,0,+0.05
@@ -5428,6 +5586,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
   buildSimpleSheet_(ss, SHEETS.AI_SCORE_HISTORY, ['run_id','run_at','client','topic','blended_score','quality_score','degraded_mode','neutralized','coverage_event_rows','coverage_benchmark_rows','latest_as_of_date']);
   buildSimpleSheet_(ss, SHEETS.AI_IMPACT_HISTORY, ['run_id','run_at','client','target_month','k_ai','ai_total_score','ai_direction','pred_p50','pred_p50_quant_only','ai_neutralized','disabled_topics_count']);
+  buildSimpleSheet_(ss, SHEETS.SUBJECTIVE_IMPACT_HISTORY, ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.CALIBRATION_STATE, ['client','updated_at','updated_by','ai_weight_override','ai_max_abs_effect_override','ai_topic_disable_json','bias_correction_factor','qual_scale_override','residual_month_bias_json','last_applied_quarter','last_applied_review_id','auto_update_enabled','note']);
   buildSimpleSheet_(ss, SHEETS.CALIBRATION_HISTORY, ['change_id','changed_at','changed_by','client','quarter_label','review_id','factor_name','old_value','new_value','rollback_hint']);
   buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW, ['section','key','value']);
@@ -6091,6 +6250,7 @@ function runPhase1Forecast() {
     writeDlmShadowLanding_(ss, client, fy, result);
     writeForecastArtifacts_(result, client);
     writeAIHistoriesForRun_(result, result.runId);
+    writeSubjectiveImpactHistory_(result, result.runId);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}`);
@@ -6754,7 +6914,7 @@ function applyTabColors_() {
   const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
   const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
-  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB];
+  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
 
   manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
   auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
@@ -6907,6 +7067,14 @@ function syncSalesFromSalesInput_(fy, client) {
  * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、warn_coerced_detail.quality が計上されることを確認。
  * 24) Gem event 行のタブ不足TSVで A-9 実行時、warn_coerced_detail.colcount が増え、半分未満行のみinvalidになることを確認。
  * 25) AI_RESEARCH_PROMPT!G列に tsv_diagnostics が出力され、各行のタブ数/topic が確認できることを確認。
+ * 26) RELIABILITY_APPLY_ENABLED=0 かつ SOURCE_RELIABILITY 空で、A-9 の OUTPUT が 3c-1 と一致（no-op）。
+ * 27) A-1 で SUBJECTIVE_IMPACT_HISTORY が新規・非表示で作成され、A-9 で push 行が追記される。
+ * 28) SOURCE_RELIABILITY に opinion:担当者=0.5 を手入力＋ENABLED=1 で、その担当者のopinion寄与が約半減。
+ * 29) ai_topic:Market=0 を設定すると Market が kAI に寄与しない。
+ * 30) DLM=off/shadow で背景SPOTが従来一致、DLM=primary かつ basis=dlm で cap が DLM BASE 比に切替、=ols で従来へ。
+ * 31) 実績3か月未満で C-1 が reliability 提案を出さず正常終了。
+ * 32) 実績3か月以上で reliability:* 提案が QUARTERLY_REVIEW に出て承認列が効く。
+ * 33) C-2 承認で SOURCE_RELIABILITY upsert・CALIBRATION_HISTORY 追記・LOG applied=1、auto_update_enabled=0 で SOURCE_RELIABILITY 不変。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
@@ -7081,6 +7249,127 @@ function writeAIHistoriesForRun_(result, runId) {
   }
 }
 
+function computeSourcePushByMonth_(factorsProduct, factorsClient, opinions, aiScores, months, productWeights, reliabilityMap) {
+  const rows = [];
+  const relMap = reliabilityMap || new Map();
+  (months || []).forEach(targetMonth => {
+    const ym = fmtYM_(targetMonth);
+
+    const prodByPerson = new Map();
+    (factorsProduct || []).forEach(f => {
+      if (!f.month || f.month > targetMonth) return;
+      const key = f.person || '';
+      if (!key || !isFinite(f.step)) return;
+      prodByPerson.set(key, Number(prodByPerson.get(key) || 0) + Number(f.step || 0));
+    });
+    prodByPerson.forEach((step, person) => {
+      if (!step) return;
+      rows.push({
+        target_month: ym,
+        source_type: 'factor_product',
+        source_key: person,
+        push_step: step,
+        push_direction: Math.sign(step),
+        applied_reliability_r: getSourceReliability_(relMap, 'factor_product', person)
+      });
+    });
+
+    const clientByPerson = new Map();
+    (factorsClient || []).forEach(f => {
+      if (!f.month || f.month > targetMonth) return;
+      const key = f.person || '';
+      if (!key || !isFinite(f.step)) return;
+      const prev = clientByPerson.get(key);
+      if (!prev || prev.month < f.month) clientByPerson.set(key, f);
+    });
+    clientByPerson.forEach((f, person) => {
+      const step = Number(f.step || 0);
+      if (!step) return;
+      rows.push({
+        target_month: ym,
+        source_type: 'factor_client',
+        source_key: person,
+        push_step: step,
+        push_direction: Math.sign(step),
+        applied_reliability_r: getSourceReliability_(relMap, 'factor_client', person)
+      });
+    });
+
+    const opinionByPerson = new Map();
+    (opinions || []).forEach(o => {
+      if (!o.month || o.month > targetMonth) return;
+      const key = o.person || '';
+      if (!key || !isFinite(o.step)) return;
+      const prev = opinionByPerson.get(key);
+      if (!prev || prev.month < o.month) opinionByPerson.set(key, o);
+    });
+    opinionByPerson.forEach((o, person) => {
+      const conf = isFinite(o.confidence) ? Number(o.confidence) : 0.7;
+      const step = Number(o.step || 0) * conf;
+      if (!step) return;
+      rows.push({
+        target_month: ym,
+        source_type: 'opinion',
+        source_key: person,
+        push_step: step,
+        push_direction: Math.sign(step),
+        applied_reliability_r: getSourceReliability_(relMap, 'opinion', person)
+      });
+    });
+
+    AI_TOPICS.forEach(topic => {
+      const step = Number((aiScores || {})[topic] || 0);
+      if (!step) return;
+      rows.push({
+        target_month: ym,
+        source_type: 'ai_topic',
+        source_key: topic,
+        push_step: step,
+        push_direction: Math.sign(step),
+        applied_reliability_r: getSourceReliability_(relMap, 'ai_topic', topic)
+      });
+    });
+  });
+  return rows;
+}
+
+function writeSubjectiveImpactHistory_(result, runId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = getOrCreateSheet_(ss, SHEETS.SUBJECTIVE_IMPACT_HISTORY);
+    const headers = ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at'];
+    ensureSheetHeaders_(sh, headers);
+    const inputs = (result && result.reliabilityInputs) || {};
+    const impacts = computeSourcePushByMonth_(
+      inputs.factorsProduct || [],
+      inputs.factorsClient || [],
+      inputs.opinions || [],
+      inputs.aiScores || {},
+      (result && result.months) || [],
+      inputs.productWeights || new Map(),
+      inputs.reliabilityMap || new Map()
+    );
+    if (!impacts.length) return;
+    const runAt = result && result.runAt ? result.runAt : new Date();
+    const client = String((result && result.clientName) || '');
+    const rows = impacts.map(x => [
+      runId,
+      runAt,
+      client,
+      x.target_month,
+      x.source_type,
+      x.source_key,
+      Number(x.push_step || 0),
+      Number(x.push_direction || 0),
+      Number(x.applied_reliability_r || 1),
+      ''
+    ]);
+    writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
+  } catch (err) {
+    // 履歴書き込み失敗時も本処理は継続
+  }
+}
+
 function runQuarterlyReview() {
   const started = new Date();
   try {
@@ -7118,9 +7407,12 @@ function collectQuarterlyReviewData_(client) {
     }
     const impacts = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY).getDataRange().getValues().slice(1)
       .filter(r => String(r[2] || '') === client && last3.indexOf(String(r[3] || '')) >= 0);
+    const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
+    const subjectiveImpacts = subjSh ? subjSh.getDataRange().getValues().slice(1)
+      .filter(r => String(r[2] || '') === client && last3.indexOf(String(r[3] || '')) >= 0) : [];
     const scores = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY).getDataRange().getValues().slice(1)
       .filter(r => String(r[2] || '') === client);
-    return { ready: true, client, months: last3, evalRows, impacts, scores, calibration: readCalibrationState_(client) };
+    return { ready: true, client, months: last3, evalRows, impacts, scores, subjectiveImpacts, calibration: readCalibrationState_(client) };
   } catch (err) {
     throw err;
   }
@@ -7153,6 +7445,69 @@ function generateQuarterlyProposals_(data) {
   if (isFinite(proposedWeight) && proposedWeight >= tuning.aiWeightProposalMin && proposedWeight <= tuning.aiWeightProposalMax) {
     proposals.push(makeProposal_('A', 'ai_weight_override', curWeight, proposedWeight, conf, `AI方向一致率=${(hitRate*100).toFixed(1)}% / mean|kAI-1|=${(meanAbs*100).toFixed(2)}%`, `次期AI寄与を${Math.round((proposedWeight/curWeight)*100)}%へ調整`, 'C-2で却下または手動で元値に戻す', { hitRate, meanAbs }));
   }
+  return proposals.concat(generateReliabilityProposals_(data));
+}
+
+function generateReliabilityProposals_(data) {
+  if (!data || !data.ready || !data.months || data.months.length < 3) return [];
+  const tuning = readModelTuningFromConfig_();
+  const current = readSourceReliability_(data.client);
+  const evalActualByMonth = new Map();
+  (data.evalRows || []).forEach(r => {
+    if (String(r[4] || '') !== 'neutral') return;
+    evalActualByMonth.set(String(r[3] || ''), Number(r[6] || 0));
+  });
+  const quantByMonth = new Map();
+  (data.impacts || []).forEach(r => {
+    const ym = String(r[3] || '');
+    if (!ym) return;
+    quantByMonth.set(ym, Number(r[8] || 0));
+  });
+
+  const grouped = new Map();
+  (data.subjectiveImpacts || []).forEach(r => {
+    const ym = String(r[3] || '');
+    const actual = Number(evalActualByMonth.get(ym));
+    const quant = Number(quantByMonth.get(ym));
+    if (!isFinite(actual) || !isFinite(quant)) return;
+    const surpriseDir = Math.sign(actual - quant);
+    if (!surpriseDir) return;
+    const type = String(r[4] || '').trim();
+    const key = String(r[5] || '').trim();
+    const pushDir = Math.sign(Number(r[7] || 0));
+    if (!type || !key || !pushDir) return;
+    const gKey = `${type}:${key}`;
+    if (!grouped.has(gKey)) grouped.set(gKey, { type, key, n: 0, hit: 0 });
+    const g = grouped.get(gKey);
+    g.n += 1;
+    if (pushDir === surpriseDir) g.hit += 1;
+  });
+
+  const proposals = [];
+  grouped.forEach(g => {
+    if (g.n < tuning.reliabilityMinSamples) return;
+    const h = g.n > 0 ? g.hit / g.n : 0;
+    const rHat = clamp_(2 * h, tuning.reliabilityRMin, tuning.reliabilityRMax);
+    const pool = readPoolPrior_(`reliability:${g.type}`);
+    const rPool = isFinite(Number(pool.value)) ? Number(pool.value) : 1.0;
+    const k = (pool.precision !== null && isFinite(Number(pool.precision))) ? Number(pool.precision) : tuning.reliabilityShrinkageK;
+    const rShrunk = clamp_((g.n * rHat + k * rPool) / Math.max(1e-9, g.n + k), tuning.reliabilityRMin, tuning.reliabilityRMax);
+    const rCurrent = getSourceReliability_(current, g.type, g.key);
+    const delta = Math.abs(rShrunk - rCurrent);
+    if (delta < tuning.reliabilityMinChange) return;
+    const conf = (g.n >= 6 && delta >= 0.20) ? '高' : ((g.n >= 3 && delta >= 0.10) ? '中' : '低');
+    proposals.push(makeProposal_(
+      'B',
+      `reliability:${g.type}:${g.key}`,
+      rCurrent,
+      rShrunk,
+      conf,
+      `的中率=${(h * 100).toFixed(0)}% / n=${g.n}`,
+      `次回A-9で ${g.type}:${g.key} の主観/AI寄与を reliability_r=${rShrunk.toFixed(3)} で重み付け`,
+      'C-2で却下、またはSOURCE_RELIABILITYを手動で旧値へ戻す',
+      { hitRate: h, n: g.n, rHat, rShrunk, rCurrent }
+    ));
+  });
   return proposals;
 }
 
@@ -7255,12 +7610,22 @@ function applyQuarterlyProposals() {
         if (autoUpdate) {
           const field = String(logData[r][idx.target_field] || '');
           const val = logData[r][idx.proposed_value];
-          const oldVal = cal[field];
-          const patch = {}; patch[field] = val;
-          patch.last_applied_review_id = reviewId;
-          patch.last_applied_quarter = String(logData[r][idx.quarter_label] || '');
-          writeCalibrationState_(client, patch);
-          appendCalibrationHistory_(client, logData[r][idx.quarter_label], reviewId, field, oldVal, val, logData[r][idx.rollback_hint]);
+          if (field.indexOf('reliability:') === 0) {
+            const parts = field.split(':');
+            const sourceType = parts[1] || '';
+            const sourceKey = parts.slice(2).join(':');
+            const rNew = Number(val);
+            const rOld = getSourceReliability_(readSourceReliability_(client), sourceType, sourceKey);
+            writeSourceReliability_(client, sourceType, sourceKey, rNew, '', String(logData[r][idx.quarter_label] || ''), `applied via ${reviewId}`);
+            appendCalibrationHistory_(client, logData[r][idx.quarter_label], reviewId, field, rOld, rNew, logData[r][idx.rollback_hint]);
+          } else {
+            const oldVal = cal[field];
+            const patch = {}; patch[field] = val;
+            patch.last_applied_review_id = reviewId;
+            patch.last_applied_quarter = String(logData[r][idx.quarter_label] || '');
+            writeCalibrationState_(client, patch);
+            appendCalibrationHistory_(client, logData[r][idx.quarter_label], reviewId, field, oldVal, val, logData[r][idx.rollback_hint]);
+          }
           logData[r][idx.applied] = 1;
           logData[r][idx.applied_at] = now;
         }
