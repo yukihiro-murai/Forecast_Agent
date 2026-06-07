@@ -10,8 +10,8 @@
  * - v1.9: POOL_PRIOR クライアント横断集約（中央集約book + fan-out / 手動）
  ***************************************/
 
-const VERSION = '2.2.1-dev';
-const BUILD_STAGE = 'v8-step3c3c-fix-learnloop';
+const VERSION = '2.2.2-dev';
+const BUILD_STAGE = 'v8-annual-forecast-mode';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1468,12 +1468,15 @@ function runForecastFYCore_(fy, clientName) {
     return (closedOffsetsSet.has(i) && salesIdx >= 0) ? Number(totalActual48[salesIdx] || 0) : '';
   });
 
-  for (let i = 0; i < months.length; i++) {
-    if (sourceByMonth[i] !== 'actual_closed') continue;
-    const a = Number(actualClosedByMonth[i] || 0);
-    objOnly.p10[i] = a; objOnly.p50[i] = a; objOnly.p90[i] = a;
-    mixed.p10[i] = a; mixed.p50[i] = a; mixed.p90[i] = a;
-    regTotal[i] = a;
+  const closedMonthMode = readForecastClosedMonthMode_(); // 'actual' | 'forecast'
+  if (closedMonthMode === 'actual') {
+    for (let i = 0; i < months.length; i++) {
+      if (sourceByMonth[i] !== 'actual_closed') continue;
+      const a = Number(actualClosedByMonth[i] || 0);
+      objOnly.p10[i] = a; objOnly.p50[i] = a; objOnly.p90[i] = a;
+      mixed.p10[i] = a; mixed.p50[i] = a; mixed.p90[i] = a;
+      regTotal[i] = a;
+    }
   }
 
   const biasCorrectionFactor = isFinite(calibration && calibration.bias_correction_factor) ? Number(calibration.bias_correction_factor) : 1.0;
@@ -1522,6 +1525,7 @@ function runForecastFYCore_(fy, clientName) {
     opinionsSummaryByMonth,
     sourceByMonth,
     actualClosedByMonth,
+    closedMonthMode,
     modelInfo: { residP10, residP50, residP90, slope: model.slope, intercept: model.intercept },
     baseSeries48: salesData.baseSeries48 || [],
     adjustedBaseSeries48: aggY_adj,
@@ -1631,8 +1635,11 @@ function writeOutputFY_(result) {
   const reliabilityText = buildReliabilityText_(result);
   const productWeightWarning = String((result && result.productWeightWarning) || '').trim();
   const productWeightWarningText = productWeightWarning ? `製品重み警告: ${productWeightWarning}\n` : '';
+  const annualForecastNote = (result.closedMonthMode === 'forecast')
+    ? '本予測は通年（12ヶ月）の見通しです。計画の主数値は「混合」セクションの年度合計 Baseline(P50)。期中の着地（実績差し替え）には用いず、経過月の実績は参考（ActualClosed列）として併記し予測値には混ぜていません。MonteCarlo / Linear / Seasonal の併記は比較・参考で、計画値は混合の年度合計 P50 です。\n'
+    : '';
   sh.getRange(6, 1, 1, 6).merge();
-  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
+  sh.getRange(6, 1).setValue(annualForecastNote + engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
     .setFontSize(10).setWrap(true);
   const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
@@ -1780,10 +1787,12 @@ function writeOutputFY_(result) {
   const annualMixedCalSim = aggregateAnnualSim_(d.totalCalibratedSimByMonth || []);
   const annualMixedRawSim = aggregateAnnualSim_(d.totalRawSimByMonth || []);
   const annualQuantSim = aggregateAnnualSim_((d.quantOpsSimByMonth || []).map((arr, i) => arr.map((v, s) => Number(v || 0) + Number(((d.bgSpotSimByMonth || [])[i] || [])[s] || 0))));
+  const mixedLabelSuffix = (result.closedMonthMode === 'forecast') ? '（本命：この年度合計 P50 を計画値に使用）' : '';
+  const objectiveLabelSuffix = (result.closedMonthMode === 'forecast') ? '（参考：定量土台のみ）' : '';
 
   // ===== セクション1：混合 =====
   row = writeSectionBlock_(sh, row, {
-    label: '過去売上（客観）と担当者情報（主観）を混合させたシミュレーション予測',
+    label: '過去売上（客観）と担当者情報（主観）を混合させたシミュレーション予測' + mixedLabelSuffix,
     labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.mixed,
@@ -1800,7 +1809,7 @@ function writeOutputFY_(result) {
 
   // ===== セクション2：客観のみ =====
   row = writeSectionBlock_(sh, row, {
-    label: '過去売上のみ（客観）によるシミュレーション予測',
+    label: '過去売上のみ（客観）によるシミュレーション予測' + objectiveLabelSuffix,
     labelBg: COLOR_SECTION_SOFT,
     months: result.months,
     series: result.objOnly,
@@ -2579,7 +2588,8 @@ function buildCONFIG_() {
     ['RELIABILITY_MIN_SAMPLES', 2],
     ['RELIABILITY_MIN_CHANGE', 0.05],
     ['POOL_MIN_CLIENTS（横断集約の最低クライアント数）', POOL_MIN_CLIENTS_DEFAULT],
-    ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0]
+    ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0],
+    ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual']
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -3584,6 +3594,12 @@ function readDlmEngineMode_() {
   const v = String(labelMap.DLM_ENGINE_MODE || '').trim().toLowerCase();
   if (v === 'shadow' || v === 'primary') return v;
   return 'off';
+}
+
+function readForecastClosedMonthMode_() {
+  const labelMap = readConfigLabelMap_();
+  const v = String(labelMap.FORECAST_CLOSED_MONTH_MODE || '').trim().toLowerCase();
+  return (v === 'forecast') ? 'forecast' : 'actual';
 }
 
 function readReliabilityApplyEnabled_() {
