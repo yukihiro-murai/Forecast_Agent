@@ -8,6 +8,10 @@
  * - 主観入力は月次cap内でそのまま反映（overlay率ターゲット探索は撤去）
  * - AI / SPOT / biasCorrection / TSV経路は従来どおり維持
  * - v1.9: POOL_PRIOR クライアント横断集約（中央集約book + fan-out / 手動）
+ * - 学習ループ修正: AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY に forecast_source を追加。
+ *   C-1集計は forecast_open の最新run_atのみ採用し、A-9再実行でnが膨張せず、closed月のsurprise=0脱落も防止
+ * - kProd全月1.0は throw せず警告（productWeightWarning / RUN_LOG）に変更（履歴なし製品でもA-9完走）
+ * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
 const VERSION = '2.2.2-dev';
@@ -636,7 +640,7 @@ function writeContiguousRowUpdates_(sh, updates, width) {
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
 // DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
 // DONE(step-3c-3c-1): raw hit/n を RELIABILITY_EVIDENCE に永続化（予測不変 / 集約の前提）。
-// TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
+// DONE(step-3c-3c): POOL_PRIORのクライアント横断自動更新（adminAggregatePoolPriorAcrossBooks で実装済み / 中央集約book→各bookへfan-out）。
 
 /**
  * Step列の表示ゆらぎ対策：
@@ -1637,7 +1641,7 @@ function writeOutputFY_(result) {
   const productWeightWarningText = productWeightWarning ? `製品重み警告: ${productWeightWarning}\n` : '';
   const annualForecastNote = (result.closedMonthMode === 'forecast')
     ? '本予測は通年（12ヶ月）の見通しです。計画の主数値は「混合」セクションの年度合計 Baseline(P50)。期中の着地（実績差し替え）には用いず、経過月の実績は参考（ActualClosed列）として併記し予測値には混ぜていません。MonteCarlo / Linear / Seasonal の併記は比較・参考で、計画値は混合の年度合計 P50 です。\n'
-    : '';
+    : '経過月は実績（ActualClosed列）で表示していますが、年度合計(P10/P50/P90)は12ヶ月すべてを予測として算出した通年予測です（経過実績で固定した着地値ではありません）。\n';
   sh.getRange(6, 1, 1, 6).merge();
   sh.getRange(6, 1).setValue(annualForecastNote + engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
@@ -5226,7 +5230,7 @@ function forecastMonteCarloMixed_(model, opt) {
 
   // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
   // DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
-  // TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
+  // DONE(step-3c-3c): POOL_PRIORのクライアント横断自動更新（adminAggregatePoolPriorAcrossBooks で実装済み / 中央集約book→各bookへfan-out）。
   const calibrated = calibrateSubjectiveContinuousDelta_({
     quantOpsSimByMonth,
     subjectiveContinuousDeltaSimByMonth,
@@ -5414,7 +5418,7 @@ function lmdiDecompose_(kj) {
 
 // DONE(step-3c-3a): 死にコード整理 + version/build-stage同期（挙動不変）。
 // DONE(step-3c-3b): 主観寄与のLMDI厳密加法分解 + 絶対/相対レンジ（CONFIGトグル / 既定OFF）。
-// TODO(step-3c-3c): POOL_PRIORのクライアント横断自動更新（要・複数book間集約方式の確定）。
+// DONE(step-3c-3c): POOL_PRIORのクライアント横断自動更新（adminAggregatePoolPriorAcrossBooks で実装済み / 中央集約book→各bookへfan-out）。
 function calibrateSubjectiveContinuousDelta_(opt) {
   const tuning = opt && opt.tuning ? opt.tuning : {};
   const targetCenter = SUBJECTIVE_OVERLAY_TARGET_CENTER;
@@ -7531,7 +7535,14 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.2.1-dev' / BUILD_STAGE='v8-step3c3c-fix-learnloop' に更新されていること。
+ * 11) VERSION='2.2.2-dev' / BUILD_STAGE='v8-annual-forecast-mode' であること。
+ *
+ * HOW TO TEST (annual-forecast-mode)
+ * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
+ * 2) FORECAST_CLOSED_MONTH_MODE='forecast' に変更しA-9 → closed月も予測のまま表示され、混合セクションに通年予測の注記＋「本命」ラベルが出る。
+ * 3) どちらのモードでも、年度合計(P10/P50/P90)は12ヶ月すべての予測simから算出される（経過実績で固定されない）。
+ * 4) actual モードのOUTPUT row6に「年度合計は通年予測（着地ではない）」旨の注記が表示される。
+ * 5) モード切替の前後で、quantOnly / mixed の予測計算自体は不変（年度合計の算出式を変えていない）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
