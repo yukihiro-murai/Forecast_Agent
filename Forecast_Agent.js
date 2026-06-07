@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.2.2-dev';
-const BUILD_STAGE = 'v8-annual-forecast-mode';
+const VERSION = '2.3.0-dev';
+const BUILD_STAGE = 'v8-vertex-ai-research';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -72,6 +72,7 @@ const SHEETS = {
   ACTUAL_EVAL_MONTHLY: 'ACTUAL_EVAL_MONTHLY',
   AI_RESEARCH_PROMPT: 'AI_RESEARCH_PROMPT',
   AI_RESEARCH_STRUCTURED: 'AI_RESEARCH_STRUCTURED',
+  AI_RESEARCH_TASK_LOG: 'AI_RESEARCH_TASK_LOG',
   RUN_LOG: 'RUN_LOG',
   FORECAST_SNAPSHOT: 'FORECAST_SNAPSHOT',
   EVAL_LOG: 'EVAL_LOG',
@@ -244,7 +245,7 @@ function onOpen() {
     .addItem('A-5 クライアント動向を入力', 'openClientTrendEntryDialog')
     .addItem('A-6 担当者意見を入力', 'openOpinionsEntryDialog')
     .addItem('A-7 開発/スポット要因を入力', 'openDevEntryDialog')
-    .addItem('A-8 AI調査を取り込む', 'generateAIResearchTemplate')
+    .addItem('A-8 AI調査を取り込む', 'runVertexAIResearch')
     .addItem('A-9 予測を実行', 'runPhase1Forecast')
     .addItem('A-10 予測ダッシュボードを更新', 'updatePhase1Dashboard')
     .addSeparator()
@@ -708,6 +709,7 @@ function setupForecastBook() {
     SHEETS.QUARTERLY_REVIEW_LOG,
     SHEETS.AI_RESEARCH_STRUCTURED,
     SHEETS.RUN_LOG,
+    SHEETS.AI_RESEARCH_TASK_LOG,
     SHEETS.FORECAST_SNAPSHOT,
     SHEETS.PROCESS_STATUS,
     SHEETS.AI_SCORE_HISTORY,
@@ -2370,7 +2372,7 @@ function buildGUIDE_() {
     ['A-予測', 'A-5 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
     ['A-予測', 'A-6 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-7 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-8 AI調査を取り込む', '生成されたプロンプトをGemへ貼り付け、返却結果を AI_RESEARCH_PROMPT!D2 に全文貼り付け。'],
+    ['A-予測', 'A-8 AI調査を取り込む', 'Vertex AIが自動で市場/競合/チャネル/DXを調査し、結果をシートに記録します（AI_RESEARCH_ENABLED=0の場合は従来の手動貼付モード）。'],
     ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新（実行前に注意ロジックで1件ずつ確認）。'],
     ['A-予測', 'A-10 予測ダッシュボードを更新', 'DASHBOARD を更新。']
   ];
@@ -2416,7 +2418,7 @@ function buildGUIDE_() {
 
   const last = 21 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
-  sh.getRange(last + 3, 1, 10, 1).setValues([
+  sh.getRange(last + 3, 1, 11, 1).setValues([
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
     ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見、月次cap内でそのまま反映）、AI調査、DEV_SPOT。'],
     ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示します。'],
@@ -2424,7 +2426,8 @@ function buildGUIDE_() {
     ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
     ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
-    ['・A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
+    ['・A-8はAI_RESEARCH_ENABLED=1でVertex AI自動調査を実行し、Web検索と購入レポートRAGの結果をAI_RESEARCH_STRUCTUREDへ記録します。'],
+    ['・AI_RESEARCH_ENABLED=0の手動フォールバック時は、A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
     ['・検証(B-1〜B-3)は四半期で正式レビューし、月次は軽量監視（逸脱時のみ追加調査）を推奨します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
   ]);
@@ -2593,7 +2596,13 @@ function buildCONFIG_() {
     ['RELIABILITY_MIN_CHANGE', 0.05],
     ['POOL_MIN_CLIENTS（横断集約の最低クライアント数）', POOL_MIN_CLIENTS_DEFAULT],
     ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0],
-    ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual']
+    ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual'],
+    ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', ''],
+    ['VERTEX_LOCATION（リージョン。例: us-central1 または global）', ''],
+    ['VERTEX_GEMINI_MODEL（grounding生成に使うモデル。例: gemini-2.0-flash または gemini-1.5-pro）', ''],
+    ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。RAG参照先）', ''],
+    ['VERTEX_SEARCH_LOCATION（データストアのロケーション。例: global）', ''],
+    ['AI_RESEARCH_ENABLED（0/1。1でVertex呼び出しを実行、0で従来の手動貼付parseにフォールバック）', 0]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -3490,6 +3499,20 @@ function readConfigLabelMap_() {
     // CONFIG読取失敗時は空mapとして扱い、呼び出し側で既定値へフォールバックする
   }
   return map;
+}
+
+function readVertexConfig_() {
+  const labelMap = readConfigLabelMap_();
+  const cfg = {
+    projectId: String(labelMap.VERTEX_PROJECT_ID || '').trim(),
+    location: String(labelMap.VERTEX_LOCATION || '').trim(),
+    geminiModel: String(labelMap.VERTEX_GEMINI_MODEL || '').trim(),
+    datastoreId: String(labelMap.VERTEX_DATASTORE_ID || '').trim(),
+    searchLocation: String(labelMap.VERTEX_SEARCH_LOCATION || '').trim(),
+    enabled: Number(labelMap.AI_RESEARCH_ENABLED || 0) > 0
+  };
+  cfg.complete = !!(cfg.projectId && cfg.location && cfg.geminiModel && cfg.datastoreId && cfg.searchLocation);
+  return cfg;
 }
 
 function readModelTuningFromConfig_() {
@@ -5985,6 +6008,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
   ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT).getRange('D:D').setNumberFormat('@');
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
+  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
@@ -6430,6 +6454,679 @@ function generateAIResearchTemplate() {
   showPromptPreviewDialog_(rows);
 }
 
+function runVertexAIResearch() {
+  const started = new Date();
+  let targetClient = '';
+  try {
+    ensureSetupDone_();
+    requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfgSh = ss.getSheetByName(SHEETS.CONFIG);
+    targetClient = normalizeClientName_(String(cfgSh.getRange('B2').getValue() || '').trim());
+    if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+
+    const vertex = readVertexConfig_();
+    if (!vertex.enabled || !vertex.complete) {
+      generateAIResearchTemplate();
+      const reason = vertex.enabled ? 'Vertex設定が未完了' : 'AI_RESEARCH_ENABLED=0';
+      SpreadsheetApp.getActiveSpreadsheet().toast(`${reason} のため手動貼付モードで実行しました。`, MENU_NAME, 8);
+      return;
+    }
+
+    ensureAIResearchRuntimeSheets_(ss);
+    const runId = Utilities.getUuid();
+    const runAt = new Date();
+    const asOf = Utilities.formatDate(runAt, TZ, 'yyyy-MM-dd');
+    const outRows = [];
+    const reportParts = [];
+    const neutralTopics = [];
+    const stats = {
+      webError: 0,
+      ragError: 0,
+      structureError: 0,
+      lowConfidence: 0
+    };
+
+    AI_TOPICS.forEach(topic => {
+      const webPrompt = buildWebResearchPrompt_(targetClient, topic);
+      const webStarted = new Date();
+      const web = callVertexGeminiGrounded_(webPrompt, { config: vertex });
+      const webDuration = durationSec_(webStarted);
+      const webCitations = extractGeminiGroundingCitations_(web.raw);
+      const webLow = (!web.ok || !web.text || webCitations.length === 0);
+      if (!web.ok) stats.webError++;
+      if (webLow) stats.lowConfidence++;
+      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_WEB, {
+        client: targetClient,
+        asOf,
+        axis: 'web',
+        topic,
+        evidence: citationSummary_(webCitations),
+        note: {
+          run_id: runId,
+          prompt: webPrompt,
+          ok: web.ok,
+          finish_reason: web.finishReason || '',
+          duration_sec: webDuration,
+          usage: web.usage || {},
+          text: web.text || '',
+          citations: webCitations,
+          error: web.error || ''
+        }
+      });
+      appendAIResearchTaskLog_(ss, {
+        runId,
+        runAt,
+        client: targetClient,
+        topic,
+        aspect: 'web',
+        model: vertex.geminiModel,
+        endpoint: web.endpoint || '',
+        status: web.ok ? 'success' : 'error',
+        durationSec: webDuration,
+        usage: web.usage || {},
+        lowConfidence: webLow,
+        citations: webCitations,
+        error: web.error || '',
+        note: { tool: web.tool || 'googleSearch', finish_reason: web.finishReason || '' }
+      });
+
+      const ragQuery = buildRagQuery_(targetClient, topic);
+      const ragStarted = new Date();
+      const rag = callVertexSearchRAG_(ragQuery, { config: vertex });
+      const ragDuration = durationSec_(ragStarted);
+      const ragLow = (!rag.ok || !rag.summary || !rag.citations || rag.citations.length === 0);
+      if (!rag.ok) stats.ragError++;
+      if (ragLow) stats.lowConfidence++;
+      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_EXTERNAL, {
+        client: targetClient,
+        asOf,
+        axis: 'rag',
+        topic,
+        evidence: citationSummary_(rag.citations || []),
+        note: {
+          run_id: runId,
+          query: ragQuery,
+          ok: rag.ok,
+          duration_sec: ragDuration,
+          summary: rag.summary || '',
+          citations: rag.citations || [],
+          documents: rag.documents || [],
+          error: rag.error || ''
+        }
+      });
+      appendAIResearchTaskLog_(ss, {
+        runId,
+        runAt,
+        client: targetClient,
+        topic,
+        aspect: 'rag',
+        model: 'Vertex AI Search',
+        endpoint: rag.endpoint || '',
+        status: rag.ok ? 'success' : 'error',
+        durationSec: ragDuration,
+        usage: {},
+        lowConfidence: ragLow,
+        citations: rag.citations || [],
+        error: rag.error || '',
+        note: { query: ragQuery, documents: (rag.documents || []).length }
+      });
+
+      const structureStarted = new Date();
+      let structured = { ok: false, error: 'web and rag failed; structure skipped', endpoint: 'skipped', usage: {} };
+      let topicRows = [];
+      if (web.ok || rag.ok) {
+        structured = callVertexGeminiStructured_(
+          buildVertexStructureSystemInstruction_(),
+          buildVertexStructureUserContent_(targetClient, topic, web, rag),
+          { config: vertex }
+        );
+        if (structured.ok) {
+          topicRows = buildVertexStructuredRows_(targetClient, asOf, topic, structured.json);
+        }
+      }
+      const structureDuration = durationSec_(structureStarted);
+      const structureLow = (!structured.ok || topicRows.length === 0);
+      if (!structured.ok || topicRows.length === 0) {
+        stats.structureError++;
+        neutralTopics.push(topic);
+      }
+      if (structureLow) stats.lowConfidence++;
+      appendAIResearchTaskLog_(ss, {
+        runId,
+        runAt,
+        client: targetClient,
+        topic,
+        aspect: 'structure',
+        model: vertex.geminiModel,
+        endpoint: structured.endpoint || '',
+        status: (structured.ok && topicRows.length) ? 'success' : 'error',
+        durationSec: structureDuration,
+        usage: structured.usage || {},
+        lowConfidence: structureLow,
+        citations: { web: webCitations, rag: rag.citations || [] },
+        error: structured.error || '',
+        note: buildVertexBlendLogNote_(topicRows)
+      });
+      if (topicRows.length) {
+        outRows.push.apply(outRows, topicRows);
+        const report = sanitizeAiReportText_((structured.json && structured.json.report_text) || '');
+        if (report) reportParts.push(`【${topic}】\n${report}`);
+      }
+    });
+
+    if (!outRows.length) {
+      const msg = `Vertex調査に失敗しました。既存のAI_RESEARCH_STRUCTUREDは保持しています。AI_RESEARCH_ENABLED=0 に切り替えると手動モードも利用できます。`;
+      updateProcessStatus_('step3a_status', 'error', targetClient, 0, msg);
+      safeLogRun_('runVertexAIResearch', targetClient, 'error', 0, started, msg);
+      SpreadsheetApp.getUi().alert('Vertex調査エラー', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+      return;
+    }
+
+    const reportText = sanitizeAiReportText_(reportParts.join('\n\n'));
+    outRows.forEach((r, i) => { r[18] = (i === 0 ? reportText : ''); });
+    const out = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+    out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
+    out.getRange(2, 1, outRows.length, 22).setValues(outRows);
+
+    const warnText = buildVertexWarningSummary_(stats, neutralTopics, outRows.length);
+    updateProcessStatus_('step3_status', 'success', targetClient, outRows.length, 'Vertex AI research');
+    updateProcessStatus_('step3a_status', 'success', targetClient, outRows.length, warnText);
+    safeLogRun_('runVertexAIResearch', targetClient, 'success', outRows.length, started, warnText);
+    ss.setActiveSheet(out);
+    SpreadsheetApp.getUi().alert('完了', 'Vertex AI調査を更新しました。次は A-9 予測を実行 へ進めます。', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    try {
+      updateProcessStatus_('step3_status', 'error', targetClient, 0, msg);
+      safeLogRun_('runVertexAIResearch', targetClient, 'error', 0, started, msg);
+    } catch (logErr) {
+      // エラー通知を優先する
+    }
+    SpreadsheetApp.getUi().alert('AI調査エラー', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+function ensureAIResearchRuntimeSheets_(ss) {
+  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
+  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
+  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_WEB, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
+  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_EXTERNAL, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
+}
+
+function ensureSheetReady_(ss, name, headers) {
+  const sh = getOrCreateSheet_(ss, name);
+  ensureSheetHasColumns_(sh, headers.length);
+  if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    return sh;
+  }
+  ensureSheetHeaders_(sh, headers);
+  return sh;
+}
+
+function vertexHost_(location) {
+  const loc = String(location || '').trim();
+  if (loc === 'global') return 'https://aiplatform.googleapis.com';
+  return `https://${encodeURIComponent(loc)}-aiplatform.googleapis.com`;
+}
+
+function vertexPostJson_(endpoint, payload) {
+  try {
+    const res = UrlFetchApp.fetch(endpoint, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` },
+      payload: JSON.stringify(payload || {}),
+      muteHttpExceptions: true
+    });
+    const code = res.getResponseCode();
+    const text = res.getContentText() || '';
+    let json = {};
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch (parseErr) {
+      json = { rawText: text };
+    }
+    return {
+      ok: code >= 200 && code < 300,
+      code,
+      text,
+      json,
+      error: code >= 200 && code < 300 ? '' : extractApiErrorMessage_(json, text)
+    };
+  } catch (e) {
+    return { ok: false, code: 0, text: '', json: {}, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+function callVertexGeminiGrounded_(prompt, opt) {
+  const cfg = (opt && opt.config) || readVertexConfig_();
+  const endpoint = `${vertexHost_(cfg.location)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.location)}/publishers/google/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
+  const runWithTool = toolKey => {
+    const tool = {};
+    tool[toolKey] = {};
+    const payload = {
+      contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
+      tools: [tool],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+    };
+    const res = vertexPostJson_(endpoint, payload);
+    if (!res.ok) {
+      return { ok: false, endpoint, tool: toolKey, text: '', usage: {}, finishReason: '', raw: res.json, error: res.error, code: res.code };
+    }
+    return {
+      ok: true,
+      endpoint,
+      tool: toolKey,
+      text: extractGeminiText_(res.json),
+      usage: extractGeminiUsage_(res.json),
+      finishReason: extractGeminiFinishReason_(res.json),
+      raw: res.json,
+      error: '',
+      code: res.code
+    };
+  };
+  const first = runWithTool('googleSearch');
+  if (first.ok || first.code !== 400) return first;
+  const retry = runWithTool('googleSearchRetrieval');
+  return retry.ok ? retry : first;
+}
+
+function callVertexSearchRAG_(query, opt) {
+  const cfg = (opt && opt.config) || readVertexConfig_();
+  const endpoint = `https://discoveryengine.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.searchLocation)}/collections/default_collection/dataStores/${encodeURIComponent(cfg.datastoreId)}/servingConfigs/default_search:search`;
+  const payload = {
+    query: String(query || ''),
+    pageSize: 10,
+    contentSearchSpec: {
+      summarySpec: {
+        summaryResultCount: 5,
+        includeCitations: true
+      }
+    }
+  };
+  const res = vertexPostJson_(endpoint, payload);
+  if (!res.ok) {
+    return { ok: false, endpoint, summary: '', citations: [], documents: [], raw: res.json, error: res.error };
+  }
+  return {
+    ok: true,
+    endpoint,
+    summary: extractVertexSearchSummary_(res.json),
+    citations: extractVertexSearchCitations_(res.json),
+    documents: extractVertexSearchDocuments_(res.json),
+    raw: res.json,
+    error: ''
+  };
+}
+
+function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
+  const cfg = (opt && opt.config) || readVertexConfig_();
+  const endpoint = `${vertexHost_(cfg.location)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.location)}/publishers/google/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
+  const payload = {
+    systemInstruction: { parts: [{ text: String(systemInstruction || '') }] },
+    contents: [{ role: 'user', parts: [{ text: String(userContent || '') }] }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json'
+    }
+  };
+  const res = vertexPostJson_(endpoint, payload);
+  if (!res.ok) {
+    return { ok: false, endpoint, json: null, usage: {}, raw: res.json, error: res.error };
+  }
+  const txt = extractGeminiText_(res.json);
+  try {
+    return {
+      ok: true,
+      endpoint,
+      json: parseJsonObjectFromText_(txt),
+      usage: extractGeminiUsage_(res.json),
+      raw: res.json,
+      error: ''
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      endpoint,
+      json: null,
+      usage: extractGeminiUsage_(res.json),
+      raw: res.json,
+      error: `JSON parse failed: ${String(e && e.message ? e.message : e)}`
+    };
+  }
+}
+
+function buildWebResearchPrompt_(client, topic) {
+  return [
+    `Client_Name: ${client}`,
+    `Topic: ${topic}`,
+    `As_of_Date: ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd')}`,
+    '',
+    '市場/競合/チャネル/DXの最新Web情報を調査してください。',
+    'BIGM2Yの売上予測に影響する事実だけを抽出し、上振れ/下振れ/中立、影響の強さ、根拠URLが分かるように日本語で要約してください。',
+    '推測で数値を埋めず、根拠が弱い場合は低信頼と明記してください。'
+  ].join('\n');
+}
+
+function buildRagQuery_(client, topic) {
+  return `${client} ${topic} 富士経済 ミクス 市場規模 競合 ベンチマーク 相対位置 BIGM2Y 売上予測 根拠`;
+}
+
+function buildVertexStructureSystemInstruction_() {
+  return [
+    'あなたは売上予測に使うAI調査結果を構造化するアナリストです。',
+    'Web検索結果はevent行、購入レポート/RAG結果はbenchmark行に分けてください。',
+    '推測で根拠を補完しないでください。根拠が弱い場合はconfidenceやrelative_confidenceを低くしてください。',
+    'JSONのみを返してください。'
+  ].join('\n');
+}
+
+function buildVertexStructureUserContent_(client, topic, web, rag) {
+  return [
+    `client: ${client}`,
+    `topic: ${topic}`,
+    '',
+    '次のJSON schemaで返してください。',
+    '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":50,"relative_confidence":0,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"top|upper|middle|lower|bottom","relative_reason":"","evidence":""},"report_text":""}',
+    '',
+    'Web検索結果:',
+    shortText_((web && web.text) || '', 12000),
+    '',
+    'Web citations:',
+    jsonForCell_(extractGeminiGroundingCitations_((web && web.raw) || {}), 8000),
+    '',
+    '購入レポート/RAG summary:',
+    shortText_((rag && rag.summary) || '', 12000),
+    '',
+    'RAG citations/documents:',
+    jsonForCell_({ citations: (rag && rag.citations) || [], documents: (rag && rag.documents) || [] }, 12000)
+  ].join('\n');
+}
+
+function buildVertexStructuredRows_(client, asOf, topic, obj) {
+  const src = obj || {};
+  const topicNorm = normalizeAiTopic_(src.topic || topic) || topic;
+  const web = src.web || src.event || {};
+  const report = src.report || src.benchmark || {};
+  const rows = [];
+
+  const direction = normalizeAiDirection_(web.direction || '');
+  const impact = clampFinite_(parseAiNumericScore_(web.impact_score, 'impact_score'), 0, 100);
+  const confidence = clampFinite_(parseAiConfidence_(web.confidence), 0, 1);
+  const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
+  const eventScoreRaw = (isFinite(impact) && isFinite(confidence)) ? sign * Math.abs(impact - 50) * confidence : NaN;
+  const eventScore = isFinite(eventScoreRaw) ? clamp_(eventScoreRaw, -50, 50) : '';
+  if (direction || isFinite(impact) || isFinite(confidence) || web.evidence) {
+    rows.push([
+      client,
+      asOf,
+      topicNorm,
+      'event',
+      direction,
+      isFinite(impact) ? impact : '',
+      isFinite(confidence) ? confidence : '',
+      normalizeAiCellValue_(web.evidence || ''),
+      normalizeAiCellValue_(web.time_horizon || ''),
+      normalizeAiCellValue_(web.business_relevance_reason || ''),
+      normalizeAiCellValue_(web.market_size_ref || ''),
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      eventScore,
+      '',
+      ''
+    ]);
+  }
+
+  let relPct = clampFinite_(parseAiPercentile_(report.relative_percentile), 0, 100);
+  if (!isFinite(relPct)) relPct = clampFinite_(inferPercentileFromLabel_(report.relative_position_label), 0, 100);
+  const relConf = clampFinite_(parseAiConfidence_(report.relative_confidence), 0, 1);
+  const quality = coerceBenchmarkQuality_(report.benchmark_quality || '').value;
+  const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : 0.5);
+  const benchmarkScoreRaw = (isFinite(relPct) && isFinite(relConf)) ? (relPct - 50) * relConf * qMul : NaN;
+  const benchmarkScore = isFinite(benchmarkScoreRaw) ? clamp_(benchmarkScoreRaw, -50, 50) : '';
+  if (isFinite(relPct) || isFinite(relConf) || report.peer_universe || report.peer_basis || report.evidence) {
+    rows.push([
+      client,
+      asOf,
+      topicNorm,
+      'benchmark',
+      '',
+      '',
+      '',
+      normalizeAiCellValue_(report.evidence || ''),
+      '',
+      '',
+      normalizeAiCellValue_(report.market_size_ref || ''),
+      normalizeAiCellValue_(report.peer_universe || ''),
+      normalizeAiCellValue_(report.peer_basis || ''),
+      normalizeAiCellValue_(report.relative_position_label || ''),
+      isFinite(relPct) ? relPct : '',
+      isFinite(relConf) ? relConf : '',
+      quality,
+      normalizeAiCellValue_(report.relative_reason || ''),
+      '',
+      '',
+      benchmarkScore,
+      ''
+    ]);
+  }
+  return rows;
+}
+
+function appendAIResearchRawRow_(ss, sheetName, opt) {
+  if (!ss.getSheetByName(sheetName)) ensureAIResearchRuntimeSheets_(ss);
+  const target = ss.getSheetByName(sheetName);
+  if (!target) return;
+  target.appendRow([
+    opt.client || '',
+    opt.asOf || '',
+    opt.axis || '',
+    opt.topic || '',
+    '',
+    '',
+    '',
+    '',
+    opt.evidence || '',
+    0,
+    '',
+    jsonForCell_(opt.note || {}, 45000)
+  ]);
+}
+
+function appendAIResearchTaskLog_(ss, opt) {
+  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_TASK_LOG) || ensureSheetReady_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
+  const usage = opt.usage || {};
+  sh.appendRow([
+    opt.runId || '',
+    opt.runAt || new Date(),
+    Session.getActiveUser().getEmail() || 'unknown',
+    opt.client || '',
+    opt.topic || '',
+    opt.aspect || '',
+    opt.model || '',
+    opt.endpoint || '',
+    opt.status || '',
+    opt.durationSec || 0,
+    Number(usage.promptTokens || 0),
+    Number(usage.candidatesTokens || 0),
+    Number(usage.totalTokens || 0),
+    opt.lowConfidence ? 1 : 0,
+    jsonForCell_(opt.citations || [], 20000),
+    shortText_(opt.error || '', 500),
+    jsonForCell_(opt.note || {}, 20000)
+  ]);
+}
+
+function extractGeminiText_(json) {
+  const cands = (json && json.candidates) || [];
+  if (!cands.length) return '';
+  const parts = (((cands[0] || {}).content || {}).parts) || [];
+  return parts.map(p => String((p && p.text) || '')).filter(Boolean).join('\n').trim();
+}
+
+function extractGeminiUsage_(json) {
+  const u = (json && json.usageMetadata) || {};
+  return {
+    promptTokens: Number(u.promptTokenCount || 0),
+    candidatesTokens: Number(u.candidatesTokenCount || 0),
+    totalTokens: Number(u.totalTokenCount || 0)
+  };
+}
+
+function extractGeminiFinishReason_(json) {
+  const cands = (json && json.candidates) || [];
+  return cands.length ? String(cands[0].finishReason || '') : '';
+}
+
+function extractGeminiGroundingCitations_(json) {
+  const cands = (json && json.candidates) || [];
+  const gm = cands.length ? (cands[0].groundingMetadata || {}) : {};
+  const chunks = gm.groundingChunks || [];
+  const out = [];
+  chunks.forEach(ch => {
+    const web = ch && ch.web ? ch.web : {};
+    const uri = String(web.uri || '').trim();
+    const title = String(web.title || '').trim();
+    if (uri || title) out.push({ title, uri });
+  });
+  return dedupeCitations_(out);
+}
+
+function extractVertexSearchSummary_(json) {
+  const summary = (json && json.summary) || {};
+  return String(summary.summaryText || summary.summary || '').trim();
+}
+
+function extractVertexSearchCitations_(json) {
+  const out = [];
+  const summary = (json && json.summary) || {};
+  (summary.citations || []).forEach(c => {
+    (c.sources || []).forEach(src => {
+      out.push({
+        title: String(src.title || src.id || '').trim(),
+        uri: String(src.uri || src.link || '').trim()
+      });
+    });
+  });
+  ((json && json.results) || []).forEach(r => {
+    const doc = (r && r.document) || {};
+    const ds = doc.derivedStructData || doc.structData || {};
+    out.push({
+      title: String(ds.title || doc.name || doc.id || '').trim(),
+      uri: String(ds.link || ds.uri || '').trim()
+    });
+  });
+  return dedupeCitations_(out);
+}
+
+function extractVertexSearchDocuments_(json) {
+  return ((json && json.results) || []).slice(0, 10).map(r => {
+    const doc = (r && r.document) || {};
+    const ds = doc.derivedStructData || doc.structData || {};
+    return {
+      id: String(doc.id || doc.name || '').trim(),
+      title: String(ds.title || '').trim(),
+      uri: String(ds.link || ds.uri || '').trim(),
+      snippet: shortText_(String(ds.snippets || ds.extractive_answers || ds.extractiveAnswers || ''), 1000)
+    };
+  });
+}
+
+function dedupeCitations_(citations) {
+  const seen = {};
+  const out = [];
+  (citations || []).forEach(c => {
+    const title = String(c.title || '').trim();
+    const uri = String(c.uri || '').trim();
+    if (!title && !uri) return;
+    const key = `${uri}|${title}`;
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push({ title, uri });
+  });
+  return out.slice(0, 20);
+}
+
+function citationSummary_(citations) {
+  return (citations || []).slice(0, 5).map(c => c.uri || c.title || '').filter(Boolean).join('\n');
+}
+
+function parseJsonObjectFromText_(txt) {
+  let s = String(txt || '').trim();
+  s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  return JSON.parse(s);
+}
+
+function extractApiErrorMessage_(json, fallback) {
+  if (json && json.error) {
+    if (typeof json.error === 'string') return json.error;
+    if (json.error.message) return String(json.error.message);
+  }
+  return shortText_(fallback || '', 1000);
+}
+
+function jsonForCell_(obj, maxLen) {
+  const limit = Math.max(100, Number(maxLen) || 45000);
+  let s = '';
+  try {
+    s = JSON.stringify(obj === undefined ? null : obj);
+  } catch (e) {
+    s = JSON.stringify({ error: 'json_stringify_failed', message: String(e && e.message ? e.message : e) });
+  }
+  if (s.length <= limit) return s;
+  return JSON.stringify({ truncated: true, preview: s.slice(0, Math.max(0, limit - 120)) });
+}
+
+function clampFinite_(v, lo, hi) {
+  const n = Number(v);
+  return isFinite(n) ? clamp_(n, lo, hi) : NaN;
+}
+
+function durationSec_(startedAt) {
+  return Math.round(((new Date()) - startedAt) / 100) / 10;
+}
+
+function buildVertexBlendLogNote_(rows) {
+  const out = { rows: (rows || []).length, event_score: '', benchmark_score: '' };
+  (rows || []).forEach(r => {
+    if (r[3] === 'event') out.event_score = r[19];
+    if (r[3] === 'benchmark') out.benchmark_score = r[20];
+  });
+  out.blend = 'event row uses Web result; benchmark row uses Vertex AI Search/RAG result';
+  return out;
+}
+
+function buildVertexWarningSummary_(stats, neutralTopics, rowCount) {
+  return [
+    `vertex_rows=${Number(rowCount || 0)}`,
+    `web_error=${Number((stats || {}).webError || 0)}`,
+    `rag_error=${Number((stats || {}).ragError || 0)}`,
+    `structure_error=${Number((stats || {}).structureError || 0)}`,
+    `low_confidence=${Number((stats || {}).lowConfidence || 0)}`,
+    `neutral_topics=[${(neutralTopics || []).join(',')}]`
+  ].join('; ');
+}
+
+function countAIResearchStructuredRows_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
+  if (!sh) return 0;
+  return Math.max(0, sh.getLastRow() - 1);
+}
+
 function parseAIResearchPaste_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_PROMPT);
   const out = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
@@ -6658,7 +7355,10 @@ function runPhase1Forecast() {
   try {
     requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const started = new Date();
-    const parsed = parseAIResearchPaste_();
+    const vertex = readVertexConfig_();
+    const parsed = (vertex.enabled && vertex.complete)
+      ? { rows: countAIResearchStructuredRows_(), warning: 'vertex_mode_manual_parse_skipped' }
+      : parseAIResearchPaste_();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
     const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -7339,7 +8039,7 @@ function applyTabColors_() {
   const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
   const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
-  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.RELIABILITY_EVIDENCE, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
+  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.RELIABILITY_EVIDENCE, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_TASK_LOG, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
 
   manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
   auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
