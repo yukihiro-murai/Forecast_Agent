@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / step 3c-3c
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.1-dev / BUILD_STAGE v8-multiclient-template）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -8331,7 +8331,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.2.2-dev' / BUILD_STAGE='v8-annual-forecast-mode' であること。
+ * 11) VERSION='2.3.1-dev' / BUILD_STAGE='v8-multiclient-template' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
