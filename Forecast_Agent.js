@@ -10,8 +10,8 @@
  * - v1.9: POOL_PRIOR クライアント横断集約（中央集約book + fan-out / 手動）
  ***************************************/
 
-const VERSION = '2.2.0-dev';
-const BUILD_STAGE = 'v8-step3c3c';
+const VERSION = '2.2.1-dev';
+const BUILD_STAGE = 'v8-step3c3c-fix-learnloop';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1488,8 +1488,18 @@ function runForecastFYCore_(fy, clientName) {
     }
   }
 
+  let productWeightWarning = '';
   if (factorsProduct.length > 0 && mixed.diagnostics && mixed.diagnostics.kProdByMonth && mixed.diagnostics.kProdByMonth.every(k => Math.abs(Number(k || 1) - 1) < 1e-9)) {
-    throw new Error('FACTORS_PRODUCT に有効行がありますが、kProd が全月1.0です。製品名キーの整合を確認してください。');
+    const zeroWeightProducts = Array.from(new Set(
+      factorsProduct
+        .map(f => String((f && f.product) || '').trim())
+        .filter(Boolean)
+        .filter(p => !productWeights || !productWeights.has(p) || Math.abs(Number(productWeights.get(p) || 0)) < 1e-12)
+    )).sort();
+    const shown = zeroWeightProducts.slice(0, 10).join(',');
+    const more = zeroWeightProducts.length > 10 ? `,ほか${zeroWeightProducts.length - 10}件` : '';
+    const productsText = shown ? `weight=0 product=${shown}${more}` : 'weight=0 product未特定';
+    productWeightWarning = `FACTORS_PRODUCT に有効行がありますが、kProd が全月1.0です。製品名キー/構成比を確認してください（${productsText}）。`;
   }
 
   return {
@@ -1530,6 +1540,7 @@ function runForecastFYCore_(fy, clientName) {
     reliabilityApply,
     nonDefaultReliabilityCount,
     spotCapBasis,
+    productWeightWarning,
     reliabilityInputs: {
       factorsProduct,
       factorsClient,
@@ -1618,9 +1629,11 @@ function writeOutputFY_(result) {
   const engineText = buildEngineModeText_(result);
   const subjectiveCapText = '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。';
   const reliabilityText = buildReliabilityText_(result);
+  const productWeightWarning = String((result && result.productWeightWarning) || '').trim();
+  const productWeightWarningText = productWeightWarning ? `製品重み警告: ${productWeightWarning}\n` : '';
   sh.getRange(6, 1, 1, 6).merge();
-  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
-    .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
+  sh.getRange(6, 1).setValue(engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
+    .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
     .setFontSize(10).setWrap(true);
   const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
   const coerceCount = coerceMatch ? Number(coerceMatch[1]) : 0;
@@ -5959,8 +5972,8 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
   buildSimpleSheet_(ss, SHEETS.PROCESS_STATUS, ['step_key','last_run_date','last_run_by','status','target_client','record_count','error_summary']);
   buildSimpleSheet_(ss, SHEETS.AI_SCORE_HISTORY, ['run_id','run_at','client','topic','blended_score','quality_score','degraded_mode','neutralized','coverage_event_rows','coverage_benchmark_rows','latest_as_of_date']);
-  buildSimpleSheet_(ss, SHEETS.AI_IMPACT_HISTORY, ['run_id','run_at','client','target_month','k_ai','ai_total_score','ai_direction','pred_p50','pred_p50_quant_only','ai_neutralized','disabled_topics_count']);
-  buildSimpleSheet_(ss, SHEETS.SUBJECTIVE_IMPACT_HISTORY, ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at']);
+  buildSimpleSheet_(ss, SHEETS.AI_IMPACT_HISTORY, ['run_id','run_at','client','target_month','k_ai','ai_total_score','ai_direction','pred_p50','pred_p50_quant_only','ai_neutralized','disabled_topics_count','forecast_source']);
+  buildSimpleSheet_(ss, SHEETS.SUBJECTIVE_IMPACT_HISTORY, ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at','forecast_source']);
   buildSimpleSheet_(ss, SHEETS.CALIBRATION_STATE, ['client','updated_at','updated_by','ai_weight_override','ai_max_abs_effect_override','ai_topic_disable_json','bias_correction_factor','qual_scale_override','residual_month_bias_json','last_applied_quarter','last_applied_review_id','auto_update_enabled','note']);
   buildSimpleSheet_(ss, SHEETS.CALIBRATION_HISTORY, ['change_id','changed_at','changed_by','client','quarter_label','review_id','factor_name','old_value','new_value','rollback_hint']);
   buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW, ['section','key','value']);
@@ -6646,7 +6659,8 @@ function runPhase1Forecast() {
     writeSubjectiveImpactHistory_(result, result.runId);
     ss.setActiveSheet(ss.getSheetByName(SHEETS.OUTPUT));
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
-    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}`);
+    const prodWarn = result.productWeightWarning ? `;prodw=${result.productWeightWarning}` : '';
+    logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}${prodWarn}`);
     if (parsed.warning) SpreadsheetApp.getActiveSpreadsheet().toast(parsed.warning, MENU_NAME, 8);
     SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
@@ -7501,7 +7515,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.2.0-dev' / BUILD_STAGE='v8-step3c3c' に更新されていること。
+ * 11) VERSION='2.2.1-dev' / BUILD_STAGE='v8-step3c3c-fix-learnloop' に更新されていること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
@@ -7651,6 +7665,8 @@ function writeAIHistoriesForRun_(result, runId) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const shScore = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
     const shImpact = ss.getSheetByName(SHEETS.AI_IMPACT_HISTORY);
+    const impactHeaders = ['run_id','run_at','client','target_month','k_ai','ai_total_score','ai_direction','pred_p50','pred_p50_quant_only','ai_neutralized','disabled_topics_count','forecast_source'];
+    ensureSheetHeaders_(shImpact, impactHeaders);
     const runAt = result && result.runAt ? result.runAt : new Date();
     const client = String((result && result.clientName) || '');
     const ai = (result && result.aiScores) || {};
@@ -7668,7 +7684,8 @@ function writeAIHistoriesForRun_(result, runId) {
     const impactRows = (result.months || []).map((m, i) => {
       const k = Number(kByMonth[i] || 1);
       const dir = k > 1.01 ? 'up' : (k < 0.99 ? 'down' : 'flat');
-      return [runId, runAt, client, fmtYM_(m), k, aiTotal, dir, Number((result.mixed.p50 || [])[i] || 0), Number(((result.quantOnly || {}).p50 || [])[i] || 0), aiNeutralized, disabledCount];
+      const fs = (result.sourceByMonth && result.sourceByMonth[i]) ? result.sourceByMonth[i] : 'forecast_open';
+      return [runId, runAt, client, fmtYM_(m), k, aiTotal, dir, Number((result.mixed.p50 || [])[i] || 0), Number(((result.quantOnly || {}).p50 || [])[i] || 0), aiNeutralized, disabledCount, fs];
     });
     if (impactRows.length) writeRowsInChunks_(shImpact, shImpact.getLastRow() + 1, 1, impactRows, 500);
   } catch (err) {
@@ -7764,7 +7781,7 @@ function writeSubjectiveImpactHistory_(result, runId) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sh = getOrCreateSheet_(ss, SHEETS.SUBJECTIVE_IMPACT_HISTORY);
-    const headers = ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at'];
+    const headers = ['run_id','run_at','client','target_month','source_type','source_key','push_step','push_direction','applied_reliability_r','source_updated_at','forecast_source'];
     ensureSheetHeaders_(sh, headers);
     const inputs = (result && result.reliabilityInputs) || {};
     const impacts = computeSourcePushByMonth_(
@@ -7779,6 +7796,12 @@ function writeSubjectiveImpactHistory_(result, runId) {
     if (!impacts.length) return;
     const runAt = result && result.runAt ? result.runAt : new Date();
     const client = String((result && result.clientName) || '');
+    const fsByYm = new Map();
+    ((result && result.months) || []).forEach((m, i) => {
+      const ym = fmtYM_(m);
+      const fs = (result.sourceByMonth && result.sourceByMonth[i]) ? result.sourceByMonth[i] : 'forecast_open';
+      fsByYm.set(ym, fs);
+    });
     const rows = impacts.map(x => [
       runId,
       runAt,
@@ -7789,7 +7812,8 @@ function writeSubjectiveImpactHistory_(result, runId) {
       Number(x.push_step || 0),
       Number(x.push_direction || 0),
       Number(x.applied_reliability_r || 1),
-      ''
+      '',
+      fsByYm.has(x.target_month) ? fsByYm.get(x.target_month) : 'forecast_open'
     ]);
     writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
   } catch (err) {
@@ -7934,33 +7958,69 @@ function computeReliabilityHitStats_(data) {
   const impactIdx = data.impactIdx || {};
   const subjectiveIdx = data.subjectiveImpactIdx || {};
   let evalScenarioIdx, evalTargetMonthIdx, evalActualIdx, impactTargetMonthIdx, impactQuantOnlyIdx, subjTargetMonthIdx, subjTypeIdx, subjKeyIdx, subjPushDirectionIdx;
+  let impactRunAtIdx, impactForecastSourceIdx, subjRunAtIdx, subjForecastSourceIdx;
   try {
     evalScenarioIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'scenario');
     evalTargetMonthIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'target_month');
     evalActualIdx = requireHeaderIndex_(evalIdx, SHEETS.EVAL_LOG, 'actual');
     impactTargetMonthIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'target_month');
     impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
+    impactRunAtIdx = impactIdx.run_at;
+    impactForecastSourceIdx = impactIdx.forecast_source;
     subjTargetMonthIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'target_month');
     subjTypeIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_type');
     subjKeyIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'source_key');
     subjPushDirectionIdx = requireHeaderIndex_(subjectiveIdx, SHEETS.SUBJECTIVE_IMPACT_HISTORY, 'push_direction');
+    subjRunAtIdx = subjectiveIdx.run_at;
+    subjForecastSourceIdx = subjectiveIdx.forecast_source;
   } catch (err) {
     return [];
   }
+  const runAtMs = v => {
+    const d = (v instanceof Date) ? v : new Date(v);
+    const t = d.getTime();
+    return isFinite(t) ? t : 0;
+  };
   const evalActualByMonth = new Map();
   (data.evalRows || []).forEach(r => {
     if (String(r[evalScenarioIdx] || '') !== 'neutral') return;
     evalActualByMonth.set(String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0));
   });
   const quantByMonth = new Map();
-  (data.impacts || []).forEach(r => {
+  const latestQuantByMonth = new Map();
+  (data.impacts || []).forEach((r, seq) => {
+    const forecastSource = impactForecastSourceIdx === undefined ? '' : String(r[impactForecastSourceIdx] || '').trim();
+    if (forecastSource !== 'forecast_open') return;
     const ym = String(r[impactTargetMonthIdx] || '');
     if (!ym) return;
-    quantByMonth.set(ym, Number(r[impactQuantOnlyIdx] || 0));
+    const runMs = runAtMs(impactRunAtIdx === undefined ? '' : r[impactRunAtIdx]);
+    const prev = latestQuantByMonth.get(ym);
+    if (!prev || runMs > prev.runAtMs || (runMs === prev.runAtMs && seq > prev.seq)) {
+      latestQuantByMonth.set(ym, { value: Number(r[impactQuantOnlyIdx] || 0), runAtMs: runMs, seq });
+    }
+  });
+  latestQuantByMonth.forEach((x, ym) => {
+    quantByMonth.set(ym, x.value);
   });
 
+  const latestSubjectiveByUnit = new Map();
+  (data.subjectiveImpacts || []).forEach((r, seq) => {
+    const forecastSource = subjForecastSourceIdx === undefined ? '' : String(r[subjForecastSourceIdx] || '').trim();
+    if (forecastSource !== 'forecast_open') return;
+    const ym = String(r[subjTargetMonthIdx] || '');
+    const type = String(r[subjTypeIdx] || '').trim();
+    const key = String(r[subjKeyIdx] || '').trim();
+    if (!ym || !type || !key) return;
+    const unitKey = `${ym}|${type}|${key}`;
+    const runMs = runAtMs(subjRunAtIdx === undefined ? '' : r[subjRunAtIdx]);
+    const prev = latestSubjectiveByUnit.get(unitKey);
+    if (!prev || runMs > prev.runAtMs || (runMs === prev.runAtMs && seq > prev.seq)) {
+      latestSubjectiveByUnit.set(unitKey, { row: r, runAtMs: runMs, seq });
+    }
+  });
   const grouped = new Map();
-  (data.subjectiveImpacts || []).forEach(r => {
+  Array.from(latestSubjectiveByUnit.values()).forEach(x => {
+    const r = x.row;
     const ym = String(r[subjTargetMonthIdx] || '');
     const actual = Number(evalActualByMonth.get(ym));
     const quant = Number(quantByMonth.get(ym));
