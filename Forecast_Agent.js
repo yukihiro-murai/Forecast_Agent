@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.0-dev';
-const BUILD_STAGE = 'v8-vertex-ai-research';
+const VERSION = '2.3.1-dev';
+const BUILD_STAGE = 'v8-multiclient-template';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -287,6 +287,41 @@ function adminSetupGuideOnly() {
   });
 
   ui.alert('完了', 'GUIDEシートを作成し、他のタブシートを削除しました。', ui.ButtonSet.OK);
+}
+
+function adminShowCloneGuide() {
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: sans-serif; padding: 16px; line-height: 1.6; color: #222; }
+    h2 { margin: 0 0 12px 0; font-size: 16px; }
+    ol { margin: 0; padding-left: 22px; }
+    li { margin: 8px 0; }
+    .note { margin-top: 14px; padding: 10px; background: #fff2cc; border: 1px solid #f1c232; border-radius: 4px; font-size: 12px; }
+    button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 4px; background: #666; color: #fff; font-weight: 700; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>テンプレートbook複製ガイド</h2>
+  <ol>
+    <li>Google Driveでこのテンプレートbookを開く。</li>
+    <li>ファイル &gt; コピーを作成 を選択する。</li>
+    <li>コピーされたbookを開き、名前を Forecast_{クライアント名} などに変更する。</li>
+    <li>Forecast Agent &gt; A-1 初期セットアップ を実行する。</li>
+    <li>ダイアログでクライアント・FY・担当者を設定する。</li>
+    <li>以降は A-2 から通常運用する。</li>
+  </ol>
+  <div class="note">コピー操作はDrive上で手動実施してください。コンテナバインドGASはbookコピーと一緒に複製されるため、別途の設定コピーは不要です。</div>
+  <button onclick="google.script.host.close()">閉じる</button>
+</body>
+</html>`;
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(460).setHeight(430),
+    'テンプレート複製ガイド'
+  );
 }
 
 /**
@@ -815,6 +850,7 @@ function showInitialSetupDialog_() {
     body { font-family: sans-serif; padding: 14px; }
     h2 { margin: 0 0 10px 0; font-size: 16px; }
     .hint { color: #666; font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+    .notice { background: #fff2cc; border: 1px solid #f1c232; border-radius: 4px; padding: 10px; color: #333; font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
     .block { margin: 12px 0; }
     label { display: block; font-weight: 700; margin-bottom: 6px; }
     select, input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
@@ -829,6 +865,9 @@ function showInitialSetupDialog_() {
 </head>
 <body>
   <h2>初期設定</h2>
+  <div class="notice">
+    このbookは1クライアント専用です。別クライアントの予測には、このbookをDriveでコピーして新しいbookを作り、コピー先で A-1 初期セットアップ を実行してください。
+  </div>
 
   <div class="block">
     <label>メーカー名を入力してください。</label>
@@ -907,18 +946,21 @@ function skip(){
 </body>
 </html>`;
 
-  ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(420).setHeight(620), '初期設定');
+  ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(420).setHeight(680), '初期設定');
 }
 
 /** 初期設定をCONFIGへ保存 */
 function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const cfg = getOrCreateSheet_(ss, SHEETS.CONFIG);
+  const targetClient = String(clientName || '').trim();
+  const residual = detectResidualClientData_(ss, targetClient);
 
   const fy = Number(fyStr);
+  if (!targetClient) throw new Error('メーカー名を選択してください。');
   if (!fy || !isFinite(fy)) throw new Error('予測年度(FY)が不正です。');
 
-  cfg.getRange('B2').setValue(String(clientName || '').trim());
+  cfg.getRange('B2').setValue(targetClient);
   cfg.getRange('B3').setValue(fy);
   cfg.getRange('B4').setValue(String(peopleCSV || '').trim());
   cfg.getRange('B10').setFormula('=B4');
@@ -926,6 +968,58 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
   // GUIDE更新（更新履歴は保持されます）
   buildGUIDE_();
   ss.setActiveSheet(ss.getSheetByName(SHEETS.GUIDE));
+  if (residual.hasResidual) {
+    ss.toast(`設定を保存しました。前のデータが残っている可能性があります（${residual.summary}）。必要に応じて A-1 初期セットアップ（全上書き）でクリーン化してください。`, MENU_NAME, 12);
+  } else {
+    ss.toast('初期設定を保存しました。次は A-2 売上データを取り込む を実行してください。', MENU_NAME, 6);
+  }
+}
+
+function detectResidualClientData_(ss, targetClient) {
+  const target = normalizeClientName_(String(targetClient || '').trim());
+  const hits = [];
+  const sheetsToCheck = [
+    SHEETS.SALES_INPUT_MONTHLY,
+    SHEETS.SALES,
+    SHEETS.ACTUAL_EVAL_MONTHLY,
+    SHEETS.AI_RESEARCH_STRUCTURED,
+    SHEETS.FORECAST_SNAPSHOT,
+    SHEETS.EVAL_LOG,
+    SHEETS.EVAL_INSIGHTS,
+    SHEETS.FORECAST_REPORT,
+    SHEETS.AI_IMPACT_HISTORY,
+    SHEETS.SUBJECTIVE_IMPACT_HISTORY,
+    SHEETS.LANDING_FORECAST,
+    SHEETS.BACKTEST_REPORT
+  ];
+  sheetsToCheck.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh || sh.getLastRow() < 2) return;
+    const header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(v => String(v || '').trim());
+    const clientIdx = header.indexOf('client');
+    if (clientIdx < 0) return;
+    const nRows = Math.min(sh.getLastRow() - 1, 200);
+    const vals = sh.getRange(2, clientIdx + 1, nRows, 1).getValues();
+    const hasOtherClient = vals.some(r => {
+      const c = normalizeClientName_(String(r[0] || '').trim());
+      return c && target && !isSameClient_(c, target);
+    });
+    if (hasOtherClient) hits.push(name);
+  });
+
+  const output = ss.getSheetByName(SHEETS.OUTPUT);
+  if (output) {
+    const title = String(output.getRange(1, 1).getValue() || '').trim();
+    const m = title.match(/（([^／/]+)[／/]/);
+    const oldClient = m ? normalizeClientName_(m[1]) : '';
+    if (oldClient && target && !isSameClient_(oldClient, target)) hits.push(SHEETS.OUTPUT);
+  }
+
+  return {
+    hasResidual: hits.length > 0,
+    sheets: hits,
+    summary: hits.slice(0, 5).join(', ') + (hits.length > 5 ? ' ほか' : '')
+  };
 }
 
 /**
@@ -2418,8 +2512,9 @@ function buildGUIDE_() {
 
   const last = 21 + links.length;
   sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
-  sh.getRange(last + 3, 1, 11, 1).setValues([
+  const opRows = [
     ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
+    ['・1 client = 1 book です。新しいクライアントの予測を始めるときは、このbookをDriveで「コピーを作成」し、コピー先で A-1 初期セットアップ を実行してください。GASスクリプトはコピーと一緒に複製されるため、別途の設定コピーは不要です。'],
     ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見、月次cap内でそのまま反映）、AI調査、DEV_SPOT。'],
     ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示します。'],
     ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
@@ -2430,9 +2525,10 @@ function buildGUIDE_() {
     ['・AI_RESEARCH_ENABLED=0の手動フォールバック時は、A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
     ['・検証(B-1〜B-3)は四半期で正式レビューし、月次は軽量監視（逸脱時のみ追加調査）を推奨します。'],
     ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
-  ]);
+  ];
+  sh.getRange(last + 3, 1, opRows.length, 1).setValues(opRows);
 
-  const policyStart = last + 15;
+  const policyStart = last + opRows.length + 5;
   sh.getRange(policyStart, 1).setValue('予測運用ポリシー（成功KPI / 制約 / 診断の整理）').setFontWeight('bold').setBackground('#d9ead3');
   sh.getRange(policyStart, 1, 1, 3).merge();
   sh.getRange(policyStart + 1, 1, 1, 3).setValues([['区分', '項目', '運用ルール']]).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -2457,7 +2553,7 @@ function buildGUIDE_() {
   safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
   safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
-  safeSetNote_(sh, last + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
+  safeSetNote_(sh, last + 3 + opRows.findIndex(r => String(r[0] || '').indexOf('検証(B-1') >= 0), 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
   applySectionGapRows_(sh, [19, last + 1, policyStart - 1, flowStart - 1]);
 
   ss.setActiveSheet(sh);
