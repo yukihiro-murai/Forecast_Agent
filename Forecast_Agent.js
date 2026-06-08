@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.1-dev / BUILD_STAGE v8-multiclient-template）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.2-dev / BUILD_STAGE v8-sheet-consolidation）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.1-dev';
-const BUILD_STAGE = 'v8-multiclient-template';
+const VERSION = '2.3.2-dev';
+const BUILD_STAGE = 'v8-sheet-consolidation';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -53,7 +53,7 @@ const OVERFORECAST_RATE_CONSTRAINT = 0.05;
  *
  * [運用時の注意]
  * - 本ツールは「確認→修正→再実行」を前提とする（一発確定しない）
- * - OUTPUTは要点表示、詳細根拠はFORECAST_REPORT/FORECAST_SNAPSHOTで確認
+ * - OUTPUTは要点表示、詳細根拠はFORECAST_SNAPSHOTで確認
  * - AI結果は補助情報。形式・値域チェックに通らない情報は反映しない
  * - 初期セットアップは全タブ再作成（既存タブ削除）なので本番時は必ず注意喚起
  * - 重大な仕様変更を行った場合は、GUIDEとCHANGELOG（運用記録）を同時更新
@@ -78,15 +78,8 @@ const SHEETS = {
   EVAL_LOG: 'EVAL_LOG',
   EVAL_COMPARE_MONTHLY: 'EVAL_COMPARE_MONTHLY',
   EVAL_INSIGHTS: 'EVAL_INSIGHTS',
-  OVERRIDE_LOG: 'OVERRIDE_LOG',
-  WEIGHT_UPDATE_LOG: 'WEIGHT_UPDATE_LOG',
-  SPIKE_LOG: 'SPIKE_LOG',
   PROCESS_STATUS: 'PROCESS_STATUS',
-  CLIENT_PARAMS: 'CLIENT_PARAMS',
-  DETERMINISTIC_FACTORS: 'DETERMINISTIC_FACTORS',
-  FORECAST_REPORT: 'FORECAST_REPORT',
   DASHBOARD: 'DASHBOARD',
-  CHANGELOG: 'CHANGELOG',
   AI_SCORE_HISTORY: 'AI_SCORE_HISTORY',
   AI_IMPACT_HISTORY: 'AI_IMPACT_HISTORY',
   SUBJECTIVE_IMPACT_HISTORY: 'SUBJECTIVE_IMPACT_HISTORY',
@@ -734,7 +727,6 @@ function setupForecastBook() {
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
     SHEETS.OUTPUT,
-    SHEETS.FORECAST_REPORT,
     SHEETS.DASHBOARD,
     SHEETS.ACTUAL_EVAL_MONTHLY,
     SHEETS.EVAL_COMPARE_MONTHLY,
@@ -744,7 +736,6 @@ function setupForecastBook() {
     SHEETS.QUARTERLY_REVIEW_LOG,
     SHEETS.AI_RESEARCH_STRUCTURED,
     SHEETS.RUN_LOG,
-    SHEETS.AI_RESEARCH_TASK_LOG,
     SHEETS.FORECAST_SNAPSHOT,
     SHEETS.PROCESS_STATUS,
     SHEETS.AI_SCORE_HISTORY,
@@ -752,15 +743,8 @@ function setupForecastBook() {
     SHEETS.SUBJECTIVE_IMPACT_HISTORY,
     SHEETS.CALIBRATION_STATE,
     SHEETS.CALIBRATION_HISTORY,
-    SHEETS.DLM_STATE,
     SHEETS.SOURCE_RELIABILITY,
-    SHEETS.RELIABILITY_EVIDENCE,
-    SHEETS.POOL_PRIOR,
-    SHEETS.BUDGET_FROZEN,
-    SHEETS.LANDING_FORECAST,
-    SHEETS.BACKTEST_REPORT,
-    SHEETS.AI_RESEARCH_EXTERNAL,
-    SHEETS.AI_RESEARCH_WEB
+    SHEETS.RELIABILITY_EVIDENCE
   ];
 
   try {
@@ -986,7 +970,6 @@ function detectResidualClientData_(ss, targetClient) {
     SHEETS.FORECAST_SNAPSHOT,
     SHEETS.EVAL_LOG,
     SHEETS.EVAL_INSIGHTS,
-    SHEETS.FORECAST_REPORT,
     SHEETS.AI_IMPACT_HISTORY,
     SHEETS.SUBJECTIVE_IMPACT_HISTORY,
     SHEETS.LANDING_FORECAST,
@@ -2467,7 +2450,7 @@ function buildGUIDE_() {
     ['A-予測', 'A-6 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
     ['A-予測', 'A-7 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-8 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新（実行前に注意ロジックで1件ずつ確認）。'],
+    ['A-予測', 'A-9 予測を実行', 'OUTPUT を更新（実行前に注意ロジックで1件ずつ確認）。'],
     ['A-予測', 'A-10 予測ダッシュボードを更新', 'DASHBOARD を更新。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
@@ -2497,7 +2480,6 @@ function buildGUIDE_() {
     ['ユーザ入力用', SHEETS.OPINIONS, '担当者意見入力'],
     ['ユーザ入力用', SHEETS.DEV_SPOT, '開発/スポット要因入力'],
     ['出力用', SHEETS.OUTPUT, '予測出力'],
-    ['出力用', SHEETS.FORECAST_REPORT, '予測レポート'],
     ['出力用', SHEETS.DASHBOARD, 'ダッシュボード'],
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
@@ -6061,7 +6043,6 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_PROMPT, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
   ss.getSheetByName(SHEETS.AI_RESEARCH_PROMPT).getRange('D:D').setNumberFormat('@');
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
@@ -6075,17 +6056,9 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.CALIBRATION_HISTORY, ['change_id','changed_at','changed_by','client','quarter_label','review_id','factor_name','old_value','new_value','rollback_hint']);
   buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW, ['section','key','value']);
   buildSimpleSheet_(ss, SHEETS.QUARTERLY_REVIEW_LOG, ['review_id','proposal_id','reviewed_at','client','quarter_label','quarter_start_month','quarter_end_month','phase','target_field','current_value','proposed_value','confidence','rationale','impact_estimate','rollback_hint','approval_status','approval_decided_at','approval_decided_by','applied','applied_at','diagnostic_metrics_json']);
-  buildSimpleSheet_(ss, SHEETS.FORECAST_REPORT, ['run_date','client','target_month','scenario','final_pred','base_pred','w1','w2','w3','w4','subjective_adj','ai_adj','deterministic_adj','factors_json']);
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
-  buildSimpleSheet_(ss, SHEETS.DLM_STATE, ['client','fy','updated_at','updated_by','last_observed_month','level_mu','trend_beta','seasonal_json','covariance_json','hyperparams_json','note']);
   buildSimpleSheet_(ss, SHEETS.SOURCE_RELIABILITY, ['client','source_type','source_key','reliability_r','sample_count','last_eval_window','updated_at','updated_by','note']);
   buildSimpleSheet_(ss, SHEETS.RELIABILITY_EVIDENCE, ['client','source_type','source_key','quarter_label','quarter_end_month','n','hit','hit_rate','computed_at','run_id','note']);
-  buildSimpleSheet_(ss, SHEETS.POOL_PRIOR, ['pool_scope','param_key','pooled_value','precision','n_clients','updated_at','updated_by','note']);
-  buildSimpleSheet_(ss, SHEETS.BUDGET_FROZEN, ['client','fy','target_month','budget_p50','frozen_at','frozen_by','source_run_id','note']);
-  buildSimpleSheet_(ss, SHEETS.LANDING_FORECAST, ['client','fy','target_month','as_of_month','landing_p10','landing_p50','landing_p90','updated_at','source_run_id','note']);
-  buildSimpleSheet_(ss, SHEETS.BACKTEST_REPORT, ['client','fy','run_at','run_by','n_points','smape','wape','bias_rate','coverage_rate','hyperparams_json','note']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_EXTERNAL, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_WEB, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
   initializeProcessStatus_();
 }
 
@@ -7476,7 +7449,6 @@ function writeDlmShadowLanding_(ss, client, fy, result) {
 function writeForecastArtifacts_(result, client) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT);
-  const rep = ss.getSheetByName(SHEETS.FORECAST_REPORT);
   const runDate = new Date();
   const sid = Utilities.getUuid();
   const rows=[];
@@ -7493,9 +7465,6 @@ function writeForecastArtifacts_(result, client) {
   });
   const r0 = snap.getLastRow()+1;
   snap.getRange(r0,1,rows.length,rows[0].length).setValues(rows);
-
-  const repRows = rows.map(r=>[runDate,client,r[3],r[4],r[17],r[13],r[9],r[10],r[11],r[12],r[14],r[15],r[16],r[20]]);
-  rep.getRange(rep.getLastRow()+1,1,repRows.length,repRows[0].length).setValues(repRows);
 }
 
 /**
@@ -7759,7 +7728,7 @@ function writeEvaluationSummaryBlocks_(sh, rows) {
 /**
  * 現場閲覧用サマリー更新。
  * - OUTPUTの理解補助（件数・更新時刻・KPI信号）を表示
- * - 詳細分析は FORECAST_REPORT / EVAL_LOG を参照
+ * - 詳細分析は FORECAST_SNAPSHOT / EVAL_LOG を参照
  */
 function updatePhase1Dashboard() {
   requireStepSuccess_('step4_status', '先にA-9 予測実行を実行してください。');
@@ -8089,7 +8058,7 @@ function applyTabColors_() {
 
   const manual = [SHEETS.FACTORS_PRODUCT, SHEETS.FACTORS_CLIENT, SHEETS.OPINIONS, SHEETS.DEV_SPOT];
   const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
-  const output = [SHEETS.OUTPUT, SHEETS.FORECAST_REPORT, SHEETS.DASHBOARD];
+  const output = [SHEETS.OUTPUT, SHEETS.DASHBOARD];
   const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
   const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
   const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.RELIABILITY_EVIDENCE, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_TASK_LOG, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
@@ -8284,7 +8253,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.1-dev' / BUILD_STAGE='v8-multiclient-template' であること。
+ * 11) VERSION='2.3.2-dev' / BUILD_STAGE='v8-sheet-consolidation' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
