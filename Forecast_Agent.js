@@ -46,7 +46,7 @@ const OVERFORECAST_RATE_CONSTRAINT = 0.05;
  *
  * [月次運用ルール（推奨順）]
  * 1) A-2 売上データを取り込み
- * 2) （必要時）A-8 AI調査を取り込む→AI結果貼付
+ * 2) （必要時）A-4 AI調査を取り込む→AI結果貼付
  * 3) A-9 予測実行（単一クライアント）
  * 4) A-10 予測ダッシュボードを更新
  * 5) 実績確定後にB-1検証実績取り込み→B-2予測検証レポート更新
@@ -241,11 +241,11 @@ function onOpen() {
     .addSeparator()
     .addItem('A-2 売上データを取り込む', 'importSalesInputMonthly')
     .addItem('A-3 予測用に売上データを加工', 'aggregateSalesData')
-    .addItem('A-4 製品ごとの動向を入力', 'openProductTrendEntryDialog')
-    .addItem('A-5 クライアント動向を入力', 'openClientTrendEntryDialog')
-    .addItem('A-6 担当者意見を入力', 'openOpinionsEntryDialog')
-    .addItem('A-7 開発/スポット要因を入力', 'openDevEntryDialog')
-    .addItem('A-8 AI調査を取り込む', 'runVertexAIResearch')
+    .addItem('A-4 AI調査を取り込む', 'runVertexAIResearch')
+    .addItem('A-5 製品ごとの動向を入力', 'openProductTrendEntryDialog')
+    .addItem('A-6 クライアント動向を入力', 'openClientTrendEntryDialog')
+    .addItem('A-7 担当者意見を入力', 'openOpinionsEntryDialog')
+    .addItem('A-8 開発/スポット要因を入力', 'openDevEntryDialog')
     .addItem('A-9 予測を実行', 'runPhase1Forecast')
     .addItem('A-10 予測ダッシュボードを更新', 'updatePhase1Dashboard')
     .addSeparator()
@@ -1212,7 +1212,7 @@ function importPastSalesToSalesTab() {
   ui.alert('完了', `SALESに過去4年分（48ヶ月）の売上を反映しました。\nメーカー: ${client}`, ui.ButtonSet.OK);
 }
 
-/** ====== A-4〜A-7：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
+/** ====== A-5〜A-8：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
 function openProductTrendEntryDialog() {
   ensureSetupDone_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1238,7 +1238,7 @@ function openProductTrendEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    'A-4 製品動向を入力',
+    'A-5 製品動向を入力',
     [
       'FACTORS_PRODUCT を入力してください（青色のセルが対象です）。',
       '1) A列：担当者を選択',
@@ -1271,7 +1271,7 @@ function openClientTrendEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    'A-5 クライアント動向を入力',
+    'A-6 クライアント動向を入力',
     [
       'FACTORS_CLIENT を入力してください（青色のセルが対象です）。',
       '1) A列：担当者を選択',
@@ -1303,7 +1303,7 @@ function openOpinionsEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    'A-6 メーカー担当者意見を入力',
+    'A-7 メーカー担当者意見を入力',
     [
       'OPINIONS を入力してください（青色のセルが対象です）。',
       '※原則として担当者全員の入力が必要です（未入力があるとA-9が実行できません）。',
@@ -1337,7 +1337,7 @@ function openDevEntryDialog() {
   ss.setActiveSheet(sh);
 
   showInfoDialog_(
-    'A-7 開発/スポット要因を入力',
+    'A-8 開発/スポット要因を入力',
     [
       'DEV_SPOT を入力してください（青色のセルが対象です）。',
       '開発案件だけでなく、スポット要因（例：法改定による差し替え等）もここに入力してください。',
@@ -2462,11 +2462,11 @@ function buildGUIDE_() {
     ['A-予測', 'A-1 初期セットアップ', '初回のみ。クライアント/FY/担当者を設定。'],
     ['A-予測', 'A-2 売上データを取り込む', '案件一覧を SALES_INPUT_MONTHLY へ取り込み。'],
     ['A-予測', 'A-3 予測用に売上データを加工', 'SALES_INPUT_MONTHLY のデータを SALES で48か月横持ち（BASE/SPOT）に集計。'],
-    ['A-予測', 'A-4 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
-    ['A-予測', 'A-5 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
-    ['A-予測', 'A-6 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
-    ['A-予測', 'A-7 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-8 AI調査を取り込む', 'Vertex AIが自動で市場/競合/チャネル/DXを調査し、結果をシートに記録します（AI_RESEARCH_ENABLED=0の場合は従来の手動貼付モード）。'],
+    ['A-予測', 'A-4 AI調査を取り込む', '市場/競合/チャネル/DXのAI調査結果を取り込みます。'],
+    ['A-予測', 'A-5 製品ごとの動向を入力', 'FACTORS_PRODUCT（全製品）へ入力。'],
+    ['A-予測', 'A-6 クライアント動向を入力', 'FACTORS_CLIENT へ入力。'],
+    ['A-予測', 'A-7 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
+    ['A-予測', 'A-8 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
     ['A-予測', 'A-9 予測を実行', 'OUTPUT / FORECAST_REPORT を更新（実行前に注意ロジックで1件ずつ確認）。'],
     ['A-予測', 'A-10 予測ダッシュボードを更新', 'DASHBOARD を更新。']
   ];
@@ -2503,58 +2503,11 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
     ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト'],
-    ['出力用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
-    ['出力用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
   setGuideLinkTable_(sh, 21, links);
-
-  const last = 21 + links.length;
-  sh.getRange(last + 2, 1).setValue('運用補足').setFontWeight('bold');
-  const opRows = [
-    ['・A-予測は「予測作成」、B-事後検証は「外れ理由学習」のための手順です。'],
-    ['・1 client = 1 book です。新しいクライアントの予測を始めるときは、このbookをDriveで「コピーを作成」し、コピー先で A-1 初期セットアップ を実行してください。GASスクリプトはコピーと一緒に複製されるため、別途の設定コピーは不要です。'],
-    ['・織り込める要素: 48ヶ月BASE履歴（未確定月は補完して活用）、主観入力（製品/クライアント/意見、月次cap内でそのまま反映）、AI調査、DEV_SPOT。'],
-    ['・SPOTは「背景SPOT（未知）+ DEV_SPOT（既知）」として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示します。'],
-    ['・A-9 実行時に未入力/型不正/影響過大の入力は、階層アラートで1件ずつ表示します。'],
-    ['・対応できない範囲: 突発イベントの完全再現、外部制度変更の即時反映、全案件の網羅。'],
-    ['・主なリスク: 人手入力の保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
-    ['・予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断してください。'],
-    ['・A-8はAI_RESEARCH_ENABLED=1でVertex AI自動調査を実行し、Web検索と購入レポートRAGの結果をAI_RESEARCH_STRUCTUREDへ記録します。'],
-    ['・AI_RESEARCH_ENABLED=0の手動フォールバック時は、A-8のGem出力は富士経済benchmarkを含むTSV形式（event/benchmark両row）を前提にしています。'],
-    ['・検証(B-1〜B-3)は四半期で正式レビューし、月次は軽量監視（逸脱時のみ追加調査）を推奨します。'],
-    ['・内部管理シート（RUN_LOG/FORECAST_SNAPSHOT/PROCESS_STATUS など）は初期状態で非表示です。']
-  ];
-  sh.getRange(last + 3, 1, opRows.length, 1).setValues(opRows);
-
-  const policyStart = last + opRows.length + 5;
-  sh.getRange(policyStart, 1).setValue('予測運用ポリシー（成功KPI / 制約 / 診断の整理）').setFontWeight('bold').setBackground('#d9ead3');
-  sh.getRange(policyStart, 1, 1, 3).merge();
-  sh.getRange(policyStart + 1, 1, 1, 3).setValues([['区分', '項目', '運用ルール']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  const policyRows = [
-    ['主力計画値', 'Planning point estimate', '計画用単一値はP50（neutral/baseline）を使用。'],
-    ['レンジ説明', 'P10 / P90 の役割', 'P10=下振れ説明、P90=上振れ説明。P10-P90は説明帯であり成功KPIではない。'],
-    ['成功KPI/制約', '年間制約', 'annual_abs_error_rate <= 10%'],
-    ['成功KPI/制約', '半期制約', 'half_wape <= 12%（将来目標 10%）'],
-    ['成功KPI/制約', 'バイアス制約', 'half/annual over-forecast rate <= 5%（underも監視するが優先度はover）'],
-    ['診断KPI', '月次/Q/構成寄与', '月次APE・Q差分・定量寄与率/主観オーバーレイ率/Known Spot寄与率は診断指標として扱う（主観overlay率は制御目標ではない）。'],
-    ['事後検証', 'レンジ逸脱時の運用', 'actualがP10-P90外ならB-3(EVAL_INSIGHTS)で追加調査を必須化。'],
-    ['前提', '業務前提', '1 client = 1 book。前提はCONFIGの環境前提ブロックで管理・更新する。']
-  ];
-  sh.getRange(policyStart + 2, 1, policyRows.length, 3).setValues(policyRows);
-  const flowStart = policyStart + 12;
-  sh.getRange(flowStart, 1, 1, 3).setValues([['因果経路フローチャート（全体像）', '', '']]).setBackground('#d9ead3').setFontWeight('bold').merge();
-  sh.getRange(flowStart + 1, 1, 1, 3).setValues([['直接目的', '代理指標/計算', '制約/学習ループ']]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(flowStart + 2, 1, 5, 1).setValues([['年間/半期の予実精度改善'],['↓'],['P50中心で予測作成'],['↓'],['過大予測抑制']]);
-  sh.getRange(flowStart + 2, 2, 5, 1).setValues([['BASE+主観+AI+SPOT'],['↓'],['P10/P50/P90算出'],['↓'],['signed_error/APE/WAPE評価']]);
-  sh.getRange(flowStart + 2, 3, 5, 1).setValues([['年間<=10%, 半期<=12%'],['↓'],['over-forecast<=5%'],['↓'],['B-3で前提更新']]);
-  safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
-  safeSetNote_(sh, policyStart + 3, 3, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
-  safeSetNote_(sh, policyStart + 7, 3, '過大予測（forecast > actual）の抑制を優先管理します。');
-  safeSetNote_(sh, policyStart + 9, 3, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
-  safeSetNote_(sh, last + 3 + opRows.findIndex(r => String(r[0] || '').indexOf('検証(B-1') >= 0), 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
-  applySectionGapRows_(sh, [19, last + 1, policyStart - 1, flowStart - 1]);
+  applySectionGapRows_(sh, [19]);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
@@ -2596,7 +2549,7 @@ function buildCONFIG_() {
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
-  sh.getRange('A4').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-6では、ここに列挙した全員分の意見入力が必須です。');
+  sh.getRange('A4').setNote('シミュレーションに関与する担当者をカンマ区切りで記載します（例: 山田,佐藤）。\nA-7では、ここに列挙した全員分の意見入力が必須です。');
   sh.getRange('A5').setNote('予測に影響あり（高）。計画値はP50で固定します。任意変更不可。');
   sh.getRange('A6').setNote('予測に影響あり（中）。P10/P90は説明帯であり、必須入力ではありません。');
   sh.getRange('A7').setNote('予測に影響なし（低）。メモ用途の任意項目です。');
@@ -2607,40 +2560,60 @@ function buildCONFIG_() {
   sh.getRange('A12').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
   sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
-  const infoStart = 15;
-  const infoHdr = [['予測運用ポリシー（最重要）', '定義（マクロ→ミクロ）']];
-  const infoRows = [
-    ['直接目的（最上位）', '年間予算の外しすぎ抑制 / 半期見通し精度向上 / クライアント別予実管理の底上げ。'],
-    ['代理目的（目的関数の代理）', 'P50を基準に signed_error・abs_error・WAPE を継続監視し、前提更新へ接続。'],
-    ['中間目的①', '極端な楽観/悲観の抑制（過大予測を優先抑制）。'],
-    ['中間目的②', 'P10-P90レンジ逸脱時の追加調査を標準運用化。'],
-    ['中間目的③', 'B-3で原因仮説→前提更新→次サイクル反映を管理。'],
-    ['制約①', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
-    ['制約②', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
-    ['制約③', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%`]
+  const sectionGapRows = 1;
+  const envStart = 14;
+  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力 / 必須ではありません）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(envStart + 1, 1, 1, 2).setValues([['※この欄は任意入力です。未入力でも予測は実行できます。前提を更新したら最終更新日も更新してください。', '']]).setBackground('#fff2cc').setWrap(true);
+  const envRows = [
+    ['マクロ｜市場 / 制度前提', ''],
+    ['マクロ｜競合前提', ''],
+    ['メソ｜クライアント予算 / 体制前提', ''],
+    ['メソ｜チャネル / MR / 販促前提', ''],
+    ['ミクロ｜製品 / 適応前提', ''],
+    ['ミクロ｜Spot / 開発案件前提', ''],
+    ['ミクロ｜情報源', ''],
+    ['ミクロ｜最終更新日', new Date()]
   ];
-  sh.getRange(infoStart, 1, 1, 2).setValues(infoHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(infoStart + 1, 1, infoRows.length, 2).setValues(infoRows);
-  sh.getRange(infoStart + 1, 2, infoRows.length, 1).setWrap(true);
-  infoRows.forEach((r, i) => {
-    safeSetNote_(sh, infoStart + 1 + i, 1, `説明: ${r[0]}。\nこの項目は予測ロジック理解のための参照情報で、通常は編集不要です。`);
+  sh.getRange(envStart + 2, 1, envRows.length, 2).setValues(envRows);
+  sh.getRange(envStart + 2, 2, envRows.length - 1, 1).setBackground('#fff2cc');
+  sh.getRange(envStart + 1 + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
+  safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
+  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 3, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 4, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 5, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 9, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+
+  const policyStart = envStart + 2 + envRows.length + sectionGapRows;
+  const policyRows = [
+    ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ。'],
+    ['代理目的 / 指標', 'P50を基準に signed_error・abs_error・WAPE を継続監視し、前提更新へ接続。'],
+    ['計画用単一値', 'P50（neutral/baseline）を使用。'],
+    ['P10/P90の役割', '説明用レンジ。coverageは診断用途で、成功KPIやhard gateではありません。'],
+    ['成功KPI/年間制約', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
+    ['成功KPI/半期制約', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
+    ['バイアス制約', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%（underも監視し、overを優先管理）`],
+    ['診断KPI', '月次APE、Q差分、定量寄与率、主観オーバーレイ率、Known Spot寄与率、range outside count。'],
+    ['レンジ逸脱対応', 'actualがP10-P90外の月はB-3で追加調査し、原因仮説・前提更新・入力反映を記録。'],
+    ['運用改善アプローチ', '自動最適化器は新設せず、B-2/B-3の評価結果から前提・入力運用を更新する。'],
+    ['業務前提', '1 client = 1 book。新クライアントはbookをコピーし、コピー先でA-1を実行。']
+  ];
+  sh.getRange(policyStart, 1, 1, 2).setValues([['予測運用ポリシー / 成功KPI・制約 / 診断KPI', '定義 / 運用ルール']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
+  sh.getRange(policyStart + 1, 2, policyRows.length, 1).setWrap(true);
+  safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
+  safeSetNote_(sh, policyStart + 4, 2, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
+  safeSetNote_(sh, policyStart + 7, 2, '過大予測（forecast > actual）の抑制を優先管理します。');
+  safeSetNote_(sh, policyStart + 9, 2, 'レンジ逸脱月はEVAL_INSIGHTSで原因仮説と次アクションを記録します。');
+  policyRows.forEach((r, i) => {
+    safeSetNote_(sh, policyStart + 1 + i, 1, `説明: ${r[0]}。\nこの項目は予測運用の参照情報で、通常は編集不要です。`);
   });
 
-  // 代理指標と運用ループ
-  const warnStart = 25;
-  const a9Hdr = [['代理目的 / 指標の考え方', '説明']];
-  const a9Rows = [
-    ['automatic optimization', '現段階では新設しない（既存forecast engineを維持）。'],
-    ['運用改善アプローチ', 'B-2/B-3で評価指標を観測し、前提・入力運用を更新する。'],
-    ['計画値とレンジの役割', '計画値=P50。P10/P90は説明帯。coverageは診断用途。'],
-    ['1 client = 1 book', '現行前提を維持。']
-  ];
-  sh.getRange(warnStart, 1, 1, 2).setValues(a9Hdr).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(warnStart + 1, 1, a9Rows.length, 2).setValues(a9Rows);
-  sh.getRange(warnStart + 1, 2, a9Rows.length, 1).setWrap(true);
-
   // 管理者が参照しやすいよう上段に配置（読取はラベルキー照合）
-  const tuneStart = 31;
+  const tuneStart = policyStart + 1 + policyRows.length + sectionGapRows;
   const tuneHdr = [['モデル調整パラメータ', '値（必要時のみ調整）']];
   const tuneRows = [
     ['SPOT_BG_SHRINK（背景SPOT縮小率）', SPOT_BG_SHRINK],
@@ -2708,63 +2681,47 @@ function buildCONFIG_() {
     safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
   });
 
-  const sectionGapRows = 1;
-  const policyStart = tuneStart + tuneRows.length + sectionGapRows + 1;
-  sh.getRange(policyStart, 1, 1, 2).setValues([['詳細補足（下段）', '定義 / ルール']]).setBackground('#d9ead3').setFontWeight('bold');
-  const policyRows = [
-    ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ、過大予測の抑制。'],
-    ['計画用単一値', 'P50（neutral/baseline）'],
-    ['P10/P90の役割', '説明用レンジ（Downside/ Upside）。成功KPIではなく説明帯。'],
-    ['成功KPI/制約', `annual_abs_error_rate <= ${Math.round(ANNUAL_ABS_ERROR_CONSTRAINT * 100)}%`],
-    ['成功KPI/制約', `half_wape <= ${Math.round(HALF_WAPE_CONSTRAINT * 100)}%（将来目標 ${Math.round(HALF_WAPE_FUTURE_TARGET * 100)}%）`],
-    ['バイアス制約', `half/annual over-forecast rate <= ${Math.round(OVERFORECAST_RATE_CONSTRAINT * 100)}%（overを優先管理）`],
-    ['診断KPI', '月次APE、Q差分、quant share、subjective overlay share（表示のみ）、known spot share、range outside count。'],
-    ['レンジ逸脱対応', 'actualがP10-P90外の月はB-3で追加調査（原因仮説・前提更新・入力反映）。'],
-    ['前提', '1 client = 1 book'],
-    ['評価ポリシーversion', EVALUATION_POLICY_VERSION]
-  ];
-  sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
-
   const proxyRows = [
+    ['A/B/C手順の役割', 'A-予測は予測作成、B-事後検証は外れ理由学習、C-四半期レビューは提案の確認と適用。'],
+    ['book複製運用', '新しいクライアントの予測はこのbookをDriveでコピーし、コピー先でA-1初期セットアップを実行。'],
     ['織り込める要素', '48ヶ月BASE履歴（未確定補完）/ 主観入力 / AI調査 / DEV_SPOT。'],
+    ['SPOTの扱い', '背景SPOT（未知）+ DEV_SPOT（既知）として別枠管理し、KPIでは主観オーバーレイとKnown Spotを分離表示。'],
+    ['A-9実行時チェック', '未入力/型不正/影響過大の入力は階層アラートで1件ずつ表示。'],
     ['主なリスク', '入力保守/楽観バイアス、AI情報の鮮度・偏り、外部データ欠損。'],
     ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
+    ['予測値の扱い', '予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断。'],
+    ['AI調査（自動）', 'AI_RESEARCH_ENABLED=1でVertex AI自動調査を実行し、Web検索と購入レポートRAGの結果をAI_RESEARCH_STRUCTUREDへ記録。'],
+    ['AI調査（手動）', 'AI_RESEARCH_ENABLED=0では手動貼付parseにフォールバックし、富士経済benchmarkを含むTSV形式を前提。'],
     ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
-    ['レンジ逸脱時', 'actualがP10-P90外の月は追加調査して前提へ反映。'],
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
   ];
-  const proxyStart = policyStart + policyRows.length + sectionGapRows + 1;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  const proxyStart = tuneStart + 1 + tuneRows.length + sectionGapRows;
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['背景・運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
   sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
+  sh.getRange(proxyStart + 1, 2, proxyRows.length, 1).setWrap(true);
+  safeSetNote_(sh, proxyStart, 1, 'GUIDEから移設した運用補足です。本文は要約し、詳細は各Noteで確認します。');
+  safeSetNote_(sh, proxyStart + 10, 1, '手動フォールバック時のTSVは event / benchmark の両rowを含めます。');
+  safeSetNote_(sh, proxyStart + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
 
-  const envStart = proxyStart + proxyRows.length + sectionGapRows + 1;
-  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（編集可）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
-  const envRows = [
-    ['マクロ｜市場 / 制度前提', ''],
-    ['マクロ｜競合前提', ''],
-    ['メソ｜クライアント予算 / 体制前提', ''],
-    ['メソ｜チャネル / MR / 販促前提', ''],
-    ['ミクロ｜製品 / 適応前提', ''],
-    ['ミクロ｜Spot / 開発案件前提', ''],
-    ['ミクロ｜情報源', ''],
-    ['ミクロ｜最終更新日', new Date()]
+  const flowStart = proxyStart + 1 + proxyRows.length + sectionGapRows;
+  const flowRows = [
+    ['直接目的', '年間/半期の予実精度改善'],
+    ['代理指標/計算', 'BASE + 主観 + AI + SPOT → P10/P50/P90算出 → signed_error / APE / WAPE評価'],
+    ['制約/学習ループ', '年間<=10%、半期<=12%、over-forecast<=5% → B-3で前提更新']
   ];
-  sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
-  sh.getRange(envStart + 1, 2, envRows.length - 1, 1).setBackground('#fff2cc');
-  sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
-  safeSetNote_(sh, policyStart, 1, 'CONFIGのモデル調整パラメータはラベルキーで参照します。この下段に運用思想を追記しています。');
-  safeSetNote_(sh, policyStart + 2, 2, '計画値は常にP50を採用します。P40への寄せ運用はしません。');
-  safeSetNote_(sh, proxyStart, 1, '本改修は自動最適化器の追加ではなく、評価設計とガバナンスの明文化です。');
-  safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
-  safeSetNote_(sh, envStart + 1, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
-  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 3, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
-  safeSetNote_(sh, envStart + 4, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 5, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
-  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
-  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
-  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
-  const noteMaxRow = envStart + envRows.length;
+  sh.getRange(flowStart, 1, 1, 2).setValues([['因果経路フローチャート（参照）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(flowStart + 1, 1, flowRows.length, 2).setValues(flowRows);
+  sh.getRange(flowStart + 1, 2, flowRows.length, 1).setWrap(true);
+  safeSetNote_(sh, flowStart, 1, 'GUIDEから移設した因果経路の全体像です。');
+
+  const footerStart = flowStart + 1 + flowRows.length + sectionGapRows;
+  const footerRows = [
+    ['評価ポリシーversion', EVALUATION_POLICY_VERSION]
+  ];
+  sh.getRange(footerStart, 1, 1, 2).setValues([['フッタ情報', '値']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(footerStart + 1, 1, footerRows.length, 2).setValues(footerRows);
+
+  const noteMaxRow = footerStart + footerRows.length;
   const colAValues = sh.getRange(2, 1, noteMaxRow - 1, 1).getValues();
   const colANotes = sh.getRange(2, 1, noteMaxRow - 1, 1).getNotes();
   for (let i = 0; i < colAValues.length; i++) {
@@ -2774,7 +2731,7 @@ function buildCONFIG_() {
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
   applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
-  applySectionGapRows_(sh, [14, 24, 30, policyStart - 1, proxyStart - 1, envStart - 1]);
+  applySectionGapRows_(sh, [policyStart - 1, tuneStart - 1, proxyStart - 1, flowStart - 1, footerStart - 1]);
 }
 
 function buildSALES_() {
@@ -2910,7 +2867,7 @@ function buildOUTPUT_() {
   sh.clearFormats();
 }
 
-/** ====== テンプレ整形（A-4〜A-7で呼ぶ） ====== */
+/** ====== テンプレ整形（A-5〜A-8で呼ぶ） ====== */
 function ensureFactorsProductTemplate_(sh, products, people, defaultDate) {
   if (!sh) throw new Error('FACTORS_PRODUCTがありません。');
 
@@ -3236,7 +3193,7 @@ function validateRequiredUserInputsOrThrow_() {
   }
 
   const fp = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.FACTORS_PRODUCT);
-  if (!fp || fp.getLastRow() < 2) throw new Error('FACTORS_PRODUCT の入力行がありません。A-4 を実行してください。');
+  if (!fp || fp.getLastRow() < 2) throw new Error('FACTORS_PRODUCT の入力行がありません。A-5 を実行してください。');
 
   const hasReason = fp.getRange(2, 5, fp.getLastRow() - 1, 1).getValues().some(r => String(r[0] || '').trim());
   if (!hasReason) throw new Error('FACTORS_PRODUCT のReasonが未入力です。最低1件入力してください。');
@@ -3473,10 +3430,10 @@ function validateFactorsSheet_(sheetName, opt) {
 function validateOpinionsSheet_(requiredPeople) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OPINIONS);
-  if (!sh) throw new Error('OPINIONSシートがありません。A-6を実行してください。');
+  if (!sh) throw new Error('OPINIONSシートがありません。A-7を実行してください。');
 
   const last = sh.getLastRow();
-  if (last < 2) throw new Error('OPINIONSに入力行がありません。A-6を実行してください。');
+  if (last < 2) throw new Error('OPINIONSに入力行がありません。A-7を実行してください。');
 
   const vals = sh.getRange(2, 1, last - 1, 5).getValues();
 
@@ -3510,7 +3467,7 @@ function validateOpinionsSheet_(requiredPeople) {
 
   const missing = requiredPeople.filter(p => !okPeople.has(p));
   if (missing.length > 0) {
-    throw new Error(`OPINIONSに担当者全員の有効な入力がありません。\n未入力: ${missing.join(', ')}\nA-6で入力してください。`);
+    throw new Error(`OPINIONSに担当者全員の有効な入力がありません。\n未入力: ${missing.join(', ')}\nA-7で入力してください。`);
   }
 }
 
@@ -6323,7 +6280,7 @@ function aggregateSalesData() {
       SpreadsheetApp.getUi().alert(
         '完了',
         `SALESシートにBASE/SPOT × 48ヶ月の売上データを集計しました（非ゼロセル: ${nonZeroCount}）。
-次は A-4〜A-9 を順番に実行してください。`,
+次は A-4 AI調査 / A-5〜A-8 入力 / A-9 予測 を順番に実行してください。`,
         SpreadsheetApp.getUi().ButtonSet.OK
       );
     }
@@ -6542,7 +6499,7 @@ function generateAIResearchTemplate() {
   if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
   shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
   shOut.getRange('D:D').setNumberFormat('@');
-  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。###REPORT_START### / ###TSV_START### の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-8実行時に自動でパースされます。');
+  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。###REPORT_START### / ###TSV_START### の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-4実行時に自動でパースされます。');
   shOut.setColumnWidth(4, 420);
   updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
   logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
@@ -8152,17 +8109,13 @@ function hideNonUserSheets_() {
     SHEETS.CONFIG,
     SHEETS.SALES_INPUT_MONTHLY,
     SHEETS.SALES,
+    SHEETS.AI_RESEARCH_PROMPT,
     SHEETS.FACTORS_PRODUCT,
     SHEETS.FACTORS_CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
     SHEETS.OUTPUT,
-    SHEETS.AI_RESEARCH_PROMPT,
-    SHEETS.ACTUAL_EVAL_MONTHLY,
-    SHEETS.EVAL_COMPARE_MONTHLY,
-    SHEETS.EVAL_INSIGHTS,
-    SHEETS.DASHBOARD,
-    SHEETS.QUARTERLY_REVIEW
+    SHEETS.DASHBOARD
   ]);
 
   ss.getSheets().forEach(sh => {
