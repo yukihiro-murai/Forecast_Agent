@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.7-dev / BUILD_STAGE v8-dedup-landing-eval）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.8-dev / BUILD_STAGE v8-client-match-unify）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.7-dev';
-const BUILD_STAGE = 'v8-dedup-landing-eval';
+const VERSION = '2.3.8-dev';
+const BUILD_STAGE = 'v8-client-match-unify';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -3748,7 +3748,7 @@ function writeSourceReliability_(client, sourceType, sourceKey, r, sampleCount, 
   const row = [targetClient, targetType, targetKey, rVal, sampleCount, evalWindow || '', new Date(), updatedBy, note || ''];
   let rowNo = 0;
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][idx.client] || '').trim() !== targetClient) continue;
+    if (!isSameClient_(values[i][idx.client], targetClient)) continue;
     if (String(values[i][idx.source_type] || '').trim() !== targetType) continue;
     if (String(values[i][idx.source_key] || '').trim() !== targetKey) continue;
     rowNo = i + 1;
@@ -8226,7 +8226,7 @@ function updatePhase1LearningInsights() {
   const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   const out = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
   ensureSheetHeaders_(out, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
-  const vals = evalSh.getDataRange().getValues().slice(1).filter(r => String(r[2] || '').trim() === client);
+  const vals = evalSh.getDataRange().getValues().slice(1).filter(r => isSameClient_(r[2], client));
   const cmpRows = cmp.getDataRange().getValues().slice(1).filter(r => r[9] !== '' && r[6] !== '');
   const den = cmpRows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
   const sumPred = cmpRows.reduce((a, r) => a + Number(r[9] || 0), 0);
@@ -8662,7 +8662,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.7-dev' / BUILD_STAGE='v8-dedup-landing-eval' であること。
+ * 11) VERSION='2.3.8-dev' / BUILD_STAGE='v8-client-match-unify' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8687,7 +8687,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (ai-summary-view)
- * 1) VERSION='2.3.7-dev' / BUILD_STAGE='v8-dedup-landing-eval' であること。
+ * 1) VERSION='2.3.8-dev' / BUILD_STAGE='v8-client-match-unify' であること。
  * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
  *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
  * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
@@ -8739,7 +8739,7 @@ function readCalibrationState_(client) {
     const target = String(client || '').trim();
     if (!target) return createDefaultCalibrationState_('');
     for (let i = 1; i < rows.length; i++) {
-      if (String(rows[i][idx.client] || '').trim() !== target) continue;
+      if (!isSameClient_(rows[i][idx.client], target)) continue;
       return {
         client: target,
         updated_at: rows[i][idx.updated_at] || '',
@@ -8782,7 +8782,7 @@ function writeCalibrationState_(client, partial) {
     const out = header.map(k => merged[k] !== undefined ? merged[k] : '');
     let found = -1;
     for (let i = 1; i < rows.length; i++) {
-      if (String(rows[i][idx.client] || '').trim() === target) {
+      if (isSameClient_(rows[i][idx.client], target)) {
         found = i + 1;
         break;
       }
@@ -9052,7 +9052,7 @@ function collectQuarterlyReviewData_(client) {
     const evalTargetMonthIdx = evalIdx.target_month;
     const evalConstraintIdx = evalIdx.constraint_relevant_flag;
     const evalRows = evalValues.slice(1)
-      .filter(r => String(r[evalClientIdx] || '') === client && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
+      .filter(r => isSameClient_(r[evalClientIdx], client) && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
     const months = Array.from(new Set(evalRows.map(r => String(r[evalTargetMonthIdx] || '')))).sort();
     const last3 = months.slice(-3);
     if (last3.length < 3) {
@@ -9068,7 +9068,7 @@ function collectQuarterlyReviewData_(client) {
         const impactClientIdx = impactIdx.client;
         const impactTargetMonthIdx = impactIdx.target_month;
         impacts = impactValues.slice(1)
-          .filter(r => String(r[impactClientIdx] || '') === client && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
+          .filter(r => isSameClient_(r[impactClientIdx], client) && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
       }
     }
     const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
@@ -9081,12 +9081,12 @@ function collectQuarterlyReviewData_(client) {
         const subjClientIdx = subjectiveImpactIdx.client;
         const subjTargetMonthIdx = subjectiveImpactIdx.target_month;
         subjectiveImpacts = subjectiveValues.slice(1)
-          .filter(r => String(r[subjClientIdx] || '') === client && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
+          .filter(r => isSameClient_(r[subjClientIdx], client) && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
       }
     }
     const scoreSh = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
     const scores = scoreSh ? scoreSh.getDataRange().getValues().slice(1)
-      .filter(r => String(r[2] || '') === client) : [];
+      .filter(r => isSameClient_(r[2], client)) : [];
     return { ready: true, client, months: last3, evalRows, impacts, scores, subjectiveImpacts, evalIdx, impactIdx, subjectiveImpactIdx, calibration: readCalibrationState_(client) };
   } catch (err) {
     throw err;
