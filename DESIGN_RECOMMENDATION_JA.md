@@ -1,20 +1,26 @@
-# 売上予測スクリプト 設計書 v2.2（現行エンジン同期版）
+# 売上予測スクリプト 設計書 v2.3（Vertex AI調査 / AIサマリービュー同期版）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.2.2-dev' / BUILD_STAGE='v8-annual-forecast-mode'）
-設計書版：v2.2（v1.8からの同期改訂。3c-3c横断プールと学習ループ修正を正典化）
+対象実装：`Forecast_Agent.js`（VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'）
+設計書版：v2.3（v2.2からの同期改訂。Vertex AI調査パイプライン・AI調査サマリービュー・
+シート遅延初期化・通年予測モードを正典化）
 
-### 0.0 v1.8からの主な更新点（この改訂で反映したもの）
-- **3c-3c（POOL_PRIOR横断集約）を「実装済み」へ更新**。v1.8では未実装と記載していたが、
-  `adminAggregatePoolPriorAcrossBooks` ほかで実装済み（§7）。
-- **学習ループのサンプル水増し修正を正典化**。`forecast_source` 列の追加と、C-1集計の
-  dedup/open限定ロジックを§4・§8に記述。
-- **kProd全月1.0のフェイルセーフ化を正典化**（throw撤去→警告）。§2.3・§8に記述。
-- **annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）は「実装済み・方針確認待ち」として§9に隔離**。
+### 0.0 v2.2からの主な更新点（この改訂で反映したもの）
+- **AI調査をVertex AI自動実行へ移行（最重要）**。旧A-4「Gemプロンプト生成→TSV手動貼付→parse」は
+  メニューから廃止し、A-4は `runVertexAIResearch`（Vertex grounded web検索 + Vertex AI Search RAG +
+  構造化出力）に置き換え済み。設計書v2.2まで全く記述が無かったため、§10として新設する。
+- **AI調査サマリービュー（AI_RESEARCH）を正典化**。`writeAIResearchSummaryView_` が
+  ①topic別要約文 ②4軸スコア ③event/benchmark明細 の3段ビューを再描画する（§11）。
+- **新規シート3枚を追記**：`AI_RESEARCH_TASK_LOG` / `AI_RESEARCH_WEB` / `AI_RESEARCH_EXTERNAL`（§6・§10）。
+- **シート遅延初期化を正典化**。A-1で全シートを作らず、Vertex実行時に `ensureAIResearchRuntimeSheets_` /
+  `ensureSheetReady_` で必要シートを遅延作成する（§1.1・§10.5）。
+- **FORECAST_REPORT は撤去済み**。本文・シート一覧から削除（§6）。
+- **メニュー番号を実装に同期**（A-4の名称・呼び出し先、§1.4）。
+- **通年予測モード（FORECAST_CLOSED_MONTH_MODE）は実装済み・方針確認待ちのまま§9に隔離**。
   既定OFF（actual）で従来挙動のため、本文の予測記述は従来どおりとする。
 
 ---
@@ -22,10 +28,12 @@
 ## 0.5 v7からの主要な乖離（同期のために明記）
 - **三角観測は廃止済み**。実装は「単一Opsモデル（線形トレンド×季節指数）＋残差Monte Carlo」が定量土台。
 - **逆sMAPE重み更新（w_i）は存在しない**。重み更新ロジックは実装されていない。
+  （FORECAST_SNAPSHOTに w1〜w4 列は残るが固定値の記録列であり、更新ロジックは無い＝vestigial。）
 - **DLM（対数空間の状態空間モデル）が追加**され、CONFIGの DLM_ENGINE_MODE（off/shadow/primary）で制御。
 - **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP）でクリップ。
   v6の「主観キャリブレータ（オーバーレイ率ターゲット探索）」は撤去済み（cap pass-through）。
 - **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。品質不足時は中立化（kAI=1.0）。
+- **AI調査の取得経路が Vertex AI へ移行**。旧Gem手動貼付（TSV）経路はメニュー廃止（§10）。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソース（factor_product/factor_client/opinion/ai_topic）の
   寄与に reliability_r を乗じる。CONFIG RELIABILITY_APPLY_ENABLED で制御（既定ON）。
 - **LMDI分解** が追加され、主観乗算 Πk-1 を因子別に厳密加法分解（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
@@ -36,33 +44,62 @@
 ## 1. 実装スコープ
 
 ### 1.1 現行実装済み
-- データ取込：外部実績SS → SALES_INPUT_MONTHLY（A-2）→ SALES 48ヶ月横持ち BASE/SPOT/TOTAL（A-3）
-- 主観入力：FACTORS_PRODUCT / FACTORS_CLIENT / OPINIONS / DEV_SPOT（A-4〜A-7）
-- AI調査：Gemプロンプト生成→TSV貼付→parse（A-8 / parseAIResearchPaste_）
-- 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT / FORECAST_REPORT 更新
+- データ取込：外部実績SS → SALES_INPUT（A-2）→ SALES_MONTHLY 48ヶ月横持ち BASE/SPOT/TOTAL（A-3）
+- 主観入力：PRODUCT / CLIENT / OPINIONS / DEV_SPOT（A-5〜A-8）
+- AI調査（Vertex AI自動）：A-4 `runVertexAIResearch`。grounded web検索 + Vertex AI Search RAG +
+  構造化出力 → AI_RESEARCH_STRUCTURED へ記録、AI_RESEARCH（サマリービュー）へ再描画（§10・§11）
+- 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT 更新
 - ダッシュボード：updatePhase1Dashboard（A-10）
 - 検証：実績取込（B-1）→ EVAL_LOG / EVAL_COMPARE_MONTHLY（B-2）→ EVAL_INSIGHTS（B-3）
 - 四半期レビュー：runQuarterlyReview（C-1）→ applyQuarterlyProposals（C-2）→ ログ閲覧（C-3）
 - 信頼度：SOURCE_RELIABILITY 適用（reliabilityApply）＋ C-1のreliability提案＋RELIABILITY_EVIDENCEへの raw hit/n 永続化
 - 横断プール：POOL_PRIOR のクライアント横断集約（adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks）
+- **シート遅延初期化**：A-1では一部シートを作らず、Vertex実行時に `ensureAIResearchRuntimeSheets_`（
+  AI_RESEARCH_STRUCTURED / AI_RESEARCH_TASK_LOG / AI_RESEARCH_WEB / AI_RESEARCH_EXTERNAL）で遅延作成。
+  POOL_PRIOR / POOL_REGISTRY / POOL_AGGREGATION_LOG / DLM_STATE / BACKTEST_REPORT / LANDING_FORECAST も
+  管理関数や予測実行時に必要に応じて `getOrCreateSheet_` で作成する。
 
 ### 1.2 既定OFFのシャドウ機能（検証待ち）
 - DLM_ENGINE_MODE = off（shadow/primaryはCONFIGで切替可）
 - LMDI_DECOMPOSITION_ENABLED = 0
 - FORECAST_CLOSED_MONTH_MODE = actual（forecastに切替で通年予測モード。詳細は§9）
+- AI_SCORE_BASIS = level（momentumに切替でAIスコアを相対位置の変化として扱う）
 - ※ RELIABILITY_APPLY_ENABLED は既定1（ON）。ただしSOURCE_RELIABILITY空ならno-op（予測不変）。
+- ※ AI_RESEARCH_ENABLED は既定1。0でA-4のVertex調査をスキップし、AI_RESEARCH_STRUCTUREDの既存行のみ参照。
 
 ### 1.3 未実装（今後）
 - 構造変化検知（CUSUM/Bai-Perron）、分位点回帰の本格適用、学習窓の動的最適化。
-- POOL_PRIOR集約のprecision導出の経験ベイズ化（現状はn加重平均＋固定precision=SHRINKAGE_K）。
+- POOL_PRIOR集約のprecision導出の経験ベイズ化（現状はΣhit/Σn加重＋固定precision=SHRINKAGE_K）。
 - person系ソースの横断プール（現状は普遍キーのsource_type単位まで）。
+
+### 1.4 メニュー構成（実装同期）
+- A-1 初期セットアップ（setupForecastBook）
+- A-2 売上データを取り込む（importSalesInputMonthly）
+- A-3 予測用に売上データを加工（aggregateSalesData）
+- A-4 AI調査を取り込む（**runVertexAIResearch** / Vertex AI自動）
+- A-5 製品ごとの動向を入力（openProductTrendEntryDialog）
+- A-6 クライアント動向を入力（openClientTrendEntryDialog）
+- A-7 担当者意見を入力（openOpinionsEntryDialog）
+- A-8 開発/スポット要因を入力（openDevEntryDialog）
+- A-9 予測を実行（runPhase1Forecast）
+- A-10 予測ダッシュボードを更新（updatePhase1Dashboard）
+- B-1 検証用に実績データを取り込み（importActualEvalMonthly）
+- B-2 検証レポートを更新（updatePhase1EvaluationReport）
+- B-3 検証インサイトを更新（updatePhase1LearningInsights）
+- C-1 四半期レビューを実行（runQuarterlyReview）
+- C-2 承認済み提案を適用（applyQuarterlyProposals）
+- C-3 過去の提案履歴を開く（openQuarterlyReviewLog）
+- 管理者用（メニュー非掲載 / スクリプトエディタから手動）：
+  adminSetupGuideOnly / adminInitDLMAndBacktest / adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks
+- dead path（メニュー非掲載・現行未使用 / §12参照）：
+  generateAIResearchTemplate / parseAIResearchPaste_（旧Gem手動貼付経路）
 
 ---
 
 ## 2. 予測エンジンの実体（runForecastFYCore_）
 
 ### 2.1 定量土台
-1. SALES から baseSeries48（BASE 48ヶ月）を読む。
+1. SALES_MONTHLY から baseSeries48（BASE 48ヶ月）を読む。
 2. adjustForUnclosedMonths_：未確定月（前月までを確定）を同月トレンド係数で補完。補完後は途中実績を下回らない。
 3. fitOpsModelTrendSeason_：OLS線形トレンド＋移動平均ベース季節指数（0.80〜1.20でクリップ）。
 4. buildResidualPool_：確定月の残差%プール（MADクリップ＋中央値方向へ収縮）。
@@ -80,7 +117,7 @@
 - kAI = 1 + clamp(Σ(topicスコア × reliability) × AI_WEIGHT, ±AI_MAX_ABS_EFFECT)。AI合計が中立閾値未満なら 1.0。
 - Monte Carlo（N_SIM=1000）で各simの total を生成し、月次P10/P50/P90を取る。
 - 主観差分は月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、既定0.20）でクリップ（capHitを診断記録）。
-- **kProd全月1.0のフェイルセーフ（旧hard throw撤去）**：FACTORS_PRODUCTに有効行があるのに
+- **kProd全月1.0のフェイルセーフ（旧hard throw撤去）**：PRODUCTに有効行があるのに
   kProdが全月1.0（直近12ヶ月closed BASE実績の無い製品＝weight=0）の場合、旧実装はthrowでA-9を停止していた。
   現行は **throwせず警告**（`productWeightWarning`）に置換し、A-9を完走させる。
   警告は weight=0 となった製品名を列挙し、OUTPUT上部の警告ブロックとRUN_LOG note（`prodw=...`）に残す。
@@ -96,6 +133,12 @@
 - lmdiDecompose_：Πk-1 を kProd/kClient/kOpinion/kAI に厳密加法分解（全正値はLMDI-I、非正値は線形フォールバックで和保存）。
 - 既定OFF。ONのときOUTPUTに寄与シェア／絶対レンジ／相対レンジを出力。
 
+### 2.6 AIスコアの予測反映
+- readAIResearchScores_ が AI_RESEARCH_STRUCTURED から topic別（Market/Competitor/Channel/DX）の
+  final blended score（benchmark/event blend）を返す。品質不足topicは中立化（multiplier=0/0.5）。
+- AI_SCORE_BASIS=momentum のときは AI_SCORE_HISTORY の過去runとの差分（momentum）に切替（既定はlevel）。
+- これがA-4（Vertex）で書かれた行を読む唯一の入口。A-9はVertex APIを呼ばず、シート上の構造化行のみ参照する。
+
 ---
 
 ## 3. CONFIG パラメータ（読取方式）
@@ -103,12 +146,14 @@
 ### 3.1 読取規約
 - readConfigLabelMap_ が CONFIG A:B を読み、configKeyOf_ で「（」または「(」より前をキー化して完全一致マップを作る。
 - readModelTuningFromConfig_ / readDlmEngineMode_ / readReliabilityApplyEnabled_ /
-  readLmdiDecompositionEnabled_ / readDlmPrimarySpotCapBasis_ / readForecastClosedMonthMode_ はすべてこのマップ経由。
+  readLmdiDecompositionEnabled_ / readDlmPrimarySpotCapBasis_ / readForecastClosedMonthMode_ /
+  readAiScoreBasis_ / readVertexConfig_ はすべてこのマップ経由。
 - セル番地直読みは廃止。tuneRows に行を挿入しても壊れない。
 - ラベル末尾の注記（全角括弧内）は自由に変更可。キー部分が一致すれば読める。
 
 ### 3.2 主要キー（抜粋）
 - AI_WEIGHT / AI_MAX_ABS_EFFECT / AI_TOTAL_NEUTRAL_THRESHOLD / AI_QUALITY_*_THRESHOLD
+- AI_SCORE_BASIS（level/momentum）/ AI_MOMENTUM_LOOKBACK_QUARTERS / AI_MOMENTUM_MIN_HISTORY
 - QUAL_SUBJECTIVE_MONTHLY_CAP / QUAL_CALIBRATION_ENABLED
 - SPOT_BG_* / KNOWN_SPOT_* / SEASONAL_*
 - DLM_ENGINE_MODE / DLM_PRIMARY_SPOT_CAP_BASIS / DLM_BACKTEST_*
@@ -116,6 +161,8 @@
 - POOL_MIN_CLIENTS（横断集約の最低クライアント数、既定2）
 - LMDI_DECOMPOSITION_ENABLED
 - FORECAST_CLOSED_MONTH_MODE（actual/forecast、既定actual。§9参照）
+- **Vertex AI調査キー（§10）**：VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL /
+  VERTEX_DATASTORE_ID / VERTEX_SEARCH_LOCATION / AI_RESEARCH_ENABLED（既定1）
 
 ---
 
@@ -126,7 +173,7 @@
 - 直近3ヶ月（last3）が揃わなければ ready:false（提案ゼロで正常終了）。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY / AI_SCORE_HISTORY を last3 で結合。
 
-### 4.2 サンプル水増し対策（dedup / open限定）★この改訂で正典化
+### 4.2 サンプル水増し対策（dedup / open限定）
 背景：GUIDEは「確認→修正→再実行を前提とする」と明記しており、同じ月に対しA-9を複数回押す運用が正規。
 旧実装はA-9のたびに履歴を追記（dedupなし）し、C-1が1行ずつ `n += 1` していたため、
 入力を変えずA-9を数回押すだけで n が膨張し、提案が「高」信頼度に化ける欠陥があった。
@@ -134,16 +181,16 @@
 C-1の month単位 last-write-wins が最新（actual上書き後）の行を拾って surprise=0 で当該月が脱落していた。
 
 対策（現行 computeReliabilityHitStats_）：
-- **forecast_source 列の追加**：AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY の末尾に
-  `forecast_source`（'forecast_open' / 'actual_closed'）を追加。記録値は runForecastFYCore_ の
+- **forecast_source 列**：AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY の末尾に
+  `forecast_source`（'forecast_open' / 'actual_closed'）を持つ。記録値は runForecastFYCore_ の
   result.sourceByMonth[i] をそのまま書く（既存列順は不変）。
 - **open限定**：C-1集計は `forecast_source==='forecast_open'` の行のみ採用。
   これにより closed後の actual上書き行（surprise=0）が自動除外され、月脱落が解消する。
   forecast_source が空/欠落の旧（汚染）行も同フィルタで自動除外される。
 - **dedup**：
-  - quant側（AI_IMPACT_HISTORY）：month単位で最新 run_at の1件のみ採用。
+  - quant側（AI_IMPACT_HISTORY）：month単位で最新 run_at の1件のみ採用（latestQuantByMonth）。
   - subjective側（SUBJECTIVE_IMPACT_HISTORY）：(target_month, source_type, source_key) 単位で
-    最新 run_at の1件のみ採用。
+    最新 run_at の1件のみ採用（latestSubjectiveByUnit）。
   これにより n が「A-9実行回数」に依存しなくなり、実行回数非依存の評価になる。
 - 触らない箇所：evalActualByMonth（EVAL_LOG由来のactual）は month単位 last-write-wins のままでよい
   （actualは確定値なので同月重複でも値は同じ）。予測コアの計算は一切変更していない。
@@ -174,16 +221,22 @@ C-1の month単位 last-write-wins が最新（actual上書き後）の行を拾
 ---
 
 ## 6. ログ／永続シート
-- 内部管理：RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS / AI_SCORE_HISTORY / AI_IMPACT_HISTORY /
-  SUBJECTIVE_IMPACT_HISTORY / CALIBRATION_STATE / CALIBRATION_HISTORY / DLM_STATE / BACKTEST_REPORT /
-  SOURCE_RELIABILITY / RELIABILITY_EVIDENCE / POOL_PRIOR / POOL_REGISTRY / POOL_AGGREGATION_LOG /
-  LANDING_FORECAST など（原則非表示）。
+- ユーザ表示シート：GUIDE / CONFIG / SALES_INPUT / SALES_MONTHLY / AI_RESEARCH（サマリービュー）/
+  PRODUCT / CLIENT / OPINIONS / DEV_SPOT / OUTPUT / DASHBOARD（hideNonUserSheets_ で制御）。
+- 内部管理（原則非表示）：RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS / AI_SCORE_HISTORY /
+  AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY / CALIBRATION_STATE / CALIBRATION_HISTORY /
+  QUARTERLY_REVIEW / QUARTERLY_REVIEW_LOG / DLM_STATE / BACKTEST_REPORT / SOURCE_RELIABILITY /
+  RELIABILITY_EVIDENCE / POOL_PRIOR / POOL_REGISTRY / POOL_AGGREGATION_LOG / LANDING_FORECAST /
+  AI_RESEARCH_STRUCTURED / **AI_RESEARCH_TASK_LOG / AI_RESEARCH_WEB / AI_RESEARCH_EXTERNAL**。
+- **FORECAST_REPORT は撤去済み**（sheet-consolidationで物理削除）。
 - FORECAST_SNAPSHOT 末尾に calibration_applied_json を保存。
+  ※ FORECAST_SNAPSHOT の三角測量系カラム（linear/robust/regime/simulation_pred / w1〜w4）は
+  vestigial（更新ロジック無し・固定記録列）。撤去は別スコープで検討（§12）。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY 末尾に forecast_source（§4.2）。
 
 ---
 
-## 7. POOL_PRIOR 横断集約（3c-3c）★この改訂で「実装済み」に更新
+## 7. POOL_PRIOR 横断集約（3c-3c）
 v1.8では未実装と記載していたが、現行実装で完了している。
 
 ### 7.1 構成
@@ -213,9 +266,10 @@ v1.8では未実装と記載していたが、現行実装で完了している�
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 学習ループ修正（forecast_source追加・dedup・kProdフェイルセーフ）は本設計書v2.2で正典化済み。
-- 現行コードは VERSION='2.2.2-dev' / BUILD_STAGE='v8-annual-forecast-mode'。
-  この設計書はそのうち §1〜§7 の確定機能を記述対象とし、annual modeは§9で別扱いとする。
+- 現行コードは VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'。
+  DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
+- この設計書はそのうち §1〜§7・§10〜§11 の確定機能を記述対象とし、annual modeは§9で別扱いとする。
+- 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。
 
 ---
 
@@ -237,11 +291,100 @@ v1.8では未実装と記載していたが、現行実装で完了している�
 - 既定モード（actual）でも closed月を mixed/regTotal まで実績上書きしている点が、
   従来挙動（objOnlyのみ上書き）からの変化かどうかを回帰確認で確定させる。
 
-### 9.3 暫定方針
+### 9.3 closed-month overwrite の発火条件（重要・前提見直し）
+- actualモードの上書きは `sourceByMonth[i]==='actual_closed'` の月のみ。
+- `getForecastContext_` 上、`actual_closed` は「forecast月が SALES_MONTHLY ヘッダに存在し（forecastMonthIndexesInSales>=0）、
+  かつ lastClosedMonthStart 以前」のときに立つ。
+- SALES窓（fy-4/04〜fy-1の48ヶ月）と forecast窓（fy/04〜）は**通常は非重複**だが、
+  `getDefaultFY_`（実行を6ヶ月先送りしてFYを決める）により FY が手前にずれた場合、
+  両窓が重なって `actual_closed` が立ちうる。「構造的に常にinert」とは断定できないため、
+  §9の方針決定時に「実運用FY設定での発火有無」を必ず回帰確認する。
+
+### 9.4 暫定方針
 - 方針確定までは既定 actual を維持。forecastモードは検証用途に留める。
 - 確定後、この§9を§2以降の本文へ統合し、設計書から「方針確認待ち」表記を外す。
 
 ---
 
-この v2.2 は、3c-3c横断プールと学習ループ修正（forecast_source / dedup / kProdフェイルセーフ）を
-コードと同期して正典化した改訂版。annual-forecast-mode は実装済みだが方針確認待ちとして§9に隔離している。
+## 10. AI調査パイプライン（Vertex AI / A-4 = runVertexAIResearch）
+v2.2まで設計書に一切記述が無かった領域。現行A-4の実体を正典化する。
+
+### 10.1 全体像
+A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/Channel/DX）ごとに以下を実行する：
+1. **grounded web検索**（callVertexGeminiGrounded_）：Gemini + googleSearch（不可時 googleSearchRetrieval へ
+   フォールバック）で最新Web情報を取得。groundingメタからcitationを抽出。
+2. **RAG検索**（callVertexSearchRAG_）：Vertex AI Search データストア（富士経済PDF / Mixonline Excel等）を
+   検索し summary + citations + documents を取得。VERTEX_DATASTORE_ID/SEARCH_LOCATION 未設定時はskip（web-only）。
+3. **構造化**（callVertexGeminiStructured_）：web結果をevent行、RAG結果をbenchmark行として
+   responseMimeType=application/json で構造化し、AI_RESEARCH_STRUCTURED の行へ変換（buildVertexStructuredRows_）。
+
+### 10.2 readiness 判定
+- readVertexConfig_ が geminiReady（projectId+location+geminiModel）と ragReady（datastoreId+searchLocation）を分離。
+- A-4の入口判定は geminiReady。RAG未設置でも web-only で実行できる。
+- AI_RESEARCH_ENABLED=0 のときは「無効」メッセージで何もせず終了。
+- geminiReady=false のときは「必須設定が未入力」エラーで停止（手動TSV経路には落ちない）。
+
+### 10.3 スコア化（event / benchmark）
+- event_score：方向(up/down/neutral) × |impact-50| × confidence を ±50 にclamp。
+- benchmark_score：(relative_percentile-50) × relative_confidence × quality倍率(high1/medium0.75/low0.5) を ±50 にclamp。
+- これらを readAIResearchScores_ が topic別に blend（topicごと固定比率）し、品質不足は中立化。
+- AI_SCORE_HISTORY に topic別 blended_score を記録（momentum算出の履歴源）。
+
+### 10.4 失敗時の扱い（フェイルセーフ）
+- web/rag/structure の各段で失敗してもrun全体は止めず、AI_RESEARCH_TASK_LOG に per-topic per-aspect 行を残す。
+- 全topicで構造化行が0件なら、AI_RESEARCH_STRUCTURED は**上書きせず既存行を保持**し、エラー通知して終了。
+- 1件以上得られたら AI_RESEARCH_STRUCTURED を全置換し、サマリービュー（§11）を再描画。
+
+### 10.5 ランタイムシート（遅延作成）
+ensureAIResearchRuntimeSheets_ が以下を遅延作成（A-1では作らない）：
+- AI_RESEARCH_STRUCTURED：構造化結果（event/benchmark行）。A-9が読む唯一の入口。
+- AI_RESEARCH_TASK_LOG：run_id/topic/aspect(web/rag/structure)/status/duration/usage/citations/error を記録。
+- AI_RESEARCH_WEB：web検索の生応答・citation・promptをnote(JSON)で保存。
+- AI_RESEARCH_EXTERNAL：RAGの生応答・summary・documentsをnote(JSON)で保存。
+
+### 10.6 CONFIGキー（既定値）
+- VERTEX_PROJECT_ID = forecast-agent-498907
+- VERTEX_LOCATION = global（grounding推奨）
+- VERTEX_GEMINI_MODEL = gemini-3.1-pro-preview（またはgemini-3.5-flash）
+- VERTEX_DATASTORE_ID = （空ならRAGスキップ）
+- VERTEX_SEARCH_LOCATION = （空ならRAGスキップ）
+- AI_RESEARCH_ENABLED = 1
+- 必要OAuthスコープ：cloud-platform / script.external_request（appsscript.jsonに設定済み）
+
+---
+
+## 11. AI調査サマリービュー（AI_RESEARCH シート）
+A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描画する（ユーザ表示シート）。
+
+### 11.1 構成（3段）
+- ① topic別サマリー（要約文）：構造化結果の report_text を topic単位で表示（splitAIResearchReportTextByTopic_ で
+  【Market】等の見出しで分割）。全topicで要約文が空ならフェイルセーフ文を表示。
+- ② AIスコア サマリー（4軸）：topic別 Final Score / event_score / benchmark_score / 最新as_of / 備考。
+  Final Score は readAIResearchScores_ と一致（同一runのOUTPUT 4軸スコアと整合）。
+- ③ スコア根拠（event / benchmark 明細）：行種別ごとに direction/impact/confidence/relative_*/quality/evidence 等。
+
+### 11.2 再描画の不変条件
+- A-4を複数回実行しても追記でなく再描画（重複しない）。
+- A-4失敗（outRows空）時は上書きせず前回内容を保持。
+- 本ビューは表示専用で、予測コア（A-9）には影響しない。
+
+---
+
+## 12. 既知の latent issue（非ブロッキング / 別スコープで対応）
+本設計書では現状を記述するに留め、修正は別プロンプトで扱う（1スコープ1変更の原則）。
+- **append-without-dedup**：LANDING_FORECAST（writeDlmShadowLanding_）と EVAL_LOG は
+  A-9/B-2の再実行で追記増殖する。Fix Aと同型の問題が未対処。
+- **shadow mode 表示の opsQuantOnly エイリアス**：objOnly が quantOnly を参照する箇所で
+  primary時の表示にゆらぎが出うる。
+- **client名マッチの不整合**：exact-string比較と normalizeClientName_ 経由の比較が混在。
+- **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**：w1〜w4 / linear/robust/regime/simulation_pred は
+  更新ロジック無し（固定記録列）。撤去は確認後の別スコープ。
+- **dead path**：generateAIResearchTemplate / parseAIResearchPaste_（旧Gem手動貼付経路）は
+  メニュー非掲載で現行未使用。物理削除は確認後の別スコープ。
+
+---
+
+この v2.3 は、Vertex AI調査パイプライン（grounded web検索 / Vertex AI Search RAG / 構造化出力）と
+AI調査サマリービュー、シート遅延初期化、FORECAST_REPORT撤去をコードと同期して正典化した改訂版。
+annual-forecast-mode は実装済みだが方針確認待ちとして§9に隔離している。
+latent issue は§12に列挙し、各々別スコープで対応する。
