@@ -15,7 +15,7 @@
  ***************************************/
 
 const VERSION = '2.3.5-dev';
-const BUILD_STAGE = 'v8-vertex-config-ready';
+const BUILD_STAGE = 'v8-vertex-only';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2662,7 +2662,7 @@ function buildCONFIG_() {
     ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.1-pro-preview または gemini-3.5-flash）', 'gemini-3.1-pro-preview'],
     ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。RAG未設置時は空）', ''],
     ['VERTEX_SEARCH_LOCATION（データストアのロケーション。例: global。RAG未設置時は空）', ''],
-    ['AI_RESEARCH_ENABLED（0/1。1でVertex呼び出しを実行、0で従来の手動貼付parseにフォールバック）', 0]
+    ['AI_RESEARCH_ENABLED（0/1。1でVertex AIリサーチを実行、0でAI調査をスキップ）', 1]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -2682,7 +2682,7 @@ function buildCONFIG_() {
     ['対応できない範囲', '突発イベントの完全再現、制度変更の即時反映、全案件網羅。'],
     ['予測値の扱い', '予測は意思決定補助であり確定値ではありません。P10/P50/P90レンジで判断。'],
     ['AI調査（自動）', 'AI_RESEARCH_ENABLED=1でVertex AI自動調査を実行し、Web検索と購入レポートRAGの結果をAI_RESEARCH_STRUCTUREDへ記録。'],
-    ['AI調査（手動）', 'AI_RESEARCH_ENABLED=0では手動貼付parseにフォールバックし、富士経済benchmarkを含むTSV形式を前提。'],
+    ['AI調査（無効時）', 'AI_RESEARCH_ENABLED=0ではVertex AI調査を実行せず、AI_RESEARCH_STRUCTUREDの既存行だけを参照。'],
     ['四半期運用ルール', 'B-1〜B-3は四半期正式レビュー、月次は軽量監視。'],
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
   ];
@@ -2690,7 +2690,7 @@ function buildCONFIG_() {
   sh.getRange(proxyStart, 1, 1, 2).setValues([['背景・運用補足（GUIDE統合）', '内容']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
   safeSetNote_(sh, proxyStart, 1, 'GUIDEから移設した運用補足です。本文は要約し、詳細は各Noteで確認します。');
-  safeSetNote_(sh, proxyStart + 10, 1, '手動フォールバック時のTSVは event / benchmark の両rowを含めます。');
+  safeSetNote_(sh, proxyStart + 10, 1, 'AI_RESEARCH_ENABLED=0ではA-4のVertex AI調査を実行せず、A-9はAI_RESEARCH_STRUCTUREDの既存行を参照します。');
   safeSetNote_(sh, proxyStart + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
 
   const flowStart = proxyStart + 1 + proxyRows.length + sectionGapRows;
@@ -6605,11 +6605,12 @@ function runVertexAIResearch() {
     if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
 
     const vertex = readVertexConfig_();
-    if (!vertex.enabled || !vertex.geminiReady) {
-      generateAIResearchTemplate();
-      const reason = vertex.enabled ? 'Vertex設定が未完了（PROJECT_ID/LOCATION/GEMINI_MODEL）' : 'AI_RESEARCH_ENABLED=0';
-      SpreadsheetApp.getActiveSpreadsheet().toast(`${reason} のため手動貼付モードで実行しました。`, MENU_NAME, 8);
+    if (!vertex.enabled) {
+      SpreadsheetApp.getUi().alert('AI調査は無効です', 'CONFIG の AI_RESEARCH_ENABLED を 1 にしてから A-4 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
       return;
+    }
+    if (!vertex.geminiReady) {
+      throw new Error('Vertex の必須設定が未入力です（CONFIG: VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL）。設定後に A-4 を再実行してください。');
     }
 
     ensureAIResearchRuntimeSheets_(ss);
@@ -6757,7 +6758,7 @@ function runVertexAIResearch() {
     });
 
     if (!outRows.length) {
-      const msg = `Vertex調査に失敗しました。既存のAI_RESEARCH_STRUCTUREDは保持しています。AI_RESEARCH_ENABLED=0 に切り替えると手動モードも利用できます。`;
+      const msg = `Vertex調査に失敗しました。既存のAI_RESEARCH_STRUCTUREDは保持しています。CONFIGとAI_RESEARCH_TASK_LOGを確認してください。`;
       updateProcessStatus_('step3a_status', 'error', targetClient, 0, msg);
       safeLogRun_('runVertexAIResearch', targetClient, 'error', 0, started, msg);
       SpreadsheetApp.getUi().alert('Vertex調査エラー', msg, SpreadsheetApp.getUi().ButtonSet.OK);
@@ -7495,10 +7496,7 @@ function runPhase1Forecast() {
   try {
     requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const started = new Date();
-    const vertex = readVertexConfig_();
-    const parsed = (vertex.enabled && vertex.geminiReady)
-      ? { rows: countAIResearchStructuredRows_(), warning: 'vertex_mode_manual_parse_skipped' }
-      : parseAIResearchPaste_();
+    const parsed = { rows: countAIResearchStructuredRows_(), warning: 'vertex_only_mode' };
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
     const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -8348,7 +8346,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.5-dev' / BUILD_STAGE='v8-vertex-config-ready' であること。
+ * 11) VERSION='2.3.5-dev' / BUILD_STAGE='v8-vertex-only' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8359,18 +8357,16 @@ function syncSalesFromSalesInput_(fy, client) {
  */
 
 /**
- * HOW TO TEST (vertex-config-ready)
- * 1) A-1 初期セットアップ後、CONFIG に VERTEX_PROJECT_ID=forecast-agent-498907 / VERTEX_LOCATION=global /
- *    VERTEX_GEMINI_MODEL=gemini-3.1-pro-preview が既定で入り、DATASTORE_ID/SEARCH_LOCATION は空、
- *    AI_RESEARCH_ENABLED=0 であること。
- * 2) AI_RESEARCH_ENABLED=0 のまま A-4 / A-9 を実行 → 従来どおり手動貼付モード（挙動不変）。
- * 3) AI_RESEARCH_ENABLED=1、DATASTORE_ID/SEARCH_LOCATION は空のまま A-4 を実行 →
- *    web-only で AI_RESEARCH_STRUCTURED が更新される（geminiReady=true で入口通過）。
- * 4) このとき AI_RESEARCH_TASK_LOG の aspect=rag 行は status=skipped で記録され、
- *    warn サマリーの rag_error は加算されない（RAG は未設定スキップでありエラーではない）。
- * 5) AI_RESEARCH_ENABLED=1 ＋ web-only の状態で A-9 → manual parse へフォールバックせず
- *    （geminiReady 経由で countAIResearchStructuredRows_ を使う）、A-4 の構造化行が使われる。
- * 6) DATASTORE_ID/SEARCH_LOCATION を埋めると ragReady=true になり、RAG 呼び出しが実行される。
+ * HOW TO TEST (vertex-only)
+ * 1) A-1 後、CONFIG に VERTEX_PROJECT_ID=forecast-agent-498907 / LOCATION=global /
+ *    GEMINI_MODEL=gemini-3.1-pro-preview が入り、DATASTORE_ID/SEARCH_LOCATION は空、AI_RESEARCH_ENABLED=1。
+ * 2) その状態で A-4 → web-only で Vertex が走り AI_RESEARCH_STRUCTURED が更新される（手動貼付トーストは出ない）。
+ *    AI_RESEARCH_TASK_LOG の aspect=web 行は success、aspect=rag 行は status=skipped。
+ * 3) VERTEX_GEMINI_MODEL を空にして A-4 → 「Vertex の必須設定が未入力」エラーで止まる（手動へ落ちない）。
+ * 4) AI_RESEARCH_ENABLED=0 で A-4 → 「無効」メッセージで何もせず終了。
+ * 5) A-9 → 手動 parse を呼ばず、A-4 が書いた AI_RESEARCH_STRUCTURED の行をそのまま使う。
+ *    AI_RESEARCH_STRUCTURED が空でも A-9 は完走（AIスコアは中立=0）。
+ * 6) DATASTORE_ID/SEARCH_LOCATION を埋めると ragReady=true で RAG も実行される。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
