@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.2-dev';
-const BUILD_STAGE = 'v8-sheet-consolidation';
+const VERSION = '2.3.3-dev';
+const BUILD_STAGE = 'v8-sheet-consolidation-2';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -93,7 +93,6 @@ const SHEETS = {
   POOL_PRIOR: 'POOL_PRIOR',
   REGISTRY: 'POOL_REGISTRY',
   POOL_AGGREGATION_LOG: 'POOL_AGGREGATION_LOG',
-  BUDGET_FROZEN: 'BUDGET_FROZEN',
   LANDING_FORECAST: 'LANDING_FORECAST',
   BACKTEST_REPORT: 'BACKTEST_REPORT',
   AI_RESEARCH_EXTERNAL: 'AI_RESEARCH_EXTERNAL',
