@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.4-dev';
-const BUILD_STAGE = 'v8-ai-score-momentum';
+const VERSION = '2.3.5-dev';
+const BUILD_STAGE = 'v8-vertex-config-ready';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2657,11 +2657,11 @@ function buildCONFIG_() {
     ['POOL_MIN_CLIENTS（横断集約の最低クライアント数）', POOL_MIN_CLIENTS_DEFAULT],
     ['LMDI_DECOMPOSITION_ENABLED（主観寄与のLMDI分解表示 0/1）', 0],
     ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual'],
-    ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', ''],
-    ['VERTEX_LOCATION（リージョン。例: us-central1 または global）', ''],
-    ['VERTEX_GEMINI_MODEL（grounding生成に使うモデル。例: gemini-2.0-flash または gemini-1.5-pro）', ''],
-    ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。RAG参照先）', ''],
-    ['VERTEX_SEARCH_LOCATION（データストアのロケーション。例: global）', ''],
+    ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', 'forecast-agent-498907'],
+    ['VERTEX_LOCATION（リージョン。grounding は global 推奨）', 'global'],
+    ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.1-pro-preview または gemini-3.5-flash）', 'gemini-3.1-pro-preview'],
+    ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。RAG未設置時は空）', ''],
+    ['VERTEX_SEARCH_LOCATION（データストアのロケーション。例: global。RAG未設置時は空）', ''],
     ['AI_RESEARCH_ENABLED（0/1。1でVertex呼び出しを実行、0で従来の手動貼付parseにフォールバック）', 0]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
@@ -3556,7 +3556,10 @@ function readVertexConfig_() {
     searchLocation: String(labelMap.VERTEX_SEARCH_LOCATION || '').trim(),
     enabled: Number(labelMap.AI_RESEARCH_ENABLED || 0) > 0
   };
-  cfg.complete = !!(cfg.projectId && cfg.location && cfg.geminiModel && cfg.datastoreId && cfg.searchLocation);
+  // gemini（web grounding + 構造化）と RAG（Vertex AI Search）の readiness を分離。
+  // RAG 未設置でも web-only で A-4 を実行できるよう、入口判定は geminiReady を使う。
+  cfg.geminiReady = !!(cfg.projectId && cfg.location && cfg.geminiModel);
+  cfg.ragReady = !!(cfg.datastoreId && cfg.searchLocation);
   return cfg;
 }
 
@@ -6602,9 +6605,9 @@ function runVertexAIResearch() {
     if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
 
     const vertex = readVertexConfig_();
-    if (!vertex.enabled || !vertex.complete) {
+    if (!vertex.enabled || !vertex.geminiReady) {
       generateAIResearchTemplate();
-      const reason = vertex.enabled ? 'Vertex設定が未完了' : 'AI_RESEARCH_ENABLED=0';
+      const reason = vertex.enabled ? 'Vertex設定が未完了（PROJECT_ID/LOCATION/GEMINI_MODEL）' : 'AI_RESEARCH_ENABLED=0';
       SpreadsheetApp.getActiveSpreadsheet().toast(`${reason} のため手動貼付モードで実行しました。`, MENU_NAME, 8);
       return;
     }
@@ -6669,10 +6672,12 @@ function runVertexAIResearch() {
 
       const ragQuery = buildRagQuery_(targetClient, topic);
       const ragStarted = new Date();
-      const rag = callVertexSearchRAG_(ragQuery, { config: vertex });
+      const rag = vertex.ragReady
+        ? callVertexSearchRAG_(ragQuery, { config: vertex })
+        : { ok: false, skipped: true, endpoint: 'skipped', summary: '', citations: [], documents: [], error: 'rag_not_configured' };
       const ragDuration = durationSec_(ragStarted);
-      const ragLow = (!rag.ok || !rag.summary || !rag.citations || rag.citations.length === 0);
-      if (!rag.ok) stats.ragError++;
+      const ragLow = vertex.ragReady && (!rag.ok || !rag.summary || !rag.citations || rag.citations.length === 0);
+      if (vertex.ragReady && !rag.ok) stats.ragError++;
       if (ragLow) stats.lowConfidence++;
       appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_EXTERNAL, {
         client: targetClient,
@@ -6699,7 +6704,7 @@ function runVertexAIResearch() {
         aspect: 'rag',
         model: 'Vertex AI Search',
         endpoint: rag.endpoint || '',
-        status: rag.ok ? 'success' : 'error',
+        status: rag.skipped ? 'skipped' : (rag.ok ? 'success' : 'error'),
         durationSec: ragDuration,
         usage: {},
         lowConfidence: ragLow,
@@ -7491,7 +7496,7 @@ function runPhase1Forecast() {
     requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const started = new Date();
     const vertex = readVertexConfig_();
-    const parsed = (vertex.enabled && vertex.complete)
+    const parsed = (vertex.enabled && vertex.geminiReady)
       ? { rows: countAIResearchStructuredRows_(), warning: 'vertex_mode_manual_parse_skipped' }
       : parseAIResearchPaste_();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -8343,7 +8348,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.2-dev' / BUILD_STAGE='v8-sheet-consolidation' であること。
+ * 11) VERSION='2.3.5-dev' / BUILD_STAGE='v8-vertex-config-ready' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8351,6 +8356,21 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) どちらのモードでも、年度合計(P10/P50/P90)は12ヶ月すべての予測simから算出される（経過実績で固定されない）。
  * 4) actual モードのOUTPUT row6に「年度合計は通年予測（着地ではない）」旨の注記が表示される。
  * 5) モード切替の前後で、quantOnly / mixed の予測計算自体は不変（年度合計の算出式を変えていない）。
+ */
+
+/**
+ * HOW TO TEST (vertex-config-ready)
+ * 1) A-1 初期セットアップ後、CONFIG に VERTEX_PROJECT_ID=forecast-agent-498907 / VERTEX_LOCATION=global /
+ *    VERTEX_GEMINI_MODEL=gemini-3.1-pro-preview が既定で入り、DATASTORE_ID/SEARCH_LOCATION は空、
+ *    AI_RESEARCH_ENABLED=0 であること。
+ * 2) AI_RESEARCH_ENABLED=0 のまま A-4 / A-9 を実行 → 従来どおり手動貼付モード（挙動不変）。
+ * 3) AI_RESEARCH_ENABLED=1、DATASTORE_ID/SEARCH_LOCATION は空のまま A-4 を実行 →
+ *    web-only で AI_RESEARCH_STRUCTURED が更新される（geminiReady=true で入口通過）。
+ * 4) このとき AI_RESEARCH_TASK_LOG の aspect=rag 行は status=skipped で記録され、
+ *    warn サマリーの rag_error は加算されない（RAG は未設定スキップでありエラーではない）。
+ * 5) AI_RESEARCH_ENABLED=1 ＋ web-only の状態で A-9 → manual parse へフォールバックせず
+ *    （geminiReady 経由で countAIResearchStructuredRows_ を使う）、A-4 の構造化行が使われる。
+ * 6) DATASTORE_ID/SEARCH_LOCATION を埋めると ragReady=true になり、RAG 呼び出しが実行される。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
