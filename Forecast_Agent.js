@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.8-dev / BUILD_STAGE v8-client-match-unify）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.9-dev / BUILD_STAGE v8-objonly-dealias）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.8-dev';
-const BUILD_STAGE = 'v8-client-match-unify';
+const VERSION = '2.3.9-dev';
+const BUILD_STAGE = 'v8-objonly-dealias';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1513,7 +1513,9 @@ function runForecastFYCore_(fy, clientName) {
       quantOnly.p90[i] = Math.max(0, Number(dlmForecast.p90[i] || 0)) + bg;
     }
   }
-  const objOnly = quantOnly; // 互換名
+  // objOnly は「客観のみ」表示系列。closedMonthMode='actual' の実績上書きで
+  // quantOnly（KPI診断）/ opsQuantOnly（DLM比較の旧Ops参照）を巻き込み変異させないよう、独立配列のコピーにする。
+  const objOnly = { p10: quantOnly.p10.slice(), p50: quantOnly.p50.slice(), p90: quantOnly.p90.slice() };
 
   toastProgress_(ss, `STEP3/6: 残差からレンジの基礎（P10/P50/P90）を作成…`, 5);
   toastProgress_(ss, `STEP4/6: 既知SPOT/背景SPOT + 主観係数を準備…`, 6);
@@ -8662,7 +8664,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.8-dev' / BUILD_STAGE='v8-client-match-unify' であること。
+ * 11) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8687,7 +8689,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (ai-summary-view)
- * 1) VERSION='2.3.8-dev' / BUILD_STAGE='v8-client-match-unify' であること。
+ * 1) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
  * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
  *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
  * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
@@ -8697,6 +8699,18 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) ②のFinal Scoreが、同一runのOUTPUT 4軸スコア（readAIResearchScores_）と一致すること。
  * 8) A-4失敗（outRows空）時、AI_RESEARCH は前回内容を保持し、上書きされないこと。
  * 9) A-9（予測）の OUTPUT P10/P50/P90 が本変更の前後で不変であること（予測コア無変更）。
+ */
+
+/**
+ * HOW TO TEST (objonly-dealias)
+ * 1) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
+ * 2) off/shadow モードで A-9 を実行し、OUTPUT の P10/P50/P90（混合・客観のみ両セクション）が
+ *    本修正の前後で不変であること（actual_closed 月が立たない現行データフローでは挙動中立）。
+ * 3) runForecastFYCore_ の objOnly が quantOnly と別オブジェクトであること（配列を共有しない）。
+ *    objOnly の配列要素を書き換えても result.quantOnly / result.opsQuantOnly の配列が変化しないこと。
+ * 4) DLM shadow セクションの「参考:旧Ops_BASE(定量)P50」列が opsQuantOnly 由来で、
+ *    closedMonthMode='actual' 経路から独立していること（巻き込み変異が起きない）。
+ * 5) KPIブロック（定量寄与率等）が quantOnly 由来で、objOnly の上書きから独立していること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
