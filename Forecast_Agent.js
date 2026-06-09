@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.2-dev / BUILD_STAGE v8-sheet-consolidation）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.6-dev / BUILD_STAGE v8-ai-summary-view）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.5-dev';
-const BUILD_STAGE = 'v8-vertex-only';
+const VERSION = '2.3.6-dev';
+const BUILD_STAGE = 'v8-ai-summary-view';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2476,7 +2476,7 @@ function buildGUIDE_() {
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT, '予測入力（月次案件一覧）'],
     ['自動入力用', SHEETS.SALES_MONTHLY, '予測用集計（48ヶ月横持ち / BASE・SPOT）'],
-    ['自動入力用', SHEETS.AI_RESEARCH, 'AI調査テンプレート兼貼り付け'],
+    ['自動入力用', SHEETS.AI_RESEARCH, 'Vertex AI調査サマリー'],
     ['ユーザ入力用', SHEETS.PRODUCT, '製品要因入力'],
     ['ユーザ入力用', SHEETS.CLIENT, 'クライアント要因入力'],
     ['ユーザ入力用', SHEETS.OPINIONS, '担当者意見入力'],
@@ -5958,6 +5958,11 @@ function ensureSheetHasColumns_(sh, minCols) {
   if (cur < minCols) sh.insertColumnsAfter(cur, minCols - cur);
 }
 
+function ensureSheetHasRows_(sh, minRows) {
+  const cur = sh.getMaxRows();
+  if (cur < minRows) sh.insertRowsAfter(cur, minRows - cur);
+}
+
 function getOrCreateSheet_(ss, name) {
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
@@ -6152,8 +6157,7 @@ function buildPhase1Sheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   buildSimpleSheet_(ss, SHEETS.SALES_INPUT, ['client','service_type','product','target_month','input_amount','status','source_updated_at']);
   buildSimpleSheet_(ss, SHEETS.ACTUAL_EVAL_MONTHLY, ['client','service_type','product','target_month','eval_actual_amount','actual_closed_flag','source_updated_at']);
-  buildSimpleSheet_(ss, SHEETS.AI_RESEARCH, ['client','as_of_date','prompt_for_gem','paste_gem_output']);
-  ss.getSheetByName(SHEETS.AI_RESEARCH).getRange('D:D').setNumberFormat('@');
+  buildAIResearchSummaryView_(ss);
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
   buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
@@ -6180,6 +6184,254 @@ function buildSimpleSheet_(ss, name, headers) {
   sh.getRange(1,1,1,headers.length).setValues([headers]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.setFrozenRows(1);
   applySheetVisualStandards_(sh, { numericCols: [] });
+}
+
+function buildAIResearchSummaryView_(ss) {
+  const book = ss || SpreadsheetApp.getActiveSpreadsheet();
+  let client = '';
+  try {
+    const cfg = book.getSheetByName(SHEETS.CONFIG);
+    if (cfg) client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
+  } catch (e) {
+    client = '';
+  }
+  writeAIResearchSummaryView_(book, client, '', [], null);
+}
+
+function writeAIResearchSummaryView_(ss, client, asOf, structuredRows, aiScores) {
+  const sh = getOrCreateSheet_(ss, SHEETS.AI_RESEARCH);
+  const rows = (Array.isArray(structuredRows) ? structuredRows : []).filter(r => Array.isArray(r));
+  const viewCols = 13;
+  const minRows = Math.max(30, 16 + rows.length + AI_TOPICS.length * 2);
+  ensureSheetHasColumns_(sh, viewCols);
+  ensureSheetHasRows_(sh, minRows);
+
+  const full = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  full.getMergedRanges().forEach(r => r.breakApart());
+  full.clearNote();
+  sh.clear({ contentsOnly: true });
+  sh.clearFormats();
+  sh.setFrozenRows(0);
+  sh.setRowHeights(1, sh.getMaxRows(), 21);
+  sh.getRange(1, 1, sh.getMaxRows(), viewCols).setVerticalAlignment('top').setHorizontalAlignment('left');
+
+  const title = `AI調査サマリー（${client || '未設定'} / as_of ${asOf || '-'}）`;
+  const titleRange = sh.getRange(1, 1, 1, viewCols);
+  titleRange.merge();
+  titleRange.setValue(title).setFontWeight('bold').setFontSize(16).setBackground(COLOR_HEADER);
+
+  const memoRange = sh.getRange(2, 1, 1, viewCols);
+  memoRange.merge();
+  memoRange.setValue('このシートは A-4 実行時に自動更新されます。生データは AI_RESEARCH_STRUCTURED（非表示）にあります。')
+    .setBackground('#f3f3f3')
+    .setFontColor('#666666');
+
+  setAIResearchSummaryColumnWidths_(sh);
+
+  let row = 4;
+  if (!rows.length) {
+    const guide = sh.getRange(row, 1, 1, viewCols);
+    guide.merge();
+    guide.setValue('まだ A-4 を実行していません。A-2 売上データを取り込み後、A-4 AI調査を実行するとここに要約が表示されます。')
+      .setBackground('#fff2cc')
+      .setFontColor('#666666');
+    ss.setActiveSheet(sh);
+    return;
+  }
+
+  const topicSummary = buildAIResearchTopicSummary_(rows, aiScores);
+  writeAIResearchSummarySectionHeader_(sh, row, viewCols, '① topic別サマリー（要約文）');
+  row++;
+  const hasAnyReport = AI_TOPICS.some(topic => !!topicSummary[topic].report);
+  if (!hasAnyReport) {
+    const noReport = sh.getRange(row, 1, 1, viewCols);
+    noReport.merge();
+    noReport.setValue('（今回の調査では要約文が取得できませんでした。スコアと根拠を参照してください）')
+      .setBackground('#ffffff')
+      .setFontColor('#666666');
+    row++;
+  } else {
+    AI_TOPICS.forEach(topic => {
+      sh.getRange(row, 1).setValue(topic).setFontWeight('bold').setBackground('#f3f3f3');
+      const reportCell = sh.getRange(row, 2, 1, viewCols - 1);
+      reportCell.merge();
+      reportCell.setValue(topicSummary[topic].report || '').setWrap(true).setVerticalAlignment('top');
+      sh.setRowHeight(row, topicSummary[topic].report ? 90 : 36);
+      row++;
+    });
+  }
+
+  row++;
+  writeAIResearchSummarySectionHeader_(sh, row, viewCols, '② AIスコア サマリー（4軸）');
+  row++;
+  const scoreHeaders = ['Topic', 'Final Score', 'event_score', 'benchmark_score', '最新as_of', '備考'];
+  sh.getRange(row, 1, 1, scoreHeaders.length).setValues([scoreHeaders]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  const scoreStart = row;
+  const scoreRows = AI_TOPICS.map(topic => {
+    const s = topicSummary[topic];
+    return [topic, s.finalScore, s.eventScore === null ? '' : s.eventScore, s.benchmarkScore === null ? '' : s.benchmarkScore, s.latestAsOfDate || '', s.note || ''];
+  });
+  sh.getRange(scoreStart, 1, scoreRows.length, scoreHeaders.length).setValues(scoreRows);
+  sh.getRange(scoreStart, 2, scoreRows.length, 3).setNumberFormat('0.0');
+  sh.getRange(scoreStart, 2, scoreRows.length, 1).setBackgrounds(scoreRows.map(r => {
+    const v = Number(r[1] || 0);
+    return [v > 0 ? COLOR_POS : (v < 0 ? COLOR_NEG : COLOR_NEU)];
+  }));
+  row += scoreRows.length;
+
+  row++;
+  writeAIResearchSummarySectionHeader_(sh, row, viewCols, '③ スコア根拠（event / benchmark 明細）');
+  row++;
+  const detailHeaders = ['Topic', 'row_type', 'direction', 'impact_score', 'confidence', 'event_score', 'relative_position_label', 'relative_percentile', 'relative_confidence', 'benchmark_quality', 'benchmark_score', 'evidence', 'business_relevance_reason / relative_reason'];
+  sh.getRange(row, 1, 1, detailHeaders.length).setValues([detailHeaders]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  row++;
+  if (!rows.length) {
+    sh.getRange(row, 1).setValue('（明細なし）');
+  } else {
+    const detailRows = rows.map(r => buildAIResearchDetailSummaryRow_(r));
+    sh.getRange(row, 1, detailRows.length, detailHeaders.length).setValues(detailRows);
+    sh.getRange(row, 4, detailRows.length, 1).setNumberFormat('0.0');
+    sh.getRange(row, 5, detailRows.length, 1).setNumberFormat('0.00');
+    sh.getRange(row, 6, detailRows.length, 1).setNumberFormat('0.0');
+    sh.getRange(row, 8, detailRows.length, 1).setNumberFormat('0');
+    sh.getRange(row, 9, detailRows.length, 1).setNumberFormat('0.00');
+    sh.getRange(row, 11, detailRows.length, 1).setNumberFormat('0.0');
+    sh.getRange(row, 12, detailRows.length, 2).setWrap(true).setVerticalAlignment('top');
+  }
+
+  ss.setActiveSheet(sh);
+}
+
+function writeAIResearchSummarySectionHeader_(sh, row, cols, title) {
+  const r = sh.getRange(row, 1, 1, cols);
+  r.merge();
+  r.setValue(title).setBackground(COLOR_SECTION_SOFT).setFontWeight('bold');
+}
+
+function setAIResearchSummaryColumnWidths_(sh) {
+  const widths = [120, 110, 90, 105, 95, 105, 160, 130, 130, 130, 120, 360, 380];
+  widths.forEach((w, i) => sh.setColumnWidth(i + 1, w));
+}
+
+function buildAIResearchTopicSummary_(structuredRows, aiScores) {
+  const blend = { Market: [0.65, 0.35], Competitor: [0.70, 0.30], Channel: [0.65, 0.35], DX: [0.50, 0.50] };
+  const out = {};
+  AI_TOPICS.forEach(topic => {
+    out[topic] = { report: '', eventScores: [], benchmarkScores: [], latestAsOfDate: '', latestAsOfTime: 0 };
+  });
+
+  structuredRows.forEach(r => {
+    const topic = normalizeAiTopic_(r[2]);
+    if (!topic || !out[topic]) return;
+    const rowType = normalizeAiCellValue_(r[3]).toLowerCase() === 'benchmark' ? 'benchmark' : 'event';
+    const report = sanitizeAiReportText_(r[18]);
+    if (report) {
+      const splitReports = splitAIResearchReportTextByTopic_(report);
+      const splitTopics = Object.keys(splitReports);
+      if (splitTopics.length) {
+        splitTopics.forEach(t => {
+          if (out[t] && !out[t].report) out[t].report = splitReports[t];
+        });
+      } else if (!out[topic].report) {
+        out[topic].report = report;
+      }
+    }
+    const asOfDate = toDate_(r[1]);
+    if (asOfDate && asOfDate.getTime() >= out[topic].latestAsOfTime) {
+      out[topic].latestAsOfTime = asOfDate.getTime();
+      out[topic].latestAsOfDate = Utilities.formatDate(asOfDate, TZ, 'yyyy-MM-dd');
+    } else if (!out[topic].latestAsOfDate && r[1]) {
+      out[topic].latestAsOfDate = String(r[1]);
+    }
+    const score = aiSummaryNumberOrNull_(rowType === 'benchmark' ? r[20] : r[19]);
+    if (score !== null) {
+      if (rowType === 'benchmark') out[topic].benchmarkScores.push(clamp_(score, -50, 50));
+      else out[topic].eventScores.push(clamp_(score, -50, 50));
+    }
+  });
+
+  AI_TOPICS.forEach(topic => {
+    const s = out[topic];
+    const eventScore = aiSummaryAverageOrNull_(s.eventScores);
+    const benchmarkScore = aiSummaryAverageOrNull_(s.benchmarkScores);
+    const meta = aiScores && aiScores.meta && aiScores.meta[topic] ? aiScores.meta[topic] : {};
+    let finalScore = aiScores && isFinite(Number(aiScores[topic])) ? Number(aiScores[topic]) : NaN;
+    let degradedMode = meta.degradedMode || '';
+    if (!isFinite(finalScore)) {
+      if (benchmarkScore !== null && eventScore !== null) finalScore = benchmarkScore * blend[topic][0] + eventScore * blend[topic][1];
+      else if (benchmarkScore !== null) finalScore = benchmarkScore;
+      else if (eventScore !== null) finalScore = eventScore;
+      else finalScore = 0;
+      degradedMode = degradedMode || ((benchmarkScore === null && eventScore === null) ? 'no_data' : (benchmarkScore === null ? 'event_only' : (eventScore === null ? 'benchmark_only' : 'blended')));
+    }
+    s.eventScore = eventScore === null ? null : Math.round(eventScore * 10) / 10;
+    s.benchmarkScore = benchmarkScore === null ? null : Math.round(benchmarkScore * 10) / 10;
+    s.finalScore = Math.round(Number(finalScore || 0) * 10) / 10;
+    s.note = [
+      `mode=${degradedMode || 'blended'}`,
+      `neutralized=${!!meta.neutralized}`,
+      `quality=${isFinite(Number(meta.qualityScore)) ? Number(meta.qualityScore).toFixed(2) : ''}`
+    ].join('; ');
+    if (meta.latestAsOfDate) s.latestAsOfDate = meta.latestAsOfDate;
+  });
+  return out;
+}
+
+function splitAIResearchReportTextByTopic_(reportText) {
+  const text = sanitizeAiReportText_(reportText);
+  const out = {};
+  if (!text) return out;
+  const markers = [];
+  AI_TOPICS.forEach(topic => {
+    const marker = `【${topic}】`;
+    const idx = text.indexOf(marker);
+    if (idx >= 0) markers.push({ topic, marker, idx });
+  });
+  markers.sort((a, b) => a.idx - b.idx);
+  markers.forEach((m, i) => {
+    const start = m.idx + m.marker.length;
+    const end = (i + 1 < markers.length) ? markers[i + 1].idx : text.length;
+    const body = text.substring(start, end).trim();
+    if (body) out[m.topic] = body;
+  });
+  return out;
+}
+
+function buildAIResearchDetailSummaryRow_(r) {
+  const rowType = normalizeAiCellValue_(r[3]).toLowerCase() === 'benchmark' ? 'benchmark' : 'event';
+  const isBenchmark = rowType === 'benchmark';
+  return [
+    normalizeAiTopic_(r[2]) || String(r[2] || ''),
+    rowType,
+    String(r[4] || ''),
+    isBenchmark ? '' : aiSummaryNumberOrBlank_(r[5]),
+    isBenchmark ? '' : aiSummaryNumberOrBlank_(r[6]),
+    isBenchmark ? '' : aiSummaryNumberOrBlank_(r[19]),
+    isBenchmark ? String(r[13] || '') : '',
+    isBenchmark ? aiSummaryNumberOrBlank_(r[14]) : '',
+    isBenchmark ? aiSummaryNumberOrBlank_(r[15]) : '',
+    isBenchmark ? String(r[16] || '') : '',
+    isBenchmark ? aiSummaryNumberOrBlank_(r[20]) : '',
+    String(r[7] || ''),
+    isBenchmark ? String(r[17] || '') : String(r[9] || '')
+  ];
+}
+
+function aiSummaryAverageOrNull_(arr) {
+  const vals = (arr || []).filter(v => isFinite(Number(v))).map(Number);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function aiSummaryNumberOrNull_(v) {
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+function aiSummaryNumberOrBlank_(v) {
+  const n = Number(v);
+  return isFinite(n) ? n : '';
 }
 
 function ensureSheetHeaders_(sh, headers) {
@@ -6614,6 +6866,7 @@ function runVertexAIResearch() {
     }
 
     ensureAIResearchRuntimeSheets_(ss);
+    hideNonUserSheets_();
     const runId = Utilities.getUuid();
     const runAt = new Date();
     const asOf = Utilities.formatDate(runAt, TZ, 'yyyy-MM-dd');
@@ -6771,11 +7024,21 @@ function runVertexAIResearch() {
     out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
     out.getRange(2, 1, outRows.length, 22).setValues(outRows);
 
+    let summaryAiScores = null;
+    try {
+      const tuning = readModelTuningFromConfig_();
+      summaryAiScores = readAIResearchScores_(null, { basis: readAiScoreBasis_(), clientName: targetClient, tuning });
+    } catch (scoreErr) {
+      summaryAiScores = null;
+    }
+    writeAIResearchSummaryView_(ss, targetClient, asOf, outRows, summaryAiScores);
+
     const warnText = buildVertexWarningSummary_(stats, neutralTopics, outRows.length);
     updateProcessStatus_('step3_status', 'success', targetClient, outRows.length, 'Vertex AI research');
     updateProcessStatus_('step3a_status', 'success', targetClient, outRows.length, warnText);
     safeLogRun_('runVertexAIResearch', targetClient, 'success', outRows.length, started, warnText);
-    ss.setActiveSheet(out);
+    hideNonUserSheets_();
+    ss.setActiveSheet(ss.getSheetByName(SHEETS.AI_RESEARCH));
     SpreadsheetApp.getUi().alert('完了', 'Vertex AI調査を更新しました。次は A-9 予測を実行 へ進めます。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -8346,7 +8609,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.5-dev' / BUILD_STAGE='v8-vertex-only' であること。
+ * 11) VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8367,6 +8630,20 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) A-9 → 手動 parse を呼ばず、A-4 が書いた AI_RESEARCH_STRUCTURED の行をそのまま使う。
  *    AI_RESEARCH_STRUCTURED が空でも A-9 は完走（AIスコアは中立=0）。
  * 6) DATASTORE_ID/SEARCH_LOCATION を埋めると ragReady=true で RAG も実行される。
+ */
+
+/**
+ * HOW TO TEST (ai-summary-view)
+ * 1) VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view' であること。
+ * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
+ *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
+ * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
+ * 4) A-2 → A-4（Vertex成功）後、AI_RESEARCH に ①要約文 ②4軸スコア ③event/benchmark明細 の3段が描画されること。
+ * 5) report_text が全topic空でも、②③が描画され、①は「要約文が取得できませんでした」になること（フェイルセーフ）。
+ * 6) A-4 を2回実行しても AI_RESEARCH が追記されず再描画（重複しない）であること。
+ * 7) ②のFinal Scoreが、同一runのOUTPUT 4軸スコア（readAIResearchScores_）と一致すること。
+ * 8) A-4失敗（outRows空）時、AI_RESEARCH は前回内容を保持し、上書きされないこと。
+ * 9) A-9（予測）の OUTPUT P10/P50/P90 が本変更の前後で不変であること（予測コア無変更）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
