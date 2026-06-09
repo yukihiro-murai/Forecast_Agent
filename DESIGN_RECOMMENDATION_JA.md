@@ -1,16 +1,25 @@
-# 売上予測スクリプト 設計書 v2.3.1（annual-mode 方針確定 / Vertex AI調査 / AIサマリービュー同期版）
+# 売上予測スクリプト 設計書 v2.3.2（gem-path物理削除 / objOnly独立コピー化 反映版）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'）
-設計書版：v2.3.1（v2.3 からのドキュメント改訂。**コード変更は伴わない**。
-annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本文へ統合。
-「予測・提出経路」と「検証・学習経路」の分離を正典化）
+対象実装：`Forecast_Agent.js`（VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix'）
+設計書版：v2.3.2（v2.3.1 からのドキュメント改訂。**コード変更は伴わない**。
+gem-path物理削除 / objOnly独立コピー化までの設計記述を現行コード版へ同期）
 
-### 0.0 v2.3 → v2.3.1 の更新点（この改訂で反映したもの）
+### 0.0 v2.3.1 → v2.3.2 の更新点（この改訂で反映したもの）
+- **objonly-dealias**：`runForecastFYCore_` の `objOnly` を `quantOnly` の独立コピー（`.slice()`）化。
+  `closedMonthMode='actual'` の実績上書きが `quantOnly`（KPI診断）/ `opsQuantOnly`（DLM比較の旧Ops参照）を
+  巻き込み変異させない配線になった。現行データフローでは actual_closed 月が立たないため挙動中立であり、
+  予測コア（OUTPUTのP10/P50/P90）は不変。
+- **gem-path-removal**：旧Gem手動貼付経路の関数群（`generateAIResearchTemplate` / `parseAIResearchPaste_` /
+  `showPromptPreviewDialog_` / `buildAiParseWarningText_` / `pushInvalidSample_`）をコードから物理削除。
+  A-4 は `runVertexAIResearch`、A-9 は `countAIResearchStructuredRows_` で件数把握する経路に確定。
+  これは到達不能な旧経路の撤去であり、予測コア（OUTPUTのP10/P50/P90）は不変。
+
+### 0.0' v2.3 → v2.3.1 の更新点（参考・再掲）
 - **§9 annual-forecast-mode の方針を確定**。年度合計(P10/P50/P90)は「実績込みの着地予測」ではなく
   **「通年（12ヶ月）すべて予測の見通し」**（=選択肢A）で確定。これは現行実装の挙動そのものであり、
   **コード変更は発生しない**。§9 から「方針確認待ち」表記を撤去し、確定仕様として記述する。
@@ -20,12 +29,13 @@ annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本�
 - **closed月上書き（actualモード）の実運用での非発火を確定（§9.3）**。timing（実績前に回す）と
   structure（窓非重複）の二重で発火条件に到達しないことを正典化し、§9.2 の旧論点を解消する。
 
-### 0.0' v2.3 で反映済みの更新点（参考・再掲）
+### 0.0'' v2.3 で反映済みの更新点（参考・再掲）
 - **AI調査をVertex AI自動実行へ移行**。旧A-4「Gemプロンプト生成→TSV手動貼付→parse」はメニューから廃止し、
   A-4は `runVertexAIResearch`（Vertex grounded web検索 + Vertex AI Search RAG + 構造化出力）に置き換え済み（§10）。
+  現行では当該関数群もコードから物理削除済み（メニュー非掲載に留まらず定義・参照とも0件）。
 - **AI調査サマリービュー（AI_RESEARCH）を正典化**。`writeAIResearchSummaryView_` が3段ビューを再描画する（§11）。
 - **新規シート3枚**：`AI_RESEARCH_TASK_LOG` / `AI_RESEARCH_WEB` / `AI_RESEARCH_EXTERNAL`（§6・§10）。
-- **シート遅延初期化を正典化**（§1.1・§10.5）。
+- **ランタイムシート初期化を正典化**（§1.1・§10.5）。
 - **FORECAST_REPORT は撤去済み**（§6）。
 
 ---
@@ -38,7 +48,8 @@ annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本�
 - **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP）でクリップ。
   v6の「主観キャリブレータ（オーバーレイ率ターゲット探索）」は撤去済み（cap pass-through）。
 - **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。品質不足時は中立化（kAI=1.0）。
-- **AI調査の取得経路が Vertex AI へ移行**。旧Gem手動貼付（TSV）経路はメニュー廃止（§10）。
+- **AI調査の取得経路が Vertex AI へ移行**。旧Gem手動貼付（TSV）経路はメニュー廃止後、
+  現行では定義・参照とも0件（§10）。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソース（factor_product/factor_client/opinion/ai_topic）の
   寄与に reliability_r を乗じる。CONFIG RELIABILITY_APPLY_ENABLED で制御（既定ON）。
 - **LMDI分解** が追加され、主観乗算 Πk-1 を因子別に厳密加法分解（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
@@ -59,8 +70,10 @@ annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本�
 - 四半期レビュー：runQuarterlyReview（C-1）→ applyQuarterlyProposals（C-2）→ ログ閲覧（C-3）
 - 信頼度：SOURCE_RELIABILITY 適用（reliabilityApply）＋ C-1のreliability提案＋RELIABILITY_EVIDENCEへの raw hit/n 永続化
 - 横断プール：POOL_PRIOR のクライアント横断集約（adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks）
-- **シート遅延初期化**：A-1では一部シートを作らず、Vertex実行時に `ensureAIResearchRuntimeSheets_`（
-  AI_RESEARCH_STRUCTURED / AI_RESEARCH_TASK_LOG / AI_RESEARCH_WEB / AI_RESEARCH_EXTERNAL）で遅延作成。
+- **シート初期化**：AI_RESEARCH_STRUCTURED は A-1（`setupForecastBook` の order[] と `buildPhase1Sheets_`）で
+  先行作成される。Vertex実行時に真に遅延作成されるのは AI_RESEARCH_TASK_LOG / AI_RESEARCH_WEB /
+  AI_RESEARCH_EXTERNAL の3枚のみ。`ensureAIResearchRuntimeSheets_` は AI_RESEARCH_STRUCTURED については
+  冪等に存在確認・ヘッダ整合する。
   POOL_PRIOR / POOL_REGISTRY / POOL_AGGREGATION_LOG / DLM_STATE / BACKTEST_REPORT / LANDING_FORECAST も
   管理関数や予測実行時に必要に応じて `getOrCreateSheet_` で作成する。
 
@@ -96,8 +109,6 @@ annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本�
 - C-3 過去の提案履歴を開く（openQuarterlyReviewLog）
 - 管理者用（メニュー非掲載 / スクリプトエディタから手動）：
   adminSetupGuideOnly / adminInitDLMAndBacktest / adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks
-- dead path（メニュー非掲載・現行未使用 / §12参照）：
-  generateAIResearchTemplate / parseAIResearchPaste_（旧Gem手動貼付経路）
 
 ---
 
@@ -296,10 +307,10 @@ v1.8では未実装と記載していたが、現行実装で完了している�
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 現行コードは VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'。
+- 現行コードは VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- 本改訂（設計書 v2.3.1）は **コード変更を伴わない**。§9 の方針確定をドキュメントに反映しただけであり、
-  実装のVERSION/BUILD_STAGEは据え置く。
+- 本改訂（設計書 v2.3.2）は **コード変更を伴わない**。gem-path物理削除 / objOnly独立コピー化までの
+  実装状態をドキュメントに反映する doc sync である。
 - この設計書は §1〜§7・§9〜§11 の確定機能を記述対象とする。
 - 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。
 
@@ -370,12 +381,13 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
 - 全topicで構造化行が0件なら、AI_RESEARCH_STRUCTURED は**上書きせず既存行を保持**し、エラー通知して終了。
 - 1件以上得られたら AI_RESEARCH_STRUCTURED を全置換し、サマリービュー（§11）を再描画。
 
-### 10.5 ランタイムシート（遅延作成）
-ensureAIResearchRuntimeSheets_ が以下を遅延作成（A-1では作らない）：
-- AI_RESEARCH_STRUCTURED：構造化結果（event/benchmark行）。A-9が読む唯一の入口。
-- AI_RESEARCH_TASK_LOG：run_id/topic/aspect(web/rag/structure)/status/duration/usage/citations/error を記録。
-- AI_RESEARCH_WEB：web検索の生応答・citation・promptをnote(JSON)で保存。
-- AI_RESEARCH_EXTERNAL：RAGの生応答・summary・documentsをnote(JSON)で保存。
+### 10.5 ランタイムシート
+- AI_RESEARCH_STRUCTURED：A-1で先行作成される構造化結果シート（event/benchmark行）。A-9が読む唯一の入口。
+  `ensureAIResearchRuntimeSheets_` は冪等に存在確認・ヘッダ整合する。
+- A-1では作らず、Vertex実行時に遅延作成されるのは以下の3枚：
+  - AI_RESEARCH_TASK_LOG：run_id/topic/aspect(web/rag/structure)/status/duration/usage/citations/error を記録。
+  - AI_RESEARCH_WEB：web検索の生応答・citation・promptをnote(JSON)で保存。
+  - AI_RESEARCH_EXTERNAL：RAGの生応答・summary・documentsをnote(JSON)で保存。
 
 ### 10.6 CONFIGキー（既定値）
 - VERTEX_PROJECT_ID = forecast-agent-498907
@@ -407,20 +419,22 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 ## 12. 既知の latent issue（非ブロッキング / 別スコープで対応）
 本設計書では現状を記述するに留め、修正は別プロンプトで扱う（1スコープ1変更の原則）。
-- **append-without-dedup**：LANDING_FORECAST（writeDlmShadowLanding_）と EVAL_LOG は
-  A-9/B-2の再実行で追記増殖する。Fix Aと同型の問題が未対処。
-- **shadow mode 表示の opsQuantOnly エイリアス**：objOnly が quantOnly を参照する箇所で
-  primary時の表示にゆらぎが出うる。
-- **client名マッチの不整合**：exact-string比較と normalizeClientName_ 経由の比較が混在。
+- **client名マッチの不整合**：`isSameClient_` と `normalizeClientName_` 経由の直接比較が混在。
+  両者とも正規化を通すため実害は低いが、表記の統一は別スコープ。
 - **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**：w1〜w4 / linear/robust/regime/simulation_pred は
   更新ロジック無し（固定記録列）。撤去は確認後の別スコープ。
-- **dead path**：generateAIResearchTemplate / parseAIResearchPaste_（旧Gem手動貼付経路）は
-  メニュー非掲載で現行未使用。物理削除は確認後の別スコープ。
+
+解消済みメモ：
+LANDING_FORECAST（`client|fy|target_month`）と EVAL_LOG（`client|target_month|scenario`）の
+再実行追記増殖は複合キー upsert 化で解消済み。AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY は
+設計どおり追記のままであり、重複排除は C-1 読取側（forecast_open の最新run_at 1件のみ採用）で行う。
+また、shadow mode 表示の `opsQuantOnly` エイリアス問題は objOnly 独立コピー化で解消済み。
+旧Gem手動貼付経路の到達不能関数群は物理削除済み。
 
 ---
 
-この v2.3.1 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」で確定し、
-本文（§2.7・§9）へ統合したドキュメント改訂である。コード変更は伴わない。
+この v2.3.2 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典を維持しつつ、
+gem-path物理削除と objOnly独立コピー化を現行実装へ同期したドキュメント改訂である。コード変更は伴わない。
 年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、closed月上書き（actualモード）は
 実運用（A-9）では timing と structure の二重で発火しない。実績は検証・学習経路（B/C）でのみ使用し、
-提出済みの予測を書き換えることはない。latent issue は §12 に列挙し、各々別スコープで対応する。
+提出済みの予測を書き換えることはない。残存 latent issue は §12 の2件に絞り、各々別スコープで対応する。
