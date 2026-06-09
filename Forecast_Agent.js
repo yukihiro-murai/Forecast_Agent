@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.11-dev / BUILD_STAGE v8-a9-toast-fix）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.12-dev / BUILD_STAGE v8-snapshot-vestigial-removal）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.11-dev';
-const BUILD_STAGE = 'v8-a9-toast-fix';
+const VERSION = '2.3.12-dev';
+const BUILD_STAGE = 'v8-snapshot-vestigial-removal';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -6137,7 +6137,7 @@ function buildPhase1Sheets_() {
   buildAIResearchSummaryView_(ss);
   buildSimpleSheet_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   buildSimpleSheet_(ss, SHEETS.RUN_LOG, ['run_id','run_at','run_by','function_name','client','status','count','model_version','parameters_snapshot_json','input_data_hash','execution_duration_sec','error_summary']);
-  buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','linear_pred','robust_pred','regime_pred','simulation_pred','w1','w2','w3','w4','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
+  buildSimpleSheet_(ss, SHEETS.FORECAST_SNAPSHOT, ['snapshot_id','run_date','client','target_month','scenario','base_pred','subjective_adj','ai_adj','deterministic_adj','final_pred','confidence_interval_lower','confidence_interval_upper','key_factors_json','subjective_input_date','calibration_applied_json']);
   buildSimpleSheet_(ss, SHEETS.EVAL_LOG, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
   buildSimpleSheet_(ss, SHEETS.EVAL_COMPARE_MONTHLY, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
   buildSimpleSheet_(ss, SHEETS.EVAL_INSIGHTS, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
@@ -7561,7 +7561,7 @@ function writeForecastArtifacts_(result, client) {
   scenarios.forEach(sc=>{
     result.months.forEach((m,i)=>{
       const deterministicAdj = (result.spotFixedByMonth && isFinite(result.spotFixedByMonth[i])) ? result.spotFixedByMonth[i] : (result.devFixedByMonth[i] || 0);
-      rows.push([sid,runDate,client,fmtYM_(m),sc.name,'','','','',0.15,0.40,0.25,0.20,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null,JSON.stringify(buildCalibrationAppliedPayload_(result))]);
+      rows.push([sid,runDate,client,fmtYM_(m),sc.name,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null,JSON.stringify(buildCalibrationAppliedPayload_(result))]);
     });
   });
   const r0 = snap.getLastRow()+1;
@@ -7590,7 +7590,7 @@ function updatePhase1EvaluationReport() {
   snap.forEach(r => {
     const ym = String(r[3] || '');
     const sc = String(r[4] || '');
-    const pred = Number(r[17] || 0);
+    const pred = Number(r[9] || 0);
     if (!ym || !isFinite(pred)) return;
     if (sc === 'nega') p10Map.set(ym, pred);
     if (sc === 'neutral') p50Map.set(ym, pred);
@@ -7602,7 +7602,7 @@ function updatePhase1EvaluationReport() {
     const key = [r[2], r[3]].join('|');
     const act = mapA.get(key);
     if (act == null) return;
-    const pred = Number(r[17]||0);
+    const pred = Number(r[9]||0);
     const ape = act ? Math.abs(pred-act)/Math.abs(act) : '';
     const signed = pred - act;
     const absErr = Math.abs(signed);
@@ -7686,7 +7686,7 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
   snapRows.forEach(r => {
     const ym = String(r[3] || '');
     const scenario = String(r[4] || '');
-    const pred = Number(r[17] || 0);
+    const pred = Number(r[9] || 0);
     if (!ym || !isFinite(pred)) return;
     if (scenario === 'nega') p10Map.set(ym, pred);
     if (scenario === 'neutral') p50Map.set(ym, pred);
@@ -8410,6 +8410,17 @@ function syncSalesFromSalesInput_(fy, client) {
  * 4) RUN_LOG の最新 runPhase1Forecast 行の error_summary が `ai_rows=...;ai_warn=;...` 形式で、
  *    productWeightWarning がある場合は末尾に `;prodw=...` が付くこと。
  * 5) A-9 の OUTPUT の P10/P50/P90 が本修正の前後で不変であること（予測コア無変更）。
+ */
+
+/**
+ * HOW TO TEST (snapshot-vestigial-removal)
+ * 1) VERSION='2.3.12-dev' / BUILD_STAGE='v8-snapshot-vestigial-removal'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期セットアップ後、FORECAST_SNAPSHOT のヘッダが15列で、linear_pred/robust_pred/regime_pred/
+ *    simulation_pred/w1〜w4 が無いこと。
+ * 3) A-9 実行後、FORECAST_SNAPSHOT に15列で書き込まれ、final_pred が J列（index 9）にあること。
+ * 4) B-1→B-2 を実行し、EVAL_LOG / EVAL_COMPARE_MONTHLY の値が撤去前と一致すること（final_pred を r[9] で拾えている）。
+ * 5) OUTPUT の P10/P50/P90 が撤去前と不変であること。
+ * 6) A-1 で別クライアント名に切り替えたとき detectResidualClientData_ の残存検知が従来どおり動くこと（header参照のため不変）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
