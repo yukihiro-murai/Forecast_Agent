@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.10-dev / BUILD_STAGE v8-gem-path-removal）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.11-dev / BUILD_STAGE v8-a9-toast-fix）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.10-dev';
-const BUILD_STAGE = 'v8-gem-path-removal';
+const VERSION = '2.3.11-dev';
+const BUILD_STAGE = 'v8-a9-toast-fix';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7460,7 +7460,7 @@ function runPhase1Forecast() {
   try {
     requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
     const started = new Date();
-    const parsed = { rows: countAIResearchStructuredRows_(), warning: 'vertex_only_mode' };
+    const parsed = { rows: countAIResearchStructuredRows_(), warning: '' };
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
     const client = String(cfg.getRange('B2').getValue() || '').trim();
@@ -7483,7 +7483,6 @@ function runPhase1Forecast() {
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     const prodWarn = result.productWeightWarning ? `;prodw=${result.productWeightWarning}` : '';
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}${prodWarn}`);
-    if (parsed.warning) SpreadsheetApp.getActiveSpreadsheet().toast(parsed.warning, MENU_NAME, 8);
     SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
@@ -8342,7 +8341,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
+ * 11) VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8367,7 +8366,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (ai-summary-view)
- * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
+ * 1) VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix' であること。
  * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
  *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
  * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
@@ -8381,7 +8380,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (objonly-dealias)
- * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
+ * 1) VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix' であること。
  * 2) off/shadow モードで A-9 を実行し、OUTPUT の P10/P50/P90（混合・客観のみ両セクション）が
  *    本修正の前後で不変であること（actual_closed 月が立たない現行データフローでは挙動中立）。
  * 3) runForecastFYCore_ の objOnly が quantOnly と別オブジェクトであること（配列を共有しない）。
@@ -8393,7 +8392,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (gem-path-removal)
- * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
+ * 1) VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix' であること。
  * 2) grep で generateAIResearchTemplate / parseAIResearchPaste_ / showPromptPreviewDialog_ /
  *    buildAiParseWarningText_ / pushInvalidSample_ がコード中に1件も残っていないこと（定義・参照とも0件）。
  * 3) A-4（runVertexAIResearch）が従来どおり動作し、AI_RESEARCH_STRUCTURED と AI_RESEARCH サマリービューが更新されること。
@@ -8401,6 +8400,16 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) readAIReportTextForClient_ / extractReportSection_ / diagnoseLastAIParse_ / countAIResearchStructuredRows_ が残存し、参照が壊れていないこと。
  * 6) buildVertexStructuredRows_ / readAIResearchScores_ が使う parseAi* / normalizeAi* /
  *    coerceBenchmarkQuality_ / inferPercentileFromLabel_ / clampFinite_ が残存していること。
+ */
+
+/**
+ * HOW TO TEST (a9-toast-fix)
+ * 1) VERSION='2.3.11-dev' / BUILD_STAGE='v8-a9-toast-fix' であること。
+ * 2) A-9（予測を実行）を実行し、旧モード名トーストが出ないこと。
+ * 3) AIスコアが全topic 0.0 のときは「⚠ AIスコアが全topicで0.0です...」トーストが従来どおり出ること（維持確認）。
+ * 4) RUN_LOG の最新 runPhase1Forecast 行の error_summary が `ai_rows=...;ai_warn=;...` 形式で、
+ *    productWeightWarning がある場合は末尾に `;prodw=...` が付くこと。
+ * 5) A-9 の OUTPUT の P10/P50/P90 が本修正の前後で不変であること（予測コア無変更）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
