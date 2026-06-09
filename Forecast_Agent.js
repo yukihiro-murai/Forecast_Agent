@@ -2491,6 +2491,7 @@ function buildGUIDE_() {
   const guideLast = sh.getLastRow();
   const guideCols = Math.max(3, sh.getLastColumn());
   sh.getRange(1, 1, guideLast, guideCols).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  sh.getRange(1, 1).setWrapStrategy(SpreadsheetApp.WrapStrategy.OVERFLOW);
 
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
