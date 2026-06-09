@@ -2488,6 +2488,10 @@ function buildGUIDE_() {
   setGuideLinkTable_(sh, 21, links);
   applySectionGapRows_(sh, [19]);
 
+  const guideLast = sh.getLastRow();
+  const guideCols = Math.max(3, sh.getLastColumn());
+  sh.getRange(1, 1, guideLast, guideCols).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+
   ss.setActiveSheet(sh);
   safeMoveSheet_(ss, sh, 1);
 }
@@ -2521,11 +2525,11 @@ function buildCONFIG_() {
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
 
-  // CONFIG色ルール: 黄色（#fff2cc）は通常運用でユーザーが入力する欄のみ。
-  // 固定値・説明・通常いじらない調整パラメータ・自動参照セルは黄色にしない。
+  // CONFIG色ルール: 黄色（#fff2cc）はユーザーが値を入力・変更しうる欄のみ。
+  // 対象は必須入力B2:B4、互換担当者B10、環境前提の任意入力。固定値・説明・通常いじらない調整パラメータは黄色にしない。
   sh.getRange('B2:B4').setBackground(COLOR_OBJECTIVE);
   sh.getRange('B10').setFormula('=B4');
-  sh.getRange('B10').setBackground('#f3f3f3');
+  sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
@@ -2542,7 +2546,7 @@ function buildCONFIG_() {
 
   const sectionGapRows = 1;
   const envStart = 15;
-  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力）', '内容（入力必須ではありません）']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力）', '内容（入力必須ではありません）']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const envRows = [
     ['マクロ｜市場 / 制度前提', ''],
     ['マクロ｜競合前提', ''],
@@ -2582,7 +2586,6 @@ function buildCONFIG_() {
   ];
   sh.getRange(policyStart, 1, 1, 2).setValues([['予測運用ポリシー / 成功KPI・制約 / 診断KPI', '定義 / 運用ルール']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(policyStart + 1, 1, policyRows.length, 2).setValues(policyRows);
-  sh.getRange(policyStart + 1, 2, policyRows.length, 1).setWrap(true);
   safeSetNote_(sh, policyStart, 1, 'このブロックは「何を最適化し、何を制約し、何を診断するか」を明示します。');
   safeSetNote_(sh, policyStart + 4, 2, 'P10/P90のcoverageは参考診断。primary KPI/hard gate ではありません。');
   safeSetNote_(sh, policyStart + 7, 2, '過大予測（forecast > actual）の抑制を優先管理します。');
@@ -2675,9 +2678,8 @@ function buildCONFIG_() {
     ['内部管理シート', 'RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS は原則非表示運用。']
   ];
   const proxyStart = tuneStart + 1 + tuneRows.length + sectionGapRows;
-  sh.getRange(proxyStart, 1, 1, 2).setValues([['背景・運用補足（GUIDE統合）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(proxyStart, 1, 1, 2).setValues([['背景・運用補足（GUIDE統合）', '内容']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(proxyStart + 1, 1, proxyRows.length, 2).setValues(proxyRows);
-  sh.getRange(proxyStart + 1, 2, proxyRows.length, 1).setWrap(true);
   safeSetNote_(sh, proxyStart, 1, 'GUIDEから移設した運用補足です。本文は要約し、詳細は各Noteで確認します。');
   safeSetNote_(sh, proxyStart + 10, 1, '手動フォールバック時のTSVは event / benchmark の両rowを含めます。');
   safeSetNote_(sh, proxyStart + 11, 1, '四半期運用にすると負荷は下がりますが、学習反映は月次運用より遅れます。月次軽量監視で遅延を補完します。');
@@ -2688,9 +2690,8 @@ function buildCONFIG_() {
     ['代理指標/計算', 'BASE + 主観 + AI + SPOT → P10/P50/P90算出 → signed_error / APE / WAPE評価'],
     ['制約/学習ループ', '年間<=10%、半期<=12%、over-forecast<=5% → B-3で前提更新']
   ];
-  sh.getRange(flowStart, 1, 1, 2).setValues([['因果経路フローチャート（参照）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
+  sh.getRange(flowStart, 1, 1, 2).setValues([['因果経路フローチャート（参照）', '内容']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(flowStart + 1, 1, flowRows.length, 2).setValues(flowRows);
-  sh.getRange(flowStart + 1, 2, flowRows.length, 1).setWrap(true);
   safeSetNote_(sh, flowStart, 1, 'GUIDEから移設した因果経路の全体像です。');
 
   const footerStart = flowStart + 1 + flowRows.length + sectionGapRows;
@@ -2711,6 +2712,9 @@ function buildCONFIG_() {
   }
   applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
   applySectionGapRows_(sh, [envStart - 1, policyStart - 1, tuneStart - 1, proxyStart - 1, flowStart - 1, footerStart - 1]);
+  const cfgLast = sh.getLastRow();
+  const cfgCols = Math.max(2, sh.getLastColumn());
+  sh.getRange(1, 1, cfgLast, cfgCols).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 }
 
 function buildSALES_() {
