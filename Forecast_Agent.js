@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.9-dev / BUILD_STAGE v8-objonly-dealias）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.10-dev / BUILD_STAGE v8-gem-path-removal）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.9-dev';
-const BUILD_STAGE = 'v8-objonly-dealias';
+const VERSION = '2.3.10-dev';
+const BUILD_STAGE = 'v8-gem-path-removal';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -5129,31 +5129,6 @@ function median_(arr) {
   return (v[mid - 1] + v[mid]) / 2;
 }
 
-function pushInvalidSample_(samples, rowNo, reason, rawLine) {
-  if (!samples || samples.length >= 3) return;
-  const preview = String(rawLine || '').replace(/\s+/g, ' ').trim().slice(0, 60);
-  samples.push({ rowNo, reason, preview });
-}
-
-function buildAiParseWarningText_(opt) {
-  const missing = (opt.topicsMissingBenchmark || []).join(',');
-  const reasons = opt.invalidReasons || {};
-  const coerceDetail = opt.warnCoercedDetail || {};
-  const coerceStr = `{colcount:${Number(coerceDetail.colcount_padded || 0)}, conf15:${Number(coerceDetail.confidence_1to5 || 0)}, pct_from_label:${Number(coerceDetail.percentile_from_label || 0)}, quality:${Number(coerceDetail.quality_coerced || 0)}, rowtype:${Number(coerceDetail.row_type_default || 0)}}`;
-  return [
-    `ai_rows=${Number(opt.rawRows || 0)}`,
-    `valid_event=${Number(opt.validEvent || 0)}`,
-    `valid_benchmark=${Number(opt.validBenchmark || 0)}`,
-    `invalid=${Number(opt.invalid || 0)}`,
-    `warn_clamp=${Number(opt.warnClamp || 0)}`,
-    `warn_coerced=${Number(opt.warnCoerced || 0)}`,
-    `warn_coerced_detail=${coerceStr}`,
-    `topics_missing_benchmark=[${missing}]`,
-    `invalid_reasons={colcount:${Number(reasons.colcount || 0)}, topic:${Number(reasons.topic || 0)}, peer_missing:${Number(reasons.peer_missing || 0)}, dir_impact_missing:${Number(reasons.dir_impact_missing || 0)}, score_unparseable:${Number(reasons.score_unparseable || 0)}}`
-  ].join('; ');
-}
-
-
 /** ====== 予測計算（モデル） ====== */
 function fitOpsModelTrendSeason_(y) {
   const n = y.length;
@@ -6794,58 +6769,6 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   return { count: rows.length, range: rangeInfo };
 }
 
-function generateAIResearchTemplate() {
-  requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const targetClient = String(cfg.getRange('B2').getValue() || '').trim();
-  if (!targetClient) throw new Error('CONFIG!B2 にクライアントを設定してください。');
-  const shIn = ss.getSheetByName(SHEETS.SALES_INPUT);
-  const shOut = ss.getSheetByName(SHEETS.AI_RESEARCH);
-  const vals = shIn.getDataRange().getValues().slice(1);
-  const clients = Array.from(new Set(
-    vals
-      .map(r => String(r[0] || '').trim())
-      .filter(c => c && isSameClient_(c, targetClient))
-      .map(c => normalizeClientName_(c))
-  ));
-
-  const rows=[];
-  clients.sort().forEach(c=>{
-    const prompt = [
-      `Client_Name: ${normalizeClientName_(c)}`,
-      `As_of_Date: ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')}`,
-      '',
-      'あなたは市場/競合分析アシスタントです。添付済みの富士経済PDF/XLSXを primary source とし、必要時のみIR/ニュースを補助利用してください。',
-      'このクライアントが外資なら「外資企業編」、内資なら「国内企業編」を peer benchmark の基準にしてください。',
-      'topicは Market / Competitor / Channel / DX を対象にしてください。',
-      '各topicで benchmark row を最低1件試み、event row は0〜3件まで許可します。',
-      'benchmark row で根拠が弱い場合は relative_percentile を空欄にし、推測埋めは禁止です。',
-      'evidence には可能な限り `富士経済 外資/国内 2025 p.xx` のように page/table を記載してください。',
-      'report_text では相対位置・比較母集団・根拠・BIGM2Y需要示唆を明記してください。',
-      '',
-      '###REPORT_START###',
-      '（ここに最終レポート本文）',
-      '###REPORT_END###',
-      '',
-      '###TSV_START###',
-      'client\tas_of_date\ttopic\trow_type\tdirection\timpact_score\tconfidence\tevidence\ttime_horizon\tbusiness_relevance_reason\tmarket_size_ref\tpeer_universe\tpeer_basis\trelative_position_label\trelative_percentile\trelative_confidence\tbenchmark_quality\trelative_reason\treport_text',
-      '###TSV_END###'
-    ].join('\n');
-    rows.push([normalizeClientName_(c),new Date(),prompt]);
-  });
-  shOut.getRange(2,1,Math.max(1,shOut.getMaxRows()-1),4).clearContent();
-  if(rows.length) shOut.getRange(2,1,rows.length,3).setValues(rows);
-  shOut.getRange('D1').setValue('paste_gem_output').setBackground('#ffe599').setFontWeight('bold');
-  shOut.getRange('D:D').setNumberFormat('@');
-  shOut.getRange('D2').setBackground('#fff2cc').setNote('ここにGemの出力を【全文そのまま】貼り付けてください。###REPORT_START### / ###TSV_START### の両方を含んだ状態で貼り付けてOKです（先頭に=は不要）。A-4実行時に自動でパースされます。');
-  shOut.setColumnWidth(4, 420);
-  updateProcessStatus_('step3_status','success',targetClient,rows.length,'');
-  logRun_('generateAIResearchTemplate',targetClient, 'success', rows.length, new Date(), '');
-  ss.setActiveSheet(shOut);
-  showPromptPreviewDialog_(rows);
-}
-
 function runVertexAIResearch() {
   const started = new Date();
   let targetClient = '';
@@ -7533,230 +7456,6 @@ function countAIResearchStructuredRows_() {
   return Math.max(0, sh.getLastRow() - 1);
 }
 
-function parseAIResearchPaste_() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH);
-  const out = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
-  const raw = String(sh.getRange('D2').getValue() || '').trim();
-  if (!raw) return 0;
-
-  // レポート部分を抽出
-  const reportMatch = raw.match(/(?:###|===)REPORT_START(?:###|===)([\s\S]*?)(?:###|===)REPORT_END(?:###|===)/);
-  const report = reportMatch ? reportMatch[1].trim() : '';
-
-  // TSV部分を抽出
-  const tsvMatch = raw.match(/(?:###|===)TSV_START(?:###|===)([\s\S]*?)(?:###|===)TSV_END(?:###|===)/);
-  if (!tsvMatch) return 0;
-
-  const tsvLines = tsvMatch[1].trim().split(/\r?\n/).filter(l => String(l || '').trim());
-  if (!tsvLines.length) return 0;
-  const header = tsvLines[0].split('\t').map(v => normalizeAiCellValue_(v));
-  const idx = {};
-  header.forEach((h, i) => { idx[h] = i; });
-  const oldFormat = header.indexOf('row_type') < 0;
-  const pick = (cols, name, def) => {
-    if (idx[name] === undefined) return def;
-    return cols[idx[name]] === undefined ? def : cols[idx[name]];
-  };
-
-  const rows = [];
-  let validEvent = 0;
-  let validBenchmark = 0;
-  let invalid = 0;
-  let warnClamp = 0;
-  let warnCoerced = 0;
-  const warnCoercedDetail = {
-    colcount_padded: 0,
-    confidence_1to5: 0,
-    percentile_from_label: 0,
-    quality_coerced: 0,
-    row_type_default: 0
-  };
-  const invalidReasons = {
-    colcount: 0,
-    topic: 0,
-    peer_missing: 0,
-    dir_impact_missing: 0,
-    score_unparseable: 0
-  };
-  const invalidSamples = [];
-  const benchmarkCovered = { Market: false, Competitor: false, Channel: false, DX: false };
-
-  const clampWithWarn = (n, lo, hi) => {
-    if (!isFinite(n)) return NaN;
-    const c = clamp_(n, lo, hi);
-    if (c !== n) warnClamp++;
-    return c;
-  };
-
-  for (let i = 1; i < tsvLines.length; i++) {
-    const rawLine = String(tsvLines[i] || '');
-    let cols = tsvLines[i].split('\t').map(v => normalizeAiCellValue_(v));
-    if (cols.length < header.length) cols = tsvLines[i].trim().split(/\s{2,}/).map(v => normalizeAiCellValue_(v));
-    if (cols.length < header.length) {
-      if (cols.length < Math.floor(header.length / 2)) {
-        invalid++;
-        invalidReasons.colcount++;
-        pushInvalidSample_(invalidSamples, i + 1, `colcount_too_short(${cols.length})`, rawLine);
-        continue;
-      }
-      const originalLen = cols.length;
-      while (cols.length < header.length) cols.push('');
-      warnCoerced++;
-      warnCoercedDetail.colcount_padded++;
-      pushInvalidSample_(invalidSamples, i + 1, `colcount_padded(${originalLen}→${header.length})`, rawLine);
-    }
-    if (!cols.length) continue;
-
-    const topic = normalizeAiTopic_(pick(cols, 'topic', ''));
-    if (!topic) {
-      invalid++;
-      invalidReasons.topic++;
-      pushInvalidSample_(invalidSamples, i + 1, 'topic', rawLine);
-      continue;
-    }
-
-    let rowType = normalizeAiCellValue_(pick(cols, 'row_type', oldFormat ? 'event' : '')).toLowerCase();
-    if (rowType !== 'benchmark' && rowType !== 'event') {
-      rowType = 'event';
-      warnCoerced++;
-      warnCoercedDetail.row_type_default++;
-    }
-
-    const impactRaw = parseAiNumericScore_(pick(cols, 'impact_score', ''), 'impact_score');
-    const confSrc = normalizeAiCellValue_(pick(cols, 'confidence', ''));
-    const relConfSrc = normalizeAiCellValue_(pick(cols, 'relative_confidence', ''));
-    const confRaw = parseAiConfidence_(confSrc);
-    let relPctRaw = parseAiPercentile_(pick(cols, 'relative_percentile', ''));
-    const relConfRaw = parseAiConfidence_(relConfSrc);
-    if (!isFinite(relPctRaw)) {
-      const inferredPct = inferPercentileFromLabel_(pick(cols, 'relative_position_label', ''));
-      if (isFinite(inferredPct)) {
-        relPctRaw = inferredPct;
-        warnCoerced++;
-        warnCoercedDetail.percentile_from_label++;
-      }
-    }
-    const confNum = Number(confSrc);
-    if (confSrc && isFinite(confNum) && confNum > 1 && confNum <= 5 && !isFinite(confRaw)) {
-      warnCoerced++;
-      warnCoercedDetail.confidence_1to5++;
-    }
-    const relConfNum = Number(relConfSrc);
-    if (relConfSrc && isFinite(relConfNum) && relConfNum > 1 && relConfNum <= 5 && !isFinite(relConfRaw)) {
-      warnCoerced++;
-      warnCoercedDetail.confidence_1to5++;
-    }
-    const impact = clampWithWarn(impactRaw, 0, 100);
-    const conf = clampWithWarn(confRaw, 0, 1);
-    const relPct = clampWithWarn(relPctRaw, 0, 100);
-    const relConf = clampWithWarn(relConfRaw, 0, 1);
-
-    const direction = normalizeAiDirection_(pick(cols, 'direction', ''));
-    const peerUniverse = normalizeAiCellValue_(pick(cols, 'peer_universe', ''));
-    const peerBasis = normalizeAiCellValue_(pick(cols, 'peer_basis', ''));
-    if (rowType === 'benchmark' && !peerUniverse && !peerBasis) {
-      invalid++;
-      invalidReasons.peer_missing++;
-      pushInvalidSample_(invalidSamples, i + 1, 'benchmark_peer_missing', rawLine);
-      continue;
-    }
-    if (rowType === 'event' && !direction && !isFinite(impact)) {
-      invalid++;
-      invalidReasons.dir_impact_missing++;
-      pushInvalidSample_(invalidSamples, i + 1, 'event_direction_impact_missing', rawLine);
-      continue;
-    }
-
-    const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
-    const rawEventScore = isFinite(impact) && isFinite(conf) ? (sign * Math.abs(impact - 50) * conf) : NaN;
-    const eventScore = isFinite(rawEventScore) ? clampWithWarn(rawEventScore, -50, 50) : '';
-    const qualityCoerce = coerceBenchmarkQuality_(pick(cols, 'benchmark_quality', ''));
-    const quality = qualityCoerce.value;
-    if (qualityCoerce.coerced && rowType === 'benchmark') {
-      warnCoerced++;
-      warnCoercedDetail.quality_coerced++;
-    }
-    const qMul = quality === 'high' ? 1 : (quality === 'medium' ? 0.75 : 0.5);
-    const rawBenchmarkScore = (rowType === 'benchmark' && isFinite(relPct) && isFinite(relConf)) ? ((relPct - 50) * relConf * qMul) : NaN;
-    const benchmarkScore = isFinite(rawBenchmarkScore) ? clampWithWarn(rawBenchmarkScore, -50, 50) : '';
-    const isValid = (rowType === 'benchmark') ? isFinite(benchmarkScore) : isFinite(eventScore);
-    if (!isValid) {
-      invalid++;
-      invalidReasons.score_unparseable++;
-      pushInvalidSample_(invalidSamples, i + 1, 'score_unparseable', rawLine);
-      continue;
-    }
-    if (rowType === 'benchmark') {
-      validBenchmark++;
-      benchmarkCovered[topic] = true;
-    } else {
-      validEvent++;
-    }
-
-    const parsedAsOf = toDate_(pick(cols, 'as_of_date', ''));
-    const asOfStr = parsedAsOf ? Utilities.formatDate(parsedAsOf, Session.getScriptTimeZone(), 'yyyy-MM-dd') : normalizeAiCellValue_(pick(cols, 'as_of_date', ''));
-    rows.push([
-      normalizeAiCellValue_(pick(cols, 'client', '')),
-      asOfStr,
-      topic,
-      rowType,
-      direction,
-      isFinite(impact) ? impact : '',
-      isFinite(conf) ? conf : '',
-      normalizeAiCellValue_(pick(cols, 'evidence', '')),
-      normalizeAiCellValue_(pick(cols, 'time_horizon', '')),
-      normalizeAiCellValue_(pick(cols, 'business_relevance_reason', '')),
-      normalizeAiCellValue_(pick(cols, 'market_size_ref', '')),
-      peerUniverse,
-      peerBasis,
-      normalizeAiCellValue_(pick(cols, 'relative_position_label', '')),
-      isFinite(relPct) ? relPct : '',
-      isFinite(relConf) ? relConf : '',
-      normalizeAiCellValue_(pick(cols, 'benchmark_quality', '')),
-      normalizeAiCellValue_(pick(cols, 'relative_reason', '')),
-      rows.length === 0 ? sanitizeAiReportText_(normalizeAiCellValue_(pick(cols, 'report_text', '')) || report) : '',
-      eventScore,
-      benchmarkScore,
-      ''
-    ]);
-  }
-
-  out.getRange(2, 1, Math.max(1, out.getMaxRows() - 1), 22).clearContent();
-  if (rows.length) out.getRange(2, 1, rows.length, 22).setValues(rows);
-  sh.getRange(1, 6).setValue('invalid_samples').setFontWeight('bold').setBackground(COLOR_HEADER);
-  sh.getRange(2, 6, 3, 1).clearContent();
-  const sampleRows = invalidSamples.slice(0, 3).map(s => [`${s.rowNo}\t${s.reason}\t${s.preview}`]);
-  if (sampleRows.length) sh.getRange(2, 6, sampleRows.length, 1).setValues(sampleRows);
-  sh.getRange(1, 7).setValue('tsv_diagnostics').setFontWeight('bold').setBackground(COLOR_HEADER);
-  sh.getRange(2, 7, 10, 1).clearContent();
-  const diagRows = tsvLines.slice(0, 10).map((line, dIdx) => {
-    const tabs = (String(line || '').match(/\t/g) || []).length;
-    const parts = String(line || '').split('\t');
-    const firstCol = String(parts[0] || '').slice(0, 20);
-    const topicCol = String(parts[2] || '').slice(0, 15);
-    return [`row${dIdx + 1}: tabs=${tabs} / col1=\"${firstCol}\" / topic=\"${topicCol}\"`];
-  });
-  if (diagRows.length) sh.getRange(2, 7, diagRows.length, 1).setValues(diagRows);
-  sh.setColumnWidth(7, 380);
-
-  const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
-  const client = String(cfg.getRange('B2').getValue() || '').trim();
-  const topicsMissingBenchmark = AI_TOPICS.filter(t => !benchmarkCovered[t]);
-  const warnText = buildAiParseWarningText_({
-    rawRows: Math.max(0, tsvLines.length - 1),
-    validEvent,
-    validBenchmark,
-    invalid,
-    warnClamp,
-    warnCoerced,
-    warnCoercedDetail,
-    invalidReasons,
-    topicsMissingBenchmark,
-    hasReport: !!report
-  });
-  updateProcessStatus_('step3a_status', 'success', client, rows.length, warnText);
-  return { rows: rows.length, validEvent, validBenchmark, invalid, warnClamp, warnCoerced, warnCoercedDetail, invalidReasons, topicsMissingBenchmark, warning: warnText };
-}
 function runPhase1Forecast() {
   try {
     requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
@@ -8532,27 +8231,6 @@ function setGuideLinkTable_(guideSheet, startRow, links) {
   });
 }
 
-function showPromptPreviewDialog_(rows) {
-  if (!rows || !rows.length) return;
-  const prompt = String(rows[0][2] || '');
-  const pasteTarget = `${SHEETS.AI_RESEARCH}!D2`;
-  const html = `
-  <div style="font-family:sans-serif;padding:12px">
-    <h3>AIプロンプト（コピーして利用）</h3>
-    <div style="font-size:12px;color:#444;margin-bottom:8px;line-height:1.6;">
-      0) <b style="color:#ea4335">Gemの右下のモードを「Pro」に切り替えてください（高速モード等は不可）</b><br>
-      1) 下のプロンプトをコピーしてGemに貼り付けて実行してください。<br>
-      2) Gemにアクセス（<a href="https://gemini.google.com/gem/1NGUI4UI_tuNF3NvwXV323iuQsqEALB0p?usp=sharing" target="_blank">こちら</a>）し、結果を <b>全文コピー</b> して <b>paste_gem_output（黄色になっている箇所）</b> にペーストしてください。<br>
-    </div>
-    <textarea id="p" style="width:100%;height:120px">${escapeHtml_(prompt)}</textarea>
-    <div style="margin-top:10px">
-      <button onclick="document.getElementById('p').select();document.execCommand('copy');">コピー</button>
-      <button onclick="google.script.host.close();">閉じる</button>
-    </div>
-  </div>`;
-  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(640).setHeight(420), 'AIプロンプト');
-}
-
 function syncSalesFromSalesInput_(fy, client) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const inSh = ss.getSheetByName(SHEETS.SALES_INPUT);
@@ -8664,7 +8342,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
+ * 11) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8689,7 +8367,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (ai-summary-view)
- * 1) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
+ * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
  * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
  *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
  * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
@@ -8703,7 +8381,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (objonly-dealias)
- * 1) VERSION='2.3.9-dev' / BUILD_STAGE='v8-objonly-dealias' であること。
+ * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
  * 2) off/shadow モードで A-9 を実行し、OUTPUT の P10/P50/P90（混合・客観のみ両セクション）が
  *    本修正の前後で不変であること（actual_closed 月が立たない現行データフローでは挙動中立）。
  * 3) runForecastFYCore_ の objOnly が quantOnly と別オブジェクトであること（配列を共有しない）。
@@ -8711,6 +8389,18 @@ function syncSalesFromSalesInput_(fy, client) {
  * 4) DLM shadow セクションの「参考:旧Ops_BASE(定量)P50」列が opsQuantOnly 由来で、
  *    closedMonthMode='actual' 経路から独立していること（巻き込み変異が起きない）。
  * 5) KPIブロック（定量寄与率等）が quantOnly 由来で、objOnly の上書きから独立していること。
+ */
+
+/**
+ * HOW TO TEST (gem-path-removal)
+ * 1) VERSION='2.3.10-dev' / BUILD_STAGE='v8-gem-path-removal' であること。
+ * 2) grep で generateAIResearchTemplate / parseAIResearchPaste_ / showPromptPreviewDialog_ /
+ *    buildAiParseWarningText_ / pushInvalidSample_ がコード中に1件も残っていないこと（定義・参照とも0件）。
+ * 3) A-4（runVertexAIResearch）が従来どおり動作し、AI_RESEARCH_STRUCTURED と AI_RESEARCH サマリービューが更新されること。
+ * 4) A-9（runPhase1Forecast）が完走し、OUTPUT の P10/P50/P90 が本削除の前後で不変であること。
+ * 5) readAIReportTextForClient_ / extractReportSection_ / diagnoseLastAIParse_ / countAIResearchStructuredRows_ が残存し、参照が壊れていないこと。
+ * 6) buildVertexStructuredRows_ / readAIResearchScores_ が使う parseAi* / normalizeAi* /
+ *    coerceBenchmarkQuality_ / inferPercentileFromLabel_ / clampFinite_ が残存していること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
