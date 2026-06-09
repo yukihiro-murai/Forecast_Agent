@@ -1,4 +1,4 @@
-# 売上予測スクリプト 設計書 v2.3（Vertex AI調査 / AIサマリービュー同期版）
+# 売上予測スクリプト 設計書 v2.3.1（annual-mode 方針確定 / Vertex AI調査 / AIサマリービュー同期版）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
@@ -6,22 +6,27 @@
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
 対象実装：`Forecast_Agent.js`（VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'）
-設計書版：v2.3（v2.2からの同期改訂。Vertex AI調査パイプライン・AI調査サマリービュー・
-シート遅延初期化・通年予測モードを正典化）
+設計書版：v2.3.1（v2.3 からのドキュメント改訂。**コード変更は伴わない**。
+annual-forecast-mode（§9）の方針を「A=通年予測」で確定し、本文へ統合。
+「予測・提出経路」と「検証・学習経路」の分離を正典化）
 
-### 0.0 v2.2からの主な更新点（この改訂で反映したもの）
-- **AI調査をVertex AI自動実行へ移行（最重要）**。旧A-4「Gemプロンプト生成→TSV手動貼付→parse」は
-  メニューから廃止し、A-4は `runVertexAIResearch`（Vertex grounded web検索 + Vertex AI Search RAG +
-  構造化出力）に置き換え済み。設計書v2.2まで全く記述が無かったため、§10として新設する。
-- **AI調査サマリービュー（AI_RESEARCH）を正典化**。`writeAIResearchSummaryView_` が
-  ①topic別要約文 ②4軸スコア ③event/benchmark明細 の3段ビューを再描画する（§11）。
-- **新規シート3枚を追記**：`AI_RESEARCH_TASK_LOG` / `AI_RESEARCH_WEB` / `AI_RESEARCH_EXTERNAL`（§6・§10）。
-- **シート遅延初期化を正典化**。A-1で全シートを作らず、Vertex実行時に `ensureAIResearchRuntimeSheets_` /
-  `ensureSheetReady_` で必要シートを遅延作成する（§1.1・§10.5）。
-- **FORECAST_REPORT は撤去済み**。本文・シート一覧から削除（§6）。
-- **メニュー番号を実装に同期**（A-4の名称・呼び出し先、§1.4）。
-- **通年予測モード（FORECAST_CLOSED_MONTH_MODE）は実装済み・方針確認待ちのまま§9に隔離**。
-  既定OFF（actual）で従来挙動のため、本文の予測記述は従来どおりとする。
+### 0.0 v2.3 → v2.3.1 の更新点（この改訂で反映したもの）
+- **§9 annual-forecast-mode の方針を確定**。年度合計(P10/P50/P90)は「実績込みの着地予測」ではなく
+  **「通年（12ヶ月）すべて予測の見通し」**（=選択肢A）で確定。これは現行実装の挙動そのものであり、
+  **コード変更は発生しない**。§9 から「方針確認待ち」表記を撤去し、確定仕様として記述する。
+- **「予測・提出経路」と「検証・学習経路」の分離を明文化（§2.7）**。予測（A-9）は実績が入る前に回す
+  運用であり、かつ構造的にも予測窓と実績窓が非重複なため実績非依存。実績を使うのは検証・学習
+  （B-1〜B-3 / C-1）だけで、そこでも提出済み予測を実績で書き換えることはしない（突合・学習のみ）。
+- **closed月上書き（actualモード）の実運用での非発火を確定（§9.3）**。timing（実績前に回す）と
+  structure（窓非重複）の二重で発火条件に到達しないことを正典化し、§9.2 の旧論点を解消する。
+
+### 0.0' v2.3 で反映済みの更新点（参考・再掲）
+- **AI調査をVertex AI自動実行へ移行**。旧A-4「Gemプロンプト生成→TSV手動貼付→parse」はメニューから廃止し、
+  A-4は `runVertexAIResearch`（Vertex grounded web検索 + Vertex AI Search RAG + 構造化出力）に置き換え済み（§10）。
+- **AI調査サマリービュー（AI_RESEARCH）を正典化**。`writeAIResearchSummaryView_` が3段ビューを再描画する（§11）。
+- **新規シート3枚**：`AI_RESEARCH_TASK_LOG` / `AI_RESEARCH_WEB` / `AI_RESEARCH_EXTERNAL`（§6・§10）。
+- **シート遅延初期化を正典化**（§1.1・§10.5）。
+- **FORECAST_REPORT は撤去済み**（§6）。
 
 ---
 
@@ -62,7 +67,7 @@
 ### 1.2 既定OFFのシャドウ機能（検証待ち）
 - DLM_ENGINE_MODE = off（shadow/primaryはCONFIGで切替可）
 - LMDI_DECOMPOSITION_ENABLED = 0
-- FORECAST_CLOSED_MONTH_MODE = actual（forecastに切替で通年予測モード。詳細は§9）
+- FORECAST_CLOSED_MONTH_MODE = actual（**月次表示のみ**を切り替えるトグル。年度合計の算出には影響しない。詳細は§9）
 - AI_SCORE_BASIS = level（momentumに切替でAIスコアを相対位置の変化として扱う）
 - ※ RELIABILITY_APPLY_ENABLED は既定1（ON）。ただしSOURCE_RELIABILITY空ならno-op（予測不変）。
 - ※ AI_RESEARCH_ENABLED は既定1。0でA-4のVertex調査をスキップし、AI_RESEARCH_STRUCTUREDの既存行のみ参照。
@@ -138,6 +143,31 @@
   final blended score（benchmark/event blend）を返す。品質不足topicは中立化（multiplier=0/0.5）。
 - AI_SCORE_BASIS=momentum のときは AI_SCORE_HISTORY の過去runとの差分（momentum）に切替（既定はlevel）。
 - これがA-4（Vertex）で書かれた行を読む唯一の入口。A-9はVertex APIを呼ばず、シート上の構造化行のみ参照する。
+
+### 2.7 年度合計のセマンティクスと2経路の分離（確定）
+本ツールには性質の異なる2つの経路があり、実績の扱いが明確に違う。混同しないこと。
+
+**(a) 予測・提出経路（A-9 / runForecastFYCore_）— 実績非依存**
+- 入力は SALES_MONTHLY（過去48ヶ月のBASE/SPOT履歴）と主観入力・AI調査・DEV_SPOT。
+- 予測対象は予測FYの12ヶ月（fy/04〜fy+1/03）。出力は OUTPUT と FORECAST_SNAPSHOT。
+- **年度合計(P10/P50/P90)は、12ヶ月すべての予測simから算出する**（mixedは `aggregateAnnualSim_(totalCalibratedSimByMonth)`、
+  客観のみは quant側simの年次集約）。経過月の実績で固定した着地値ではない＝**通年予測の見通し**（§9で確定した選択肢A）。
+- 運用上、この経路は会社公式予測を役員会に提出する前に回すため、実績が出る前に実行される。
+  加えて構造的にも、A-9 は実行直前に `syncSalesFromSalesInput_` で SALES窓を `[fy-4/04, fy/03]` に再整列し、
+  予測窓 `[fy/04, fy+1/03]` とは同一fyで隣接非重複に確定する。よって `forecastMonthIndexesInSales` は全て -1、
+  `sourceByMonth` は全月 `forecast_open` となり、予測窓に実績が混ざる余地はない。
+
+**(b) 検証・学習経路（B-1 → B-2 → B-3、C-1）— 実績を使うが予測は書き換えない**
+- B-1：実績を ACTUAL_EVAL_MONTHLY に取り込む。
+- B-2：提出済みの FORECAST_SNAPSHOT と実績を突合し、EVAL_LOG / EVAL_COMPARE_MONTHLY に誤差を記録する。
+- B-3：EVAL_INSIGHTS に外れ要因・次アクションを整理する。
+- C-1：EVAL_LOG と impact履歴（AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY）から reliability を学習する。
+- ここで実績は「答え合わせと学習の材料」であり「予測の入力」ではない。**提出済みの予測値を実績で
+  retroactive に書き換えることはしない**。学習結果は次回以降のA-9の係数（reliability等）に反映される。
+
+この分離により、「役員会に出す通年予測（実績非依存）」と「随時の検証・学習（実績使用）」は
+別ワークフローとして両立する。年度合計が常に通年予測であること（a）と、実績を使った継続改善が回ること（b）は
+矛盾しない。
 
 ---
 
@@ -268,41 +298,46 @@ v1.8では未実装と記載していたが、現行実装で完了している�
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
 - 現行コードは VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- この設計書はそのうち §1〜§7・§10〜§11 の確定機能を記述対象とし、annual modeは§9で別扱いとする。
+- 本改訂（設計書 v2.3.1）は **コード変更を伴わない**。§9 の方針確定をドキュメントに反映しただけであり、
+  実装のVERSION/BUILD_STAGEは据え置く。
+- この設計書は §1〜§7・§9〜§11 の確定機能を記述対象とする。
 - 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。
 
 ---
 
-## 9. 【方針確認待ち】annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）
-本機能は **実装済みだが、年間総計のセマンティクスに関する方針が未確定** のため、確定機能とは分けて記述する。
-既定は actual（従来挙動）であり、本文（§2）の予測記述は既定モード前提で不変。
+## 9. 通年予測モード（FORECAST_CLOSED_MONTH_MODE）【確定：A=通年予測 / コード変更なし】
+本機能は実装済みであり、年間総計のセマンティクスを **「通年（12ヶ月）すべて予測の見通し」（選択肢A）** で確定した。
+これは現行実装の挙動そのものであるため、確定に伴うコード変更は発生しない。
 
-### 9.1 挙動
+### 9.1 確定した仕様
+- **年度合計(P10/P50/P90)は、FORECAST_CLOSED_MONTH_MODE の値にかかわらず、常に12ヶ月すべての予測simから算出する。**
+  実装上、年度合計は sim配列（mixedは `totalCalibratedSimByMonth`、客観は quant側sim）の年次集約（`aggregateAnnualSim_`）に
+  percentile を取ったものであり、`FORECAST_CLOSED_MONTH_MODE` の closed月上書きは sim配列に触れず、
+  月次表示用の配列（objOnly/mixed/regTotal の月次値）にしか作用しない。
+- よって本トグルは **「月次表示の見せ方」だけを切り替えるもの**であり、計画の主数値（年度合計）の意味は変えない。
+
+### 9.2 モード別の月次表示
 - `FORECAST_CLOSED_MONTH_MODE = actual`（既定）：closed月は実績で上書き表示（objOnly/mixed/regTotal）。
 - `FORECAST_CLOSED_MONTH_MODE = forecast`：closed月も予測のまま表示（通年予測モード）。
   経過月の実績は ActualClosed 列に参考併記し、予測値には混ぜない。
-- どちらのモードでも、年度合計(P10/P50/P90)は12ヶ月すべての予測simから算出される
-  （経過実績で固定した着地値ではない）。
+- いずれのモードでも、年度合計は §9.1 のとおり12ヶ月すべての予測simから算出される（経過実績で固定した着地値ではない）。
 
-### 9.2 未確定の論点（実装に進む前に要確認）
-- 年間総計を「実績込みの着地予測」として扱うのか、「通年（12ヶ月）すべて予測の見通し」として扱うのか。
-  現行実装は後者（通年予測）を既定とするが、計画用途として前者が望ましい場面があるか要確認。
-- OUTPUTの年度合計セマンティクスの表記（着地 vs 通年）をどちらに正規化するか。
-- 既定モード（actual）でも closed月を mixed/regTotal まで実績上書きしている点が、
-  従来挙動（objOnlyのみ上書き）からの変化かどうかを回帰確認で確定させる。
+### 9.3 closed月上書きの発火条件と、実運用での非発火
+- actualモードの上書きは `sourceByMonth[i]==='actual_closed'` の月のみに作用する。
+- `actual_closed` は `getForecastContext_` 上、「forecast月が SALES_MONTHLY ヘッダに存在し
+  （forecastMonthIndexesInSales>=0）、かつ lastClosedMonthStart 以前」のときに立つ。
+- **A-9 経路では、この条件は二重に成立しない（＝上書きブロックは発火しない）：**
+  1. **timing**：会社公式予測を役員会へ提出する前に回す運用のため、予測FYの実績が出る前にA-9を実行する。
+  2. **structure**：A-9 は実行直前に `syncSalesFromSalesInput_` で SALES窓を `[fy-4/04, fy/03]` に再整列し、
+     予測窓 `[fy/04, fy+1/03]` と同一fyで隣接非重複に確定する。よって forecastMonthIndexesInSales は全て -1、
+     sourceByMonth は全月 `forecast_open` となり、上書き対象の closed月が存在しない。
+- この結果、旧 §9.2 で挙げていた「actualモードで mixed/regTotal まで実績上書きするのは回帰か」という論点は、
+  **上書き対象の月がそもそも生まれない以上、実害として成立しない**ため解消とする。
 
-### 9.3 closed-month overwrite の発火条件（重要・前提見直し）
-- actualモードの上書きは `sourceByMonth[i]==='actual_closed'` の月のみ。
-- `getForecastContext_` 上、`actual_closed` は「forecast月が SALES_MONTHLY ヘッダに存在し（forecastMonthIndexesInSales>=0）、
-  かつ lastClosedMonthStart 以前」のときに立つ。
-- SALES窓（fy-4/04〜fy-1の48ヶ月）と forecast窓（fy/04〜）は**通常は非重複**だが、
-  `getDefaultFY_`（実行を6ヶ月先送りしてFYを決める）により FY が手前にずれた場合、
-  両窓が重なって `actual_closed` が立ちうる。「構造的に常にinert」とは断定できないため、
-  §9の方針決定時に「実運用FY設定での発火有無」を必ず回帰確認する。
-
-### 9.4 暫定方針
-- 方針確定までは既定 actual を維持。forecastモードは検証用途に留める。
-- 確定後、この§9を§2以降の本文へ統合し、設計書から「方針確認待ち」表記を外す。
+### 9.4 回帰確認（1回のみ）
+- OUTPUT「（参考）内訳とメモ（P50比較）」表の `ForecastSource` 列が、A-9 実行後に全行 `forecast_open` で
+  あることを1回確認すれば、§9.3 の非発火（上書き対象月なし）はその場で確認できる。
+- 上記が確認できれば、本§9に関する追加対応は不要（コード変更なしで決着）。
 
 ---
 
@@ -384,7 +419,8 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 ---
 
-この v2.3 は、Vertex AI調査パイプライン（grounded web検索 / Vertex AI Search RAG / 構造化出力）と
-AI調査サマリービュー、シート遅延初期化、FORECAST_REPORT撤去をコードと同期して正典化した改訂版。
-annual-forecast-mode は実装済みだが方針確認待ちとして§9に隔離している。
-latent issue は§12に列挙し、各々別スコープで対応する。
+この v2.3.1 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」で確定し、
+本文（§2.7・§9）へ統合したドキュメント改訂である。コード変更は伴わない。
+年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、closed月上書き（actualモード）は
+実運用（A-9）では timing と structure の二重で発火しない。実績は検証・学習経路（B/C）でのみ使用し、
+提出済みの予測を書き換えることはない。latent issue は §12 に列挙し、各々別スコープで対応する。
