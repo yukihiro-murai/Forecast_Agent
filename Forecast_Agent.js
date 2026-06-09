@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.3-dev';
-const BUILD_STAGE = 'v8-sheet-consolidation-2';
+const VERSION = '2.3.4-dev';
+const BUILD_STAGE = 'v8-ai-score-momentum';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1484,7 +1484,8 @@ function runForecastFYCore_(fy, clientName) {
   const opinions = readOpinions_(fy);
 
   // AI調査スコア（topic別：benchmark/event blend）
-  const aiScores = readAIResearchScores_(calibration);
+  const aiScoreBasis = readAiScoreBasis_();
+  const aiScores = readAIResearchScores_(calibration, { basis: aiScoreBasis, clientName, tuning });
   const aiReportText = readAIReportTextForClient_(clientName);
 
   // 製品構成比：未確定月を避ける（直近の“確定済み12ヶ月”で重み計算）
@@ -1634,7 +1635,8 @@ function runForecastFYCore_(fy, clientName) {
       aiScores,
       productWeights,
       reliabilityMap
-    }
+    },
+    aiScoreBasis
   };
 }
 
@@ -1814,42 +1816,46 @@ function writeOutputFY_(result) {
   sh.getRange(16, 1).setNote('DXトピックのfinal blended score');
   sh.getRange(17, 1).setNote('各軸の理論レンジ説明');
   sh.getRange(18, 1).setNote('4軸合計レンジ説明');
+  const aiScoreBasis = (result && result.aiScoreBasis === 'momentum') ? 'momentum' : 'level';
+  sh.getRange(19, 1, 1, 5).merge();
+  sh.getRange(19, 1).setValue(`AIスコア基準: ${aiScoreBasis}`).setFontSize(9).setFontColor('#666666');
   const aiAllZero = [ai4.Market, ai4.Competitor, ai4.Channel, ai4.DX].every(v => Math.abs(Number(v || 0)) < 1e-9);
   if (aiAllZero) {
-    sh.getRange(19, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
+    sh.getRange(20, 1).setValue('⚠ AIスコアが全topicで0.0です（parser warning / 入力形式を確認）').setFontColor('#b71c1c');
   }
   const coverageText = AI_TOPICS.map(topic => {
     const m = aiMeta[topic] || {};
     const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
-    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}`;
+    const momentumText = aiScoreBasis === 'momentum' ? ` / mom=${Number(m.momentumScore || 0).toFixed(1)} insuf=${!!m.momentumInsufficient}` : '';
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}`;
   }).join(' | ');
-  sh.getRange(20, 1, 1, 11).merge();
-  sh.getRange(20, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
+  sh.getRange(21, 1, 1, 11).merge();
+  sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
   const missingBench = Array.isArray(aiMeta.topicsMissingBenchmark) ? aiMeta.topicsMissingBenchmark : [];
   const degradedTopics = AI_TOPICS.filter(topic => {
     const mode = String(((aiMeta || {})[topic] || {}).degradedMode || '');
     return mode === 'event_only' || mode === 'benchmark_only';
   });
-  sh.getRange(21, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
-  sh.getRange(21, 1, 1, 6).merge();
-  sh.getRange(21, 7, 1, 5).merge();
+  sh.getRange(22, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
+  sh.getRange(22, 1, 1, 6).merge();
+  sh.getRange(22, 7, 1, 5).merge();
   if (degradedTopics.length) {
-    sh.getRange(21, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
+    sh.getRange(22, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
   }
   if (missingBench.length) {
-    sh.getRange(21, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
+    sh.getRange(22, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
   }
-  sh.getRange(22, 1, 1, 11).merge();
+  sh.getRange(23, 1, 1, 11).merge();
   const allTopicNeutralized = AI_TOPICS.every(topic => !!(((aiMeta || {})[topic] || {}).neutralized));
   const aiNeutralizedFlag = !!((dTop || {}).aiNeutralized);
   if (allTopicNeutralized || aiNeutralizedFlag) {
-    sh.getRange(22, 1).setValue('AIスコアは信頼度不足のため予測への影響を中立化しました（kAI=1.00 / 予測は過去実績ベースのみで算出）')
+    sh.getRange(23, 1).setValue('AIスコアは信頼度不足のため予測への影響を中立化しました（kAI=1.00 / 予測は過去実績ベースのみで算出）')
       .setBackground('#d9ead3').setFontColor('#274e13').setFontWeight('bold');
   } else {
-    sh.getRange(22, 1).setValue('').setBackground('#ffffff').setFontWeight('normal');
+    sh.getRange(23, 1).setValue('').setBackground('#ffffff').setFontWeight('normal');
   }
 
-  let row = 23;
+  let row = 24;
 
   const seasonalWeightedCore = forecastSeasonalWeighted48_({
     adjustedBaseSeries48: result.adjustedBaseSeries48 || result.baseSeries48 || [],
@@ -2603,6 +2609,9 @@ function buildCONFIG_() {
     ['SPOT_BG_CAP_RATE（背景SPOT上限/BaseP50比）', SPOT_BG_CAP_RATE],
     ['AI_WEIGHT（AI係数重み）', AI_WEIGHT_DEFAULT],
     ['AI_MAX_ABS_EFFECT（AI係数上限）', AI_MAX_ABS_EFFECT],
+    ['AI_SCORE_BASIS（level=水準/ momentum=相対位置の変化）', 'level'],
+    ['AI_MOMENTUM_LOOKBACK_QUARTERS（モメンタム平滑の四半期数）', 2],
+    ['AI_MOMENTUM_MIN_HISTORY（momentum算出に必要な過去run最小数）', 2],
     ['SPOT_SPIKE_MAD_K（SPOTスパイク判定MAD倍率）', SPOT_SPIKE_MAD_K],
     ['KNOWN_SPOT_OFFSET_RATE（known spotの背景相殺率）', KNOWN_SPOT_OFFSET_RATE],
     ['KNOWN_SPOT_BG_SUPPRESS_RATE（known spot命中時の背景抑制）', KNOWN_SPOT_BG_SUPPRESS_RATE],
@@ -3558,6 +3567,8 @@ function readModelTuningFromConfig_() {
     spotBgCapRate: SPOT_BG_CAP_RATE,
     aiWeight: AI_WEIGHT_DEFAULT,
     aiMaxAbsEffect: AI_MAX_ABS_EFFECT,
+    aiMomentumLookbackQuarters: 2,
+    aiMomentumMinHistory: 2,
     spotSpikeMadK: SPOT_SPIKE_MAD_K,
     knownSpotOffsetRate: KNOWN_SPOT_OFFSET_RATE,
     knownSpotBgSuppressRate: KNOWN_SPOT_BG_SUPPRESS_RATE,
@@ -3610,6 +3621,8 @@ function readModelTuningFromConfig_() {
   out.spotBgCapRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_CAP_RATE', out.spotBgCapRate)));
   out.aiWeight = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT', out.aiWeight)));
   out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getCfg('AI_MAX_ABS_EFFECT', out.aiMaxAbsEffect)));
+  out.aiMomentumLookbackQuarters = Math.round(Math.max(1, Math.min(8, getCfg('AI_MOMENTUM_LOOKBACK_QUARTERS', out.aiMomentumLookbackQuarters))));
+  out.aiMomentumMinHistory = Math.round(Math.max(1, Math.min(12, getCfg('AI_MOMENTUM_MIN_HISTORY', out.aiMomentumMinHistory))));
   out.spotSpikeMadK = Math.max(0.5, Math.min(10, getCfg('SPOT_SPIKE_MAD_K', out.spotSpikeMadK)));
   out.knownSpotOffsetRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_OFFSET_RATE', out.knownSpotOffsetRate)));
   out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_BG_SUPPRESS_RATE', out.knownSpotBgSuppressRate)));
@@ -3657,6 +3670,12 @@ function readDlmEngineMode_() {
   const v = String(labelMap.DLM_ENGINE_MODE || '').trim().toLowerCase();
   if (v === 'shadow' || v === 'primary') return v;
   return 'off';
+}
+
+function readAiScoreBasis_() {
+  const labelMap = readConfigLabelMap_();
+  const v = String(labelMap.AI_SCORE_BASIS || '').trim().toLowerCase();
+  return v === 'momentum' ? 'momentum' : 'level';
 }
 
 function readForecastClosedMonthMode_() {
@@ -4644,7 +4663,7 @@ function readOpinions_(fy) {
  * AI_RESEARCH_STRUCTURED から topic 別のAIスコアを読み取り、
  * benchmark/event blend の最終スコアを返す。
  */
-function readAIResearchScores_(calibration) {
+function readAIResearchScores_(calibration, opt) {
   const result = { Market: 0, Competitor: 0, Channel: 0, DX: 0, meta: { Market: {}, Competitor: {}, Channel: {}, DX: {} } };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
@@ -4797,7 +4816,96 @@ function readAIResearchScores_(calibration) {
   });
   result.meta.topicsMissingBenchmark = topicsMissingBenchmark;
 
+  const basis = opt && opt.basis === 'momentum' ? 'momentum' : 'level';
+  if (basis !== 'momentum') return result;
+  return applyAiMomentumScores_(result, opt || {});
+}
+
+function applyAiMomentumScores_(levelResult, opt) {
+  const result = levelResult || { Market: 0, Competitor: 0, Channel: 0, DX: 0, meta: { Market: {}, Competitor: {}, Channel: {}, DX: {} } };
+  const meta = result.meta || {};
+  const tuning = opt && opt.tuning ? opt.tuning : readModelTuningFromConfig_();
+  const lookback = Math.round(Math.max(1, Math.min(8, Number(tuning.aiMomentumLookbackQuarters || 2))));
+  const minHistory = Math.round(Math.max(1, Math.min(12, Number(tuning.aiMomentumMinHistory || 2))));
+  const client = String((opt && opt.clientName) || '').trim();
+  const history = readAiScoreHistoryByTopic_(client);
+
+  AI_TOPICS.forEach(topic => {
+    const levelScore = Number(result[topic] || 0);
+    const rows = history[topic] || [];
+    const m = meta[topic] || {};
+    if (m.disabled) {
+      result[topic] = 0;
+      meta[topic] = Object.assign({}, m, {
+        aiScoreBasis: 'momentum',
+        levelScore,
+        momentumScore: 0,
+        momentumRaw: 0,
+        momentumRecentLevel: levelScore,
+        momentumPastLevel: '',
+        momentumLookbackQuarters: lookback,
+        momentumHistoryCount: rows.length,
+        momentumInsufficient: false
+      });
+      return;
+    }
+    const insufficient = rows.length < minHistory;
+    let momentumRaw = 0;
+    let pastScore = '';
+    if (!insufficient) {
+      const pastIdx = Math.max(0, rows.length - lookback);
+      pastScore = Number(rows[pastIdx].score || 0);
+      momentumRaw = levelScore - pastScore;
+    }
+    const momentumScore = insufficient ? 0 : Math.round(clamp_(momentumRaw, -50, 50) * 10) / 10;
+    result[topic] = momentumScore;
+    meta[topic] = Object.assign({}, m, {
+      aiScoreBasis: 'momentum',
+      levelScore,
+      momentumScore,
+      momentumRaw,
+      momentumRecentLevel: levelScore,
+      momentumPastLevel: pastScore,
+      momentumLookbackQuarters: lookback,
+      momentumHistoryCount: rows.length,
+      momentumInsufficient: insufficient
+    });
+  });
+  result.meta = meta;
+  result.meta.aiScoreBasis = 'momentum';
   return result;
+}
+
+function readAiScoreHistoryByTopic_(clientName) {
+  const out = { Market: [], Competitor: [], Channel: [], DX: [] };
+  if (!clientName) return out;
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
+    if (!sh || sh.getLastRow() < 2) return out;
+    const vals = sh.getDataRange().getValues();
+    const idx = headerIndexMap_(vals[0]);
+    if (idx.client === undefined || idx.topic === undefined || idx.blended_score === undefined || idx.run_at === undefined) return out;
+    for (let i = 1; i < vals.length; i++) {
+      const rowClient = String(vals[i][idx.client] || '').trim();
+      if (!rowClient || !isSameClient_(rowClient, clientName)) continue;
+      const topic = normalizeAiTopic_(vals[i][idx.topic]);
+      if (!topic || out[topic] === undefined) continue;
+      const score = Number(vals[i][idx.blended_score]);
+      if (!isFinite(score)) continue;
+      const runAt = toDate_(vals[i][idx.run_at]) || new Date(0);
+      out[topic].push({ runAt, score, rowNo: i });
+    }
+    AI_TOPICS.forEach(topic => {
+      out[topic].sort((a, b) => {
+        const d = a.runAt.getTime() - b.runAt.getTime();
+        return d !== 0 ? d : a.rowNo - b.rowNo;
+      });
+    });
+  } catch (err) {
+    // 履歴読取に失敗した場合は履歴なしとしてmomentumを中立化する
+  }
+  return out;
 }
 
 function readAIReportTextForClient_(clientName) {
@@ -8400,7 +8508,8 @@ function writeAIHistoriesForRun_(result, runId) {
     const meta = ai.meta || {};
     const scoreRows = AI_TOPICS.map(topic => {
       const m = meta[topic] || {};
-      return [runId, runAt, client, topic, Number(ai[topic] || 0), Number(m.qualityScore || 0), m.degradedMode || '', m.neutralized ? 1 : 0, Number(m.coverageEventRows || 0), Number(m.coverageBenchmarkRows || 0), m.latestAsOfDate || ''];
+      const scoreForHistory = isFinite(Number(m.levelScore)) ? Number(m.levelScore) : Number(ai[topic] || 0);
+      return [runId, runAt, client, topic, scoreForHistory, Number(m.qualityScore || 0), m.degradedMode || '', m.neutralized ? 1 : 0, Number(m.coverageEventRows || 0), Number(m.coverageBenchmarkRows || 0), m.latestAsOfDate || ''];
     });
     if (scoreRows.length) writeRowsInChunks_(shScore, shScore.getLastRow() + 1, 1, scoreRows, 500);
 
