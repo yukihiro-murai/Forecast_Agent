@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.6-dev / BUILD_STAGE v8-ai-summary-view）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.7-dev / BUILD_STAGE v8-dedup-landing-eval）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.6-dev';
-const BUILD_STAGE = 'v8-ai-summary-view';
+const VERSION = '2.3.7-dev';
+const BUILD_STAGE = 'v8-dedup-landing-eval';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7797,6 +7797,17 @@ function writeDlmShadowLanding_(ss, client, fy, result) {
   const sh = getOrCreateSheet_(ss, SHEETS.LANDING_FORECAST);
   const headers = ['client','fy','target_month','as_of_month','landing_p10','landing_p50','landing_p90','updated_at','source_run_id','note'];
   ensureSheetHeaders_(sh, headers);
+  const values = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(values[0] || headers);
+  const rowByKey = new Map();
+  for (let i = 1; i < values.length; i++) {
+    const key = [
+      String(values[i][idx.client] || '').trim(),
+      String(values[i][idx.fy] || '').trim(),
+      String(values[i][idx.target_month] || '').trim()
+    ].join('|');
+    if (key !== '||') rowByKey.set(key, i + 1);
+  }
 
   const now = new Date();
   const asOf = fmtYM_(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -7818,7 +7829,22 @@ function writeDlmShadowLanding_(ss, client, fy, result) {
       note
     ]);
   });
-  if (rows.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
+  const updatesByRowNo = new Map();
+  const appendsByKey = new Map();
+  rows.forEach(row => {
+    const key = [
+      String(row[idx.client] || '').trim(),
+      String(row[idx.fy] || '').trim(),
+      String(row[idx.target_month] || '').trim()
+    ].join('|');
+    const rowNo = rowByKey.get(key);
+    if (rowNo) updatesByRowNo.set(rowNo, { rowNo, row });
+    else appendsByKey.set(key, row);
+  });
+  const updates = Array.from(updatesByRowNo.values());
+  const appends = Array.from(appendsByKey.values());
+  writeContiguousRowUpdates_(sh, updates, headers.length);
+  if (appends.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, appends, 500);
 }
 
 function writeForecastArtifacts_(result, client) {
@@ -7902,8 +7928,35 @@ function updatePhase1EvaluationReport() {
     ]);
   });
   const out = ss.getSheetByName(SHEETS.EVAL_LOG);
-  ensureSheetHeaders_(out, ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag']);
-  if (evalRows.length) out.getRange(out.getLastRow()+1,1,evalRows.length,evalRows[0].length).setValues(evalRows);
+  const evalHeaders = ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag'];
+  ensureSheetHeaders_(out, evalHeaders);
+  const evalValues = out.getDataRange().getValues();
+  const evalIdx = headerIndexMap_(evalValues[0] || evalHeaders);
+  const evalRowByKey = new Map();
+  for (let i = 1; i < evalValues.length; i++) {
+    const key = [
+      String(evalValues[i][evalIdx.client] || '').trim(),
+      String(evalValues[i][evalIdx.target_month] || '').trim(),
+      String(evalValues[i][evalIdx.scenario] || '').trim()
+    ].join('|');
+    if (key !== '||') evalRowByKey.set(key, i + 1);
+  }
+  const evalUpdatesByRowNo = new Map();
+  const evalAppendsByKey = new Map();
+  evalRows.forEach(row => {
+    const key = [
+      String(row[evalIdx.client] || '').trim(),
+      String(row[evalIdx.target_month] || '').trim(),
+      String(row[evalIdx.scenario] || '').trim()
+    ].join('|');
+    const rowNo = evalRowByKey.get(key);
+    if (rowNo) evalUpdatesByRowNo.set(rowNo, { rowNo, row });
+    else evalAppendsByKey.set(key, row);
+  });
+  const evalUpdates = Array.from(evalUpdatesByRowNo.values());
+  const evalAppends = Array.from(evalAppendsByKey.values());
+  writeContiguousRowUpdates_(out, evalUpdates, evalHeaders.length);
+  if (evalAppends.length) writeRowsInChunks_(out, out.getLastRow() + 1, 1, evalAppends, 500);
 
   const compare = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   ensureSheetHeaders_(compare, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
@@ -8609,7 +8662,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) no-op：POOL_PRIOR が書かれた直後でも、各bookで A-9（予測）の OUTPUT P10/P50/P90 が集約前と変わらないこと（POOL_PRIOR は提案の収縮に効くだけで、予測値そのものは変えない）。
  * 9) C-1への波及：集約後に client book で C-1 を実行すると、generateReliabilityProposals_ の rShrunk が pooled_value 方向へ収縮した提案になること（POOL_PRIOR 反映前後で提案値が変化）。
  * 10) 二重適用耐性：adminAggregatePoolPriorAcrossBooks を続けて2回実行しても POOL_PRIOR は重複行を作らず upsert されること。
- * 11) VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view' であること。
+ * 11) VERSION='2.3.7-dev' / BUILD_STAGE='v8-dedup-landing-eval' であること。
  *
  * HOW TO TEST (annual-forecast-mode)
  * 1) CONFIG の FORECAST_CLOSED_MONTH_MODE 既定が 'actual'。A-9 の OUTPUT 月次で、closed月は実績・open月は予測になる（従来どおり）。
@@ -8634,7 +8687,7 @@ function syncSalesFromSalesInput_(fy, client) {
 
 /**
  * HOW TO TEST (ai-summary-view)
- * 1) VERSION='2.3.6-dev' / BUILD_STAGE='v8-ai-summary-view' であること。
+ * 1) VERSION='2.3.7-dev' / BUILD_STAGE='v8-dedup-landing-eval' であること。
  * 2) A-1 初期セットアップ後、AI_RESEARCH が SALES_MONTHLY の右隣に表示され、
  *    AI_RESEARCH_STRUCTURED / TASK_LOG / WEB / EXTERNAL は非表示であること。
  * 3) A-1 直後の AI_RESEARCH は段0タイトル＋「未実行」ガイドのみであること。
