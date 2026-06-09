@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.12-dev / BUILD_STAGE v8-snapshot-vestigial-removal）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.13-dev / BUILD_STAGE v8-config-simplify）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.12-dev';
-const BUILD_STAGE = 'v8-snapshot-vestigial-removal';
+const VERSION = '2.3.13-dev';
+const BUILD_STAGE = 'v8-config-simplify';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -879,7 +879,7 @@ function showInitialSetupDialog_() {
         <input id="p${i+1}" type="text" placeholder="例：赤木" />
       `).join('')}
     </div>
-    <div class="hint">空欄は無視され、CONFIG!B4（互換:B10）にカンマ区切りで保存されます。</div>
+    <div class="hint">空欄は無視され、CONFIG!B4 にカンマ区切りで保存されます。</div>
   </div>
 
   <div class="btns">
@@ -946,7 +946,6 @@ function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
   cfg.getRange('B2').setValue(targetClient);
   cfg.getRange('B3').setValue(fy);
   cfg.getRange('B4').setValue(String(peopleCSV || '').trim());
-  cfg.getRange('B10').setFormula('=B4');
 
   // GUIDE更新（更新履歴は保持されます）
   buildGUIDE_();
@@ -1201,7 +1200,7 @@ function openProductTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
   const products = getProductNameListFromSales_();
@@ -1239,7 +1238,7 @@ function openClientTrendEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -1271,7 +1270,7 @@ function openOpinionsEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -1305,7 +1304,7 @@ function openDevEntryDialog() {
 
   const people = getPeopleListFromConfig_();
   if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4（互換:B10）に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
+    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
     return;
   }
 
@@ -2513,7 +2512,7 @@ function buildCONFIG_() {
   sh.setColumnWidth(1, 312);
   sh.setColumnWidth(2, 656);
 
-  // 重要情報を上段に配置（互換セルB10は維持）
+  // 重要情報を上段に配置
   const rows = [
     ['項目', '値'],
     ['[必須] メーカー名（外部集計キー）', ''],
@@ -2524,7 +2523,6 @@ function buildCONFIG_() {
     ['[任意] 決算期メモ', '3月末'],
     ['[固定] Monte Carlo試行回数', N_SIM],
     ['[固定] 未確定月の扱い', '前月までを確定とみなし、当月以降は同月トレンドで補完して学習（補完後に途中実績より下がらない）'],
-    ['[互換] 担当者（既存参照セルB10）', ''],
     ['[固定] スパイクならし下限比', SPIKE_CLIP_MIN],
     ['[固定] スパイクならし上限比', SPIKE_CLIP_MAX],
     ['[固定] 季節性保護（MAD倍率）', SEASONAL_MAD_K]
@@ -2534,10 +2532,8 @@ function buildCONFIG_() {
   sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
 
   // CONFIG色ルール: 黄色（#fff2cc）はユーザーが値を入力・変更しうる欄のみ。
-  // 対象は必須入力B2:B4、互換担当者B10、環境前提の任意入力。固定値・説明・通常いじらない調整パラメータは黄色にしない。
+  // 対象は必須入力B2:B4、環境前提の任意入力。固定値・説明・通常いじらない調整パラメータは黄色にしない。
   sh.getRange('B2:B4').setBackground(COLOR_OBJECTIVE);
-  sh.getRange('B10').setFormula('=B4');
-  sh.getRange('B10').setBackground(COLOR_OBJECTIVE);
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
   sh.getRange('A3').setNote('会計年度のラベルです。\n例：FY2026 = 2026/04/01〜2027/03/31（4月開始・3月決算）。\nこの値をもとに対象12ヶ月を自動計算します。');
@@ -2547,13 +2543,12 @@ function buildCONFIG_() {
   sh.getRange('A7').setNote('予測に影響なし（低）。メモ用途の任意項目です。');
   sh.getRange('A8').setNote('Monte Carlo試行回数（既定1000）。予測に影響あり（中）。通常は固定運用。');
   sh.getRange('A9').setNote('予測に影響あり（高）。未確定月補完ロジックの説明です。');
-  sh.getRange('A10').setNote('既存コードとの互換のためB10セルを維持しています。B4に入力すると自動反映されます。');
-  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
-  sh.getRange('A12').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
-  sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
+  sh.getRange('A10').setNote('予測に影響あり（中）。外れ値のならし下限。固定運用を推奨。');
+  sh.getRange('A11').setNote('予測に影響あり（中）。外れ値のならし上限。固定運用を推奨。');
+  sh.getRange('A12').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
   const sectionGapRows = 1;
-  const envStart = 15;
+  const envStart = 14;
   sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力）', '内容（入力必須ではありません）']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const envRows = [
     ['マクロ｜市場 / 制度前提', ''],
@@ -2621,7 +2616,6 @@ function buildCONFIG_() {
     ['QUAL_SHARE_TARGET_CENTER（定性寄与率目標中心）', QUAL_SHARE_TARGET_CENTER],
     ['QUAL_SHARE_TARGET_LOW（定性寄与率目標下限）', QUAL_SHARE_TARGET_LOW],
     ['QUAL_SHARE_TARGET_HIGH（定性寄与率目標上限）', QUAL_SHARE_TARGET_HIGH],
-    ['QUAL_SUBJECTIVE_MAX_SCALE（3c-1で廃止 / 参照しません）', '廃止'],
     ['QUAL_SUBJECTIVE_MONTHLY_CAP（主観の月次上限 / 唯一の制御点）', QUAL_SUBJECTIVE_MONTHLY_CAP],
     ['QUAL_CALIBRATION_ENABLED（1=月次cap適用,0=capなし）', QUAL_CALIBRATION_ENABLED],
     ['SEASONAL_YEAR_WEIGHT_Y1（最古年重み）', SEASONAL_YEAR_WEIGHT_Y1],
@@ -3139,7 +3133,7 @@ function validateAllInputsOrThrow_(fy) {
   const people = getPeopleListFromConfig_();
   if (!client) throw new Error('CONFIG!B2（メーカー名）が未入力です。');
   if (!isFinite(fyNum) || fyNum <= 2000) throw new Error('CONFIG!B3（予測年度FY）が不正です。');
-  if (people.length === 0) throw new Error('CONFIG!B4（互換:B10）（担当者）が未入力です。');
+  if (people.length === 0) throw new Error('CONFIG!B4（担当者）が未入力です。');
 
   // SALES_MONTHLY（数値かどうか）
   const sales = ss.getSheetByName(SHEETS.SALES_MONTHLY);
@@ -3515,9 +3509,7 @@ function getPeopleListFromConfig_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
   if (!cfg) return [];
-  const rawTop = String(cfg.getRange('B4').getValue() || '').trim();
-  const rawCompat = String(cfg.getRange('B10').getValue() || '').trim();
-  const raw = rawTop || rawCompat;
+  const raw = String(cfg.getRange('B4').getValue() || '').trim();
   return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 }
 
@@ -8292,7 +8284,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 17) GUIDEのA/B/C行で同一グループは同一背景色（A=青/B=緑/C=緑）で統一されていることを確認。
  * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
  * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
- * 20) CONFIGで担当者入力はA4/B4のみで、B10は互換用参照（=B4）として動作することを確認。
+ * 20) CONFIGで担当者入力はA4/B4のみで、B10に互換用参照（=B4）が作られないことを確認。
  * 21) Gem出力の confidence 列に整数「4」を入れて A-9 実行時、warn_coerced_detail.conf15 が計上されることを確認。
  * 22) Gem出力の relative_percentile を空欄＋relative_position_label のみで投入し、label逆引き補完が動くことを確認。
  * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、warn_coerced_detail.quality が計上されることを確認。
@@ -8421,6 +8413,18 @@ function syncSalesFromSalesInput_(fy, client) {
  * 4) B-1→B-2 を実行し、EVAL_LOG / EVAL_COMPARE_MONTHLY の値が撤去前と一致すること（final_pred を r[9] で拾えている）。
  * 5) OUTPUT の P10/P50/P90 が撤去前と不変であること。
  * 6) A-1 で別クライアント名に切り替えたとき detectResidualClientData_ の残存検知が従来どおり動くこと（header参照のため不変）。
+ */
+
+/**
+ * HOW TO TEST (config-simplify)
+ * 1) VERSION='2.3.13-dev' / BUILD_STAGE='v8-config-simplify'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期セットアップ後、CONFIG 上段に「[互換] 担当者（B10）」行が無く、B10 セルが空（数式なし）であること。
+ * 3) A-1 で担当者を入力 → B4 に保存され、A-5〜A-8 / A-9 の担当者必須チェックが従来どおり通ること。
+ * 4) CONFIG の環境前提・ポリシー・チューニング・補足・フローチャート・フッタの各セクションが
+ *    行ズレ/重なり無く描画されること（envStart=14 追従の確認）。
+ * 5) チューニング表に QUAL_SUBJECTIVE_MAX_SCALE 行が無いこと。QUAL_SUBJECTIVE_MONTHLY_CAP /
+ *    QUAL_CALIBRATION_ENABLED は残存し、A-9 で従来どおり参照されること。
+ * 6) OUTPUT の P10/P50/P90 が撤去前と不変であること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
