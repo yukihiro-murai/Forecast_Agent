@@ -763,7 +763,7 @@ function setupForecastBook() {
     normalizeAllSheetNotes_();
     validateNotesIntegrity_();
     applyDefaultAlignmentForAllSheets_();
-    applyTabColors_();
+    clearAllTabColors_();
     hideNonUserSheets_();
     const guide = ss.getSheetByName(SHEETS.GUIDE);
     if (guide) ss.setActiveSheet(guide);
@@ -2433,12 +2433,9 @@ function buildGUIDE_() {
   const C_A = '#d9e8fb';
   const C_B = '#d9ead3';
   const C_C = '#d9ead3';
-  const C_AUTO = '#d9e8fb';
-  const C_USER = '#fff2cc';
-  const C_OUT = '#f4cccc';
-  const C_VER = '#d9ead3';
 
-  sh.getRange(1, 1).setValue(`売上予測ツール ガイド（v${VERSION}）`).setFontSize(16).setFontWeight('bold');
+  const displayVersion = String(VERSION).replace(/-.*$/, '');
+  sh.getRange(1, 1).setValue(`売上予測ツール ガイド（v${displayVersion}）`).setFontSize(16).setFontWeight('bold');
   sh.getRange(2, 1, 1, 3).setValues([['分類', 'Forecast Agentボタンの手順', 'ボタン説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
 
   const aRows = [
@@ -2524,9 +2521,10 @@ function buildCONFIG_() {
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   sh.getRange(1, 1, 1, 2).setBackground(COLOR_HEADER).setFontWeight('bold');
 
+  // CONFIG色ルール: 黄色（#fff2cc）は通常運用でユーザーが入力する欄のみ。
+  // 固定値・説明・通常いじらない調整パラメータ・自動参照セルは黄色にしない。
   sh.getRange('B2:B4').setBackground(COLOR_OBJECTIVE);
   sh.getRange('B10').setFormula('=B4');
-  sh.getRange('B5:B6').setBackground('#fff2cc');
   sh.getRange('B10').setBackground('#f3f3f3');
 
   sh.getRange('A2').setNote('外部実績シート（*YYYY_actual_value）のAO列にあるメーカー名と完全一致させます。\n表記ゆれ（全角/半角・(株)有無）があると取り込み対象から外れるため、正式表記を使ってください。');
@@ -2543,9 +2541,8 @@ function buildCONFIG_() {
   sh.getRange('A13').setNote('予測に影響あり（中）。季節性保護のMAD倍率。通常は編集不要。');
 
   const sectionGapRows = 1;
-  const envStart = 14;
-  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力 / 必須ではありません）', '内容']]).setBackground('#d9ead3').setFontWeight('bold');
-  sh.getRange(envStart + 1, 1, 1, 2).setValues([['※この欄は任意入力です。未入力でも予測は実行できます。前提を更新したら最終更新日も更新してください。', '']]).setBackground('#fff2cc').setWrap(true);
+  const envStart = 15;
+  sh.getRange(envStart, 1, 1, 2).setValues([['環境前提（任意入力）', '内容（入力必須ではありません）']]).setBackground('#d9ead3').setFontWeight('bold');
   const envRows = [
     ['マクロ｜市場 / 制度前提', ''],
     ['マクロ｜競合前提', ''],
@@ -2556,20 +2553,20 @@ function buildCONFIG_() {
     ['ミクロ｜情報源', ''],
     ['ミクロ｜最終更新日', new Date()]
   ];
-  sh.getRange(envStart + 2, 1, envRows.length, 2).setValues(envRows);
-  sh.getRange(envStart + 2, 2, envRows.length - 1, 1).setBackground('#fff2cc');
-  sh.getRange(envStart + 1 + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
+  sh.getRange(envStart + 1, 1, envRows.length, 2).setValues(envRows);
+  sh.getRange(envStart + 1, 2, envRows.length, 1).setBackground('#fff2cc');
+  sh.getRange(envStart + envRows.length, 2).setNumberFormat('yyyy/MM/dd');
   safeSetNote_(sh, envStart, 1, '前提更新はB-3で得た示唆を反映し、最終更新日を必ず更新してください。すべて任意入力です。');
-  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
-  safeSetNote_(sh, envStart + 3, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 4, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
-  safeSetNote_(sh, envStart + 5, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
-  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
-  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
-  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
-  safeSetNote_(sh, envStart + 9, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
+  safeSetNote_(sh, envStart + 1, 1, 'マクロ｜市場 / 制度前提（任意）: 制度改定・薬価・規制変更の時期と内容。予測影響: 高。');
+  safeSetNote_(sh, envStart + 2, 1, 'マクロ｜競合前提（任意）: 競合発売時期、シェア変動仮説。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 3, 1, 'メソ｜クライアント予算 / 体制前提（任意）: 予算確保状況、組織改編、担当増減。予測影響: 高。');
+  safeSetNote_(sh, envStart + 4, 1, 'メソ｜チャネル / MR / 販促前提（任意）: 施策開始月、MR配置、販促施策。予測影響: 中〜高。');
+  safeSetNote_(sh, envStart + 5, 1, 'ミクロ｜製品 / 適応前提（任意）: 適応追加、供給制約、価格改定。予測影響: 高。');
+  safeSetNote_(sh, envStart + 6, 1, 'ミクロ｜Spot / 開発案件前提（任意）: 大型案件時期、失注リスク。予測影響: 高（特にSPOT）。');
+  safeSetNote_(sh, envStart + 7, 1, 'ミクロ｜情報源（任意）: 出典URL/社内資料名/会議体を記録。予測影響: 直接なし（説明性に影響）。');
+  safeSetNote_(sh, envStart + 8, 1, 'ミクロ｜最終更新日（推奨）: 前提を更新した日。予測影響: 直接なし（監査性に影響）。');
 
-  const policyStart = envStart + 2 + envRows.length + sectionGapRows;
+  const policyStart = envStart + 1 + envRows.length + sectionGapRows;
   const policyRows = [
     ['直接目的（事業）', '年間予算の外しすぎ低減、半期見通し精度向上、クライアント別予実管理の底上げ。'],
     ['代理目的 / 指標', 'P50を基準に signed_error・abs_error・WAPE を継続監視し、前提更新へ接続。'],
@@ -2713,7 +2710,7 @@ function buildCONFIG_() {
     safeSetNote_(sh, i + 2, 1, `${title} の説明です。必要時に値を更新し、更新理由をB列またはEVAL_INSIGHTSに記録してください。`);
   }
   applyValueTypeAlignment_(sh, 1, noteMaxRow, 2);
-  applySectionGapRows_(sh, [policyStart - 1, tuneStart - 1, proxyStart - 1, flowStart - 1, footerStart - 1]);
+  applySectionGapRows_(sh, [envStart - 1, policyStart - 1, tuneStart - 1, proxyStart - 1, flowStart - 1, footerStart - 1]);
 }
 
 function buildSALES_() {
@@ -8047,28 +8044,9 @@ function toMonthStart_(v) {
 }
 
 
-function applyTabColors_() {
+function clearAllTabColors_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const colorAuto = '#0b5394';
-  const colorManual = '#bf9000';
-  const colorOutput = '#990000';
-  const colorEval = '#38761d';
-  const colorGuide = '#666666';
-  const colorInternal = '#434343';
-
-  const manual = [SHEETS.FACTORS_PRODUCT, SHEETS.FACTORS_CLIENT, SHEETS.OPINIONS, SHEETS.DEV_SPOT];
-  const auto = [SHEETS.SALES_INPUT_MONTHLY, SHEETS.SALES, SHEETS.AI_RESEARCH_PROMPT];
-  const output = [SHEETS.OUTPUT, SHEETS.DASHBOARD];
-  const evalSheets = [SHEETS.ACTUAL_EVAL_MONTHLY, SHEETS.EVAL_COMPARE_MONTHLY, SHEETS.EVAL_LOG, SHEETS.EVAL_INSIGHTS];
-  const guide = [SHEETS.GUIDE, SHEETS.CONFIG];
-  const internal = [SHEETS.DLM_STATE, SHEETS.SOURCE_RELIABILITY, SHEETS.RELIABILITY_EVIDENCE, SHEETS.POOL_PRIOR, SHEETS.BUDGET_FROZEN, SHEETS.LANDING_FORECAST, SHEETS.BACKTEST_REPORT, SHEETS.AI_RESEARCH_TASK_LOG, SHEETS.AI_RESEARCH_EXTERNAL, SHEETS.AI_RESEARCH_WEB, SHEETS.SUBJECTIVE_IMPACT_HISTORY];
-
-  manual.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorManual); });
-  auto.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorAuto); });
-  output.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorOutput); });
-  evalSheets.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorEval); });
-  guide.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorGuide); });
-  internal.forEach(n => { const sh = ss.getSheetByName(n); if (sh) sh.setTabColor(colorInternal); });
+  ss.getSheets().forEach(sh => { try { sh.setTabColor(null); } catch (e) {} });
 }
 
 function hideNonUserSheets_() {
@@ -8111,12 +8089,12 @@ function setGuideLinkTable_(guideSheet, startRow, links) {
     const target = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(item[1]);
     guideSheet.getRange(row, 1).setValue(item[0]);
     if (target) {
-      const formula = `=HYPERLINK("#gid=${target.getSheetId()}", "${item[2]}")`;
+      const formula = `=HYPERLINK("#gid=${target.getSheetId()}", "${item[1]}")`;
       guideSheet.getRange(row, 2).setFormula(formula);
     } else {
-      guideSheet.getRange(row, 2).setValue(item[2]);
+      guideSheet.getRange(row, 2).setValue(item[1]);
     }
-    guideSheet.getRange(row, 3).setValue(item[1]);
+    guideSheet.getRange(row, 3).setValue(item[2]);
     if (colorByLabel[item[0]]) guideSheet.getRange(row, 1, 1, 3).setBackground(colorByLabel[item[0]]);
   });
 }
