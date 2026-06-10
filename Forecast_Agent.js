@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.15-dev / BUILD_STAGE v8-config-deadknob-removal）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.16-dev / BUILD_STAGE v8-rag-config-defaults）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.15-dev';
-const BUILD_STAGE = 'v8-config-deadknob-removal';
+const VERSION = '2.3.16-dev';
+const BUILD_STAGE = 'v8-rag-config-defaults';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2643,13 +2643,24 @@ function buildCONFIG_() {
     ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', 'forecast-agent-498907'],
     ['VERTEX_LOCATION（リージョン。grounding は global 推奨）', 'global'],
     ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.1-pro-preview または gemini-3.5-flash）', 'gemini-3.1-pro-preview'],
-    ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。RAG未設置時は空）', ''],
-    ['VERTEX_SEARCH_LOCATION（データストアのロケーション。例: global。RAG未設置時は空）', ''],
+    ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。レポート更新時はここを切替）', 'fujikeizai-portfolio-2025'],
+    ['VERTEX_SEARCH_LOCATION（データストアのロケーション。global / us / eu）', 'global'],
+    ['VERTEX_SERVING_CONFIG（検索サービング構成ID。通常 default_search。アプリにより default_config）', 'default_search'],
     ['AI_RESEARCH_ENABLED（0/1。1でVertex AIリサーチを実行、0でAI調査をスキップ）', 1]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
   sh.getRange(tuneStart + 1, 2, tuneRows.length, 1).setNumberFormat('0.0000');
+  // Vertex / RAG 環境設定は「ユーザーが切り替えうる入力欄」のため黄色＋テキスト書式にする（番地非依存・キー照合）
+  const vertexEnvKeys = ['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL', 'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG', 'AI_RESEARCH_ENABLED'];
+  const vertexTextKeys = new Set(['VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL', 'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG']);
+  tuneRows.forEach((r, i) => {
+    const key = configKeyOf_(r[0]);
+    if (vertexEnvKeys.indexOf(key) < 0) return;
+    const cell = sh.getRange(tuneStart + 1 + i, 2);
+    cell.setBackground(COLOR_OBJECTIVE);
+    if (vertexTextKeys.has(key)) cell.setNumberFormat('@');
+  });
   sh.getRange(tuneStart, 1).setNote('A-9 実行時にこのチューニング値を参照します。\n極端な変更は予測を不安定にするため、変更前に根拠と比較結果（B-2/B-3）を必ず記録してください。');
   tuneRows.forEach((r, i) => {
     safeSetNote_(sh, tuneStart + 1 + i, 1, `詳細: ${r[0]}。\n予測影響あり（中〜高）。通常は必須入力ではなく、検証結果に基づく調整時のみ更新してください。`);
@@ -3535,6 +3546,7 @@ function readVertexConfig_() {
     geminiModel: String(labelMap.VERTEX_GEMINI_MODEL || '').trim(),
     datastoreId: String(labelMap.VERTEX_DATASTORE_ID || '').trim(),
     searchLocation: String(labelMap.VERTEX_SEARCH_LOCATION || '').trim(),
+    servingConfig: String(labelMap.VERTEX_SERVING_CONFIG || '').trim() || 'default_search',
     enabled: Number(labelMap.AI_RESEARCH_ENABLED || 0) > 0
   };
   // gemini（web grounding + 構造化）と RAG（Vertex AI Search）の readiness を分離。
@@ -6955,6 +6967,12 @@ function vertexHost_(location) {
   return `https://${encodeURIComponent(loc)}-aiplatform.googleapis.com`;
 }
 
+function discoveryEngineHost_(location) {
+  const loc = String(location || '').trim().toLowerCase();
+  if (!loc || loc === 'global') return 'https://discoveryengine.googleapis.com';
+  return `https://${encodeURIComponent(loc)}-discoveryengine.googleapis.com`;
+}
+
 function vertexPostJson_(endpoint, payload) {
   try {
     const res = UrlFetchApp.fetch(endpoint, {
@@ -7019,14 +7037,17 @@ function callVertexGeminiGrounded_(prompt, opt) {
 
 function callVertexSearchRAG_(query, opt) {
   const cfg = (opt && opt.config) || readVertexConfig_();
-  const endpoint = `https://discoveryengine.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.searchLocation)}/collections/default_collection/dataStores/${encodeURIComponent(cfg.datastoreId)}/servingConfigs/default_search:search`;
+  const servingConfig = String(cfg.servingConfig || 'default_search').trim() || 'default_search';
+  const endpoint = `${discoveryEngineHost_(cfg.searchLocation)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.searchLocation)}/collections/default_collection/dataStores/${encodeURIComponent(cfg.datastoreId)}/servingConfigs/${encodeURIComponent(servingConfig)}:search`;
   const payload = {
     query: String(query || ''),
     pageSize: 10,
     contentSearchSpec: {
       summarySpec: {
         summaryResultCount: 5,
-        includeCitations: true
+        includeCitations: true,
+        ignoreAdversarialQuery: true,
+        ignoreNonSummarySeekingQuery: false
       }
     }
   };
@@ -8432,6 +8453,21 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) DLM=shadow/primary のバックテスト指標が撤去前と一致（dlmForecastHorizon 不使用は元から）。
  * 6) 残すべき調整キー（AI_WEIGHT / QUAL_SUBJECTIVE_MONTHLY_CAP / RELIABILITY_* /
  *    DLM_BACKTEST_MIN_MONTHS 等）が CONFIG に残っていること。
+ */
+
+/**
+ * HOW TO TEST (rag-config-defaults)
+ * 1) VERSION='2.3.16-dev' / BUILD_STAGE='v8-rag-config-defaults'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期セットアップ後、CONFIG の VERTEX_DATASTORE_ID='fujikeizai-portfolio-2025'、
+ *    VERTEX_SEARCH_LOCATION='global'、VERTEX_SERVING_CONFIG='default_search' が既定で入っていること。
+ * 3) Vertex/RAG 環境行（PROJECT_ID/LOCATION/GEMINI_MODEL/DATASTORE_ID/SEARCH_LOCATION/SERVING_CONFIG/AI_RESEARCH_ENABLED）の
+ *    B列セルが黄色（#fff2cc）。文字列キーのセルはテキスト書式（@）であること。
+ * 4) A-2 → A-4 を実行 → AI_RESEARCH_TASK_LOG の aspect=rag 行が status=success（skipped でない）。
+ *    AI_RESEARCH_EXTERNAL に RAG 応答（summary/citations）が記録される。
+ * 5) VERTEX_SEARCH_LOCATION を us/eu に変更すると discoveryEngineHost_ が地域エンドポイントを生成
+ *    （global のままなら従来と同一ホスト＝挙動不変）。
+ * 6) VERTEX_DATASTORE_ID を空にして A-4 → ragReady=false で RAG は skipped、web-only で継続（フェイルセーフ維持）。
+ * 7) A-9 の OUTPUT P10/P50/P90 が本変更の前後で不変（予測コア無変更）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
