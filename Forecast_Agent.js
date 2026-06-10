@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.13-dev / BUILD_STAGE v8-config-simplify）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.14-dev / BUILD_STAGE v8-ai-research-frame）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.13-dev';
-const BUILD_STAGE = 'v8-config-simplify';
+const VERSION = '2.3.14-dev';
+const BUILD_STAGE = 'v8-ai-research-frame';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7128,8 +7128,23 @@ function buildWebResearchPrompt_(client, topic) {
     `Topic: ${topic}`,
     `As_of_Date: ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd')}`,
     '',
-    '市場/競合/チャネル/DXの最新Web情報を調査してください。',
-    'BIGM2Yの売上予測に影響する事実だけを抽出し、上振れ/下振れ/中立、影響の強さ、根拠URLが分かるように日本語で要約してください。',
+    'あなたは製薬マーケティング支援会社の外部環境アナリストです。',
+    '外部から客観的に観測できる情報のみを調査してください。',
+    '対象メーカー（client）の社内実感・取引実績・受託可能性といった内部事情には踏み込まないでください（それらは別途、社内の担当者が入力します）。',
+    '',
+    '【評価の枠組み】',
+    '評価対象は「対象メーカー周辺の、製薬マーケティング支援需要に影響しうる外部環境が、どの程度大きく/活発に動いているか」です。',
+    '対象メーカーの企業力そのもののランキングではありません。特定企業の社内予算配分や内製/外注の意思決定には踏み込まないでください。',
+    '',
+    '【上振れ/下振れの向き（符号）】',
+    '次の向きで「上振れ（プラス）」「下振れ（マイナス）」「中立」を判定してください。',
+    '- Market: 市場の拡大・活性化はプラス。縮小はマイナス。',
+    '- Competitor: 競合各社のマーケ/販促活動が活発化している環境はプラス（支援需要が動く）。活動の停滞はマイナス。',
+    '- Channel: 販促・MR・チャネル活動の活発化はプラス。停滞はマイナス。',
+    '- DX: DX投資（投資の量・活発さ）の増加はプラス。投資の停滞はマイナス。内製成熟度の高さでは判定しないでください（観測するのは投資量です）。',
+    '',
+    `現在のTopic「${topic}」について、上記の向きに沿って最新Web情報を調査してください。`,
+    '上振れ/下振れ/中立、影響の強さ、根拠URLが分かるように日本語で要約してください。',
     '推測で数値を埋めず、根拠が弱い場合は低信頼と明記してください。'
   ].join('\n');
 }
@@ -7140,7 +7155,18 @@ function buildRagQuery_(client, topic) {
 
 function buildVertexStructureSystemInstruction_() {
   return [
-    'あなたは売上予測に使うAI調査結果を構造化するアナリストです。',
+    'あなたは製薬マーケティング支援会社の売上予測に使うAI調査結果を構造化するアナリストです。',
+    'AI調査は外部から客観的に観測できる情報のみを扱います。対象メーカーの社内実感・取引実績・受託可能性には踏み込まないでください（それらは社内の担当者入力で別途反映されます）。',
+    '',
+    'relative_percentile は「対象メーカーの企業力ランキング」ではなく、「対象メーカー周辺の、製薬マーケティング支援需要に影響しうる外部環境が、どの程度大きく/活発に動いているか」の相対位置として評価してください。50は同等水準、高いほど支援需要環境が大きく/活発に動いていることを表します。',
+    'peer_universe / peer_basis には、この相対評価の母集団と基準（何と比べた相対位置か）を必ず明記してください。',
+    '',
+    '向き（符号）は次に統一してください（4指標すべて順方向）。',
+    '- Market: 市場拡大・活性化が上振れ。',
+    '- Competitor: 競合各社のマーケ/販促活動の活発化が上振れ。',
+    '- Channel: 販促/MR/チャネル活動の活発化が上振れ。',
+    '- DX: DX投資（投資量）の増加が上振れ。内製成熟度では判定しない。',
+    '',
     'Web検索結果はevent行、購入レポート/RAG結果はbenchmark行に分けてください。',
     '推測で根拠を補完しないでください。根拠が弱い場合はconfidenceやrelative_confidenceを低くしてください。',
     'JSONのみを返してください。'
@@ -7151,6 +7177,12 @@ function buildVertexStructureUserContent_(client, topic, web, rag) {
   return [
     `client: ${client}`,
     `topic: ${topic}`,
+    '',
+    '【構造化の前提】',
+    'AI調査は外部観測の客観情報のみ。対象メーカーの社内実感・受託可能性には踏み込まない。',
+    'relative_percentile は「対象メーカー周辺の支援需要に影響しうる外部環境の動きの大きさ/活発さ」の相対位置（50=同等、高いほど活発）。企業力ランキングではない。',
+    'peer_universe / peer_basis に母集団と比較基準を必ず明記する。',
+    `向き（符号）: ${topic} は順方向（Market=市場拡大が上振れ / Competitor=競合活動の活発化が上振れ / Channel=販促・MR活動の活発化が上振れ / DX=DX投資量の増加が上振れ・内製成熟度では見ない）。`,
     '',
     '次のJSON schemaで返してください。',
     '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":50,"relative_confidence":0,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"top|upper|middle|lower|bottom","relative_reason":"","evidence":""},"report_text":""}',
