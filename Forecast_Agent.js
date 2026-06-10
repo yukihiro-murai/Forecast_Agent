@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.14-dev / BUILD_STAGE v8-ai-research-frame）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.15-dev / BUILD_STAGE v8-config-deadknob-removal）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.14-dev';
-const BUILD_STAGE = 'v8-ai-research-frame';
+const VERSION = '2.3.15-dev';
+const BUILD_STAGE = 'v8-config-deadknob-removal';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2612,10 +2612,6 @@ function buildCONFIG_() {
     ['SPOT_SPIKE_MAD_K（SPOTスパイク判定MAD倍率）', SPOT_SPIKE_MAD_K],
     ['KNOWN_SPOT_OFFSET_RATE（known spotの背景相殺率）', KNOWN_SPOT_OFFSET_RATE],
     ['KNOWN_SPOT_BG_SUPPRESS_RATE（known spot命中時の背景抑制）', KNOWN_SPOT_BG_SUPPRESS_RATE],
-    ['QUAL_SHARE_ALERT_THRESHOLD（定性寄与率アラート閾値）', QUAL_SHARE_ALERT_THRESHOLD],
-    ['QUAL_SHARE_TARGET_CENTER（定性寄与率目標中心）', QUAL_SHARE_TARGET_CENTER],
-    ['QUAL_SHARE_TARGET_LOW（定性寄与率目標下限）', QUAL_SHARE_TARGET_LOW],
-    ['QUAL_SHARE_TARGET_HIGH（定性寄与率目標上限）', QUAL_SHARE_TARGET_HIGH],
     ['QUAL_SUBJECTIVE_MONTHLY_CAP（主観の月次上限 / 唯一の制御点）', QUAL_SUBJECTIVE_MONTHLY_CAP],
     ['QUAL_CALIBRATION_ENABLED（1=月次cap適用,0=capなし）', QUAL_CALIBRATION_ENABLED],
     ['SEASONAL_YEAR_WEIGHT_Y1（最古年重み）', SEASONAL_YEAR_WEIGHT_Y1],
@@ -2628,19 +2624,10 @@ function buildCONFIG_() {
     ['AI_TOTAL_NEUTRAL_THRESHOLD（AI中立化閾値）', AI_TOTAL_NEUTRAL_THRESHOLD],
     ['AI_QUALITY_NEUTRAL_THRESHOLD（品質中立化閾値）', AI_QUALITY_NEUTRAL_THRESHOLD],
     ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD],
-    ['QUARTERLY_REVIEW_PERIOD_MONTHS', 3],
-    ['BIAS_CORRECTION_DAMPING', 0.5],
-    ['BIAS_CORRECTION_CLIP_LOW', 0.80],
-    ['BIAS_CORRECTION_CLIP_HIGH', 1.20],
-    ['BIAS_CORRECTION_MIN_TRIGGER', 0.03],
-    ['AI_DIRECTION_HIT_STRONG', 0.65],
-    ['AI_DIRECTION_HIT_WEAK', 0.40],
-    ['AI_EFFECT_MIN_MEANINGFUL', 0.005],
     ['AI_WEIGHT_PROPOSAL_MIN', 0.00005],
     ['AI_WEIGHT_PROPOSAL_MAX', 0.002],
     ['DLM_BACKTEST_MIN_MONTHS（バックテスト最低確定月数）', 24],
     ['DLM_BACKTEST_START_ORIGIN（バックテスト開始原点index）', 18],
-    ['DLM_FORECAST_HORIZON（バックテスト先読み月数）', 3],
     ['DLM_LOG_EPSILON_RATE（対数下限=median比）', 0.01],
     ['DLM_ENGINE_MODE（off/shadow/primary）', 'off'],
     ['DLM_PRIMARY_SPOT_CAP_BASIS（dlm/ols）', 'dlm'],
@@ -3569,10 +3556,6 @@ function readModelTuningFromConfig_() {
     spotSpikeMadK: SPOT_SPIKE_MAD_K,
     knownSpotOffsetRate: KNOWN_SPOT_OFFSET_RATE,
     knownSpotBgSuppressRate: KNOWN_SPOT_BG_SUPPRESS_RATE,
-    qualShareAlertThreshold: QUAL_SHARE_ALERT_THRESHOLD,
-    qualShareTargetCenter: QUAL_SHARE_TARGET_CENTER,
-    qualShareTargetLow: QUAL_SHARE_TARGET_LOW,
-    qualShareTargetHigh: QUAL_SHARE_TARGET_HIGH,
     qualSubjectiveMonthlyCap: QUAL_SUBJECTIVE_MONTHLY_CAP,
     qualCalibrationEnabled: QUAL_CALIBRATION_ENABLED,
     seasonalYearWeightY1: SEASONAL_YEAR_WEIGHT_Y1,
@@ -3585,19 +3568,10 @@ function readModelTuningFromConfig_() {
     aiTotalNeutralThreshold: AI_TOTAL_NEUTRAL_THRESHOLD,
     aiQualityNeutralThreshold: AI_QUALITY_NEUTRAL_THRESHOLD,
     aiQualityPartialThreshold: AI_QUALITY_PARTIAL_THRESHOLD,
-    quarterlyReviewPeriodMonths: 3,
-    biasCorrectionDamping: 0.5,
-    biasCorrectionClipLow: 0.80,
-    biasCorrectionClipHigh: 1.20,
-    biasCorrectionMinTrigger: 0.03,
-    aiDirectionHitStrong: 0.65,
-    aiDirectionHitWeak: 0.40,
-    aiEffectMinMeaningful: 0.005,
     aiWeightProposalMin: 0.00005,
     aiWeightProposalMax: 0.002,
     dlmBacktestMinMonths: 24,
     dlmBacktestStartOrigin: 18,
-    dlmForecastHorizon: 3,
     dlmLogEpsilonRate: 0.01,
     reliabilityRMin: 0.0,
     reliabilityRMax: 1.5,
@@ -3623,10 +3597,6 @@ function readModelTuningFromConfig_() {
   out.spotSpikeMadK = Math.max(0.5, Math.min(10, getCfg('SPOT_SPIKE_MAD_K', out.spotSpikeMadK)));
   out.knownSpotOffsetRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_OFFSET_RATE', out.knownSpotOffsetRate)));
   out.knownSpotBgSuppressRate = Math.max(0, Math.min(1, getCfg('KNOWN_SPOT_BG_SUPPRESS_RATE', out.knownSpotBgSuppressRate)));
-  out.qualShareAlertThreshold = Math.max(0, Math.min(1, getCfg('QUAL_SHARE_ALERT_THRESHOLD', out.qualShareAlertThreshold)));
-  out.qualShareTargetCenter = Math.max(0.01, Math.min(0.80, getCfg('QUAL_SHARE_TARGET_CENTER', out.qualShareTargetCenter)));
-  out.qualShareTargetLow = Math.max(0.01, Math.min(0.80, getCfg('QUAL_SHARE_TARGET_LOW', out.qualShareTargetLow)));
-  out.qualShareTargetHigh = Math.max(out.qualShareTargetLow, Math.min(0.90, getCfg('QUAL_SHARE_TARGET_HIGH', out.qualShareTargetHigh)));
   out.qualSubjectiveMonthlyCap = Math.max(0.01, Math.min(2, getCfg('QUAL_SUBJECTIVE_MONTHLY_CAP', out.qualSubjectiveMonthlyCap)));
   out.qualCalibrationEnabled = Math.round(Math.max(0, Math.min(1, getCfg('QUAL_CALIBRATION_ENABLED', out.qualCalibrationEnabled))));
   out.seasonalYearWeightY1 = Math.max(0, Math.min(1, getCfg('SEASONAL_YEAR_WEIGHT_Y1', out.seasonalYearWeightY1)));
@@ -3639,19 +3609,10 @@ function readModelTuningFromConfig_() {
   out.aiTotalNeutralThreshold = Math.max(0, Math.min(100, getCfg('AI_TOTAL_NEUTRAL_THRESHOLD', out.aiTotalNeutralThreshold)));
   out.aiQualityNeutralThreshold = Math.max(0, Math.min(1, getCfg('AI_QUALITY_NEUTRAL_THRESHOLD', out.aiQualityNeutralThreshold)));
   out.aiQualityPartialThreshold = Math.max(out.aiQualityNeutralThreshold, Math.min(1, getCfg('AI_QUALITY_PARTIAL_THRESHOLD', out.aiQualityPartialThreshold)));
-  out.quarterlyReviewPeriodMonths = Math.max(3, Math.min(12, getCfg('QUARTERLY_REVIEW_PERIOD_MONTHS', out.quarterlyReviewPeriodMonths)));
-  out.biasCorrectionDamping = Math.max(0.01, Math.min(1, getCfg('BIAS_CORRECTION_DAMPING', out.biasCorrectionDamping)));
-  out.biasCorrectionClipLow = Math.max(0.5, Math.min(1, getCfg('BIAS_CORRECTION_CLIP_LOW', out.biasCorrectionClipLow)));
-  out.biasCorrectionClipHigh = Math.max(1, Math.min(2, getCfg('BIAS_CORRECTION_CLIP_HIGH', out.biasCorrectionClipHigh)));
-  out.biasCorrectionMinTrigger = Math.max(0, Math.min(0.5, getCfg('BIAS_CORRECTION_MIN_TRIGGER', out.biasCorrectionMinTrigger)));
-  out.aiDirectionHitStrong = Math.max(0.5, Math.min(1, getCfg('AI_DIRECTION_HIT_STRONG', out.aiDirectionHitStrong)));
-  out.aiDirectionHitWeak = Math.max(0.1, Math.min(out.aiDirectionHitStrong, getCfg('AI_DIRECTION_HIT_WEAK', out.aiDirectionHitWeak)));
-  out.aiEffectMinMeaningful = Math.max(0, Math.min(0.1, getCfg('AI_EFFECT_MIN_MEANINGFUL', out.aiEffectMinMeaningful)));
   out.aiWeightProposalMin = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT_PROPOSAL_MIN', out.aiWeightProposalMin)));
   out.aiWeightProposalMax = Math.max(out.aiWeightProposalMin, Math.min(0.01, getCfg('AI_WEIGHT_PROPOSAL_MAX', out.aiWeightProposalMax)));
   out.dlmBacktestMinMonths = Math.round(Math.max(12, Math.min(48, getCfg('DLM_BACKTEST_MIN_MONTHS', out.dlmBacktestMinMonths))));
   out.dlmBacktestStartOrigin = Math.round(Math.max(12, Math.min(47, getCfg('DLM_BACKTEST_START_ORIGIN', out.dlmBacktestStartOrigin))));
-  out.dlmForecastHorizon = Math.round(Math.max(1, Math.min(12, getCfg('DLM_FORECAST_HORIZON', out.dlmForecastHorizon))));
   out.dlmLogEpsilonRate = Math.max(0.0001, Math.min(0.5, getCfg('DLM_LOG_EPSILON_RATE', out.dlmLogEpsilonRate)));
   out.reliabilityRMin = Math.max(0, Math.min(1, getCfg('RELIABILITY_R_MIN', out.reliabilityRMin)));
   out.reliabilityRMax = Math.max(out.reliabilityRMin, Math.min(3, getCfg('RELIABILITY_R_MAX', out.reliabilityRMax)));
@@ -8457,6 +8418,20 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) チューニング表に QUAL_SUBJECTIVE_MAX_SCALE 行が無いこと。QUAL_SUBJECTIVE_MONTHLY_CAP /
  *    QUAL_CALIBRATION_ENABLED は残存し、A-9 で従来どおり参照されること。
  * 6) OUTPUT の P10/P50/P90 が撤去前と不変であること。
+ */
+
+/**
+ * HOW TO TEST (config-deadknob-removal)
+ * 1) VERSION='2.3.15-dev' / BUILD_STAGE='v8-config-deadknob-removal'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期セットアップ後、CONFIG チューニング表に
+ *    QUAL_SHARE_ALERT_THRESHOLD / QUAL_SHARE_TARGET_CENTER/LOW/HIGH /
+ *    QUARTERLY_REVIEW_PERIOD_MONTHS / BIAS_CORRECTION_* / AI_DIRECTION_HIT_* /
+ *    AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON の各行が無いこと（SKIP分を除く）。
+ * 3) A-9 実行で OUTPUT の P10/P50/P90 が撤去前と不変（予測コア無変更）。
+ * 4) C-1 四半期レビューが従来どおり動作する（quarterlyReviewPeriodMonths 不使用は元から）。
+ * 5) DLM=shadow/primary のバックテスト指標が撤去前と一致（dlmForecastHorizon 不使用は元から）。
+ * 6) 残すべき調整キー（AI_WEIGHT / QUAL_SUBJECTIVE_MONTHLY_CAP / RELIABILITY_* /
+ *    DLM_BACKTEST_MIN_MONTHS 等）が CONFIG に残っていること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
