@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.20-dev / BUILD_STAGE ai-subjective-split-display）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.21-dev / BUILD_STAGE ai-dx-confidence-diagnostics）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.20-dev';
-const BUILD_STAGE = 'ai-subjective-split-display';
+const VERSION = '2.3.21-dev';
+const BUILD_STAGE = 'ai-dx-confidence-diagnostics';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1844,7 +1844,8 @@ function writeOutputFY_(result) {
     const m = aiMeta[topic] || {};
     const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
     const momentumText = aiScoreBasis === 'momentum' ? ` / mom=${Number(m.momentumScore || 0).toFixed(1)} insuf=${!!m.momentumInsufficient}` : '';
-    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}`;
+    const confDropText = Number(m.eventDroppedMissingConf || 0) > 0 ? ` / confDrop=${Number(m.eventDroppedMissingConf)}` : '';
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}${confDropText}`;
   }).join(' | ');
   sh.getRange(21, 1, 1, 11).merge();
   sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
@@ -1856,8 +1857,10 @@ function writeOutputFY_(result) {
   sh.getRange(22, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
   sh.getRange(22, 1, 1, 6).merge();
   sh.getRange(22, 7, 1, 5).merge();
+  const confDropTopics = AI_TOPICS.filter(topic => Number(((aiMeta || {})[topic] || {}).eventDroppedMissingConf || 0) > 0);
   if (degradedTopics.length) {
-    sh.getRange(22, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
+    const confNote = confDropTopics.length ? `（confidence欠落でevent不採用: ${confDropTopics.join(', ')} → A-4再実行 or 構造化プロンプト見直しを推奨）` : '';
+    sh.getRange(22, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}${confNote}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
   }
   if (missingBench.length) {
     sh.getRange(22, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
@@ -4712,6 +4715,8 @@ function readAIResearchScores_(calibration, opt) {
   const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const latestMeta = { Market: null, Competitor: null, Channel: null, DX: null };
+  // event候補（direction/impactあり）だが confidence 欠落で重み0となり不採用にした件数（診断用 / 採点には不使用）
+  const eventDroppedMissingConf = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
   const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : 0.5));
   const now = new Date();
   for (let i = 1; i < vals.length; i++) {
@@ -4759,7 +4764,14 @@ function readAIResearchScores_(calibration, opt) {
       if (!isFinite(months) || months > AI_MAX_AGE_MONTHS) continue;
       const decay = Math.pow(0.5, Math.max(0, months) / AI_EVENT_DECAY_HALF_LIFE_MONTHS);
       const wt = isFinite(conf) ? Math.max(0, conf) * decay : 0;
-      if (isFinite(eventScore) && wt > 0) eventArr[topic].push({ score: eventScore, weight: wt });
+      if (isFinite(eventScore) && wt > 0) {
+        eventArr[topic].push({ score: eventScore, weight: wt });
+      } else if (!isFinite(conf)) {
+        // confidence 欠落（NaN）で重み0 → 不採用。実体のある event候補のみ診断計上する。
+        const dirRaw = directionIdx === undefined ? '' : normalizeAiDirection_(vals[i][directionIdx]);
+        const impactRaw = parseAiNumericScore_(impactIdx === undefined ? '' : vals[i][impactIdx], 'impact_score');
+        if (dirRaw || isFinite(impactRaw)) eventDroppedMissingConf[topic] = Number(eventDroppedMissingConf[topic] || 0) + 1;
+      }
     }
   }
 
@@ -4810,6 +4822,7 @@ function readAIResearchScores_(calibration, opt) {
       basis: latest.basis || '',
       coverageEventRows: eventCount,
       coverageBenchmarkRows: benchCount,
+      eventDroppedMissingConf: Number(eventDroppedMissingConf[topic] || 0),
       latestAsOfDate: latest.asOf ? Utilities.formatDate(new Date(latest.asOf), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
       clamped: !!(benchAgg.clamped || eventAgg.clamped),
       no_data: !!noData,
@@ -8547,6 +8560,18 @@ function syncSalesFromSalesInput_(fy, client) {
  *    （global のままなら従来と同一ホスト＝挙動不変）。
  * 6) VERTEX_DATASTORE_ID を空にして A-4 → ragReady=false で RAG は skipped、web-only で継続（フェイルセーフ維持）。
  * 7) A-9 の OUTPUT P10/P50/P90 が本変更の前後で不変（予測コア無変更）。
+ */
+
+/**
+ * HOW TO TEST (ai-dx-confidence-diagnostics)
+ * 1) VERSION='2.3.21-dev' / BUILD_STAGE='ai-dx-confidence-diagnostics'、DLM_BUILD_STAGE 不変。
+ * 2) 既存データ（DX eventの confidence が空欄）で A-9 を実行 → OUTPUT の coverage 行に
+ *    「DX: ... evt=0 ... / confDrop=1」が表示される。
+ * 3) 同 A-9 で degraded 警告（22行目相当）に「confidence欠落でevent不採用: DX ...」の注記が出る。
+ * 4) confDrop は confidence が NaN（空欄）の event候補のみ計上。confidence=0 の明示入力は計上しない
+ *    （重み0だが欠落ではないため）。
+ * 5) 本修正の前後で、混合/客観セクションの年度合計および月次 P10/P50/P90 が不変であること（採点不変）。
+ * 6) AI_SCORE_HISTORY / AI_IMPACT_HISTORY の値が本修正の前後で不変であること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
