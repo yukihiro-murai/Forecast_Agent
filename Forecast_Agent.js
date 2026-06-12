@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.21-dev / BUILD_STAGE ai-dx-confidence-diagnostics）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.22-dev / BUILD_STAGE output-note-relocate）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.21-dev';
-const BUILD_STAGE = 'ai-dx-confidence-diagnostics';
+const VERSION = '2.3.22-dev';
+const BUILD_STAGE = 'output-note-relocate';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -164,6 +164,7 @@ const OUTPUT_RANGE_EXPLAIN_MAIN_TEXT = [
   '※注意：薬価改定・大口クライアントの喪失など「全部の月を一気に動かす」出来事は、このP10〜P90の範囲の外です。その種のリスクは別途シナリオで確認してください。'
 ].join('\n');
 const OUTPUT_RANGE_EXPLAIN_OBJECTIVE_TEXT = '※上と同じ理由で、ここでも年度合計と月の合計は一致しません（正常です）。';
+const OUTPUT_RANGE_EXPLAIN_PRIMARY_SHORT_TEXT = '※年度合計と月の合計は一致しません（正常です）。詳しい理由は、この下の月次表の下に記載しています。';
 
 // A-9 実行前の影響度チェック閾値
 const STEP_WARN_THRESHOLD = 0.30;   // ±30%
@@ -2350,7 +2351,10 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 4).setBackground(COLOR_POS);
   r++;
 
-  writeOutputRangeExplanation_(sh, r, annualHdr.length, opt.outputRangeExplainText, !!opt.outputRangeExplainPrimary);
+  // 年度合計と月次表の間は短い1行注記のみ（primaryの長文はセクション末尾へ移す）。客観は従来の1行注記のまま。
+  const betweenExplainText = opt.outputRangeExplainPrimary ? OUTPUT_RANGE_EXPLAIN_PRIMARY_SHORT_TEXT : opt.outputRangeExplainText;
+  writeOutputRangeExplanation_(sh, r, annualHdr.length, betweenExplainText, false);
+  let sectionExplainRow = 0;
 
   // 月次表
   r++;
@@ -2425,6 +2429,12 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(splitHeaderRow, 2).setNote('BASEは「シナリオ値 - SPOT固定（背景SPOT + DEV固定）」を表示しています。');
   sh.getRange(splitHeaderRow, 3).setNote('SPOTは「背景SPOT + DEV_SPOT（既知案件）」の合算表示です。');
 
+  // 「年度≠月次合算」の長文説明は月次の数字の流れを妨げないよう、Scenario Split の下（目立たない位置）へ配置する。
+  if (opt.outputRangeExplainPrimary && OUTPUT_RANGE_EXPLAIN_ENABLED && opt.outputRangeExplainText) {
+    sectionExplainRow = r + splitRows.length + 2;
+    writeOutputRangeExplanation_(sh, sectionExplainRow, annualHdr.length, opt.outputRangeExplainText, true);
+  }
+
   // グラフ系列（凡例順）：Upside → Baseline → Downside → Linear Regression
   const chartMonthRange = sh.getRange(monthTableHeaderRow, 1, table.length + 1, 1);
   const chartUpsideRange = sh.getRange(monthTableHeaderRow, 4, table.length + 1, 1);
@@ -2463,7 +2473,8 @@ function writeSectionBlock_(sh, startRow, opt) {
   // チャートが重ならないよう、次の開始行をチャート分だけ下に送る
   const tableBottom = r + table.length + 2;
   const chartBottom = chartRow + CHART_HEIGHT_ROWS;
-  return Math.max(tableBottom, chartBottom);
+  const explainBottom = sectionExplainRow ? (sectionExplainRow + 2) : 0;
+  return Math.max(tableBottom, chartBottom, explainBottom);
 }
 
 /** ====== シート構築 ====== */
@@ -8572,6 +8583,19 @@ function syncSalesFromSalesInput_(fy, client) {
  *    （重み0だが欠落ではないため）。
  * 5) 本修正の前後で、混合/客観セクションの年度合計および月次 P10/P50/P90 が不変であること（採点不変）。
  * 6) AI_SCORE_HISTORY / AI_IMPACT_HISTORY の値が本修正の前後で不変であること。
+ */
+
+/**
+ * HOW TO TEST (output-note-relocate)
+ * 1) VERSION='2.3.22-dev' / BUILD_STAGE='output-note-relocate'、DLM_BUILD_STAGE 不変。
+ * 2) A-9 実行後、混合セクションの「年度合計（予測）行」と「Month見出し」の間が
+ *    短い1行注記（OUTPUT_RANGE_EXPLAIN_PRIMARY_SHORT_TEXT）になっていること。長い4行ブロックがここに無いこと。
+ * 3) 長い説明本文（OUTPUT_RANGE_EXPLAIN_MAIN_TEXT）が、混合セクションの Scenario Split の下に
+ *    目立たない灰色小フォントで表示されていること。
+ * 4) 客観セクションは従来どおり：年度合計と月次の間に短い1行注記のみ、末尾に本文なし。
+ * 5) 月次表・Scenario Split・チャート・Triangulation 以降の各表の数値が本修正の前後で不変であること。
+ * 6) チャートが表と重ならないこと（戻り値に末尾注記分を加味済み）。次セクション開始位置が崩れないこと。
+ * 7) 年度合計および月次 P10/P50/P90 が不変であること（表示位置のみの変更）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
