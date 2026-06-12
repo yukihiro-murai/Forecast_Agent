@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.17-dev / BUILD_STAGE output-range-explain）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.18-dev / BUILD_STAGE a4-remove-nextstep-msg）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.17-dev';
-const BUILD_STAGE = 'output-range-explain';
+const VERSION = '2.3.18-dev';
+const BUILD_STAGE = 'a4-remove-nextstep-msg';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -6958,7 +6958,6 @@ function runVertexAIResearch() {
     safeLogRun_('runVertexAIResearch', targetClient, 'success', outRows.length, started, warnText);
     hideNonUserSheets_();
     ss.setActiveSheet(ss.getSheetByName(SHEETS.AI_RESEARCH));
-    SpreadsheetApp.getUi().alert('完了', 'Vertex AI調査を更新しました。次は A-9 予測を実行 へ進めます。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
     try {
