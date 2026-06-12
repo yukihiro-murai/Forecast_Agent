@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.16-dev / BUILD_STAGE v8-rag-config-defaults）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.17-dev / BUILD_STAGE output-range-explain）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.16-dev';
-const BUILD_STAGE = 'v8-rag-config-defaults';
+const VERSION = '2.3.17-dev';
+const BUILD_STAGE = 'output-range-explain';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -156,6 +156,14 @@ const COL_WIDTHS = {
 
 // チャートの高さ相当の“余白行”目安（重なり防止）
 const CHART_HEIGHT_ROWS = 22;
+var OUTPUT_RANGE_EXPLAIN_ENABLED = true; // OUTPUTに年度≠月次合算の説明を表示
+const OUTPUT_RANGE_EXPLAIN_MAIN_TEXT = [
+  '【この表の見方】年度合計と「月の合計」は一致しません（正常です）。',
+  '・P50（いちばんありそうな数字）= 月を足せば年になります。',
+  '・P10 / P90（下振れ・上振れの幅）= 足せません。12か月が同時に最悪／最良になることはまず無く、良い月と悪い月が打ち消し合うため、年間の幅は月を足したものより狭くなります（年度P10は月次合計より高め、年度P90は低めに出るのが正解）。',
+  '※注意：薬価改定・大口クライアントの喪失など「全部の月を一気に動かす」出来事は、このP10〜P90の範囲の外です。その種のリスクは別途シナリオで確認してください。'
+].join('\n');
+const OUTPUT_RANGE_EXPLAIN_OBJECTIVE_TEXT = '※上と同じ理由で、ここでも年度合計と月の合計は一致しません（正常です）。';
 
 // A-9 実行前の影響度チェック閾値
 const STEP_WARN_THRESHOLD = 0.30;   // ±30%
@@ -1891,7 +1899,9 @@ function writeOutputFY_(result) {
     devFixedByMonth: result.devFixedByMonth,
     spotBackgroundByMonth: result.spotBackgroundByMonth,
     seasonalWeighted: seasonalWeightedCore,
-    annualSim: annualMixedCalSim
+    annualSim: annualMixedCalSim,
+    outputRangeExplainText: OUTPUT_RANGE_EXPLAIN_MAIN_TEXT,
+    outputRangeExplainPrimary: true
   });
 
   row += 2;
@@ -1908,7 +1918,9 @@ function writeOutputFY_(result) {
     devFixedByMonth: result.devFixedByMonth,
     spotBackgroundByMonth: result.spotBackgroundByMonth,
     seasonalWeighted: seasonalWeightedCore,
-    annualSim: annualQuantSim
+    annualSim: annualQuantSim,
+    outputRangeExplainText: OUTPUT_RANGE_EXPLAIN_OBJECTIVE_TEXT,
+    outputRangeExplainPrimary: false
   });
 
   row += 2;
@@ -2272,6 +2284,21 @@ function writeLmdiDecompositionBlock_(sh, row, result) {
   return row + 1;
 }
 
+function writeOutputRangeExplanation_(sh, row, colCount, text, isPrimary) {
+  if (!OUTPUT_RANGE_EXPLAIN_ENABLED || !text) return;
+  const noteRange = sh.getRange(row, 1, 1, colCount);
+  noteRange.merge();
+  noteRange
+    .setValue(text)
+    .setWrap(true)
+    .setVerticalAlignment('top')
+    .setFontColor('#666666')
+    .setFontSize(9)
+    .setFontWeight('normal')
+    .setBackground('#f3f3f3');
+  sh.setRowHeight(row, isPrimary ? 112 : 32);
+}
+
 /** セクションブロック（表＋グラフ） */
 function writeSectionBlock_(sh, startRow, opt) {
   let r = startRow;
@@ -2311,6 +2338,8 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 3).setBackground(COLOR_NEU);
   sh.getRange(r, 4).setBackground(COLOR_POS);
   r++;
+
+  writeOutputRangeExplanation_(sh, r, annualHdr.length, opt.outputRangeExplainText, !!opt.outputRangeExplainPrimary);
 
   // 月次表
   r++;
