@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.19-dev / BUILD_STAGE a4-structured-json-robust）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.20-dev / BUILD_STAGE ai-subjective-split-display）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.19-dev';
-const BUILD_STAGE = 'a4-structured-json-robust';
+const VERSION = '2.3.20-dev';
+const BUILD_STAGE = 'ai-subjective-split-display';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1750,46 +1750,54 @@ function writeOutputFY_(result) {
   const subjectiveCalP50 = dTop.scaledSubjectiveP50ByMonth || new Array(12).fill(0);
   const subjectiveRawP50 = dTop.subjectiveContinuousP50ByMonth || new Array(12).fill(0);
   const knownSpotP50 = dTop.knownSpotP50ByMonth || new Array(12).fill(0);
+  const subjectiveExclAICalP50 = dTop.scaledSubjectiveExclAIP50ByMonth || new Array(12).fill(0);
+  const aiCalP50 = dTop.scaledAIP50ByMonth || new Array(12).fill(0);
   const kpiCal = computeDisplayedQualKpi_(quantP50, mixedP50, result.sourceByMonth || []);
   const kpiRaw = computeDisplayedQualKpi_(quantP50, mixedRawP50, result.sourceByMonth || []);
   const overlayCalKpi = computeSubjectiveOverlayKpi_(quantP50, subjectiveCalP50, result.sourceByMonth || []);
+  const overlayExclAIKpi = computeSubjectiveOverlayKpi_(quantP50, subjectiveExclAICalP50, result.sourceByMonth || []);
+  const aiOverlayKpi = computeSubjectiveOverlayKpi_(quantP50, aiCalP50, result.sourceByMonth || []);
   const knownSpotKpi = computeKnownSpotKpi_(quantP50, knownSpotP50, result.sourceByMonth || []);
   const hasOpenMonths = !!kpiCal.hasOpenMonths;
   const subjectiveCap = isFinite(tuningTop.qualSubjectiveMonthlyCap) ? tuningTop.qualSubjectiveMonthlyCap : QUAL_SUBJECTIVE_MONTHLY_CAP;
   const qualWarn = !hasOpenMonths
     ? 'N/A（予測対象月なし）'
-    : `参考: 主観オーバーレイ率 ${(overlayCalKpi.overlayShare * 100).toFixed(1)}%（cap=${(subjectiveCap * 100).toFixed(1)}%）`;
+    : `参考: 主観オーバーレイ率(AI除く) ${(overlayExclAIKpi.overlayShare * 100).toFixed(1)}% / AI寄与率 ${(aiOverlayKpi.overlayShare * 100).toFixed(1)}%（cap=${(subjectiveCap * 100).toFixed(1)}%）`;
 
   sh.getRange(7, 1).setValue('予測構成サマリー（診断指標）').setFontWeight('bold').setBackground('#e2f0d9');
   sh.getRange(7, 1, 1, 6).merge();
   const summaryHeaderRow = 8;
-  const kpiHdr = ['定量寄与率（予測対象月のみ）', '主観オーバーレイ率（予測対象月のみ / calibrated）', 'Known Spot寄与率（予測対象月のみ）', '非定量ネット差分率（参考）', '警告'];
+  const kpiHdr = ['定量寄与率（予測対象月のみ）', '主観オーバーレイ率（AI除く / calibrated）', 'AI寄与率（calibrated）', 'Known Spot寄与率（予測対象月のみ）', '非定量ネット差分率（参考）', '警告'];
   const kpiVal = [
     hasOpenMonths ? kpiCal.quantShare : 'N/A',
-    hasOpenMonths ? overlayCalKpi.overlayShare : 'N/A',
+    hasOpenMonths ? overlayExclAIKpi.overlayShare : 'N/A',
+    hasOpenMonths ? aiOverlayKpi.overlayShare : 'N/A',
     hasOpenMonths ? knownSpotKpi.knownSpotShare : 'N/A',
     hasOpenMonths ? kpiCal.qualShare : 'N/A',
     qualWarn
   ];
-  sh.getRange(summaryHeaderRow, 1, 1, 5).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
-  sh.getRange(9, 1, 1, 5).setValues([kpiVal]);
+  sh.getRange(summaryHeaderRow, 1, 1, 6).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(9, 1, 1, 6).setValues([kpiVal]);
   sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
-  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（予測対象月のみ / capped）】\nPRODUCT/CLIENT/OPINIONS/AI 由来の連続主観差分のみを対象にした参考比率です。\nKnown Spotは含みません。3c-1以降、この率は予測制御には使いません。');
-  sh.getRange(summaryHeaderRow, 3).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
-  sh.getRange(summaryHeaderRow, 4).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
-  sh.getRange(summaryHeaderRow, 5).setNote('【警告/参考】\nAI行不足、レンジ過大など運用注意と、主観オーバーレイ率の参考値を表示します。');
+  sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（AI除く / capped）】\nPRODUCT/CLIENT/OPINIONS 由来の連続主観差分のみを対象にした参考比率です（AI調査は含みません）。\nKnown Spotも含みません。この率は予測制御には使いません。');
+  sh.getRange(summaryHeaderRow, 3).setNote('【AI寄与率（calibrated）】\nAI調査（kAI）由来の寄与のみを、主観オーバーレイと分離して計測した参考比率です。\nAIは自前の上限（AI_MAX_ABS_EFFECT=±3%）で制御され、主観capとは別系統です。');
+  sh.getRange(summaryHeaderRow, 4).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
+  sh.getRange(summaryHeaderRow, 5).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
+  sh.getRange(summaryHeaderRow, 6).setNote('【警告/参考】\nAI行不足、レンジ過大など運用注意と、主観オーバーレイ率(AI除く)・AI寄与率の参考値を表示します。');
   if (hasOpenMonths) {
-    sh.getRange(9, 1, 1, 3).setNumberFormat('0.0%');
-    sh.getRange(9, 4).setNumberFormat('¥#,##0');
+    sh.getRange(9, 1, 1, 4).setNumberFormat('0.0%');
+    sh.getRange(9, 5).setNumberFormat('¥#,##0');
   }
-  const compDen = Math.abs(kpiCal.quantTotal) + Math.abs(sumArr_(subjectiveCalP50)) + Math.abs(sumArr_(knownSpotP50));
+  const compSubjExclAI = Math.abs(sumArr_(subjectiveExclAICalP50));
+  const compAI = Math.abs(sumArr_(aiCalP50));
+  const compDen = Math.abs(kpiCal.quantTotal) + compSubjExclAI + compAI + Math.abs(sumArr_(knownSpotP50));
   const compRow = compDen > 0
-    ? [Math.abs(kpiCal.quantTotal) / compDen, Math.abs(sumArr_(subjectiveCalP50)) / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, 1, '参考（補助）: 合計100%分解']
-    : ['N/A', 'N/A', 'N/A', 'N/A', '参考（補助）: 合計100%分解'];
+    ? [Math.abs(kpiCal.quantTotal) / compDen, compSubjExclAI / compDen, compAI / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解']
+    : ['N/A', 'N/A', 'N/A', 'N/A', '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解'];
   sh.getRange(10, 1, 1, 5).setValues([compRow]);
   if (compDen > 0) sh.getRange(10, 1, 1, 4).setNumberFormat('0.0%');
   sh.getRange(10, 1, 1, 5).setBackground('#f3f3f3').setFontColor('#666666');
-  sh.getRange(10, 5).setNote('【参考（補助）: 合計100%分解】\nrow 9のKPIは「計算ロジック別の管理指標」です。\nこの行は内訳を100%に正規化して相対比較しやすくした補助表示で、\n意思決定では row 9 のKPIと併読してください。');
+  sh.getRange(10, 5).setNote('【参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解】\n4軸（定量・主観オーバーレイ(AI除く)・AI調査・Known Spot）の寄与を100%に正規化した補助表示です。\n各シェアは絶対額(P50)ベース。意思決定では row 9 のKPIと併読してください。');
 
   // 数値トレンド Insight
   sh.getRange(11, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
@@ -5301,6 +5309,10 @@ function forecastMonteCarloMixed_(model, opt) {
   const quantOpsSimByMonth = Array.from({ length: 12 }, () => []);
   const subjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
   const scaledSubjectiveContinuousDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const subjectiveExclAIDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const aiDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const scaledSubjectiveExclAIDeltaSimByMonth = Array.from({ length: 12 }, () => []);
+  const scaledAIDeltaSimByMonth = Array.from({ length: 12 }, () => []);
   const knownSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const bgSpotSimByMonth = Array.from({ length: 12 }, () => []);
   const opinionKByMonth = Array.from({ length: 12 }, () => []);
@@ -5339,6 +5351,10 @@ function forecastMonteCarloMixed_(model, opt) {
       ops *= kOpinion;
       ops *= kAI;
       const subjectiveContinuousDelta = quantOpsAfterResidual * ((kProdByMonth[i] * kClientByMonth[i] * kOpinion * kAI) - 1);
+      // 3軸分離（表示用・厳密加法）: 主観(AI除く) と AI を分けて記録。両者の和は subjectiveContinuousDelta に一致する。
+      const subjectiveExclAIMul = kProdByMonth[i] * kClientByMonth[i] * kOpinion;
+      const subjectiveExclAIDelta = quantOpsAfterResidual * (subjectiveExclAIMul - 1);
+      const aiDelta = quantOpsAfterResidual * subjectiveExclAIMul * (kAI - 1);
       opinionKByMonth[i].push(kOpinion);
 
       const knownSpot = simulateKnownSpotByMonth_(knownSpotProjectsByMonth[i]);
@@ -5349,6 +5365,8 @@ function forecastMonteCarloMixed_(model, opt) {
 
       quantOpsSimByMonth[i].push(quantOpsSim);
       subjectiveContinuousDeltaSimByMonth[i].push(subjectiveContinuousDelta);
+      subjectiveExclAIDeltaSimByMonth[i].push(subjectiveExclAIDelta);
+      aiDeltaSimByMonth[i].push(aiDelta);
       knownSpotSimByMonth[i].push(knownSpot);
       bgSpotSimByMonth[i].push(bgSpot);
       totalRawSimByMonth[i].push(totalRaw);
@@ -5386,6 +5404,22 @@ function forecastMonteCarloMixed_(model, opt) {
     scaledSubjectiveContinuousDeltaSimByMonth[i] = calibrated.scaledSubjectiveSimByMonth[i].slice();
     totalCalibratedSimByMonth[i] = calibrated.mixedSimByMonth[i].slice();
   }
+  // cap適用後の主観(AI除く)/AIデルタ: 合算デルタに掛かったクリップ係数 f を両者へ同率適用し、
+  // 和が cap後の合算デルタに一致するようにする（表示専用・予測には影響しない）。
+  for (let i = 0; i < 12; i++) {
+    const rawArr = subjectiveContinuousDeltaSimByMonth[i] || [];
+    const scaledArr = scaledSubjectiveContinuousDeltaSimByMonth[i] || [];
+    const subjArr = subjectiveExclAIDeltaSimByMonth[i] || [];
+    const aiArr = aiDeltaSimByMonth[i] || [];
+    const n = scaledArr.length;
+    for (let s = 0; s < n; s++) {
+      const raw = Number(rawArr[s] || 0);
+      const scaled = Number(scaledArr[s] || 0);
+      const f = (Math.abs(raw) > 1e-9) ? (scaled / raw) : 1;
+      scaledSubjectiveExclAIDeltaSimByMonth[i].push(Number(subjArr[s] || 0) * f);
+      scaledAIDeltaSimByMonth[i].push(Number(aiArr[s] || 0) * f);
+    }
+  }
   if (lmdiEnabled) {
     for (let i = 0; i < 12; i++) {
       const sRaw = subjectiveContinuousDeltaSimByMonth[i] || [];
@@ -5403,6 +5437,8 @@ function forecastMonteCarloMixed_(model, opt) {
   const knownQ = quantilesFromSimByMonth_(knownSpotSimByMonth);
   const bgQ = quantilesFromSimByMonth_(bgSpotSimByMonth);
   const scaledSubjectiveQ = quantilesFromSimByMonth_(scaledSubjectiveContinuousDeltaSimByMonth);
+  const scaledSubjectiveExclAIQ = quantilesFromSimByMonth_(scaledSubjectiveExclAIDeltaSimByMonth);
+  const scaledAIQ = quantilesFromSimByMonth_(scaledAIDeltaSimByMonth);
 
   const kOpinionP50ByMonth = opinionKByMonth.map(arr => percentile_(arr, 0.50));
   const kAIByMonth = new Array(12).fill(kAI);
@@ -5480,6 +5516,8 @@ function forecastMonteCarloMixed_(model, opt) {
       totalRawP50ByMonth: rawQ.p50,
       totalRawP90ByMonth: rawQ.p90,
       scaledSubjectiveP50ByMonth: scaledSubjectiveQ.p50,
+      scaledSubjectiveExclAIP50ByMonth: scaledSubjectiveExclAIQ.p50,
+      scaledAIP50ByMonth: scaledAIQ.p50,
       qualCalibration: {
         rawSubjectiveShare: qualDiag.rawSubjectiveShare,
         rawTotalQualShare: qualDiag.rawTotalQualShare,
