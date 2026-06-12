@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.18-dev / BUILD_STAGE a4-remove-nextstep-msg）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.19-dev / BUILD_STAGE a4-structured-json-robust）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.18-dev';
-const BUILD_STAGE = 'a4-remove-nextstep-msg';
+const VERSION = '2.3.19-dev';
+const BUILD_STAGE = 'a4-structured-json-robust';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7097,39 +7097,52 @@ function callVertexSearchRAG_(query, opt) {
 function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
   const cfg = (opt && opt.config) || readVertexConfig_();
   const endpoint = `${vertexHost_(cfg.location)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.location)}/publishers/google/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
-  const payload = {
-    systemInstruction: { parts: [{ text: String(systemInstruction || '') }] },
-    contents: [{ role: 'user', parts: [{ text: String(userContent || '') }] }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 4096,
-      responseMimeType: 'application/json'
+  const attempt = (temperature) => {
+    const payload = {
+      systemInstruction: { parts: [{ text: String(systemInstruction || '') }] },
+      contents: [{ role: 'user', parts: [{ text: String(userContent || '') }] }],
+      generationConfig: {
+        temperature: temperature,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json'
+      }
+    };
+    const res = vertexPostJson_(endpoint, payload);
+    if (!res.ok) {
+      return { ok: false, endpoint, json: null, usage: {}, raw: res.json, error: res.error, httpError: true };
+    }
+    const txt = extractGeminiText_(res.json);
+    try {
+      return {
+        ok: true,
+        endpoint,
+        json: parseJsonObjectFromText_(txt),
+        usage: extractGeminiUsage_(res.json),
+        raw: res.json,
+        error: '',
+        finishReason: extractGeminiFinishReason_(res.json)
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        endpoint,
+        json: null,
+        usage: extractGeminiUsage_(res.json),
+        raw: res.json,
+        error: `JSON parse failed: ${String(e && e.message ? e.message : e)}`,
+        finishReason: extractGeminiFinishReason_(res.json),
+        parseError: true
+      };
     }
   };
-  const res = vertexPostJson_(endpoint, payload);
-  if (!res.ok) {
-    return { ok: false, endpoint, json: null, usage: {}, raw: res.json, error: res.error };
+  // truncation対策: 構造化JSONの出力上限を4096→8192へ拡張。
+  // 1回目は従来どおり temperature=0.1。JSONパース失敗時のみ temperature=0 で1回だけ再試行（軽微な不正JSONを救済）。
+  // HTTP失敗は再試行せず即返す。2回とも失敗時は呼び出し側の中立化フォールバックに委ねる。
+  let r = attempt(0.1);
+  if (!r.ok && r.parseError) {
+    r = attempt(0);
   }
-  const txt = extractGeminiText_(res.json);
-  try {
-    return {
-      ok: true,
-      endpoint,
-      json: parseJsonObjectFromText_(txt),
-      usage: extractGeminiUsage_(res.json),
-      raw: res.json,
-      error: ''
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      endpoint,
-      json: null,
-      usage: extractGeminiUsage_(res.json),
-      raw: res.json,
-      error: `JSON parse failed: ${String(e && e.message ? e.message : e)}`
-    };
-  }
+  return r;
 }
 
 function buildWebResearchPrompt_(client, topic) {
