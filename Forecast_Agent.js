@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.23-dev / BUILD_STAGE ai-score-robustness）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.24-dev / BUILD_STAGE ai-score-degroundless）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.23-dev';
-const BUILD_STAGE = 'ai-score-robustness';
+const VERSION = '2.3.24-dev';
+const BUILD_STAGE = 'ai-score-degroundless';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -195,7 +195,7 @@ const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
 const AI_MAX_AGE_MONTHS = 6;
 const AI_EVENT_DECAY_HALF_LIFE_MONTHS = 3;
 const AI_MAD_CLIP_K = 3.0;
-const AI_TOTAL_NEUTRAL_THRESHOLD = 10.0;
+const AI_TOTAL_NEUTRAL_THRESHOLD = 0.0; // 0=根拠なき総合中立化(dead-zone)なし（既定）。上限は±3%キャップで担保。>0は根拠ある時のみ設定。
 const AI_QUALITY_NEUTRAL_THRESHOLD = 0.25;
 const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
@@ -2676,7 +2676,7 @@ function buildCONFIG_() {
     ['SEASONAL_OPEN_MONTH_WEIGHT_MULT（未確定月信頼度係数）', SEASONAL_OPEN_MONTH_WEIGHT_MULT],
     ['SEASONAL_WEIGHTED_MAD_K（季節推計MAD倍率）', SEASONAL_WEIGHTED_MAD_K],
     ['SEASONAL_COMPARE_WARN_THRESHOLD（Seasonal乖離警告閾値）', SEASONAL_COMPARE_WARN_THRESHOLD],
-    ['AI_TOTAL_NEUTRAL_THRESHOLD（AI中立化閾値）', AI_TOTAL_NEUTRAL_THRESHOLD],
+    ['AI_TOTAL_NEUTRAL_THRESHOLD（AI総合中立化のdead-zone閾値 / 既定0=中立化なし。根拠ある時のみ>0）', AI_TOTAL_NEUTRAL_THRESHOLD],
     ['AI_QUALITY_NEUTRAL_THRESHOLD（品質中立化閾値）', AI_QUALITY_NEUTRAL_THRESHOLD],
     ['AI_QUALITY_PARTIAL_THRESHOLD（品質部分中立化閾値）', AI_QUALITY_PARTIAL_THRESHOLD],
     ['AI_WEIGHT_PROPOSAL_MIN', 0.00005],
@@ -4838,7 +4838,7 @@ function readAIResearchScores_(calibration, opt) {
     else if (bAvg !== null && eAvg !== null) finalScore = bAvg * blend[topic][0] + eAvg * blend[topic][1];
     const qualityRaw = (benchCount * 2 + eventCount) / 4;
     const qualityScore = clamp_(qualityRaw, 0, 1);
-    const degradedMultiplier = (degradedMode === 'event_only') ? 0.5 : 1;
+    const degradedMultiplier = 1; // event_only への構造的0.5ペナルティを撤去。信号の弱さは coverage由来の qualityMultiplier で別途反映する。
     let qualityMultiplier = 1;
     let neutralized = false;
     if (qualityScore < qualityNeutralThreshold) {
@@ -4949,21 +4949,33 @@ function readAiScoreHistoryByTopic_(clientName) {
     const vals = sh.getDataRange().getValues();
     const idx = headerIndexMap_(vals[0]);
     if (idx.client === undefined || idx.topic === undefined || idx.blended_score === undefined || idx.run_at === undefined) return out;
+    // as_of_date（A-4リサーチのリフレッシュ）単位で dedup。同一スナップショットを複数回A-9しても
+    // 履歴点は1つに畳み、lookbackが「A-9実行回数」ではなく「調査リフレッシュ回数」を遡るようにする。
+    // 同一as_of内では最新run_at（同点はrowNo大）を採用。as_of欠落の旧行は各行を独立点として温存する。
+    const byTopicSnapshot = { Market: new Map(), Competitor: new Map(), Channel: new Map(), DX: new Map() };
     for (let i = 1; i < vals.length; i++) {
       const rowClient = String(vals[i][idx.client] || '').trim();
       if (!rowClient || !isSameClient_(rowClient, clientName)) continue;
       const topic = normalizeAiTopic_(vals[i][idx.topic]);
-      if (!topic || out[topic] === undefined) continue;
+      if (!topic || byTopicSnapshot[topic] === undefined) continue;
       const score = Number(vals[i][idx.blended_score]);
       if (!isFinite(score)) continue;
       const runAt = toDate_(vals[i][idx.run_at]) || new Date(0);
-      out[topic].push({ runAt, score, rowNo: i });
+      const asOf = (idx.latest_as_of_date !== undefined) ? toDate_(vals[i][idx.latest_as_of_date]) : null;
+      const snapKey = asOf ? Utilities.formatDate(asOf, TZ, 'yyyy-MM-dd') : `runrow:${i}`;
+      const sortAt = asOf ? asOf : runAt;
+      const prev = byTopicSnapshot[topic].get(snapKey);
+      if (!prev || runAt.getTime() > prev.runAt.getTime() || (runAt.getTime() === prev.runAt.getTime() && i > prev.rowNo)) {
+        byTopicSnapshot[topic].set(snapKey, { sortAt, runAt, score, rowNo: i });
+      }
     }
     AI_TOPICS.forEach(topic => {
-      out[topic].sort((a, b) => {
-        const d = a.runAt.getTime() - b.runAt.getTime();
-        return d !== 0 ? d : a.rowNo - b.rowNo;
-      });
+      out[topic] = Array.from(byTopicSnapshot[topic].values())
+        .sort((a, b) => {
+          const d = a.sortAt.getTime() - b.sortAt.getTime();
+          return d !== 0 ? d : a.rowNo - b.rowNo;
+        })
+        .map(x => ({ runAt: x.runAt, score: x.score, rowNo: x.rowNo }));
     });
   } catch (err) {
     // 履歴読取に失敗した場合は履歴なしとしてmomentumを中立化する
@@ -7230,9 +7242,10 @@ function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
     }
   };
   // truncation対策: 構造化JSONの出力上限を4096→8192へ拡張。
-  // 1回目は従来どおり temperature=0.1。JSONパース失敗時のみ temperature=0 で1回だけ再試行（軽微な不正JSONを救済）。
+  // 抽出層は再現性のため temperature=0 に固定（同一web/RAG入力 → 同一構造化結果）。
+  // JSONパース失敗時のみ temperature=0 でもう一度試行（軽微な不正JSONを救済）。
   // HTTP失敗は再試行せず即返す。2回とも失敗時は呼び出し側の中立化フォールバックに委ねる。
-  let r = attempt(0.1);
+  let r = attempt(0);
   if (!r.ok && r.parseError) {
     r = attempt(0);
   }
@@ -7262,7 +7275,8 @@ function buildWebResearchPrompt_(client, topic) {
     '',
     `現在のTopic「${topic}」について、上記の向きに沿って最新Web情報を調査してください。`,
     '上振れ/下振れ/中立、影響の強さ、根拠URLが分かるように日本語で要約してください。',
-    '推測で数値を埋めず、根拠が弱い場合は低信頼と明記してください。'
+    '観測できた範囲で必ず向き（上振れ/下振れ/中立）と影響の強さを述べてください。弱くても実在する動きは拾い、その弱さは「低信頼」と明記して表現してください。環境がほぼ動いていない場合のみ「中立」とし、その場合も理由を述べてください。',
+    '推測で数値や向きを創作しないでください（中立もゼロも捏造しない）。根拠が弱い場合は低信頼と明記してください。'
   ].join('\n');
 }
 
@@ -7277,6 +7291,7 @@ function buildVertexStructureSystemInstruction_() {
     '',
     'relative_percentile は「対象メーカーの企業力ランキング」ではなく、「対象メーカー周辺の、製薬マーケティング支援需要に影響しうる外部環境が、どの程度大きく/活発に動いているか」の相対位置として評価してください。50は同等水準、高いほど支援需要環境が大きく/活発に動いていることを表します。',
     'peer_universe / peer_basis には、この相対評価の母集団と基準（何と比べた相対位置か）を必ず明記してください。',
+    '【重要・benchmark行の出力条件】relative_percentile は、購入レポート/RAG等の具体的な根拠で相対位置を判断できたときだけ記入してください。根拠が無いトピックでは relative_percentile・relative_position_label・peer_universe・peer_basis をすべて空（null）にし、benchmark を一切埋めないでください。根拠が無いのに 50 や middle を「とりあえず」入れることは禁止です（50は「材料が無い」ではなく「材料に基づき中位と判断した」を意味します）。',
     '',
     '向き（符号）は次に統一してください（4指標すべて順方向）。',
     '- Market: 市場拡大・活性化が上振れ。',
@@ -7286,7 +7301,9 @@ function buildVertexStructureSystemInstruction_() {
     '',
     'impact_score は 0〜100 の「影響の大きさ」です（0=影響なし、100=最大）。50は中立ではありません。向きは direction（up/down/neutral）で表し、impact_score には大きさだけを入れてください（例: 弱い=10前後、強い=80前後）。',
     'Web検索結果はevent行、購入レポート/RAG結果はbenchmark行に分けてください。',
-    'confidence と relative_confidence は必須です。空欄にせず、必ず 0〜1 の数値を入れてください（自信がなければ低い値、例 0.3）。推測で根拠を補完せず、根拠が弱い場合はこれらの値を低くしてください。',
+    '【重要・event行は必ず向きを評価】web側では、観測できた範囲で direction（up/down/neutral）と impact_score を必ず付けてください。環境がほぼ動いていない場合のみ direction=neutral とし、その場合も impact_score は実態に合わせた小さい値（例 5〜15）を入れ、空欄にしないでください。弱くても実在する動きは捨てずに拾ってください（根拠の弱さは impact_score と confidence の低さで表現します）。',
+    'confidence と relative_confidence は、その行を実際に出力するなら必須です。空欄にせず 0〜1 の数値を入れてください（自信がなければ低い値、例 0.3）。',
+    '根拠が無いのに数値や向きを創作しないでください。根拠が弱いときは値を低くし、根拠がまったく無いときは benchmark を空にしてください（中立を捏造しない / ゼロを捏造しない、の両方を守ってください）。',
     'JSONのみを返してください。'
   ].join('\n');
 }
@@ -7303,8 +7320,9 @@ function buildVertexStructureUserContent_(client, topic, web, rag) {
     `向き（符号）: ${topic} は順方向（Market=市場拡大が上振れ / Competitor=競合活動の活発化が上振れ / Channel=販促・MR活動の活発化が上振れ / DX=DX投資量の増加が上振れ・内製成熟度では見ない）。`,
     '',
     '次のJSON schemaで返してください。',
-    'impact_score は 0〜100（0=影響なし・100=最大、50は中立ではない）。confidence / relative_confidence は必須で 0〜1（空欄禁止。自信がなければ低い値）。',
-    '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":50,"relative_confidence":0,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"top|upper|middle|lower|bottom","relative_reason":"","evidence":""},"report_text":""}',
+    'impact_score は 0〜100（0=影響なし・100=最大、50は中立ではない）。web の direction/impact_score/confidence は原則必ず記入（動きが無い場合のみ direction=neutral + 小さい impact_score）。',
+    'report（benchmark）は根拠があるときだけ記入。根拠が無ければ relative_percentile / relative_position_label / peer_universe / peer_basis を null（空）にし、50 や middle のプレースホルダを入れないこと。',
+    '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":null,"relative_confidence":null,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"","relative_reason":"","evidence":""},"report_text":""}',
     '',
     'Web検索結果:',
     shortText_((web && web.text) || '', 12000),
@@ -8647,6 +8665,30 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) AI寄与率（OUTPUT）が AI_MAX_ABS_EFFECT=±3% を超えないこと（キャップ不変）。
  * 8) AI_SCORE_HISTORY / AI_IMPACT_HISTORY のスキーマ（列）は不変。
  * 9) confidence/relative_confidence を明示的に 0 で入れた行は補完されず（欠落=NaNのみ補完）、従来どおり重み0で扱われること。
+ */
+
+/**
+ * HOW TO TEST (ai-score-degroundless)
+ * 0) 既存bookでは CONFIG の「AI総合中立化のdead-zone閾値」セルが旧値10のまま残るため、
+ *    値を 0 に手動修正するか、A-1初期セットアップでCONFIGを再生成すること（前提条件）。
+ * 1) VERSION='2.3.24-dev' / BUILD_STAGE='ai-score-degroundless'、DLM_BUILD_STAGE 不変。
+ * 2) CONFIG チューニング表の AI_TOTAL_NEUTRAL_THRESHOLD 既定が 0、ラベルが「…既定0=中立化なし…」。
+ * 3) A-4 再実行 → RAGに相対位置の根拠が無いトピックは、AI_RESEARCH_STRUCTURED の benchmark 行で
+ *    relative_percentile が空（または benchmark 行自体が出ない）になる。50/middle のプレースホルダが消える。
+ * 4) 同 A-4 後 → 実在する web の動きは event 行に direction/impact 付きで残る。
+ *    direction=neutral は本当に動きが無いトピックだけ（その場合 event_score は仕様上 0 のまま＝正直なゼロ）。
+ * 5) A-9 → 総合スコアが小さくても kAI が dead-zone で 1.0 に潰されず、±3%キャップ内で反映される。
+ *    OUTPUT 行23の「信頼度不足で中立化」バナーは、品質(coverage)由来の中立化時のみ出る（総合dead-zone由来は出ない）。
+ * 6) A-9 → event_only トピックが ×0.5 の構造ペナルティを受けない（coverage由来の qualityMultiplier のみ適用）。
+ * 7) 構造化 temp=0：同一 web/RAG 入力で A-4 を2回 → AI_RESEARCH_STRUCTURED の event_score/benchmark_score が
+ *    ほぼ一致（web grounding 自体は live検索のため完全一致は保証しない）。
+ * 8) momentum：同一 as_of の A-4 スナップショットのまま A-9 を複数回 → AI_SCORE_HISTORY 行は増えるが、
+ *    momentum の lookback は as_of 単位に畳まれ、A-9回数では momentum が変動しない。
+ *    A-4を再実行して as_of が変わると momentum が動く。
+ * 9) ±3%キャップ不変：OUTPUT の AI寄与率が ±3% を超えない。
+ * 10) honest-zero：web が真に neutral（動きなし）かつ benchmark 根拠なしのトピックは依然 0 になりうる。
+ *     これは捏造しない設計どおりの正常動作（強制非ゼロにはしない）。
+ * 11) 主観オーバーレイ / SPOT / DLM / 予測コア / AI_SCORE_HISTORY・AI_IMPACT_HISTORY スキーマは不変。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
