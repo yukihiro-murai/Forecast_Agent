@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.24-dev / BUILD_STAGE ai-score-degroundless）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.25-dev / BUILD_STAGE calibration-blank-override-fix）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.24-dev';
-const BUILD_STAGE = 'ai-score-degroundless';
+const VERSION = '2.3.25-dev';
+const BUILD_STAGE = 'calibration-blank-override-fix';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -8691,6 +8691,24 @@ function syncSalesFromSalesInput_(fy, client) {
  * 11) 主観オーバーレイ / SPOT / DLM / 予測コア / AI_SCORE_HISTORY・AI_IMPACT_HISTORY スキーマは不変。
  */
 
+/**
+ * HOW TO TEST (calibration-blank-override-fix)
+ * 0) 前提：このバグは C-1/C-2 を通していない（CALIBRATION_STATE の ai_weight_override /
+ *    ai_max_abs_effect_override が空欄の）全bookで発火していた。空欄が Number('')→0→isFinite=true で
+ *    「0という上書き値」として通り、aiWeight=0 / aiMaxAbsEffect=0 に化け、kAI が常に 1.0 に潰れていた。
+ * 1) VERSION='2.3.25-dev' / BUILD_STAGE='calibration-blank-override-fix'、DLM_BUILD_STAGE 不変。
+ * 2) CALIBRATION_STATE の ai_weight_override / ai_max_abs_effect_override が空（既定）の book で A-9 →
+ *    AI_IMPACT_HISTORY の k_ai が 1.0 でなくなり（AIスコアが立っていれば 1±clamp(aiTotal×AI_WEIGHT, ±AI_MAX_ABS_EFFECT)）、
+ *    OUTPUT の AI寄与率が 0% でなくなる（上限 ±AI_MAX_ABS_EFFECT=3% 内）。
+ * 3) ai_weight_override に明示的に 0 を入れて A-9 → kAI=1.0（意図的にAIを止める運用は従来どおり有効）。
+ *    空欄(=未設定) と 0(=明示ゼロ) が区別されることを確認。
+ * 4) ai_weight_override に明示的な数値（例 0.001）を入れて A-9 → その値が CONFIG の AI_WEIGHT を上書きして効く。
+ * 5) 客観のみ（objOnly / quantOnly）セクションの P10/P50/P90 が不変。SPOT / DLM / 主観（kProd/kClient/kOpinion）も不変。
+ * 6) 混合セクションは AI 効果分（±3% 内）だけ変わる。これは本修正が意図した変化であり回帰ではない。
+ * 7) grep で旧override finite判定が 0件、blank guard helper が applyCalibrationToTuning_ 内に
+ *    1定義＋2呼び出し（計3件）だけ存在すること。
+ */
+
 // ========== v1.6 NEW: quarterly review ==========
 function createDefaultCalibrationState_(client) {
   return {
@@ -8790,8 +8808,17 @@ function writeCalibrationState_(client, partial) {
 function applyCalibrationToTuning_(tuning, calibration) {
   const out = Object.assign({}, tuning || {});
   const cal = calibration || {};
-  if (isFinite(Number(cal.ai_weight_override))) out.aiWeight = Number(cal.ai_weight_override);
-  if (isFinite(Number(cal.ai_max_abs_effect_override))) out.aiMaxAbsEffect = Number(cal.ai_max_abs_effect_override);
+  const calOverrideNum_ = (v) => {
+    // 空欄(''/null/undefined)は「未設定」として無視する。Number('')===0 で finite になる罠を回避。
+    // 明示的に 0 を入れた場合は 0 を返し、意図的なゼロ上書きは従来どおり有効にする。
+    if (v === '' || v === null || v === undefined) return null;
+    const n = Number(v);
+    return isFinite(n) ? n : null;
+  };
+  const aiWeightOverride = calOverrideNum_(cal.ai_weight_override);
+  if (aiWeightOverride !== null) out.aiWeight = aiWeightOverride;
+  const aiMaxAbsEffectOverride = calOverrideNum_(cal.ai_max_abs_effect_override);
+  if (aiMaxAbsEffectOverride !== null) out.aiMaxAbsEffect = aiMaxAbsEffectOverride;
   out.disabledTopics = [];
   try {
     const arr = JSON.parse(String(cal.ai_topic_disable_json || '[]'));
@@ -9112,7 +9139,10 @@ function generateQuarterlyProposals_(data) {
     });
     const hitRate = den > 0 ? hit / den : 0;
     const meanAbs = data.impacts.length ? avg_(data.impacts.map(r => Math.abs(Number(r[impactKIdx] || 1) - 1))) : 0;
-    const curWeight = isFinite(Number(cal.ai_weight_override)) ? Number(cal.ai_weight_override) : readModelTuningFromConfig_().aiWeight;
+    const curWeightRaw = cal.ai_weight_override;
+    const curWeight = (curWeightRaw === '' || curWeightRaw === null || curWeightRaw === undefined)
+      ? tuning.aiWeight
+      : (isFinite(Number(curWeightRaw)) ? Number(curWeightRaw) : tuning.aiWeight);
     let proposedWeight = null;
     let conf = '';
     if (hitRate < 0.4 && meanAbs > 0.015) { proposedWeight = curWeight * 0.5; conf = '高'; }
