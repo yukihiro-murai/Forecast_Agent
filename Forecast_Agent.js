@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.28-dev / BUILD_STAGE orphan-fn-removal）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.29-dev / BUILD_STAGE ai-research-raw-merge）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.28-dev';
-const BUILD_STAGE = 'orphan-fn-removal';
+const VERSION = '2.3.29-dev';
+const BUILD_STAGE = 'ai-research-raw-merge';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -95,8 +95,7 @@ const SHEETS = {
   POOL_AGGREGATION_LOG: 'POOL_AGGREGATION_LOG',
   LANDING_FORECAST: 'LANDING_FORECAST',
   BACKTEST_REPORT: 'BACKTEST_REPORT',
-  AI_RESEARCH_EXTERNAL: 'AI_RESEARCH_EXTERNAL',
-  AI_RESEARCH_WEB: 'AI_RESEARCH_WEB'
+  AI_RESEARCH_RAW: 'AI_RESEARCH_RAW'
 };
 
 // 入力セル背景
@@ -6751,7 +6750,7 @@ function runVertexAIResearch() {
       const webLow = (!web.ok || !web.text || webCitations.length === 0);
       if (!web.ok) stats.webError++;
       if (webLow) stats.lowConfidence++;
-      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_WEB, {
+      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_RAW, {
         client: targetClient,
         asOf,
         axis: 'web',
@@ -6795,7 +6794,7 @@ function runVertexAIResearch() {
       const ragLow = vertex.ragReady && (!rag.ok || !rag.summary || !rag.citations || rag.citations.length === 0);
       if (vertex.ragReady && !rag.ok) stats.ragError++;
       if (ragLow) stats.lowConfidence++;
-      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_EXTERNAL, {
+      appendAIResearchRawRow_(ss, SHEETS.AI_RESEARCH_RAW, {
         client: targetClient,
         asOf,
         axis: 'rag',
@@ -6916,8 +6915,36 @@ function runVertexAIResearch() {
 function ensureAIResearchRuntimeSheets_(ss) {
   ensureSheetReady_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   ensureSheetReady_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
-  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_WEB, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
-  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_EXTERNAL, ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note']);
+  ensureSheetReady_(ss, SHEETS.AI_RESEARCH_RAW, getAIResearchRawHeaders_());
+  migrateLegacyAIResearchRawSheets_(ss);
+}
+
+function getAIResearchRawHeaders_() {
+  return ['client','as_of_date','axis','topic','direction','magnitude','uncertainty','relative_position','evidence','frozen_flag','frozen_at','note'];
+}
+
+function migrateLegacyAIResearchRawSheets_(ss) {
+  // Existing books may still contain the pre-merge raw sheets; move their rows into RAW once.
+  const legacyNames = ['AI_RESEARCH_WEB', 'AI_RESEARCH_EXTERNAL'];
+  const headers = getAIResearchRawHeaders_();
+  legacyNames.forEach(name => {
+    const legacy = ss.getSheetByName(name);
+    if (!legacy) return;
+    try {
+      const lastRow = legacy.getLastRow();
+      if (lastRow >= 2) {
+        const raw = ensureSheetReady_(ss, SHEETS.AI_RESEARCH_RAW, headers);
+        const width = Math.min(legacy.getLastColumn(), headers.length);
+        const data = legacy.getRange(2, 1, lastRow - 1, width).getValues();
+        const rows = data.map(r => headers.map((_, i) => (i < r.length ? r[i] : '')));
+        if (rows.length) writeRowsInChunks_(raw, raw.getLastRow() + 1, 1, rows, 500);
+        legacy.getRange(2, 1, Math.max(1, legacy.getMaxRows() - 1), legacy.getMaxColumns()).clearContent();
+      }
+      ss.deleteSheet(legacy);
+    } catch (e) {
+      try { legacy.hideSheet(); } catch (ignore) {}
+    }
+  });
 }
 
 function ensureSheetReady_(ss, name, headers) {
@@ -8468,7 +8495,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) Vertex/RAG 環境行（PROJECT_ID/LOCATION/GEMINI_MODEL/DATASTORE_ID/SEARCH_LOCATION/SERVING_CONFIG/AI_RESEARCH_ENABLED）の
  *    B列セルが黄色（#fff2cc）。文字列キーのセルはテキスト書式（@）であること。
  * 4) A-2 → A-4 を実行 → AI_RESEARCH_TASK_LOG の aspect=rag 行が status=success（skipped でない）。
- *    AI_RESEARCH_EXTERNAL に RAG 応答（summary/citations）が記録される。
+ *    RAG側の生ログに応答（summary/citations）が記録される。
  * 5) VERTEX_SEARCH_LOCATION を us/eu に変更すると discoveryEngineHost_ が地域エンドポイントを生成
  *    （global のままなら従来と同一ホスト＝挙動不変）。
  * 6) VERTEX_DATASTORE_ID を空にして A-4 → ragReady=false で RAG は skipped、web-only で継続（フェイルセーフ維持）。
@@ -8565,7 +8592,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) RAGクエリが topic 別に日本語の展開語（市場規模/競合/MR/DX等）を返し、英語topic素語の連結でないこと。
  * 4) A-4 を再実行 → AI_RESEARCH_TASK_LOG の aspect=rag 行の note.query が新フレーム
  *    （`{client} 医薬品 市場環境 {日本語展開語}`）になっていること。
- * 5) RAGヒット内容（AI_RESEARCH_EXTERNAL の summary/citations）が、対象メーカーの売上根拠ではなく
+ * 5) RAGヒット内容（RAG側の summary/citations）が、対象メーカーの売上根拠ではなく
  *    外部の市場・需要環境寄りの内容に寄ること（旧ノイズ語が消える）。
  * 6) A-4 を再実行しない限り、A-9 の OUTPUT P10/P50/P90 は不変であること（本変更は A-4 側のクエリのみ）。
  * 7) A-4 再実行後は benchmark スコアが変わりうる（=意図した改善であり回帰ではない）。
@@ -8600,6 +8627,22 @@ function syncSalesFromSalesInput_(fy, client) {
  * 6) A-9 の OUTPUT の年度合計および月次 P10/P50/P90 が削除前と不変であること
  *    （予測コア無変更 / Monte Carlo の乱数揺れのみ許容）。
  * 7) スクリプトエディタの関数一覧から削除対象2関数が消えていること。
+ */
+
+/**
+ * HOW TO TEST (ai-research-raw-merge)
+ * 1) VERSION='2.3.29-dev' / BUILD_STAGE='ai-research-raw-merge'、DLM_BUILD_STAGE 不変。
+ * 2) grep で旧raw2枚への SHEETS 参照と旧キー定義が0件であること。
+ * 3) SHEETS に RAW キーが1件あり、A-4実行時の生ログ作成先が1枚だけであること。
+ * 4) 既存book（旧raw2枚にデータがある状態）で clasp push 後に A-4 を実行 →
+ *    旧raw2枚の行が RAW に移送され、旧タブが消えること。
+ *    移送後の RAW で axis 列により 'web' 行 / 'rag' 行が区別できること。
+ * 5) 続けて A-4 を再実行しても RAW に旧データが二重移送されないこと（冪等）。
+ * 6) 新規bookで A-1 → A-2 → A-4 を実行 → RAW が1枚だけ作成され、
+ *    web行（axis=web）と rag行（axis=rag）が同一シートに追記されること。
+ * 7) A-4 のサマリービュー、構造化結果の内容、および A-9 の OUTPUT の年度合計・月次 P10/P50/P90 が
+ *    本変更の前後で不変であること（生ログ格納先のみ変更 / Monte Carlo の乱数揺れのみ許容）。
+ * 8) RAW が内部シートとして非表示になること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
