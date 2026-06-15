@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.30-dev / BUILD_STAGE output-display-tidy）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.31-dev / BUILD_STAGE raw-migrate-header-match）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.30-dev';
-const BUILD_STAGE = 'output-display-tidy';
+const VERSION = '2.3.31-dev';
+const BUILD_STAGE = 'raw-migrate-header-match';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -6930,18 +6930,31 @@ function getAIResearchRawHeaders_() {
 
 function migrateLegacyAIResearchRawSheets_(ss) {
   // Existing books may still contain the pre-merge raw sheets; move their rows into RAW once.
-  const legacyNames = ['AI_RESEARCH_WEB', 'AI_RESEARCH_EXTERNAL'];
+  // 位置ベースではなくヘッダ名マッチで移送する。axis は旧シート名から確定（WEB→web / EXTERNAL→rag）し、
+  // 旧2枚の列順が RAW と異なっても client/as_of_date/topic/evidence/note は同名ヘッダ列へ入り、axis ずれが起きない。
+  const legacySources = [
+    { name: 'AI_RESEARCH_WEB', axis: 'web' },
+    { name: 'AI_RESEARCH_EXTERNAL', axis: 'rag' }
+  ];
   const headers = getAIResearchRawHeaders_();
-  legacyNames.forEach(name => {
-    const legacy = ss.getSheetByName(name);
+  legacySources.forEach(def => {
+    const legacy = ss.getSheetByName(def.name);
     if (!legacy) return;
     try {
       const lastRow = legacy.getLastRow();
       if (lastRow >= 2) {
         const raw = ensureSheetReady_(ss, SHEETS.AI_RESEARCH_RAW, headers);
-        const width = Math.min(legacy.getLastColumn(), headers.length);
-        const data = legacy.getRange(2, 1, lastRow - 1, width).getValues();
-        const rows = data.map(r => headers.map((_, i) => (i < r.length ? r[i] : '')));
+        const values = legacy.getDataRange().getValues();
+        const legacyIdx = headerIndexMap_(values[0] || []);
+        const rows = values.slice(1).map(r => headers.map(h => {
+          if (h === 'axis') return def.axis; // シート名が axis の正典（旧側にaxis列が無くても空にしない）
+          if (legacyIdx[h] !== undefined) {
+            const v = r[legacyIdx[h]];
+            return (v === undefined || v === null) ? '' : v;
+          }
+          if (h === 'frozen_flag') return 0;
+          return '';
+        }));
         if (rows.length) writeRowsInChunks_(raw, raw.getLastRow() + 1, 1, rows, 500);
         legacy.getRange(2, 1, Math.max(1, legacy.getMaxRows() - 1), legacy.getMaxColumns()).clearContent();
       }
@@ -8665,6 +8678,26 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) OUTPUT 21行目（coverage）が ' | ' 一行ではなく topic ごとの改行表示になり、A〜F 幅に収まって横に伸び
  *    すぎないこと。22行目（degraded / benchmark不足）と23行目（中立化バナー）も折り返し・幅縮小で収まること。
  * 8) A-9 の年度合計および月次 P10/P50/P90 が本変更の前後で不変（表示のみの変更 / 予測コア無変更）。
+ */
+
+/**
+ * HOW TO TEST (raw-migrate-header-match)
+ * 1) VERSION / BUILD_STAGE='raw-migrate-header-match'、DLM_BUILD_STAGE 不変。
+ * 2) grep で旧 legacyNames（位置ベース）配列・width=Math.min(...) 行・headers.map((_, i) => ...) が0件、
+ *    legacySources / def.axis / legacyIdx lookup が存在すること。
+ * 3) 旧 AI_RESEARCH_WEB / AI_RESEARCH_EXTERNAL を持つ既存bookで clasp push → A-4 を実行 →
+ *    旧2枚が削除され、行が AI_RESEARCH_RAW へ移送される。移送後の RAW で、旧WEB由来行は axis='web'、
+ *    旧EXTERNAL由来行は axis='rag' になっていること（位置ずれが起きない）。
+ * 4) 旧シートのヘッダ列順が RAW と違っていても、ヘッダ名一致により client/as_of_date/topic/evidence/note が
+ *    正しい列へ入ること（axis はシート名で確定）。
+ * 5) 旧シートに axis 列が無い場合でも axis が空にならず、WEB→web / EXTERNAL→rag が入ること。
+ *    旧シートに frozen_flag 列が無ければ 0、frozen_at 列が無ければ空で補完されること。
+ * 6) A-4 を再実行しても二重移送されないこと（旧シート削除済みのため）＝冪等。
+ * 7) 新規bookで A-1 → A-2 → A-4 → RAW が1枚作成され、appendAIResearchRawRow_ 経由の web/rag 行が
+ *    正しい axis を持つこと（本変更の影響を受けない）。
+ * 8) A-1（全上書き）では旧2枚が移送されず削除される従来挙動が不変であること。
+ * 9) A-4 のサマリービュー（AI_RESEARCH）・構造化結果（AI_RESEARCH_STRUCTURED）・A-9 の OUTPUT 年度合計/
+ *    月次 P10/P50/P90 が本変更の前後で不変であること（生ログ移送のみ・予測非影響）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
