@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.29-dev / BUILD_STAGE ai-research-raw-merge）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.30-dev / BUILD_STAGE output-display-tidy）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.29-dev';
-const BUILD_STAGE = 'ai-research-raw-merge';
+const VERSION = '2.3.30-dev';
+const BUILD_STAGE = 'output-display-tidy';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -803,7 +803,6 @@ function showInitialSetupDialog_() {
     body { font-family: sans-serif; padding: 14px; }
     h2 { margin: 0 0 10px 0; font-size: 16px; }
     .hint { color: #666; font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
-    .notice { background: #fff2cc; border: 1px solid #f1c232; border-radius: 4px; padding: 10px; color: #333; font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
     .block { margin: 12px 0; }
     label { display: block; font-weight: 700; margin-bottom: 6px; }
     select, input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
@@ -818,9 +817,6 @@ function showInitialSetupDialog_() {
 </head>
 <body>
   <h2>初期設定</h2>
-  <div class="notice">
-    このbookは1クライアント専用です。別クライアントの予測には、このbookをDriveでコピーして新しいbookを作り、コピー先で A-1 初期セットアップ を実行してください。
-  </div>
 
   <div class="block">
     <label>メーカー名を入力してください。</label>
@@ -1569,9 +1565,10 @@ function writeOutputFY_(result) {
   const annualForecastNote = (result.closedMonthMode === 'forecast')
     ? '本予測は通年（12ヶ月）の見通しです。計画の主数値は「混合」セクションの年度合計 Baseline(P50)。期中の着地（実績差し替え）には用いず、経過月の実績は参考（ActualClosed列）として併記し予測値には混ぜていません。MonteCarlo / Linear / Seasonal の併記は比較・参考で、計画値は混合の年度合計 P50 です。\n'
     : '経過月は実績（ActualClosed列）で表示していますが、年度合計(P10/P50/P90)は12ヶ月すべてを予測として算出した通年予測です（経過実績で固定した着地値ではありません）。\n';
+  const step3aHasError = /(?:web_error|rag_error|structure_error)=[1-9]/.test(String(step3aWarn || ''));
   sh.getRange(6, 1, 1, 6).merge();
   sh.getRange(6, 1).setValue(annualForecastNote + engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
-    .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aWarn || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#666666')
+    .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aHasError || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#000000')
     .setFontSize(10).setWrap(true);
   const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
   const coerceCount = coerceMatch ? Number(coerceMatch[1]) : 0;
@@ -1616,6 +1613,8 @@ function writeOutputFY_(result) {
   ];
   sh.getRange(summaryHeaderRow, 1, 1, 6).setValues([kpiHdr]).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(9, 1, 1, 6).setValues([kpiVal]);
+  sh.getRange(9, 6).setWrap(true).setVerticalAlignment('top');
+  sh.setRowHeight(9, 40);
   sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
   sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（AI除く / capped）】\nPRODUCT/CLIENT/OPINIONS 由来の連続主観差分のみを対象にした参考比率です（AI調査は含みません）。\nKnown Spotも含みません。この率は予測制御には使いません。');
   sh.getRange(summaryHeaderRow, 3).setNote('【AI寄与率（calibrated）】\nAI調査（kAI）由来の寄与のみを、主観オーバーレイと分離して計測した参考比率です。\nAIは自前の上限（AI_MAX_ABS_EFFECT=±3%）で制御され、主観capとは別系統です。');
@@ -1630,12 +1629,14 @@ function writeOutputFY_(result) {
   const compAI = Math.abs(sumArr_(aiCalP50));
   const compDen = Math.abs(kpiCal.quantTotal) + compSubjExclAI + compAI + Math.abs(sumArr_(knownSpotP50));
   const compRow = compDen > 0
-    ? [Math.abs(kpiCal.quantTotal) / compDen, compSubjExclAI / compDen, compAI / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解']
-    : ['N/A', 'N/A', 'N/A', 'N/A', '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解'];
-  sh.getRange(10, 1, 1, 5).setValues([compRow]);
+    ? [Math.abs(kpiCal.quantTotal) / compDen, compSubjExclAI / compDen, compAI / compDen, Math.abs(sumArr_(knownSpotP50)) / compDen, '', '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解']
+    : ['N/A', 'N/A', 'N/A', 'N/A', '', '参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解'];
+  sh.getRange(10, 1, 1, 6).setValues([compRow]);
   if (compDen > 0) sh.getRange(10, 1, 1, 4).setNumberFormat('0.0%');
-  sh.getRange(10, 1, 1, 5).setBackground('#f3f3f3').setFontColor('#666666');
-  sh.getRange(10, 5).setNote('【参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解】\n4軸（定量・主観オーバーレイ(AI除く)・AI調査・Known Spot）の寄与を100%に正規化した補助表示です。\n各シェアは絶対額(P50)ベース。意思決定では row 9 のKPIと併読してください。');
+  sh.getRange(10, 1, 1, 6).setBackground('#f3f3f3').setFontColor('#666666');
+  sh.getRange(10, 6).setWrap(true).setVerticalAlignment('top');
+  sh.setRowHeight(10, 40);
+  sh.getRange(10, 6).setNote('【参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解】\n4軸（定量・主観オーバーレイ(AI除く)・AI調査・Known Spot）の寄与を100%に正規化した補助表示です。\n各シェアは絶対額(P50)ベース。意思決定では row 9 のKPIと併読してください。');
 
   // 数値トレンド Insight
   sh.getRange(11, 1).setValue('過去数年の数値トレンド Insight').setFontWeight('bold');
@@ -1686,9 +1687,10 @@ function writeOutputFY_(result) {
     const confDefaultN = Number(m.eventDefaultedMissingConf || 0) + Number(m.benchDefaultedMissingConf || 0);
     const confDefaultText = confDefaultN > 0 ? ` / confDefault=${confDefaultN}` : '';
     return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}${confDropText}${confDefaultText}`;
-  }).join(' | ');
-  sh.getRange(21, 1, 1, 11).merge();
-  sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
+  }).join('\n');
+  sh.getRange(21, 1, 1, 6).merge();
+  sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666').setWrap(true).setVerticalAlignment('top');
+  sh.setRowHeight(21, 72);
   const missingBench = Array.isArray(aiMeta.topicsMissingBenchmark) ? aiMeta.topicsMissingBenchmark : [];
   const degradedTopics = AI_TOPICS.filter(topic => {
     const mode = String(((aiMeta || {})[topic] || {}).degradedMode || '');
@@ -1697,6 +1699,8 @@ function writeOutputFY_(result) {
   sh.getRange(22, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
   sh.getRange(22, 1, 1, 6).merge();
   sh.getRange(22, 7, 1, 5).merge();
+  sh.getRange(22, 1, 1, 11).setWrap(true).setVerticalAlignment('top');
+  sh.setRowHeight(22, 30);
   const confDropTopics = AI_TOPICS.filter(topic => Number(((aiMeta || {})[topic] || {}).eventDroppedMissingConf || 0) > 0);
   if (degradedTopics.length) {
     const confNote = confDropTopics.length ? `（confidence欠落でevent不採用: ${confDropTopics.join(', ')} → A-4再実行 or 構造化プロンプト見直しを推奨）` : '';
@@ -1705,15 +1709,16 @@ function writeOutputFY_(result) {
   if (missingBench.length) {
     sh.getRange(22, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
   }
-  sh.getRange(23, 1, 1, 11).merge();
+  sh.getRange(23, 1, 1, 6).merge();
   const allTopicNeutralized = AI_TOPICS.every(topic => !!(((aiMeta || {})[topic] || {}).neutralized));
   const aiNeutralizedFlag = !!((dTop || {}).aiNeutralized);
   if (allTopicNeutralized || aiNeutralizedFlag) {
     sh.getRange(23, 1).setValue('AIスコアは信頼度不足のため予測への影響を中立化しました（kAI=1.00 / 予測は過去実績ベースのみで算出）')
-      .setBackground('#d9ead3').setFontColor('#274e13').setFontWeight('bold');
+      .setBackground('#d9ead3').setFontColor('#274e13').setFontWeight('bold').setWrap(true).setVerticalAlignment('top');
   } else {
     sh.getRange(23, 1).setValue('').setBackground('#ffffff').setFontWeight('normal');
   }
+  sh.setRowHeight(23, 30);
 
   let row = 24;
 
@@ -8622,8 +8627,7 @@ function syncSalesFromSalesInput_(fy, client) {
  * 3) onOpen のメニュー（A-1〜C-3）が従来どおり表示され、欠落・重複がないこと。
  * 4) A-1 初期セットアップ → A-2 → A-3 が従来どおり動作し、SALES_MONTHLY が
  *    BASE/SPOT/TOTAL の3行で48ヶ月生成されること（正規取込経路が無傷）。
- * 5) A-1 の初期設定ダイアログ冒頭に「このbookは1クライアント専用です。別クライアントの
- *    予測には、このbookをDriveでコピーして…」の notice が残っていること（複製手順の代替が機能）。
+ * 5) A-1 の初期設定ダイアログ冒頭に複製手順 notice が残っていること（output-display-tidy で supersede）。
  * 6) A-9 の OUTPUT の年度合計および月次 P10/P50/P90 が削除前と不変であること
  *    （予測コア無変更 / Monte Carlo の乱数揺れのみ許容）。
  * 7) スクリプトエディタの関数一覧から削除対象2関数が消えていること。
@@ -8643,6 +8647,24 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) A-4 のサマリービュー、構造化結果の内容、および A-9 の OUTPUT の年度合計・月次 P10/P50/P90 が
  *    本変更の前後で不変であること（生ログ格納先のみ変更 / Monte Carlo の乱数揺れのみ許容）。
  * 8) RAW が内部シートとして非表示になること。
+ */
+
+/**
+ * HOW TO TEST (output-display-tidy)
+ * 1) VERSION='2.3.30-dev' / BUILD_STAGE='output-display-tidy'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期設定ダイアログ冒頭の黄色 notice が表示されないこと。
+ *    （orphan-fn-removal の HOW TO TEST 項目5 はこの変更で意図的に撤去・supersede とする）。
+ * 3) A-9 後、OUTPUT 6行目（注記ブロック）が、エンジン/cal/製品重み等の実警告(⚠)や AI取込の実エラー
+ *    （web_error/rag_error/structure_error が1以上）が無い限り黒字で表示されること。
+ *    vertex_rows=...; web_error=0; rag_error=0; structure_error=0 の all-zero サマリーだけでは赤くならない。
+ * 4) 実警告がある場合（DLM primary→fallback の ⚠ / productWeightWarning / cal の ⚠ /
+ *    web_error|rag_error|structure_error>=1）は従来どおり赤字(#b71c1c)になること。
+ * 5) OUTPUT row10「参考（補助）: 定量/主観/AI/KnownSpot 合計100%分解」テキストが E列でなく F列に表示され、
+ *    E10 は空であること。NOTE も F10 に付くこと。
+ * 6) OUTPUT F9/F10 の長い注記が G列以降へはみ出さず、セル内で折り返されること。
+ * 7) OUTPUT 21行目（coverage）が ' | ' 一行ではなく topic ごとの改行表示になり、A〜F 幅に収まって横に伸び
+ *    すぎないこと。22行目（degraded / benchmark不足）と23行目（中立化バナー）も折り返し・幅縮小で収まること。
+ * 8) A-9 の年度合計および月次 P10/P50/P90 が本変更の前後で不変（表示のみの変更 / 予測コア無変更）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
