@@ -1,23 +1,44 @@
-# 売上予測スクリプト 設計書 v2.3.3（2.3.12〜2.3.29 同期 / doc-sync）
+# 売上予測スクリプト 設計書 v2.3.4（2.3.30〜2.3.31 同期 / doc-sync）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.3.29-dev' / BUILD_STAGE='ai-research-raw-merge'）
-設計書版：v2.3.3（v2.3.2 からのドキュメント改訂。**コード変更は伴わない**。
-2.3.12〜2.3.29 までの実装変更を現行コード版へ同期する doc sync）
+対象実装：`Forecast_Agent.js`（VERSION='2.3.31-dev' / BUILD_STAGE='raw-migrate-header-match'）
+設計書版：v2.3.4（v2.3.3 からのドキュメント改訂。output-display-tidy（2.3.30）は表示専用、
+raw-migrate-header-match（2.3.31）は生ログ移送ロジックのみの変更で、いずれも予測の P10/P50/P90 は不変。
+本改訂は「同梱の raw-migrate-header-match プロンプトを適用済み」の状態を記述する＝
+**コードを先に適用・検証してから本書へ差し替える**）。
 DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
 
-### 0.0 v2.3.2 → v2.3.3 の更新点（この改訂で反映したもの）
-本改訂は **8系統・複数ビルドの実装変更**をドキュメントへ同期する。各々は適用済みであり、本改訂で
-新たなコード変更は行わない。
+### 0.0 v2.3.3 → v2.3.4 の更新点（この改訂で反映したもの）
+本改訂は2系統の実装変更をドキュメントへ同期する。各々は適用済み（raw-migrate-header-match は同梱プロンプトで
+適用する）であり、本改訂で新たな別系統のコード変更は行わない。
+
+- **output-display-tidy（2.3.30）**：表示専用の整形。
+  ① 初期設定ダイアログ冒頭の黄色 notice（および `.notice` CSS）を撤去（このタイミングでの表示は遅く、他箇所でカバー）。
+  ② OUTPUT 6行目の注記ブロックの赤字判定を「実警告（`⚠` / 製品重み警告 / `web_error`・`rag_error`・`structure_error` が
+  1以上）があるときのみ赤」へ変更。`vertex_rows=…; web_error=0;…` の all-zero 情報サマリーだけでは赤くしない
+  （`step3aHasError` で error≥1 を検出）。
+  ③ row10「定量/主観/AI/KnownSpot 100%分解」テキストを E列→F列へ移動（E10は空・NOTEもF10）。
+  ④ F9/F10 の長文を折り返し＋行高調整ではみ出し解消。
+  ⑤ 21行目 coverage を topic ごとの改行表示＋A〜F幅（6列）へ縮小（行高72）、22行目（degraded / benchmark不足）・
+  23行目（中立化バナー）も折り返し・幅縮小で横伸びを抑制。
+  **いずれも表示位置/書式のみで数値は不変。** 変更スコープは `showInitialSetupDialog_` / `writeOutputFY_` の2関数のみ。
+- **raw-migrate-header-match（2.3.31）**：`migrateLegacyAIResearchRawSheets_` の旧2枚→RAW 移送を
+  **位置ベースから「ヘッダ名マッチ＋シート名由来の axis 確定」へ変更**（§10.6・§12）。旧 WEB/EXTERNAL の列順が
+  RAW と一致していなくても、`client/as_of_date/topic/evidence/note` は同名ヘッダの列へ入り、`axis` は
+  シート名（AI_RESEARCH_WEB→web / AI_RESEARCH_EXTERNAL→rag）から確定する。旧2枚に axis 列が無くても空にならず、
+  frozen_flag は旧側に無ければ 0・frozen_at は空で補完。これにより §12 の latent issue（移送時の axis 1列ずれ）を
+  **解消**。生ログ移送のみで予測の P10/P50/P90 は不変、冪等性も不変。
+
+### 0.0' v2.3.2 → v2.3.3 の更新点（参考・再掲）
+本改訂は **8系統・複数ビルドの実装変更**をドキュメントへ同期した。各々は適用済みであり、新たなコード変更は行っていない。
 
 - **snapshot-vestigial-removal（2.3.12）**：FORECAST_SNAPSHOT の三角測量系 vestigial カラム
   （`linear_pred` / `robust_pred` / `regime_pred` / `simulation_pred` / `w1`〜`w4`）を物理削除。
   現行ヘッダは15列、`final_pred` は J列（index 9）に確定。B-2 の突合は `r[9]` を `final_pred` として読む。
-  → 旧 §12 の latent issue（FORECAST_SNAPSHOT vestigial カラム）は**解消**。
 - **config-simplify（2.3.13）**：CONFIG の「[互換] 担当者（B10 = B4参照）」を撤去。担当者は B4 のみが
   単一の真実源。チューニング表から `QUAL_SUBJECTIVE_MAX_SCALE` 行を撤去（cap pass-through で不要）。
 - **config-deadknob-removal（2.3.15）**：未使用CONFIG行を撤去
@@ -54,13 +75,14 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
   `QUAL_SHARE_TARGET_CENTER/LOW/HIGH` をコードから撤去（デッドコード削除・予測不変）。
   `QUAL_SUBJECTIVE_MONTHLY_CAP` / `QUAL_CALIBRATION_ENABLED` / `SUBJECTIVE_OVERLAY_TARGET_*` は残存。
 - **orphan-fn-removal（2.3.28）**：孤立関数 2件（`adminShowCloneGuide` / `importPastSalesToSalesTab`）を
-  grep でゼロ依存確認のうえ物理削除。book複製手順の案内は `showInitialSetupDialog_` の notice に残存。
+  grep でゼロ依存確認のうえ物理削除。book複製手順の案内は当時 `showInitialSetupDialog_` の notice に残存していたが、
+  output-display-tidy（2.3.30）でこの notice は撤去された（§0.0 参照）。
 - **ai-research-raw-merge（2.3.29）**：生ログシート `AI_RESEARCH_WEB` / `AI_RESEARCH_EXTERNAL` を
   単一の `AI_RESEARCH_RAW` に統合（§6・§10.5）。web/rag の区別は `axis` 列で持つ。既存bookの旧2枚は
-  `migrateLegacyAIResearchRawSheets_` が一度だけ RAW へ移送し旧タブを削除（冪等）。
-  生ログ格納先のみの変更で、サマリービュー・構造化結果・予測の P10/P50/P90 は不変。
+  `migrateLegacyAIResearchRawSheets_` が一度だけ RAW へ移送し旧タブを削除する（冪等）。
+  ※移送ロジックは raw-migrate-header-match（2.3.31）でヘッダ名マッチへ是正された（§10.6）。
 
-### 0.0' v2.3.1 → v2.3.2 の更新点（参考・再掲）
+### 0.0'' v2.3.1 → v2.3.2 の更新点（参考・再掲）
 - **objonly-dealias**：`runForecastFYCore_` の `objOnly` を `quantOnly` の独立コピー（`.slice()`）化。
   `closedMonthMode='actual'` の実績上書きが `quantOnly`（KPI診断）/ `opsQuantOnly`（DLM比較の旧Ops参照）を
   巻き込み変異させない配線になった。現行データフローでは actual_closed 月が立たないため挙動中立であり、
@@ -68,7 +90,7 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - **gem-path-removal**：旧Gem手動貼付経路の関数群を物理削除。A-4 は `runVertexAIResearch`、
   A-9 は `countAIResearchStructuredRows_` で件数把握する経路に確定。
 
-### 0.0'' v2.3 で反映済みの更新点（参考・再掲）
+### 0.0''' v2.3 で反映済みの更新点（参考・再掲）
 - **AI調査をVertex AI自動実行へ移行**。旧A-4「Gemプロンプト生成→TSV手動貼付→parse」は廃止し、
   A-4は `runVertexAIResearch`（Vertex grounded web検索 + Vertex AI Search RAG + 構造化出力）へ置換済み（§10）。
 - **AI調査サマリービュー（AI_RESEARCH）を正典化**。`writeAIResearchSummaryView_` が3段ビューを再描画（§11）。
@@ -90,6 +112,7 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - **event_score の算出が是正済み**。`direction符号 × (impact/100) × 50 × confidence`。
   impact_score は 0〜100 の影響の大きさ（50は中立ではない）。旧 `|impact-50|` 式は撤去（ai-score-robustness）。
 - **AI調査の取得経路が Vertex AI へ移行**。生ログは `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL を統合）に集約。
+  旧2枚→RAW の移送は**ヘッダ名マッチ＋シート名由来 axis**（raw-migrate-header-match）。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソースの寄与に reliability_r を乗じる。既定ON（空ならno-op）。
 - **LMDI分解** が追加（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
 - **POOL_PRIOR のクライアント横断集約** が追加（中央集約book→各bookへfan-out / 手動実行）。
@@ -335,7 +358,7 @@ config-simplify / config-deadknob-removal / qual-share-const-removal により�
   三角測量系 vestigial カラム（linear/robust/regime/simulation_pred / w1〜w4）は**物理削除済み**。
 - **AI_RESEARCH_RAW（旧 WEB + EXTERNAL の統合）**：headers は
   `client / as_of_date / axis / topic / direction / magnitude / uncertainty / relative_position /
-  evidence / frozen_flag / frozen_at / note`。`axis`=web/rag で生応答の出所を区別。
+  evidence / frozen_flag / frozen_at / note`。`axis`=web/rag で生応答の出所を区別する。
   実際の生応答・citation・prompt（web）／summary・documents（rag）は `note`（JSON）に保存。
   `frozen_flag`/`frozen_at` は将来用の予約列（現状未使用 / 既定0・空）。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY 末尾に forecast_source（§4.2）。
@@ -367,9 +390,11 @@ config-simplify / config-deadknob-removal / qual-share-const-removal により�
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 現行コードは VERSION='2.3.29-dev' / BUILD_STAGE='ai-research-raw-merge'。
+- 現行コードは VERSION='2.3.31-dev' / BUILD_STAGE='raw-migrate-header-match'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- 本改訂（設計書 v2.3.3）は **コード変更を伴わない**。2.3.12〜2.3.29 の実装状態をドキュメントへ反映する doc sync。
+- 本改訂（設計書 v2.3.4）は output-display-tidy（2.3.30 / 表示専用）と raw-migrate-header-match
+  （2.3.31 / 生ログ移送のヘッダ名マッチ化）をドキュメントへ反映する doc sync。raw-migrate-header-match は
+  同梱の Codex プロンプトで適用する前提のため、**コードを先に適用・検証してから本書へ差し替える**こと。
 - 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。
 
 ---
@@ -396,10 +421,17 @@ config-simplify / config-deadknob-removal / qual-share-const-removal により�
 - OUTPUT「（参考）内訳とメモ（P50比較）」表の `ForecastSource` 列が、A-9 実行後に全行 `forecast_open` で
   あることを1回確認すれば、§9.3 の非発火はその場で確認できる。
 
-### 9.5 表示位置（output-note-relocate）
+### 9.5 表示位置と OUTPUT 表示整形（output-note-relocate / output-display-tidy）
 - 年度合計行と月次表ヘッダの間は短い1行注記のみ（混合は `..._PRIMARY_SHORT_TEXT`、客観は従来の1行注記）。
 - 「年度≠月次合算」の長文説明は混合セクションの Scenario Split の下（目立たない灰色小フォント）に配置。
-  これは表示位置のみの変更で数値は不変。
+  これは表示位置のみの変更で数値は不変（output-note-relocate）。
+- **output-display-tidy（2.3.30）の表示整形**（いずれも `writeOutputFY_` のみ・数値不変）：
+  - OUTPUT 6行目の注記ブロックは、実警告（`⚠` / 製品重み警告 / `web_error`・`rag_error`・`structure_error` が1以上）が
+    あるときのみ赤字。all-zero の情報サマリーだけでは黒字（`step3aHasError` が error≥1 を検出）。
+  - row10「定量/主観/AI/KnownSpot 100%分解」テキストは F列（E10は空・NOTEもF10）。F9/F10 は折り返し表示。
+  - 21行目 coverage は topic ごとの改行表示＋A〜F幅（6列）。22行目（degraded / benchmark不足）・
+    23行目（中立化バナー）も折り返し・幅縮小で横伸びを抑える。
+- 初期設定ダイアログの黄色 notice は output-display-tidy で撤去（複製手順は GUIDE 等でカバー）。
 
 ---
 
@@ -450,14 +482,22 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
 - 全topicで構造化行が0件なら、AI_RESEARCH_STRUCTURED は**上書きせず既存行を保持**し、エラー通知して終了。
 - 1件以上得られたら AI_RESEARCH_STRUCTURED を全置換し、サマリービュー（§11）を再描画。
 
-### 10.6 ランタイムシート（ai-research-raw-merge で統合）
+### 10.6 ランタイムシート（ai-research-raw-merge で統合 / raw-migrate-header-match で移送是正）
 - AI_RESEARCH_STRUCTURED：A-1で先行作成される構造化結果シート（event/benchmark行）。A-9が読む唯一の入口。
 - A-1では作らず、Vertex実行時に遅延作成されるのは以下の**2枚**：
   - AI_RESEARCH_TASK_LOG：run_id/topic/aspect(web/rag/structure)/status/duration/usage/citations/error を記録。
   - **AI_RESEARCH_RAW**：旧 AI_RESEARCH_WEB + AI_RESEARCH_EXTERNAL を統合した単一の生ログシート。
     `axis`=web/rag で出所を区別し、生応答（web は prompt/text/citations、rag は query/summary/documents）を
-    `note`（JSON）に保存。既存bookの旧2枚は `migrateLegacyAIResearchRawSheets_` が一度だけ RAW へ移送し、
-    旧タブを削除する（冪等。再実行で二重移送しない）。A-1（全上書き）経路では旧2枚は移送せず削除される。
+    `note`（JSON）に保存。append 行は `appendAIResearchRawRow_` が axis を明示付与する。
+- **既存bookの旧2枚→RAW 移送（migrateLegacyAIResearchRawSheets_）は raw-migrate-header-match（2.3.31）で
+  ヘッダ名マッチ化された**：
+  - 旧2枚の各行を、行ヘッダ名と RAW ヘッダ名の一致で写す（位置ベースは撤去）。旧2枚の列順が RAW と
+    異なっても `client/as_of_date/topic/evidence/note` は同名ヘッダの列へ入る。
+  - `axis` は**旧シート名から確定**する（AI_RESEARCH_WEB→web / AI_RESEARCH_EXTERNAL→rag）。旧2枚に axis 列が
+    無くても空にならず、列ずれも起きない。
+  - `frozen_flag` は旧側に無ければ 0、`frozen_at` は空で補完。
+  - 移送は一度だけ（旧タブを移送後に削除＝冪等。再実行で二重移送しない）。A-1（全上書き）経路では旧2枚は
+    移送せず削除される。
 
 ### 10.7 CONFIGキー（既定値）
 - VERTEX_PROJECT_ID = forecast-agent-498907
@@ -500,15 +540,14 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 - **client名マッチの不整合**：`isSameClient_` と `normalizeClientName_` 経由の直接比較が混在。
   両者とも正規化を通すため実害は低いが、表記の統一は別スコープ。
-- **AI_RESEARCH_RAW 旧データ移送の列整合（要実機確認）**：`migrateLegacyAIResearchRawSheets_` は
-  旧 WEB/EXTERNAL の先頭 `min(列数, 12)` 列を**位置ベース**で RAW へ写す。旧2枚の列順が RAW（`axis` が3列目）と
-  一致していることが前提。一致しない場合、移送済み旧行で `axis` 等が1列ずれうる。生ログ（監査）のみで予測には
-  非影響だが、HOW TO TEST の「移送後 RAW の axis 列で web/rag を区別できる」は旧データを持つbookで実機確認する。
-  新規 append 行（`appendAIResearchRawRow_`）は正しく axis を持つため影響なし。
 
 解消済みメモ：
+- **AI_RESEARCH_RAW 旧データ移送の列整合**は raw-migrate-header-match（2.3.31）で**解消**。位置ベース移送を
+  ヘッダ名マッチへ変更し、`axis` をシート名（WEB→web / EXTERNAL→rag）から確定するようにした。旧2枚の列順差による
+  axis 1列ずれが構造的に起きなくなった（旧データを持つbookでのHOW TO TEST実機確認は維持を推奨だが、
+  列ずれリスク自体は除去済み）。
 - **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**（w1〜w4 / linear/robust/regime/simulation_pred）は
-  snapshot-vestigial-removal で**物理削除済み**（旧 §12 の latent issue を解消）。
+  snapshot-vestigial-removal で**物理削除済み**。
 - LANDING_FORECAST / EVAL_LOG の再実行追記増殖は複合キー upsert 化で解消済み。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY は設計どおり追記のままで、重複排除は C-1 読取側で行う。
 - shadow mode 表示の `opsQuantOnly` エイリアス問題は objOnly 独立コピー化で解消済み。
@@ -517,9 +556,8 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 ---
 
-この v2.3.3 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典を維持しつつ、
-2.3.12〜2.3.29 の実装変更（FORECAST_SNAPSHOT vestigial撤去 / CONFIG簡素化・デッドノブ撤去 / RAG既定値・クエリ整合 /
-AIスコアの算出是正・根拠なき中立化撤去・confidence補完 / calibration override空欄是正 / 表示位置移設 /
-孤立関数撤去 / 生ログRAW統合）を現行実装へ同期したドキュメント改訂である。コード変更は伴わない。
-年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。
-残存 latent issue は §12 の2件（client名マッチ統一、RAW移送の列整合 実機確認）に絞り、各々別スコープで対応する。
+この v2.3.4 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典を維持しつつ、
+output-display-tidy（2.3.30 / 表示専用）と raw-migrate-header-match（2.3.31 / 生ログ移送のヘッダ名マッチ化）を
+現行実装へ同期したドキュメント改訂である。前者は表示位置/書式のみ、後者は生ログ移送ロジックのみで、いずれも
+予測の P10/P50/P90 は不変。年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、実績は検証・学習経路
+（B/C）でのみ使用する。残存 latent issue は §12 の1件（client名マッチ統一）のみとなり、別スコープで対応する。
