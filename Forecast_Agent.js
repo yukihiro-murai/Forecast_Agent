@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.27-dev / BUILD_STAGE qual-share-const-removal）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.28-dev / BUILD_STAGE orphan-fn-removal）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.27-dev';
-const BUILD_STAGE = 'qual-share-const-removal';
+const VERSION = '2.3.28-dev';
+const BUILD_STAGE = 'orphan-fn-removal';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -285,41 +285,6 @@ function adminSetupGuideOnly() {
   });
 
   ui.alert('完了', 'GUIDEシートを作成し、他のタブシートを削除しました。', ui.ButtonSet.OK);
-}
-
-function adminShowCloneGuide() {
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <base target="_top">
-  <style>
-    body { font-family: sans-serif; padding: 16px; line-height: 1.6; color: #222; }
-    h2 { margin: 0 0 12px 0; font-size: 16px; }
-    ol { margin: 0; padding-left: 22px; }
-    li { margin: 8px 0; }
-    .note { margin-top: 14px; padding: 10px; background: #fff2cc; border: 1px solid #f1c232; border-radius: 4px; font-size: 12px; }
-    button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 4px; background: #666; color: #fff; font-weight: 700; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <h2>テンプレートbook複製ガイド</h2>
-  <ol>
-    <li>Google Driveでこのテンプレートbookを開く。</li>
-    <li>ファイル &gt; コピーを作成 を選択する。</li>
-    <li>コピーされたbookを開き、名前を Forecast_{クライアント名} などに変更する。</li>
-    <li>Forecast Agent &gt; A-1 初期セットアップ を実行する。</li>
-    <li>ダイアログでクライアント・FY・担当者を設定する。</li>
-    <li>以降は A-2 から通常運用する。</li>
-  </ol>
-  <div class="note">コピー操作はDrive上で手動実施してください。コンテナバインドGASはbookコピーと一緒に複製されるため、別途の設定コピーは不要です。</div>
-  <button onclick="google.script.host.close()">閉じる</button>
-</body>
-</html>`;
-  SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutput(html).setWidth(460).setHeight(430),
-    'テンプレート複製ガイド'
-  );
 }
 
 /**
@@ -1073,130 +1038,6 @@ function normalizeClientName_(name) {
 
 function isSameClient_(a, b) {
   return normalizeClientName_(a) === normalizeClientName_(b);
-}
-
-/** ====== 補助: 過去売上データを反映（外部SS→このSSのSALES_MONTHLY） ====== */
-function importPastSalesToSalesTab() {
-  ensureSetupDone_();
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-
-  const client = String(cfg.getRange('B2').getValue() || '').trim();
-  const fy = Number(cfg.getRange('B3').getValue());
-
-  if (!client) {
-    SpreadsheetApp.getUi().alert('CONFIG!B2 にメーカー名が未設定です。A-1 初期セットアップを実行してください。');
-    return;
-  }
-  if (!fy || !isFinite(fy)) {
-    SpreadsheetApp.getUi().alert('CONFIG!B3 に予測FYが未設定です。A-1 初期セットアップを実行してください。');
-    return;
-  }
-
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.alert(
-    '過去売上データを取り込みます',
-    `メーカー: ${client}\n予測FY: ${fy}\n\n外部実績シートから過去4年分（48ヶ月）を集計して SALES_MONTHLY に反映します。実行しますか？`,
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (res !== ui.Button.OK) return;
-
-  toastProgress_(ss, `STEP: 外部実績を集計（過去4年/48ヶ月）…`);
-
-  const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
-
-  // 予測FY=2026なら → 2022,2023,2024,2025,2026（2026年は1〜3月を使用）
-  const years = [fy - 4, fy - 3, fy - 2, fy - 1, fy];
-  const tabNames = years.map(y => `${EXTERNAL_SHEET_PREFIX}${y}${EXTERNAL_SHEET_SUFFIX}`);
-
-  const start = new Date(fy - 3, 3, 1); // fy-3/04/01
-  const totalMonths = 48;
-
-  const map = new Map(); // productName -> monthly[48]
-  let anyTabFound = false;
-
-  tabNames.forEach(tab => {
-    const sh = ext.getSheetByName(tab);
-    if (!sh) return;
-    anyTabFound = true;
-
-    const maxCols = sh.getMaxColumns();
-    const need = Math.max(EXT_COL_CLIENT, EXT_COL_CATEGORY, EXT_COL_AMOUNT, EXT_COL_DATE_PRIMARY, EXT_COL_DATE_SECONDARY);
-    if (maxCols < need) return;
-
-    const values = sh.getDataRange().getValues();
-    for (let i = 1; i < values.length; i++) {
-      const row = values[i];
-
-      const c = row[EXT_COL_CLIENT - 1];
-      if (!isSameClient_(c, client)) continue;
-
-      const productName = row[EXT_COL_CATEGORY - 1]; // AX＝製品名
-      const amount = row[EXT_COL_AMOUNT - 1];
-      if (!productName) continue;
-      if (amount === '' || amount === null || isNaN(amount)) continue;
-
-      let dateVal = row[EXT_COL_DATE_PRIMARY - 1];
-      if (!dateVal) dateVal = row[EXT_COL_DATE_SECONDARY - 1];
-
-      const dt = toDate_(dateVal);
-      if (!dt) continue;
-
-      const idx = monthIndexFromStart_(dt, start);
-      if (idx < 0 || idx >= totalMonths) continue;
-
-      const key = String(productName).trim();
-      if (!map.has(key)) map.set(key, new Array(totalMonths).fill(0));
-      map.get(key)[idx] += Number(amount);
-    }
-  });
-
-  if (!anyTabFound) {
-    ui.alert('外部実績シート側に該当年度のタブが見つかりませんでした。\nタブ名（*YYYY_actual_value）を確認してください。');
-    return;
-  }
-  if (map.size === 0) {
-    ui.alert('該当データが見つかりませんでした。\nメーカー名や外部シートの列/タブ名を確認してください。');
-    return;
-  }
-
-  const sales = ss.getSheetByName(SHEETS.SALES_MONTHLY);
-  buildSALES_(); // 列数確保
-
-  const headerMonths = [];
-  for (let i = 0; i < totalMonths; i++) {
-    const d = addMonths_(start, i);
-    headerMonths.push(fmtYM_(d)); // yyyy/MM
-  }
-
-  sales.getRange(1, 1).setValue('Category');
-  sales.getRange(1, 2, 1, totalMonths).setValues([headerMonths]);
-
-  const base = new Array(totalMonths).fill(0);
-  const spot = new Array(totalMonths).fill(0);
-  map.forEach((arr, name) => {
-    const key = String(name || '').toUpperCase();
-    if (key.includes('SPOT')) {
-      for (let i = 0; i < totalMonths; i++) spot[i] += Number(arr[i] || 0);
-    } else {
-      for (let i = 0; i < totalMonths; i++) base[i] += Number(arr[i] || 0);
-    }
-  });
-  const out = [['BASE', ...base], ['SPOT', ...spot]];
-  sales.getRange(2, 1, out.length, 1 + totalMonths).setValues(out);
-
-  // 客観（黄色）
-  sales.getRange(2, 2, out.length, totalMonths).setBackground(COLOR_OBJECTIVE);
-
-  sales.setFrozenRows(1);
-  sales.setFrozenColumns(1);
-  sales.autoResizeColumns(1, 1);
-
-  // 取り込み完了後にSALES_MONTHLYを開く
-  ss.setActiveSheet(sales);
-
-  ui.alert('完了', `SALES_MONTHLYに過去4年分（48ヶ月）の売上を反映しました。\nメーカー: ${client}`, ui.ButtonSet.OK);
 }
 
 /** ====== A-5〜A-8：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
@@ -8745,6 +8586,20 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) A-9 実行で OUTPUT の年度合計および月次 P10/P50/P90 が削除前と不変
  *    （純粋なデッドコード削除 / 予測コア無変更 / Monte Carlo の乱数揺れのみ許容）。
  * 6) CONFIG チューニング表に QUAL_SHARE 系の行が無いこと（config-deadknob-removal で除去済み・回帰なし）。
+ */
+
+/**
+ * HOW TO TEST (orphan-fn-removal)
+ * 1) VERSION='2.3.28-dev' / BUILD_STAGE='orphan-fn-removal'、DLM_BUILD_STAGE 不変。
+ * 2) grep で削除対象2関数が定義・参照とも0件であること。
+ * 3) onOpen のメニュー（A-1〜C-3）が従来どおり表示され、欠落・重複がないこと。
+ * 4) A-1 初期セットアップ → A-2 → A-3 が従来どおり動作し、SALES_MONTHLY が
+ *    BASE/SPOT/TOTAL の3行で48ヶ月生成されること（正規取込経路が無傷）。
+ * 5) A-1 の初期設定ダイアログ冒頭に「このbookは1クライアント専用です。別クライアントの
+ *    予測には、このbookをDriveでコピーして…」の notice が残っていること（複製手順の代替が機能）。
+ * 6) A-9 の OUTPUT の年度合計および月次 P10/P50/P90 が削除前と不変であること
+ *    （予測コア無変更 / Monte Carlo の乱数揺れのみ許容）。
+ * 7) スクリプトエディタの関数一覧から削除対象2関数が消えていること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
