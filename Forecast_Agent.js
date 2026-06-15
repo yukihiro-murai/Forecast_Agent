@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.22-dev / BUILD_STAGE output-note-relocate）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.23-dev / BUILD_STAGE ai-score-robustness）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.22-dev';
-const BUILD_STAGE = 'output-note-relocate';
+const VERSION = '2.3.23-dev';
+const BUILD_STAGE = 'ai-score-robustness';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -190,6 +190,7 @@ const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual�
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
 const AI_MAX_ABS_EFFECT = 0.03;   // AI係数の絶対上限（±3%）
+const AI_MISSING_CONFIDENCE_DEFAULT = 0.5; // confidence/relative_confidence欠落時の補完既定値（0で不採用＝従来挙動）
 const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
 const AI_MAX_AGE_MONTHS = 6;
 const AI_EVENT_DECAY_HALF_LIFE_MONTHS = 3;
@@ -1846,7 +1847,9 @@ function writeOutputFY_(result) {
     const latest = m.latestAsOfDate ? Utilities.formatDate(new Date(m.latestAsOfDate), Session.getScriptTimeZone(), 'yyyy-MM-dd') : 'N/A';
     const momentumText = aiScoreBasis === 'momentum' ? ` / mom=${Number(m.momentumScore || 0).toFixed(1)} insuf=${!!m.momentumInsufficient}` : '';
     const confDropText = Number(m.eventDroppedMissingConf || 0) > 0 ? ` / confDrop=${Number(m.eventDroppedMissingConf)}` : '';
-    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}${confDropText}`;
+    const confDefaultN = Number(m.eventDefaultedMissingConf || 0) + Number(m.benchDefaultedMissingConf || 0);
+    const confDefaultText = confDefaultN > 0 ? ` / confDefault=${confDefaultN}` : '';
+    return `${topic}: coverage bench=${Number(m.coverageBenchmarkRows || 0)} evt=${Number(m.coverageEventRows || 0)} / mode=${String(m.degradedMode || 'blended')} / quality=${Number(m.qualityScore || 0).toFixed(2)} / neutralized=${!!m.neutralized} / latest=${latest}${momentumText}${confDropText}${confDefaultText}`;
   }).join(' | ');
   sh.getRange(21, 1, 1, 11).merge();
   sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666');
@@ -2657,6 +2660,7 @@ function buildCONFIG_() {
     ['SPOT_BG_CAP_RATE（背景SPOT上限/BaseP50比）', SPOT_BG_CAP_RATE],
     ['AI_WEIGHT（AI係数重み）', AI_WEIGHT_DEFAULT],
     ['AI_MAX_ABS_EFFECT（AI係数上限）', AI_MAX_ABS_EFFECT],
+    ['AI_MISSING_CONFIDENCE_DEFAULT（AI調査でconfidence欠落時に補完する既定値 0〜1 / 0で欠落行は不採用）', AI_MISSING_CONFIDENCE_DEFAULT],
     ['AI_SCORE_BASIS（level=水準/ momentum=相対位置の変化）', 'level'],
     ['AI_MOMENTUM_LOOKBACK_QUARTERS（モメンタム平滑の四半期数）', 2],
     ['AI_MOMENTUM_MIN_HISTORY（momentum算出に必要な過去run最小数）', 2],
@@ -3614,6 +3618,7 @@ function readModelTuningFromConfig_() {
     spotBgCapRate: SPOT_BG_CAP_RATE,
     aiWeight: AI_WEIGHT_DEFAULT,
     aiMaxAbsEffect: AI_MAX_ABS_EFFECT,
+    aiMissingConfidenceDefault: AI_MISSING_CONFIDENCE_DEFAULT,
     aiMomentumLookbackQuarters: 2,
     aiMomentumMinHistory: 2,
     spotSpikeMadK: SPOT_SPIKE_MAD_K,
@@ -3655,6 +3660,7 @@ function readModelTuningFromConfig_() {
   out.spotBgCapRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_CAP_RATE', out.spotBgCapRate)));
   out.aiWeight = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT', out.aiWeight)));
   out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getCfg('AI_MAX_ABS_EFFECT', out.aiMaxAbsEffect)));
+  out.aiMissingConfidenceDefault = Math.max(0, Math.min(1, getCfg('AI_MISSING_CONFIDENCE_DEFAULT', out.aiMissingConfidenceDefault)));
   out.aiMomentumLookbackQuarters = Math.round(Math.max(1, Math.min(8, getCfg('AI_MOMENTUM_LOOKBACK_QUARTERS', out.aiMomentumLookbackQuarters))));
   out.aiMomentumMinHistory = Math.round(Math.max(1, Math.min(12, getCfg('AI_MOMENTUM_MIN_HISTORY', out.aiMomentumMinHistory))));
   out.spotSpikeMadK = Math.max(0.5, Math.min(10, getCfg('SPOT_SPIKE_MAD_K', out.spotSpikeMadK)));
@@ -3697,6 +3703,12 @@ function readAiScoreBasis_() {
   const labelMap = readConfigLabelMap_();
   const v = String(labelMap.AI_SCORE_BASIS || '').trim().toLowerCase();
   return v === 'momentum' ? 'momentum' : 'level';
+}
+
+function readAiMissingConfidenceDefault_() {
+  const labelMap = readConfigLabelMap_();
+  const v = Number(labelMap.AI_MISSING_CONFIDENCE_DEFAULT);
+  return isFinite(v) ? Math.max(0, Math.min(1, v)) : AI_MISSING_CONFIDENCE_DEFAULT;
 }
 
 function readForecastClosedMonthMode_() {
@@ -4713,7 +4725,6 @@ function readAIResearchScores_(calibration, opt) {
   const peerUIdx = idx.peer_universe;
   const peerBIdx = idx.peer_basis;
   const asOfIdx = idx.as_of_date;
-  const oldAdjIdx = idx.adjusted_score;
 
   const disabledTopics = new Set();
   try {
@@ -4722,12 +4733,16 @@ function readAIResearchScores_(calibration, opt) {
   } catch (err) {
     // JSON不正時は無効化なしで継続
   }
+  const missingConfDefault = readAiMissingConfidenceDefault_();
   const blend = { Market: [0.65, 0.35], Competitor: [0.70, 0.30], Channel: [0.65, 0.35], DX: [0.50, 0.50] };
   const eventArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const benchArr = { Market: [], Competitor: [], Channel: [], DX: [] };
   const latestMeta = { Market: null, Competitor: null, Channel: null, DX: null };
   // event候補（direction/impactあり）だが confidence 欠落で重み0となり不採用にした件数（診断用 / 採点には不使用）
   const eventDroppedMissingConf = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  // confidence/relative_confidence 欠落を既定値で補完して採用した件数（診断用）
+  const eventDefaultedMissingConf = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
+  const benchDefaultedMissingConf = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
   const qualityMul = q => (q === 'high' ? 1 : (q === 'medium' ? 0.75 : 0.5));
   const now = new Date();
   for (let i = 1; i < vals.length; i++) {
@@ -4745,43 +4760,58 @@ function readAIResearchScores_(calibration, opt) {
       };
     }
 
-    let eventScore = Number(eventScoreIdx === undefined ? NaN : vals[i][eventScoreIdx]);
-    if (!isFinite(eventScore) && oldAdjIdx !== undefined) {
+    const eventScoreCell = eventScoreIdx === undefined ? '' : vals[i][eventScoreIdx];
+    let eventScore = (eventScoreCell === '' || eventScoreCell === null || eventScoreCell === undefined) ? NaN : Number(eventScoreCell);
+    if (!isFinite(eventScore)) {
       const direction = normalizeAiDirection_(directionIdx === undefined ? '' : vals[i][directionIdx]);
       const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
       const impact = parseAiNumericScore_(impactIdx === undefined ? '' : vals[i][impactIdx], 'impact_score');
-      const conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
-      if (isFinite(impact) && isFinite(conf)) eventScore = sign * Math.abs(impact - 50) * conf;
+      let conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
+      if (!isFinite(conf) && (direction || isFinite(impact)) && missingConfDefault > 0) conf = missingConfDefault;
+      if (isFinite(impact) && isFinite(conf)) eventScore = sign * (impact / 100) * 50 * conf;
     }
     if (isFinite(eventScore)) eventScore = clamp_(eventScore, -50, 50);
 
-    let benchScore = Number(benchmarkScoreIdx === undefined ? NaN : vals[i][benchmarkScoreIdx]);
-    if (!isFinite(benchScore) && relPctIdx !== undefined && relConfIdx !== undefined) {
-      const relPct = parseAiPercentile_(vals[i][relPctIdx]);
-      const relConf = parseAiConfidence_(vals[i][relConfIdx]);
+    const benchScoreCell = benchmarkScoreIdx === undefined ? '' : vals[i][benchmarkScoreIdx];
+    let benchScore = (benchScoreCell === '' || benchScoreCell === null || benchScoreCell === undefined) ? NaN : Number(benchScoreCell);
+    if (!isFinite(benchScore) && relPctIdx !== undefined) {
+      const relPct = parseAiPercentile_(relPctIdx === undefined ? '' : vals[i][relPctIdx]);
+      let relConf = parseAiConfidence_(relConfIdx === undefined ? '' : vals[i][relConfIdx]);
+      if (!isFinite(relConf) && isFinite(relPct) && missingConfDefault > 0) relConf = missingConfDefault;
       const qInfo = coerceBenchmarkQuality_(qualityIdx === undefined ? '' : vals[i][qualityIdx]);
       if (isFinite(relPct) && isFinite(relConf)) benchScore = (relPct - 50) * relConf * qualityMul(qInfo.value);
     }
     if (isFinite(benchScore)) benchScore = clamp_(benchScore, -50, 50);
 
     if (rowType === 'benchmark') {
-      const relConf = parseAiConfidence_(relConfIdx === undefined ? '' : vals[i][relConfIdx]);
+      let relConf = parseAiConfidence_(relConfIdx === undefined ? '' : vals[i][relConfIdx]);
+      let benchDefaulted = false;
+      if (!isFinite(relConf)) {
+        const relPctRaw = parseAiPercentile_(relPctIdx === undefined ? '' : vals[i][relPctIdx]);
+        if (isFinite(relPctRaw) && missingConfDefault > 0) { relConf = missingConfDefault; benchDefaulted = true; }
+      }
       const qInfo = coerceBenchmarkQuality_(qualityIdx === undefined ? '' : vals[i][qualityIdx]);
       const wt = isFinite(relConf) ? Math.max(0, relConf) * qualityMul(qInfo.value) : 0;
-      if (isFinite(benchScore) && wt > 0) benchArr[topic].push({ score: benchScore, weight: wt });
+      if (isFinite(benchScore) && wt > 0) {
+        benchArr[topic].push({ score: benchScore, weight: wt });
+        if (benchDefaulted) benchDefaultedMissingConf[topic] = Number(benchDefaultedMissingConf[topic] || 0) + 1;
+      }
     } else {
-      const conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
+      let conf = parseAiConfidence_(confIdx === undefined ? '' : vals[i][confIdx]);
+      let confDefaulted = false;
+      const dirRaw = directionIdx === undefined ? '' : normalizeAiDirection_(vals[i][directionIdx]);
+      const impactRaw = parseAiNumericScore_(impactIdx === undefined ? '' : vals[i][impactIdx], 'impact_score');
+      if (!isFinite(conf) && (dirRaw || isFinite(impactRaw)) && missingConfDefault > 0) { conf = missingConfDefault; confDefaulted = true; }
       const months = asOf ? monthDiffFloor_(asOf, now) : AI_MAX_AGE_MONTHS + 1;
       if (!isFinite(months) || months > AI_MAX_AGE_MONTHS) continue;
       const decay = Math.pow(0.5, Math.max(0, months) / AI_EVENT_DECAY_HALF_LIFE_MONTHS);
       const wt = isFinite(conf) ? Math.max(0, conf) * decay : 0;
       if (isFinite(eventScore) && wt > 0) {
         eventArr[topic].push({ score: eventScore, weight: wt });
-      } else if (!isFinite(conf)) {
-        // confidence 欠落（NaN）で重み0 → 不採用。実体のある event候補のみ診断計上する。
-        const dirRaw = directionIdx === undefined ? '' : normalizeAiDirection_(vals[i][directionIdx]);
-        const impactRaw = parseAiNumericScore_(impactIdx === undefined ? '' : vals[i][impactIdx], 'impact_score');
-        if (dirRaw || isFinite(impactRaw)) eventDroppedMissingConf[topic] = Number(eventDroppedMissingConf[topic] || 0) + 1;
+        if (confDefaulted) eventDefaultedMissingConf[topic] = Number(eventDefaultedMissingConf[topic] || 0) + 1;
+      } else if (!isFinite(conf) && (dirRaw || isFinite(impactRaw))) {
+        // confidence 欠落かつ既定補完OFF(=0) → 不採用。実体のある event候補のみ診断計上。
+        eventDroppedMissingConf[topic] = Number(eventDroppedMissingConf[topic] || 0) + 1;
       }
     }
   }
@@ -4834,6 +4864,8 @@ function readAIResearchScores_(calibration, opt) {
       coverageEventRows: eventCount,
       coverageBenchmarkRows: benchCount,
       eventDroppedMissingConf: Number(eventDroppedMissingConf[topic] || 0),
+      eventDefaultedMissingConf: Number(eventDefaultedMissingConf[topic] || 0),
+      benchDefaultedMissingConf: Number(benchDefaultedMissingConf[topic] || 0),
       latestAsOfDate: latest.asOf ? Utilities.formatDate(new Date(latest.asOf), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
       clamped: !!(benchAgg.clamped || eventAgg.clamped),
       no_data: !!noData,
@@ -7252,8 +7284,9 @@ function buildVertexStructureSystemInstruction_() {
     '- Channel: 販促/MR/チャネル活動の活発化が上振れ。',
     '- DX: DX投資（投資量）の増加が上振れ。内製成熟度では判定しない。',
     '',
+    'impact_score は 0〜100 の「影響の大きさ」です（0=影響なし、100=最大）。50は中立ではありません。向きは direction（up/down/neutral）で表し、impact_score には大きさだけを入れてください（例: 弱い=10前後、強い=80前後）。',
     'Web検索結果はevent行、購入レポート/RAG結果はbenchmark行に分けてください。',
-    '推測で根拠を補完しないでください。根拠が弱い場合はconfidenceやrelative_confidenceを低くしてください。',
+    'confidence と relative_confidence は必須です。空欄にせず、必ず 0〜1 の数値を入れてください（自信がなければ低い値、例 0.3）。推測で根拠を補完せず、根拠が弱い場合はこれらの値を低くしてください。',
     'JSONのみを返してください。'
   ].join('\n');
 }
@@ -7270,6 +7303,7 @@ function buildVertexStructureUserContent_(client, topic, web, rag) {
     `向き（符号）: ${topic} は順方向（Market=市場拡大が上振れ / Competitor=競合活動の活発化が上振れ / Channel=販促・MR活動の活発化が上振れ / DX=DX投資量の増加が上振れ・内製成熟度では見ない）。`,
     '',
     '次のJSON schemaで返してください。',
+    'impact_score は 0〜100（0=影響なし・100=最大、50は中立ではない）。confidence / relative_confidence は必須で 0〜1（空欄禁止。自信がなければ低い値）。',
     '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":50,"relative_confidence":0,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"top|upper|middle|lower|bottom","relative_reason":"","evidence":""},"report_text":""}',
     '',
     'Web検索結果:',
@@ -7297,7 +7331,8 @@ function buildVertexStructuredRows_(client, asOf, topic, obj) {
   const impact = clampFinite_(parseAiNumericScore_(web.impact_score, 'impact_score'), 0, 100);
   const confidence = clampFinite_(parseAiConfidence_(web.confidence), 0, 1);
   const sign = direction === 'up' ? 1 : (direction === 'down' ? -1 : 0);
-  const eventScoreRaw = (isFinite(impact) && isFinite(confidence)) ? sign * Math.abs(impact - 50) * confidence : NaN;
+  // impact_score は 0〜100 の影響の大きさ（0=なし,100=最大）。direction が符号。
+  const eventScoreRaw = (isFinite(impact) && isFinite(confidence)) ? sign * (impact / 100) * 50 * confidence : NaN;
   const eventScore = isFinite(eventScoreRaw) ? clamp_(eventScoreRaw, -50, 50) : '';
   if (direction || isFinite(impact) || isFinite(confidence) || web.evidence) {
     rows.push([
@@ -8596,6 +8631,22 @@ function syncSalesFromSalesInput_(fy, client) {
  * 5) 月次表・Scenario Split・チャート・Triangulation 以降の各表の数値が本修正の前後で不変であること。
  * 6) チャートが表と重ならないこと（戻り値に末尾注記分を加味済み）。次セクション開始位置が崩れないこと。
  * 7) 年度合計および月次 P10/P50/P90 が不変であること（表示位置のみの変更）。
+ */
+
+/**
+ * HOW TO TEST (ai-score-robustness)
+ * 1) VERSION='2.3.23-dev' / BUILD_STAGE='ai-score-robustness'、DLM_BUILD_STAGE 不変。
+ * 2) CONFIG チューニング表に AI_MISSING_CONFIDENCE_DEFAULT=0.5 行が出る。
+ * 3) 【A: 既存データのまま次のA-9】confidence/relative_confidence だけ空の行
+ *    （例: Market event impact有/conf空, benchmark percentile有/relConf空）が不採用にならず、
+ *    Market が 0 でなくなる。OUTPUT coverage 行に「Market: ... / confDefault=2」が出て、confDrop は出ない。
+ * 4) AI_MISSING_CONFIDENCE_DEFAULT=0 に変更して A-9 → 従来どおり不採用（confDrop表示・該当topicは0）。既定0で従来挙動に戻ることを確認。
+ * 5) 【B: A-4再実行で全行】A-4を再実行後、event_score が (impact/100)*50*conf で保存される。
+ *    impact=80→大、impact=0.9→ほぼ0（従来は |0.9-50| で過大評価され約44になっていたのが解消）。
+ * 6) grep で旧 event_score 算出式が 0件（event_score算出から消えている）こと。
+ * 7) AI寄与率（OUTPUT）が AI_MAX_ABS_EFFECT=±3% を超えないこと（キャップ不変）。
+ * 8) AI_SCORE_HISTORY / AI_IMPACT_HISTORY のスキーマ（列）は不変。
+ * 9) confidence/relative_confidence を明示的に 0 で入れた行は補完されず（欠落=NaNのみ補完）、従来どおり重み0で扱われること。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
