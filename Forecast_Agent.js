@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.25-dev / BUILD_STAGE calibration-blank-override-fix）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.26-dev / BUILD_STAGE rag-query-frame-align）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.25-dev';
-const BUILD_STAGE = 'calibration-blank-override-fix';
+const VERSION = '2.3.26-dev';
+const BUILD_STAGE = 'rag-query-frame-align';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7281,7 +7281,19 @@ function buildWebResearchPrompt_(client, topic) {
 }
 
 function buildRagQuery_(client, topic) {
-  return `${client} ${topic} 富士経済 ミクス 市場規模 競合 ベンチマーク 相対位置 BIGM2Y 売上予測 根拠`;
+  // AI調査の新フレーム（外部から観測可能な「支援需要に影響しうる外部環境」）に整合させた検索クエリ。
+  // 旧クエリはデータストアに出現しないノイズ語と英語topic素語の連結で、
+  // 富士経済の日本語レポートに対し検索が希釈されていた。topic別に日本語の展開語で外部環境を狙う。
+  // 出版社名（富士経済等）は単一ソースのコーパスでは弁別力がなく希釈要因のため含めない。
+  const t = normalizeAiTopic_(topic) || String(topic || '').trim();
+  const topicExpansion = {
+    Market: '市場規模 市場動向 需要 成長率 患者数 領域別',
+    Competitor: '競合 他社 新製品 上市 シェア マーケティング 販促',
+    Channel: 'MR 営業 ディテーリング チャネル 情報提供 販促',
+    DX: 'DX デジタル デジタルマーケティング オムニチャネル 投資'
+  };
+  const expansion = topicExpansion[t] || t;
+  return `${client} 医薬品 市場環境 ${expansion}`;
 }
 
 function buildVertexStructureSystemInstruction_() {
@@ -8707,6 +8719,22 @@ function syncSalesFromSalesInput_(fy, client) {
  * 6) 混合セクションは AI 効果分（±3% 内）だけ変わる。これは本修正が意図した変化であり回帰ではない。
  * 7) grep で旧override finite判定が 0件、blank guard helper が applyCalibrationToTuning_ 内に
  *    1定義＋2呼び出し（計3件）だけ存在すること。
+ */
+
+/**
+ * HOW TO TEST (rag-query-frame-align)
+ * 1) VERSION='2.3.26-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変。
+ * 2) grep で旧フレームのノイズ語が 0件であること。
+ * 3) RAGクエリが topic 別に日本語の展開語（市場規模/競合/MR/DX等）を返し、英語topic素語の連結でないこと。
+ * 4) A-4 を再実行 → AI_RESEARCH_TASK_LOG の aspect=rag 行の note.query が新フレーム
+ *    （`{client} 医薬品 市場環境 {日本語展開語}`）になっていること。
+ * 5) RAGヒット内容（AI_RESEARCH_EXTERNAL の summary/citations）が、対象メーカーの売上根拠ではなく
+ *    外部の市場・需要環境寄りの内容に寄ること（旧ノイズ語が消える）。
+ * 6) A-4 を再実行しない限り、A-9 の OUTPUT P10/P50/P90 は不変であること（本変更は A-4 側のクエリのみ）。
+ * 7) A-4 再実行後は benchmark スコアが変わりうる（=意図した改善であり回帰ではない）。
+ *    客観のみ（quantOnly / objOnly）の P10/P50/P90 は不変。
+ * 8) ragReady=false（DATASTORE_ID/SEARCH_LOCATION 空）の場合は RAG が skipped となり本変更の影響なし
+ *    （web-only フェイルセーフ維持）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
