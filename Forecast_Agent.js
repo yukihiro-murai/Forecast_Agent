@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.26-dev / BUILD_STAGE rag-query-frame-align）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.27-dev / BUILD_STAGE qual-share-const-removal）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.26-dev';
-const BUILD_STAGE = 'rag-query-frame-align';
+const VERSION = '2.3.27-dev';
+const BUILD_STAGE = 'qual-share-const-removal';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -182,10 +182,6 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SHARE_ALERT_THRESHOLD = 0.20;  // 定性寄与率アラート閾値（警告用途）
-const QUAL_SHARE_TARGET_CENTER = 0.15;     // 定性寄与率の目標中心
-const QUAL_SHARE_TARGET_LOW = 0.10;        // 定性寄与率の許容下限
-const QUAL_SHARE_TARGET_HIGH = 0.20;       // 定性寄与率の許容上限
 const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual比）
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
@@ -8735,6 +8731,20 @@ function syncSalesFromSalesInput_(fy, client) {
  *    客観のみ（quantOnly / objOnly）の P10/P50/P90 は不変。
  * 8) ragReady=false（DATASTORE_ID/SEARCH_LOCATION 空）の場合は RAG が skipped となり本変更の影響なし
  *    （web-only フェイルセーフ維持）。
+ */
+
+/**
+ * HOW TO TEST (qual-share-const-removal)
+ * 1) VERSION='2.3.27-dev' / BUILD_STAGE='qual-share-const-removal'、DLM_BUILD_STAGE 不変。
+ * 2) grep で QUAL_SHARE_ALERT_THRESHOLD / QUAL_SHARE_TARGET_CENTER / QUAL_SHARE_TARGET_LOW /
+ *    QUAL_SHARE_TARGET_HIGH の const 定義・コード参照が0件であること（HOW TO TEST コメント中の言及を除く）。
+ * 3) QUAL_SUBJECTIVE_MONTHLY_CAP / QUAL_CALIBRATION_ENABLED は残存し、A-9 で従来どおり参照されること
+ *    （主観の月次cap・cap有効化トグルは不変）。
+ * 4) SUBJECTIVE_OVERLAY_TARGET_CENTER / _LOW / _HIGH は残存すること
+ *    （calibrateSubjectiveContinuousDelta_ が参照）。
+ * 5) A-9 実行で OUTPUT の年度合計および月次 P10/P50/P90 が削除前と不変
+ *    （純粋なデッドコード削除 / 予測コア無変更 / Monte Carlo の乱数揺れのみ許容）。
+ * 6) CONFIG チューニング表に QUAL_SHARE 系の行が無いこと（config-deadknob-removal で除去済み・回帰なし）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
