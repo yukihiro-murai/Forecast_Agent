@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.34-dev';
-const BUILD_STAGE = 'display-stabilize';
+const VERSION = '2.3.35-dev';
+const BUILD_STAGE = 'ai-spread-sensitivity';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -181,10 +181,10 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.20;  // 月次cap（quantOpsAfterResidual比）
+const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.30;  // 月次cap（quantOpsAfterResidual比）
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
-const AI_WEIGHT_DEFAULT = 0.0005; // AI重み（既定）
-const AI_MAX_ABS_EFFECT = 0.03;   // AI係数の絶対上限（±3%）
+const AI_WEIGHT_DEFAULT = 0.0008; // AI重み（既定）
+const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
 const AI_MISSING_CONFIDENCE_DEFAULT = 0.5; // confidence/relative_confidence欠落時の補完既定値（0で不採用＝従来挙動）
 const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
 const AI_MAX_AGE_MONTHS = 6;
@@ -3510,7 +3510,7 @@ function readModelTuningFromConfig_() {
   out.spotBgFloorRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_FLOOR_RATE', out.spotBgFloorRate)));
   out.spotBgCapRate = Math.max(0, Math.min(1, getCfg('SPOT_BG_CAP_RATE', out.spotBgCapRate)));
   out.aiWeight = Math.max(0, Math.min(0.01, getCfg('AI_WEIGHT', out.aiWeight)));
-  out.aiMaxAbsEffect = Math.max(0, Math.min(0.03, getCfg('AI_MAX_ABS_EFFECT', out.aiMaxAbsEffect)));
+  out.aiMaxAbsEffect = Math.max(0, Math.min(0.05, getCfg('AI_MAX_ABS_EFFECT', out.aiMaxAbsEffect)));
   out.aiMissingConfidenceDefault = Math.max(0, Math.min(1, getCfg('AI_MISSING_CONFIDENCE_DEFAULT', out.aiMissingConfidenceDefault)));
   out.aiMomentumLookbackQuarters = Math.round(Math.max(1, Math.min(8, getCfg('AI_MOMENTUM_LOOKBACK_QUARTERS', out.aiMomentumLookbackQuarters))));
   out.aiMomentumMinHistory = Math.round(Math.max(1, Math.min(12, getCfg('AI_MOMENTUM_MIN_HISTORY', out.aiMomentumMinHistory))));
@@ -7171,6 +7171,7 @@ function buildWebResearchPrompt_(client, topic) {
     `現在のTopic「${topic}」について、上記の向きに沿って最新Web情報を調査してください。`,
     '上振れ/下振れ/中立、影響の強さ、根拠URLが分かるように日本語で要約してください。',
     '観測できた範囲で必ず向き（上振れ/下振れ/中立）と影響の強さを述べてください。弱くても実在する動きは拾い、その弱さは「低信頼」と明記して表現してください。環境がほぼ動いていない場合のみ「中立」とし、その場合も理由を述べてください。',
+    '影響の強さは中庸に丸めず、明確な動きには大きい強さ、弱い動きには小さい強さと、メリハリをつけて述べてください。根拠があるのに無難な中程度（中位）へ寄せることは避けてください。',
     '推測で数値や向きを創作しないでください（中立もゼロも捏造しない）。根拠が弱い場合は低信頼と明記してください。'
   ].join('\n');
 }
@@ -7197,6 +7198,7 @@ function buildVertexStructureSystemInstruction_() {
     'AI調査は外部から客観的に観測できる情報のみを扱います。対象メーカーの社内実感・取引実績・受託可能性には踏み込まないでください（それらは社内の担当者入力で別途反映されます）。',
     '',
     'relative_percentile は「対象メーカーの企業力ランキング」ではなく、「対象メーカー周辺の、製薬マーケティング支援需要に影響しうる外部環境が、どの程度大きく/活発に動いているか」の相対位置として評価してください。50は同等水準、高いほど支援需要環境が大きく/活発に動いていることを表します。',
+    '根拠がある場合の relative_percentile は 50〜60 付近に丸めず、上位（70〜90）/下位（10〜30）にはっきり差をつけてください。無難に中位へ寄せることは避けてください。ただし相対位置を判断する根拠が無い場合は、従来どおり relative_percentile を空（null）にし benchmark を埋めないでください（中庸の値で埋めて分散を作ることは禁止です）。',
     'peer_universe / peer_basis には、この相対評価の母集団と基準（何と比べた相対位置か）を必ず明記してください。',
     '【重要・benchmark行の出力条件】relative_percentile は、購入レポート/RAG等の具体的な根拠で相対位置を判断できたときだけ記入してください。根拠が無いトピックでは relative_percentile・relative_position_label・peer_universe・peer_basis をすべて空（null）にし、benchmark を一切埋めないでください。根拠が無いのに 50 や middle を「とりあえず」入れることは禁止です（50は「材料が無い」ではなく「材料に基づき中位と判断した」を意味します）。',
     '',
@@ -7207,6 +7209,7 @@ function buildVertexStructureSystemInstruction_() {
     '- DX: DX投資（投資量）の増加が上振れ。内製成熟度では判定しない。',
     '',
     'impact_score は 0〜100 の「影響の大きさ」です（0=影響なし、100=最大）。50は中立ではありません。向きは direction（up/down/neutral）で表し、impact_score には大きさだけを入れてください（例: 弱い=10前後、強い=80前後）。',
+    'impact_score は中庸に丸めず（40〜60付近へ寄せず）、根拠の強さに応じてレンジ全体（弱い動き=10〜30、明確な動き=70〜100）を使ってください。topic 間で無難に横並びにせず、強い topic と弱い topic の差がはっきり出るように評価してください。',
     'Web検索結果はevent行、購入レポート/RAG結果はbenchmark行に分けてください。',
     '【重要・event行は必ず向きを評価】web側では、観測できた範囲で direction（up/down/neutral）と impact_score を必ず付けてください。環境がほぼ動いていない場合のみ direction=neutral とし、その場合も impact_score は実態に合わせた小さい値（例 5〜15）を入れ、空欄にしないでください。弱くても実在する動きは捨てずに拾ってください（根拠の弱さは impact_score と confidence の低さで表現します）。',
     'confidence と relative_confidence は、その行を実際に出力するなら必須です。空欄にせず 0〜1 の数値を入れてください（自信がなければ低い値、例 0.3）。',
@@ -7228,6 +7231,7 @@ function buildVertexStructureUserContent_(client, topic, web, rag) {
     '',
     '次のJSON schemaで返してください。',
     'impact_score は 0〜100（0=影響なし・100=最大、50は中立ではない）。web の direction/impact_score/confidence は原則必ず記入（動きが無い場合のみ direction=neutral + 小さい impact_score）。',
+    'impact_score と relative_percentile は中庸に丸めず（中位へ寄せず）、根拠の強さに応じてレンジ全体を使い、topic 間で差がはっきり出るようにしてください（根拠が無い benchmark は従来どおり空のまま）。',
     'report（benchmark）は根拠があるときだけ記入。根拠が無ければ relative_percentile / relative_position_label / peer_universe / peer_basis を null（空）にし、50 や middle のプレースホルダを入れないこと。',
     '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":null,"relative_confidence":null,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"","relative_reason":"","evidence":""},"report_text":""}',
     '',
