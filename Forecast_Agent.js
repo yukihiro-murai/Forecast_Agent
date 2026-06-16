@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.32-dev / BUILD_STAGE client-match-unify）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.33-dev / BUILD_STAGE a9-client-normalize）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.32-dev';
-const BUILD_STAGE = 'client-match-unify';
+const VERSION = '2.3.33-dev';
+const BUILD_STAGE = 'a9-client-normalize';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -3190,7 +3190,8 @@ function findFirstExtremeMultiplierIssue_(fy) {
   if (monthlyByProduct.length === 0) return null;
 
   const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
+  const rawClient = String(cfg.getRange('B2').getValue() || '').trim();
+  const client = normalizeClientName_(rawClient);
   const ctx = getForecastContext_(fy, new Date(), []);
   const weights = computeProductWeightsFromSalesInputClosed12_(fy, client, ctx);
 
@@ -7518,7 +7519,7 @@ function runPhase1Forecast() {
     const parsed = { rows: countAIResearchStructuredRows_(), warning: '' };
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const cfg = ss.getSheetByName(SHEETS.CONFIG);
-    const client = String(cfg.getRange('B2').getValue() || '').trim();
+    const client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
     if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
     const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
     cfg.getRange('B3').setValue(fy);
