@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.34-dev / BUILD_STAGE display-stabilize）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.36-dev / BUILD_STAGE ai-cap-note-sync）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.35-dev';
-const BUILD_STAGE = 'ai-spread-sensitivity';
+const VERSION = '2.3.36-dev';
+const BUILD_STAGE = 'ai-cap-note-sync';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1617,7 +1617,7 @@ function writeOutputFY_(result) {
   sh.setRowHeight(9, 40);
   sh.getRange(summaryHeaderRow, 1).setNote('【定量寄与率（予測対象月のみ）】\nforecast_open月だけで算出した、定量土台（quantOnly）の構成比です。\n式: |quantTotal| / (|quantTotal| + |netDelta|)');
   sh.getRange(summaryHeaderRow, 2).setNote('【主観オーバーレイ率（AI除く / capped）】\nPRODUCT/CLIENT/OPINIONS 由来の連続主観差分のみを対象にした参考比率です（AI調査は含みません）。\nKnown Spotも含みません。この率は予測制御には使いません。');
-  sh.getRange(summaryHeaderRow, 3).setNote('【AI寄与率（calibrated）】\nAI調査（kAI）由来の寄与のみを、主観オーバーレイと分離して計測した参考比率です。\nAIは自前の上限（AI_MAX_ABS_EFFECT=±3%）で制御され、主観capとは別系統です。');
+  sh.getRange(summaryHeaderRow, 3).setNote('【AI寄与率（calibrated）】\nAI調査（kAI）由来の寄与のみを、主観オーバーレイと分離して計測した参考比率です。\nAIは自前の上限（AI_MAX_ABS_EFFECT=±5%）で制御され、主観capとは別系統です。');
   sh.getRange(summaryHeaderRow, 4).setNote('【Known Spot寄与率（予測対象月のみ）】\nDEV_SPOT由来の既知案件寄与の比率です。\ncalibration対象外で、主観オーバーレイとは別系統で表示しています。');
   sh.getRange(summaryHeaderRow, 5).setNote('【非定量ネット差分率（参考）】\nmixedとquantOnlyの差分をネットで見た参考値です。\noverlayとknownが相殺/増幅し得るため、他列と単純加算はできません。');
   sh.getRange(summaryHeaderRow, 6).setNote('【警告/参考】\nAI行不足、レンジ過大など運用注意と、主観オーバーレイ率(AI除く)・AI寄与率の参考値を表示します。');
