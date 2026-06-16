@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.31-dev / BUILD_STAGE raw-migrate-header-match）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.32-dev / BUILD_STAGE client-match-unify）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.31-dev';
-const BUILD_STAGE = 'raw-migrate-header-match';
+const VERSION = '2.3.32-dev';
+const BUILD_STAGE = 'client-match-unify';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -3584,10 +3584,9 @@ function readSourceReliability_(client) {
   const header = values[0] || [];
   const idx = {};
   header.forEach((h, i) => { idx[String(h || '')] = i; });
-  const target = normalizeClientName_(String(client || '').trim());
+  const target = String(client || '').trim();
   for (let i = 1; i < values.length; i++) {
-    const rowClient = normalizeClientName_(String(values[i][idx.client] || '').trim());
-    if (target && rowClient !== target) continue;
+    if (target && !isSameClient_(values[i][idx.client], target)) continue;
     const type = String(values[i][idx.source_type] || '').trim();
     const key = String(values[i][idx.source_key] || '').trim();
     if (!type || !key) continue;
