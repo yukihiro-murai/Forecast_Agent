@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.33-dev / BUILD_STAGE a9-client-normalize）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.34-dev / BUILD_STAGE display-stabilize）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.33-dev';
-const BUILD_STAGE = 'a9-client-normalize';
+const VERSION = '2.3.34-dev';
+const BUILD_STAGE = 'display-stabilize';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -840,9 +840,9 @@ function showInitialSetupDialog_() {
     <div class="hint">シミュレーションするメーカー担当者の苗字を入力<br>※原則として全員の意見を反映するためです</div>
 
     <div class="grid">
-      ${Array.from({length:10}).map((_,i)=>`
+      ${['鷹野','鶴田','鳩山','鷲尾','鴨下','鵜飼','鷺沼','雁屋','鴻池','鶉野'].map((nm,i)=>`
         <div class="num">${i+1}.</div>
-        <input id="p${i+1}" type="text" placeholder="例：赤木" />
+        <input id="p${i+1}" type="text" placeholder="例：${nm}" />
       `).join('')}
     </div>
     <div class="hint">空欄は無視され、CONFIG!B4 にカンマ区切りで保存されます。</div>
@@ -1691,23 +1691,26 @@ function writeOutputFY_(result) {
   sh.getRange(21, 1, 1, 6).merge();
   sh.getRange(21, 1).setValue(coverageText).setFontSize(9).setFontColor('#666666').setWrap(true).setVerticalAlignment('top');
   sh.setRowHeight(21, 72);
-  const missingBench = Array.isArray(aiMeta.topicsMissingBenchmark) ? aiMeta.topicsMissingBenchmark : [];
-  const degradedTopics = AI_TOPICS.filter(topic => {
-    const mode = String(((aiMeta || {})[topic] || {}).degradedMode || '');
-    return mode === 'event_only' || mode === 'benchmark_only';
-  });
-  sh.getRange(22, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
-  sh.getRange(22, 1, 1, 6).merge();
-  sh.getRange(22, 7, 1, 5).merge();
-  sh.getRange(22, 1, 1, 11).setWrap(true).setVerticalAlignment('top');
-  sh.setRowHeight(22, 30);
+  // ベンチマーク未取得（RAGに相対位置の根拠が無い）は honest-zero 設計上の通常状態。
+  // イベント情報で評価できている event_only は警告にせず、真にデータ皆無（no_data）の時だけ赤で警告する。
+  const noDataTopics = AI_TOPICS.filter(topic => String(((aiMeta || {})[topic] || {}).degradedMode || '') === 'no_data');
+  const eventOnlyTopics = AI_TOPICS.filter(topic => String(((aiMeta || {})[topic] || {}).degradedMode || '') === 'event_only');
+  const benchmarkOnlyTopics = AI_TOPICS.filter(topic => String(((aiMeta || {})[topic] || {}).degradedMode || '') === 'benchmark_only');
   const confDropTopics = AI_TOPICS.filter(topic => Number(((aiMeta || {})[topic] || {}).eventDroppedMissingConf || 0) > 0);
-  if (degradedTopics.length) {
-    const confNote = confDropTopics.length ? `（confidence欠落でevent不採用: ${confDropTopics.join(', ')} → A-4再実行 or 構造化プロンプト見直しを推奨）` : '';
-    sh.getRange(22, 1).setValue(`⚠ degraded mode: ${degradedTopics.join(', ')}${confNote}`).setBackground('#fce5cd').setFontColor('#7f6000').setFontWeight('bold');
-  }
-  if (missingBench.length) {
-    sh.getRange(22, 7).setValue(`⚠ benchmark不足: ${missingBench.join(', ')}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
+  sh.getRange(22, 1, 1, 11).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal').clearContent();
+  sh.getRange(22, 1, 1, 11).merge();
+  sh.getRange(22, 1, 1, 11).setWrap(true).setVerticalAlignment('middle');
+  sh.setRowHeight(22, 30);
+  if (noDataTopics.length) {
+    const confNote = confDropTopics.length ? `（confidence欠落でevent不採用: ${confDropTopics.join(', ')}）` : '';
+    sh.getRange(22, 1).setValue(`⚠ AI調査データなし: ${noDataTopics.join(', ')} → A-4を再実行してください${confNote}`).setBackground('#f4cccc').setFontColor('#b71c1c').setFontWeight('bold');
+  } else {
+    const parts = [];
+    if (eventOnlyTopics.length) parts.push(`ベンチマーク未取得・イベント情報で評価: ${eventOnlyTopics.join(', ')}`);
+    if (benchmarkOnlyTopics.length) parts.push(`イベント未取得・ベンチマークで評価: ${benchmarkOnlyTopics.join(', ')}`);
+    if (confDropTopics.length) parts.push(`confidence欠落で一部event不採用: ${confDropTopics.join(', ')}`);
+    const note = parts.length ? `参考（いずれも正常範囲）: ${parts.join(' / ')}` : 'AI調査: 全トピックを正常に評価しました';
+    sh.getRange(22, 1).setValue(note).setBackground('#ffffff').setFontColor('#666666').setFontWeight('normal');
   }
   sh.getRange(23, 1, 1, 6).merge();
   const allTopicNeutralized = AI_TOPICS.every(topic => !!(((aiMeta || {})[topic] || {}).neutralized));
@@ -2020,6 +2023,12 @@ function writeOutputFY_(result) {
     }
   }
   row = writeLmdiDecompositionBlock_(sh, row, result);
+
+  // OUTPUT全体を上下中央寄せに統一する（左右配置は変更しない / request: 上下を真ん中に）。
+  // 個別セルの setVerticalAlignment('top') を最後に一括上書きする。チャート・結合セル・horizontal配置には影響しない。
+  const outputLastRow = Math.max(1, sh.getLastRow());
+  const outputLastCol = Math.max(1, sh.getLastColumn());
+  sh.getRange(1, 1, outputLastRow, outputLastCol).setVerticalAlignment('middle');
 }
 
 function writeLmdiDecompositionBlock_(sh, row, result) {
@@ -5719,7 +5728,7 @@ function applySheetVisualStandards_(sh, profile) {
   const full = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
   full.setVerticalAlignment('middle').setHorizontalAlignment('left').setFontWeight('normal');
   const wrapped = sh.getDataRange();
-  wrapped.setWrap(true).setVerticalAlignment('top');
+  wrapped.setWrap(true).setVerticalAlignment('middle');
   sh.getRange(1, 1, 1, sh.getMaxColumns()).setVerticalAlignment('middle').setFontWeight('bold');
   const nums = (profile && profile.numericCols) ? profile.numericCols : [];
   nums.forEach(c => {
@@ -6218,6 +6227,10 @@ function writeAIResearchSummaryView_(ss, client, asOf, structuredRows, aiScores)
     sh.getRange(row, 12, detailRows.length, 2).setWrap(true).setVerticalAlignment('top');
   }
 
+  // AI_RESEARCH サマリービュー全体を上下中央寄せに統一する（左右配置は変更しない）。
+  const aiViewLastRow = Math.max(1, sh.getLastRow());
+  const aiViewLastCol = Math.max(1, sh.getLastColumn());
+  sh.getRange(1, 1, aiViewLastRow, aiViewLastCol).setVerticalAlignment('middle');
   ss.setActiveSheet(sh);
 }
 
