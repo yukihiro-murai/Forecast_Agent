@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.38-dev';
-const BUILD_STAGE = 'dashboard-hide-insights-upsert';
+const VERSION = '2.3.39-dev';
+const BUILD_STAGE = 'spot-bg-sensitivity-down';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -175,10 +175,10 @@ const K_TOTAL_BLOCK_MIN = 0.50;
 const K_TOTAL_BLOCK_MAX = 1.50;
 
 // SPOT背景推定（未知のスポット発生を最低限拾う）
-const SPOT_BG_SHRINK = 0.50;      // 履歴同月平均の50%を背景SPOTとして採用
+const SPOT_BG_SHRINK = 0.35;      // 履歴同月平均の35%を背景SPOTとして採用（過去SPOT感度を抑制）
 const SPOT_BG_FLOOR_RATE = 0.15;  // 履歴同月平均の15%は最低保証
 const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
-const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
+const SPOT_SPIKE_MAD_K = 2.5;     // SPOT再発推定のスパイク判定（MAD倍率 / 巨大スパイクをより厳しく除外）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
 const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.40;  // 月次cap（quantOpsAfterResidual比）
@@ -8783,6 +8783,22 @@ function syncSalesFromSalesInput_(fy, client) {
  *    最新の機械算出値で更新されていること。
  * 9) 手入力していない（空の）人手列には、従来どおり機械の既定値（cause_bucket等）が入ること。
  * 10) A-9 の OUTPUT 年度合計および月次 P10/P50/P90 が本変更の前後で不変であること（予測非影響）。
+ */
+
+/**
+ * HOW TO TEST (spot-bg-sensitivity-down)
+ * 1) VERSION='2.3.39-dev' / BUILD_STAGE='spot-bg-sensitivity-down'、DLM_BUILD_STAGE 不変。
+ * 2) grep で SPOT_BG_SHRINK と 0.35 / SPOT_SPIKE_MAD_K と 2.5 の const 行が各1件。旧値(0.50/3.0)が0件。
+ * 3) 新規bookで A-1 初期セットアップを実行 → CONFIG チューニング表の
+ *    「SPOT_BG_SHRINK（背景SPOT縮小率）」B列が 0.35、「SPOT_SPIKE_MAD_K（SPOTスパイク判定MAD倍率）」B列が
+ *    2.5 で生成されること（const 追従の確認）。
+ * 4) 新規bookで A-2 → A-3 → A-9 を実行 → OUTPUT 内訳表の「背景SPOT（定量）」列が、
+ *    旧既定(0.50/3.0)で出るより各月おおむね約3割小さくなること（年間でも約-30%）。
+ * 5) DEV_SPOT に入力した既知SPOT（knownSpot）の月額は本変更で変わらないこと（過去トレンド側のみの調整）。
+ * 6) 既存book（CONFIG セルを既に 0.35 / 2.5 へ手修正済み）では、clasp push の前後で A-9 の
+ *    背景SPOT・年度合計・月次 P10/P50/P90 が不変であること（const はフォールバックのみで、
+ *    既存bookは CONFIG セル値が優先されるため）。
+ * 7) SPOT_BG_CAP_RATE / SPOT_BG_FLOOR_RATE は変更されていないこと（grep で 0.20 / 0.15 のまま）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
