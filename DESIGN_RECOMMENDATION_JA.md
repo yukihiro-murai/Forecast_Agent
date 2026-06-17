@@ -1,23 +1,51 @@
-# 売上予測スクリプト 設計書 v2.3.7（2.3.38〜2.3.39 同期 / spot-bg-sensitivity-down）
+# 売上予測スクリプト 設計書 v2.3.8（2.3.41 同期 / report-text-compress）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.3.39-dev' / BUILD_STAGE='spot-bg-sensitivity-down'）
-設計書版：v2.3.7（v2.3.6 からのドキュメント改訂）。
+対象実装：`Forecast_Agent.js`（VERSION='2.3.41-dev' / BUILD_STAGE='report-text-compress'）
+設計書版：v2.3.8（v2.3.7 からのドキュメント改訂）。
 DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
 
-本改訂は、設計書 v2.3.6 が記述する `2.3.37-dev / overlay-cap-raise` から現行コード `2.3.39-dev /
-spot-bg-sensitivity-down` までの差分を同期する。コードはこの間に2増分（2.3.38〜2.3.39）進んでおり、
-最終コードに残る実質的な差分は **(a) DASHBOARD の既定非表示化と EVAL_INSIGHTS の人手入力保持 upsert
-（2.3.38）**、および **(b) 背景SPOT感度の引き下げ（2.3.39 / 予測値が変わる数値変更）** の2点である。
+本改訂は、設計書 v2.3.7 が記述する `2.3.39-dev / spot-bg-sensitivity-down` から現行コード
+`2.3.41-dev / report-text-compress` までの差分を同期する。コードはこの間に2増分（2.3.40〜2.3.41）
+進んでいるが、最終コードに残る実質的な差分は **AI調査の構造化プロンプトにおける report_text 圧縮
+（2.3.41 / 表示・要約のみで予測不変）** の1点である。VERSION は 2.3.39→2.3.41 と2つ進んでいるが、
+2.3.40 に相当する独立した BUILD_STAGE 履歴・HOW TO TEST・コード上の痕跡は無く、版番号の付与で1つ
+飛ばした（または別作業で消化した）ものと判断する。現コードの動作には影響しない。
 
-### 0.0 v2.3.6 → v2.3.7 の更新点（この改訂で反映したもの）
+### 0.0 v2.3.7 → v2.3.8 の更新点（この改訂で反映したもの）
 
-#### 0.0.1 spot-bg-sensitivity-down（2.3.39）— 予測値が変わる数値変更
-**表示・構造のみの doc sync とは異なり、本改訂は背景SPOTの推計量が下がる数値変更を含む。**
+#### 0.0.1 report-text-compress（2.3.41）— AI調査要約文の圧縮（予測不変）
+**変更スコープは A-4 の構造化プロンプトのみ**（`buildVertexStructureSystemInstruction_` と
+`buildVertexStructureUserContent_` の2関数）。スコア算出式・予測コア・履歴スキーマは無変更で、
+A-9 の P10/P50/P90 は不変。AI_RESEARCH_STRUCTURED の `report_text` 列の生成方針だけを変えた。
+
+- **report_text を topic ごと 2〜3文・最大120字程度に圧縮**：従来は長文の列挙・転記が混入し、
+  AI_RESEARCH サマリービュー①（topic別要約文）が横に伸びて読みづらかった。圧縮ルールを system
+  instruction と user content の両方に明記した。
+- **個別明細の列挙を禁止**：競合・他社の製品別シェアや個別製品の販促状況（武田/協和キリン等の製品
+  明細）を report_text に列挙しない。「競合各社の販促活動が活発化している」のように、外部環境の動きの
+  方向と強さが分かる一言へ集約する。個別の根拠は `evidence` / `relative_reason` 側へ置く。
+- **ソース文の転記・出典マーカーの羅列を禁止**：ソース文章をそのまま転記・引用しない。出典マーカー
+  （`[1]` / `[2]` 等）や箇条書きの羅列を report_text に持ち込まない。
+- **結論を1文目に**：対象メーカー（client）の外部環境がどの向きに・どの程度動いているかという結論を
+  最優先で1文目に書く。
+
+**非遡及性**：本変更はプロンプトのみのため、A-4 を再実行しない限り既存の `report_text` は前回の長文の
+まま残る（既存データは書き換えない）。A-4 を再実行すると、各 topic の要約文が短文化し、競合の製品別
+明細や出典マーカーの羅列が消える。
+
+**不変点**：スコア列（`event_score` / `benchmark_score` / `blended_score`）と coverage / quality /
+neutralized は本変更で構造的に変わらない（live検索の揺れ・要約変化に伴う微差は許容、算出式は不変）。
+benchmark 行の出力条件（根拠が無いトピックでは relative_percentile 等を空にし、50/middle の
+プレースホルダを入れない）も §10.4・ai-score-degroundless の方針どおり不変。
+
+### 0.0' v2.3.6 → v2.3.7 の更新点（参考・再掲）
+
+#### spot-bg-sensitivity-down（2.3.39）— 予測値が変わる数値変更
 過去SPOT実績への感度（背景SPOTとして拾う量とスパイク判定の許容幅）を2つの const で引き下げた。
 背景SPOTが効いている book では P10/P50/P90 が変化しうる（意図した変更であり回帰ではない）。
 
@@ -39,12 +67,7 @@ clasp push しただけでは既存bookの CONFIG セルは旧値（0.50 / 3.0�
 CONFIG を再生成するか、当該セルを 0.35 / 2.5 へ手動修正しない限り発効しない**。
 新規book（A-1済み）は既定で 0.35 / 2.5 になる。
 
-**検証の扱い**：本変更は数値変更のため、背景SPOTのある book では A-9 の P10/P50/P90 が変わる。
-B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）を再確認すること。
-特に背景SPOTが過大気味だった book では over-forecast rate の改善が期待されるが、逆に背景SPOTの
-取りこぼし（under）が増える可能性があるため、1サイクル両側を監視する。
-
-#### 0.0.2 dashboard-hide-insights-upsert（2.3.38）— 表示制御 + 人手入力保持（予測不変）
+#### dashboard-hide-insights-upsert（2.3.38）— 表示制御 + 人手入力保持（予測不変）
 予測値は不変。2系統の運用上の改善を入れた。
 
 - **DASHBOARD の既定非表示化**：`hideNonUserSheets_` の userVisible 集合に DASHBOARD を含めないため、
@@ -59,7 +82,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
   `action_type` / `next_cycle_reflection` / `owner` / `due_date` / `status`：0-index で 14,15,16,18,19,20,21,22）は
   既存行に値があれば保持する。これにより B-3 再実行でメンバーの原因入力・担当・期日・ステータスが消えない。
 
-### 0.0' v2.3.5 → v2.3.6 の更新点（参考・再掲）— overlay-cap-raise（2.3.37）
+### 0.0'' v2.3.5 → v2.3.6 の更新点（参考・再掲）— overlay-cap-raise（2.3.37）
 **従来の doc sync（表示・構造のみで予測不変）とは異なり、予測値が変わる数値変更。**
 2系統のキャップ定数を引き上げた。主観入力・AI調査の効いている book では P10/P50/P90 が変化しうる。
 
@@ -72,7 +95,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
   `readModelTuningFromConfig_` の上限clamp（`Math.min(0.05, …)`）と OUTPUT 注記（`AI_MAX_ABS_EFFECT=±5%`）も
   ±5% へ整合済み。AI_TOPIC_SCORE_ABS_CAP（各軸±50 / 4軸合計±200）と AI_WEIGHT_DEFAULT（0.0008）は不変。
 
-### 0.0'' v2.3.4 → v2.3.5 の更新点（参考・再掲）
+### 0.0''' v2.3.4 → v2.3.5 の更新点（参考・再掲）
 - **client-match-unify（2.3.32）**：クライアント名マッチの比較方式を統一。`isSameClient_` を
   `normalizeClientName_(a) === normalizeClientName_(b)` に統一し、読取側のクライアント突合
   （`readSourceReliability_` / `readCalibrationState_` / `writeCalibrationState_` /
@@ -87,7 +110,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
   OUTPUTタイトル）が正規化済みになる。ACTUAL_EVAL_MONTHLY は取込時に既に正規化済みのため、両者の表記が
   一致し、**B-2 の生文字列複合キー突合**（`[client, target_month]`）が未正規化表記でも外れない。予測値は不変。
 
-### 0.0''' v2.3.3 → v2.3.4 の更新点（参考・再掲）
+### 0.0'''' v2.3.3 → v2.3.4 の更新点（参考・再掲）
 - **output-display-tidy（2.3.30）**：表示専用の整形。
   ① 初期設定ダイアログ冒頭の黄色 notice（および `.notice` CSS）を撤去。
   ② OUTPUT 6行目の注記ブロックの赤字判定を「実警告（`⚠` / 製品重み警告 / `web_error`・`rag_error`・
@@ -102,7 +125,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
   シート名（AI_RESEARCH_WEB→web / AI_RESEARCH_EXTERNAL→rag）から確定する。旧2枚に axis 列が無くても空にならず、
   frozen_flag は旧側に無ければ 0・frozen_at は空で補完。生ログ移送のみで予測の P10/P50/P90 は不変、冪等性も不変。
 
-### 0.0'''' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 抜粋）
+### 0.0''''' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 抜粋）
 - snapshot-vestigial-removal（2.3.12）：FORECAST_SNAPSHOT を15列化、`final_pred` は J列（index 9）。
 - config-simplify（2.3.13）/ config-deadknob-removal（2.3.15）：未使用CONFIG行・互換参照を撤去。
 - rag-config-defaults（2.3.16）：CONFIG に RAG 既定値（VERTEX_DATASTORE_ID / VERTEX_SEARCH_LOCATION /
@@ -129,6 +152,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
 - **event_score の算出が是正済み**（`direction符号 × (impact/100) × 50 × confidence`）。
 - **背景SPOTの過去感度を引き下げ**（SPOT_BG_SHRINK=0.35 / SPOT_SPIKE_MAD_K=2.5）。floor=0.15・cap=0.20・known spot は不変。
 - **AI調査の取得経路が Vertex AI へ移行**。生ログは `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL を統合）。旧2枚→RAW の移送はヘッダ名マッチ＋シート名由来 axis。
+- **AI調査の report_text は短文圧縮**（topicごと2〜3文・最大120字程度 / 個別明細・出典マーカー・転記を禁止）。スコア算出・予測は不変。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソースの寄与に reliability_r を乗じる。既定ON（空ならno-op）。
 - **LMDI分解** が追加（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
 - **POOL_PRIOR のクライアント横断集約** が追加（中央集約book→各bookへfan-out / 手動実行）。
@@ -149,6 +173,7 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
 - AI調査（Vertex AI自動）：A-4 `runVertexAIResearch`。grounded web検索 + Vertex AI Search RAG +
   構造化出力 → AI_RESEARCH_STRUCTURED へ記録、AI_RESEARCH（サマリービュー）へ再描画（§10・§11）。
   生ログは AI_RESEARCH_RAW（axis=web/rag）と AI_RESEARCH_TASK_LOG に保存。
+  構造化時の report_text は短文圧縮で生成する（§10.1・§10.9）。
 - 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT 更新。
   入口で CONFIG!B2 を `normalizeClientName_` で正規化し、以降の永続クライアントを正規化済みに統一（a9-client-normalize）。
 - ダッシュボード：updatePhase1Dashboard（A-10）。DASHBOARD は既定非表示で、A-10 実行直後のみ前面表示。
@@ -251,6 +276,8 @@ B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）
 - AI_SCORE_BASIS=momentum のときは AI_SCORE_HISTORY の過去runとの差分（momentum）に切替（既定はlevel）。
   momentum の lookback は `as_of_date` 単位で dedup され、A-9実行回数では動かない。
 - AI_SCORE_HISTORY のクライアント絞り込みは `isSameClient_` 経由（client-match-unify）。
+- ※ report_text の圧縮（report-text-compress）は構造化プロンプトの要約方針のみを変える表示変更で、
+  ここで読む final score（event/benchmark）には影響しない。
 
 ### 2.7 年度合計のセマンティクスと2経路の分離（確定）
 **(a) 予測・提出経路（A-9 / runForecastFYCore_）— 実績非依存**
@@ -358,6 +385,7 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 - ※ overlay-cap-raise（cap 0.40 / AI ±5%）および spot-bg-sensitivity-down（背景SPOT shrink 0.35 / spike 2.5）
   適用後は、主観/AI/背景SPOTの効いている book で P50 が変化しうるため、本KPIの再確認を1サイクル行うこと
   （特に over-forecast rate の改善/悪化、および背景SPOT縮小による under 側の取りこぼし）。
+- ※ report-text-compress（2.3.41）は予測値に影響しないため、本KPIへの影響は無い。
 
 ---
 
@@ -376,6 +404,9 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
   confidence_interval_upper / key_factors_json / subjective_input_date / calibration_applied_json）。
   client 列は A-9 入口で正規化された値が書かれる（a9-client-normalize）。これにより B-2 の生文字列複合キー
   突合（client+target_month）が ACTUAL_EVAL_MONTHLY と一致する。
+- **AI_RESEARCH_STRUCTURED の report_text 列**：topicごとの短文要約（2〜3文・最大120字程度）。
+  個別製品明細・出典マーカー・ソース文転記を含まない（report-text-compress）。A-4 再実行で更新され、
+  再実行しない限り過去の長文のまま残る（既存データ非遡及）。
 - **EVAL_INSIGHTS は24列**。機械算出列と人手入力列を持ち、B-3 は複合キー `[client, target_month]` の
   upsert で機械列を上書き・人手列を保持する（§4.7）。
 - **AI_RESEARCH_RAW（旧 WEB + EXTERNAL の統合）**：headers は
@@ -407,14 +438,15 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 現行コードは VERSION='2.3.39-dev' / BUILD_STAGE='spot-bg-sensitivity-down'。
+- 現行コードは VERSION='2.3.41-dev' / BUILD_STAGE='report-text-compress'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- 本改訂（設計書 v2.3.7）は spot-bg-sensitivity-down（2.3.39 / 背景SPOT shrink 0.50→0.35・spike MAD_K
-  3.0→2.5）と dashboard-hide-insights-upsert（2.3.38 / DASHBOARD既定非表示・EVAL_INSIGHTS人手入力保持upsert）を
-  ドキュメントへ反映する。**2.3.39 は予測値が変わる数値変更**であり、既存bookは A-1再生成または CONFIG セルの
-  手動修正（0.35 / 2.5）で発効する。2.3.38 は表示制御・運用上の変更で予測不変。
-- 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。コードが
-  2.3.37→2.3.39 と2増分先行していた点に留意し、今後は stage 確定のたびに doc を同期する。
+- 本改訂（設計書 v2.3.8）は report-text-compress（2.3.41 / AI調査要約文の短文圧縮・予測不変）を
+  ドキュメントへ反映する。**2.3.41 は表示・要約のみの変更で予測値は不変**であり、A-4 を再実行することで
+  既存 report_text が短文化する（再実行しない限り既存データは長文のまま）。
+- VERSION は 2.3.39→2.3.41 と2増分先行していたが、2.3.40 に相当する独立変更はコード上に痕跡が無く、
+  版番号付与の1飛ばしと判断する（動作影響なし）。
+- 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。今後は stage 確定の
+  たびに doc を同期する。
 
 ---
 
@@ -452,6 +484,7 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
 1. **grounded web検索**（callVertexGeminiGrounded_）：Gemini + googleSearch（不可時 googleSearchRetrieval へフォールバック）。
 2. **RAG検索**（callVertexSearchRAG_）：Vertex AI Search データストアを検索。DATASTORE_ID/SEARCH_LOCATION 未設定時はskip（web-only）。
 3. **構造化**（callVertexGeminiStructured_）：web結果をevent行、RAG結果をbenchmark行として JSON 構造化。**temperature=0 固定**。
+   構造化プロンプトで report_text を短文圧縮で生成させる（§10.9）。
 
 ### 10.2 readiness 判定
 - readVertexConfig_ が geminiReady（projectId+location+geminiModel）と ragReady（datastoreId+searchLocation）を分離。
@@ -464,6 +497,7 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
   benchmark 行は相対位置の根拠があるときだけ書く（プレースホルダ禁止）。
 - readAIResearchScores_ が topic別に blend：Market=0.65:0.35 / **Competitor=0.70:0.30** / Channel=0.65:0.35 / DX=0.50:0.50。
 - 各topic final score は ±50（AI_TOPIC_SCORE_ABS_CAP）でclamp。
+- ※ これらの算出は report-text-compress の影響を受けない（report_text 列のみの変更）。
 
 ### 10.4 品質中立化と「根拠なき中立化／捏造ゼロ」の是正（ai-score-degroundless）
 - 総合 dead-zone 中立化は撤去（AI_TOTAL_NEUTRAL_THRESHOLD 既定0）。上限は ±AI_MAX_ABS_EFFECT（±5%）のみ。
@@ -490,6 +524,21 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
 - `buildRagQuery_` は外部観測可能な「支援需要に影響しうる外部環境」に整合。topic 別の日本語展開語で外部環境を狙う。
   英語topic素語の連結や出版社名（弁別力なし）は撤去。本変更は A-4 側のクエリのみ。
 
+### 10.9 report_text の短文圧縮（report-text-compress / 2.3.41）
+- 変更スコープは `buildVertexStructureSystemInstruction_`（system instruction）と
+  `buildVertexStructureUserContent_`（user content）の2関数のプロンプトのみ。
+- 圧縮ルール（両関数に明記）：
+  - report_text は当該 topic の最重要ポイントだけを **2〜3文・最大120字程度**に圧縮する。長文の列挙・転記は禁止。
+  - 競合・他社の製品別シェアや個別製品の販促状況などの**明細を列挙しない**。「競合各社の販促活動が活発化している」
+    のように外部環境の動きの方向と強さが分かる一言へ集約する（個別の根拠は evidence / relative_reason 側へ置く）。
+  - ソース文の**転記・引用をしない**。出典マーカー（`[1]` / `[2]` 等）や箇条書きの羅列を持ち込まない。
+  - 対象メーカー（client）の外部環境がどの向きに・どの程度動いているかという**結論を1文目に**書く。
+- 不変点：event_score / benchmark_score / blended_score の算出式、coverage / quality / neutralized 判定、
+  benchmark 行の出力条件（根拠なき topic は relative_percentile 等を空にし 50/middle を入れない）は変えない。
+- 非遡及：A-4 を再実行しない限り既存 report_text は前回の長文のまま。A-4 再実行で短文化する。
+- 波及：AI_RESEARCH サマリービュー①（topic別要約文 / §11.1）が短くなり、横に伸びすぎず読める。
+  A-9 の OUTPUT 年度合計・月次 P10/P50/P90 は不変。
+
 ---
 
 ## 11. AI調査サマリービュー（AI_RESEARCH シート）
@@ -497,8 +546,10 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 ### 11.1 構成（3段）
 - ① topic別サマリー（要約文）：report_text を topic単位で表示。全topicで空ならフェイルセーフ文。
+  report-text-compress 後は各 topic の要約文が短文（2〜3文）になり、横伸びが解消する。
 - ② AIスコア サマリー（4軸）：topic別 Final Score / event_score / benchmark_score / 最新as_of / 備考。
-- ③ スコア根拠（event / benchmark 明細）。
+- ③ スコア根拠（event / benchmark 明細）。個別の根拠（製品別明細・出典など）はこの③および
+  AI_RESEARCH_STRUCTURED の evidence / relative_reason 側で確認する。
 
 ### 11.2 再描画の不変条件
 - A-4を複数回実行しても追記でなく再描画（重複しない）。A-4失敗（outRows空）時は上書きせず前回内容を保持。
@@ -518,6 +569,8 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 - **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**は snapshot-vestigial-removal で物理削除済み。
 - **EVAL_INSIGHTS の B-3 再実行で人手入力が消える問題**は dashboard-hide-insights-upsert（2.3.38）で解消
   （複合キー upsert ＋ HUMAN_COLS 保持）。
+- **AI調査 report_text の長文化（サマリービュー①の横伸び・読みづらさ）**は report-text-compress（2.3.41）で解消
+  （構造化プロンプトの短文圧縮ルール）。既存 report_text は A-4 再実行時に短文化する。
 - LANDING_FORECAST / EVAL_LOG の再実行追記増殖は複合キー upsert 化で解消済み。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY は追記のままで、重複排除は C-1 読取側で行う。
 - shadow mode 表示の `opsQuantOnly` エイリアス問題は objOnly 独立コピー化で解消済み。
@@ -530,13 +583,16 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 - `writeOutputFY_` の `warn_coerced` 判定（`coerceMatch`）は、Gem手動貼付経路撤去後の Vertex warning summary には
   `warn_coerced=` が含まれないため常に空振り（coerceCount=0 で if ブロック非発火）の死にコード。`match` が null を
   返すだけで無害だが、整理する場合は別スコープのデッドコード削除として扱う。
+- VERSION の 2.3.40 飛ばし（2.3.39→2.3.41）は版番号の運用上の隙間で、動作影響は無い。今後の付番で連番運用に戻す。
 
 ---
 
-この v2.3.7 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典と、
+この v2.3.8 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典と、
 client-match-unify（2.3.32）/ a9-client-normalize（2.3.33）の正規化統一、overlay-cap-raise（2.3.37 / 主観月次cap
-0.40・AI上限 ±5%）を維持しつつ、dashboard-hide-insights-upsert（2.3.38 / DASHBOARD既定非表示・EVAL_INSIGHTS人手入力
-保持upsert）と spot-bg-sensitivity-down（2.3.39 / 背景SPOT shrink 0.50→0.35・spike MAD_K 3.0→2.5）を現行実装へ
-同期したドキュメント改訂である。2.3.38 は表示制御・運用変更で予測不変、2.3.39 は背景SPOTの推計量が下がる数値変更で、
-背景SPOTのある book では A-1再生成または CONFIG セルの手動修正で発効する。年度合計は常に12ヶ月すべての予測simから
-算出する通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。ブロッキングな残存 latent issue は無い。
+0.40・AI上限 ±5%）、dashboard-hide-insights-upsert（2.3.38 / DASHBOARD既定非表示・EVAL_INSIGHTS人手入力保持upsert）、
+spot-bg-sensitivity-down（2.3.39 / 背景SPOT shrink 0.35・spike MAD_K 2.5）を維持しつつ、report-text-compress
+（2.3.41 / AI調査要約文の短文圧縮）を現行実装へ同期したドキュメント改訂である。report-text-compress は構造化
+プロンプトの report_text 生成方針のみを変える表示・要約変更で、スコア算出式・予測コア・履歴スキーマは無変更、
+A-9 の年度合計・月次 P10/P50/P90 は不変。A-4 を再実行しない限り既存 report_text は長文のまま残る（非遡及）。
+年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。
+ブロッキングな残存 latent issue は無い。
