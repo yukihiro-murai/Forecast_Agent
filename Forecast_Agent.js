@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.39-dev';
-const BUILD_STAGE = 'spot-bg-sensitivity-down';
+const VERSION = '2.3.40-dev';
+const BUILD_STAGE = 'a4-structured-json-extract-firstobj';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -6724,6 +6724,22 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
   return { count: rows.length, range: rangeInfo };
 }
 
+/**
+ * HOW TO TEST (a4-structured-json-extract-firstobj)
+ * 1) VERSION='2.3.40-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変。
+ * 2) 単体: parseJsonObjectFromText_('{"a":1}{"b":2}') が {a:1} を返す（後続オブジェクトを捨てる）。
+ *    parseJsonObjectFromText_('{"a":"x}y"}') が {a:'x}y'} を返す（文字列内の } を誤検出しない）。
+ *    parseJsonObjectFromText_('```json\n{"a":1}\n```') が {a:1} を返す（fence除去は従来どおり）。
+ *    parseJsonObjectFromText_('{"a":1') は従来どおり JSON.parse で throw（末尾切れはフォールバックで投げる）。
+ * 3) clasp push 後 A-4 を実行 → AI_RESEARCH_TASK_LOG の aspect=structure 行が全4topicで status=success / rows=2 になりやすくなる
+ *    （DX等が間欠的に position N 型のパース失敗で0行になる事象が減る）。
+ * 4) A-4 を2〜3回回し、特定topicが0点へ落ちる頻度が下がることを確認（完全にゼロにはならない）。
+ * 5) OUTPUT 22行目の「⚠ AI調査データなし: DX」系の警告が出る頻度が下がることを確認。
+ * 6) 仮に同一topicが2回（temp=0→0.3）とも失敗しても、A-4は完走し当該topicのみ中立化される（フォールバック健在）。
+ * 7) A-9 を実行し予測が完走することを確認。これまで0点に中立化されていたtopicがスコアを持つようになるため、
+ *    kAI経由でmixed予測がわずかに変わり得る（AI_WEIGHT / AI_MAX_ABS_EFFECT の範囲内＝小幅）。これは意図した改善。
+ * 8) webの callVertexGeminiGrounded_（出力上限4096）・構造化プロンプト・中立化フォールバックは不変。
+ */
 function runVertexAIResearch() {
   const started = new Date();
   let targetClient = '';
@@ -7137,13 +7153,12 @@ function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
       };
     }
   };
-  // truncation対策: 構造化JSONの出力上限を4096→8192へ拡張。
-  // 抽出層は再現性のため temperature=0 に固定（同一web/RAG入力 → 同一構造化結果）。
-  // JSONパース失敗時のみ temperature=0 でもう一度試行（軽微な不正JSONを救済）。
-  // HTTP失敗は再試行せず即返す。2回とも失敗時は呼び出し側の中立化フォールバックに委ねる。
+  // 1回目は temperature=0（再現性重視）。パース失敗時の2回目だけ temperature=0.3 にして、
+  // 決定的に同じ壊れ方が再生されるのを避ける（最初の完全JSON抽出で取り切れない崩れ方を確率的に回避）。
+  // HTTP失敗(parseErrorでない)は再試行しない。2回とも失敗したら呼び出し側の中立化フォールバックに委ねる。
   let r = attempt(0);
   if (!r.ok && r.parseError) {
-    r = attempt(0);
+    r = attempt(0.3);
   }
   return r;
 }
@@ -7469,8 +7484,37 @@ function parseJsonObjectFromText_(txt) {
   let s = String(txt || '').trim();
   s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  if (first < 0) return JSON.parse(s); // '{' が無ければ従来どおり投げさせる
+  // 最初の '{' からブレース深さを数え、最初に深さ0へ戻った位置で打ち切る。
+  // これにより「{...}{...}」「{...} 余計な文字」のように後続にゴミが続くケースで、
+  // 最初の完全なJSONオブジェクトだけを取り出す（position N で非空白が続く型のパース失敗を救済）。
+  // 文字列リテラル内の { } はカウントせず、\ によるエスケープも考慮する。
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  let end = -1;
+  for (let i = first; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) { esc = false; }
+      else if (ch === '\\') { esc = true; }
+      else if (ch === '"') { inStr = false; }
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { depth++; }
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  // 深さ0へ戻れた場合は先頭オブジェクトだけを切り出す。
+  // 戻れなかった（末尾切れ等）場合は従来フォールバック（最初の'{'〜最後の'}'）で投げさせる。
+  if (end >= 0) s = s.slice(first, end + 1);
+  else {
+    const last = s.lastIndexOf('}');
+    if (last > first) s = s.slice(first, last + 1);
+  }
   return JSON.parse(s);
 }
 
