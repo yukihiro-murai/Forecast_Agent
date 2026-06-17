@@ -1,44 +1,78 @@
-# 売上予測スクリプト 設計書 v2.3.6（2.3.34〜2.3.37 同期 / overlay-cap-raise）
+# 売上予測スクリプト 設計書 v2.3.7（2.3.38〜2.3.39 同期 / spot-bg-sensitivity-down）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.3.37-dev' / BUILD_STAGE='overlay-cap-raise'）
-設計書版：v2.3.6（v2.3.5 からのドキュメント改訂）。
+対象実装：`Forecast_Agent.js`（VERSION='2.3.39-dev' / BUILD_STAGE='spot-bg-sensitivity-down'）
+設計書版：v2.3.7（v2.3.6 からのドキュメント改訂）。
 DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
 
-本改訂は、設計書 v2.3.5 が記述する `2.3.33-dev / a9-client-normalize` から現行コード `2.3.37-dev /
-overlay-cap-raise` までの差分を同期する。コードはこの間に4増分（2.3.34〜2.3.37）進んでいるが、
-最終コードに残る実質的な挙動差分は **主観オーバーレイ月次cap と AI係数上限の2キャップ引き上げのみ**であり、
-これを overlay-cap-raise として記述する（中間stageが最終コードに痕跡を残していない場合は本書では追わない）。
+本改訂は、設計書 v2.3.6 が記述する `2.3.37-dev / overlay-cap-raise` から現行コード `2.3.39-dev /
+spot-bg-sensitivity-down` までの差分を同期する。コードはこの間に2増分（2.3.38〜2.3.39）進んでおり、
+最終コードに残る実質的な差分は **(a) DASHBOARD の既定非表示化と EVAL_INSIGHTS の人手入力保持 upsert
+（2.3.38）**、および **(b) 背景SPOT感度の引き下げ（2.3.39 / 予測値が変わる数値変更）** の2点である。
 
-### 0.0 v2.3.5 → v2.3.6 の更新点（この改訂で反映したもの）— overlay-cap-raise（2.3.37）
-**従来の doc sync（表示・構造のみで予測不変）とは異なり、本改訂は予測値が変わる数値変更である。**
-2系統のキャップ定数を引き上げた。いずれも「主観/AIが定量土台へ上乗せできる量の上限」を緩める変更で、
-主観入力・AI調査の効いているbookでは P10/P50/P90 が変化しうる（意図した変更であり回帰ではない）。
+### 0.0 v2.3.6 → v2.3.7 の更新点（この改訂で反映したもの）
+
+#### 0.0.1 spot-bg-sensitivity-down（2.3.39）— 予測値が変わる数値変更
+**表示・構造のみの doc sync とは異なり、本改訂は背景SPOTの推計量が下がる数値変更を含む。**
+過去SPOT実績への感度（背景SPOTとして拾う量とスパイク判定の許容幅）を2つの const で引き下げた。
+背景SPOTが効いている book では P10/P50/P90 が変化しうる（意図した変更であり回帰ではない）。
+
+- **背景SPOT縮小率の引き下げ**：`SPOT_BG_SHRINK` を **0.50 → 0.35** に引き下げ。
+  `fitSpotRecurringModel_` で、履歴同月平均（スパイク除去後）に対し背景SPOTとして採用する割合。
+  0.35 により、過去SPOT履歴から推計する背景SPOTがおおむね約3割小さくなる
+  （`bg = max(monthAvg × shrink, monthAvg × floorRate)` の第1項が縮小。floorRate=0.15 は不変のため、
+  shrink<floorRate の月は floor が下限として効く）。
+- **SPOTスパイク判定MAD倍率の引き下げ**：`SPOT_SPIKE_MAD_K` を **3.0 → 2.5** に引き下げ。
+  `med + madK × mad` を超える同月SPOT実績をスパイクとして推計母数から除外する閾値。2.5 により
+  巨大スパイクをより厳しく除外し、背景SPOT推計が過去の単発外れ値に引っ張られにくくなる。
+
+不変点：`SPOT_BG_FLOOR_RATE`（=0.15 / 最低保証率）と `SPOT_BG_CAP_RATE`（=0.20 / BASE予測P50比の上限）は
+変更していない。既知SPOT（DEV_SPOT / knownSpot）の月額も本変更では変わらない（過去トレンド側のみの調整）。
+
+**発効条件（既存bookの前提）**：両定数は CONFIG のチューニング表セルから読まれる（番地非依存・キー照合）。
+コードの const 既定値（0.35 / 2.5）は CONFIG セルが欠落/不読のときのフォールバックに過ぎない。
+clasp push しただけでは既存bookの CONFIG セルは旧値（0.50 / 3.0）のまま残るため、**A-1初期セットアップで
+CONFIG を再生成するか、当該セルを 0.35 / 2.5 へ手動修正しない限り発効しない**。
+新規book（A-1済み）は既定で 0.35 / 2.5 になる。
+
+**検証の扱い**：本変更は数値変更のため、背景SPOTのある book では A-9 の P10/P50/P90 が変わる。
+B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）を再確認すること。
+特に背景SPOTが過大気味だった book では over-forecast rate の改善が期待されるが、逆に背景SPOTの
+取りこぼし（under）が増える可能性があるため、1サイクル両側を監視する。
+
+#### 0.0.2 dashboard-hide-insights-upsert（2.3.38）— 表示制御 + 人手入力保持（予測不変）
+予測値は不変。2系統の運用上の改善を入れた。
+
+- **DASHBOARD の既定非表示化**：`hideNonUserSheets_` の userVisible 集合に DASHBOARD を含めないため、
+  A-1 直後・A-4 実行後など `hideNonUserSheets_` が走るタイミングで DASHBOARD は非表示になる。
+  A-10（`updatePhase1Dashboard`）の末尾で `showSheet → setActiveSheet` するため、A-10 実行直後のみ
+  前面に出る。その後 A-4 等で再度隠れる。ユーザ常設シートは GUIDE / CONFIG / SALES_INPUT /
+  SALES_MONTHLY / AI_RESEARCH / PRODUCT / CLIENT / OPINIONS / DEV_SPOT / OUTPUT の10枚。
+- **EVAL_INSIGHTS の人手入力保持 upsert**：B-3（`updatePhase1LearningInsights`）の書き込みを
+  `upsertEvalInsightsRows_` 経由の複合キー `[client, target_month]` upsert に変更。機械算出列
+  （actual_total / pred_p50 / diff / error_rate / 各 breach flag / insight / next_action ほか）は
+  毎回上書きするが、人手入力列（`cause_hypothesis` / `cause_bucket` / `impacted_assumption` /
+  `action_type` / `next_cycle_reflection` / `owner` / `due_date` / `status`：0-index で 14,15,16,18,19,20,21,22）は
+  既存行に値があれば保持する。これにより B-3 再実行でメンバーの原因入力・担当・期日・ステータスが消えない。
+
+### 0.0' v2.3.5 → v2.3.6 の更新点（参考・再掲）— overlay-cap-raise（2.3.37）
+**従来の doc sync（表示・構造のみで予測不変）とは異なり、予測値が変わる数値変更。**
+2系統のキャップ定数を引き上げた。主観入力・AI調査の効いている book では P10/P50/P90 が変化しうる。
 
 - **主観オーバーレイ月次cap の引き上げ**：`QUAL_SUBJECTIVE_MONTHLY_CAP` を **0.20 → 0.40** に引き上げ。
   Monte Carlo 内で主観連続差分（kProd/kClient/kOpinion/kAI 由来）を `±(quantOpsBase × cap)` でクリップする
-  唯一の制御点（`applySubjectiveCap_`）。cap=0.40 により、主観差分が定量土台の ±40% まで通るようになった
-  （従来は ±20%）。`QUAL_CALIBRATION_ENABLED=0` のときは従来どおり cap 無効（無制限）。
+  唯一の制御点（`applySubjectiveCap_`）。cap=0.40 により、主観差分が定量土台の ±40% まで通る。
+  `QUAL_CALIBRATION_ENABLED=0` のときは従来どおり cap 無効（無制限）。
 - **AI係数上限の引き上げ**：`AI_MAX_ABS_EFFECT` を **0.03（±3%）→ 0.05（±5%）** に引き上げ。
   `kAI = 1 + clamp(Σ(topicスコア × reliability) × AI_WEIGHT, ±AI_MAX_ABS_EFFECT)` の絶対上限。
   `readModelTuningFromConfig_` の上限clamp（`Math.min(0.05, …)`）と OUTPUT 注記（`AI_MAX_ABS_EFFECT=±5%`）も
   ±5% へ整合済み。AI_TOPIC_SCORE_ABS_CAP（各軸±50 / 4軸合計±200）と AI_WEIGHT_DEFAULT（0.0008）は不変。
 
-**発効条件（既存bookの前提）**：両キャップは CONFIG のチューニング表セルから読まれる（番地非依存・キー照合）。
-コードの const 既定値（0.40 / 0.05）は CONFIG セルが欠落/不読のときのフォールバックに過ぎない。
-clasp push しただけでは既存bookの CONFIG セルは旧値（0.20 / 0.03）のまま残るため、**A-1初期セットアップで
-CONFIG を再生成するか、当該セルを 0.40 / 0.05 へ手動修正しない限り発効しない**（ai-score-degroundless と同じ前提）。
-新規book（A-1済み）は既定で 0.40 / 0.05 になる。
-
-**検証の扱い**：本変更は数値変更のため、主観/AIオーバーレイのあるbookでは A-9 の P10/P50/P90 が変わる。
-B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）を再確認すること。
-A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT 警告は不変で、過大入力のガードは維持される。
-
-### 0.0' v2.3.4 → v2.3.5 の更新点（参考・再掲）
+### 0.0'' v2.3.4 → v2.3.5 の更新点（参考・再掲）
 - **client-match-unify（2.3.32）**：クライアント名マッチの比較方式を統一。`isSameClient_` を
   `normalizeClientName_(a) === normalizeClientName_(b)` に統一し、読取側のクライアント突合
   （`readSourceReliability_` / `readCalibrationState_` / `writeCalibrationState_` /
@@ -53,7 +87,7 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
   OUTPUTタイトル）が正規化済みになる。ACTUAL_EVAL_MONTHLY は取込時に既に正規化済みのため、両者の表記が
   一致し、**B-2 の生文字列複合キー突合**（`[client, target_month]`）が未正規化表記でも外れない。予測値は不変。
 
-### 0.0'' v2.3.3 → v2.3.4 の更新点（参考・再掲）
+### 0.0''' v2.3.3 → v2.3.4 の更新点（参考・再掲）
 - **output-display-tidy（2.3.30）**：表示専用の整形。
   ① 初期設定ダイアログ冒頭の黄色 notice（および `.notice` CSS）を撤去。
   ② OUTPUT 6行目の注記ブロックの赤字判定を「実警告（`⚠` / 製品重み警告 / `web_error`・`rag_error`・
@@ -68,7 +102,7 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
   シート名（AI_RESEARCH_WEB→web / AI_RESEARCH_EXTERNAL→rag）から確定する。旧2枚に axis 列が無くても空にならず、
   frozen_flag は旧側に無ければ 0・frozen_at は空で補完。生ログ移送のみで予測の P10/P50/P90 は不変、冪等性も不変。
 
-### 0.0''' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 抜粋）
+### 0.0'''' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 抜粋）
 - snapshot-vestigial-removal（2.3.12）：FORECAST_SNAPSHOT を15列化、`final_pred` は J列（index 9）。
 - config-simplify（2.3.13）/ config-deadknob-removal（2.3.15）：未使用CONFIG行・互換参照を撤去。
 - rag-config-defaults（2.3.16）：CONFIG に RAG 既定値（VERTEX_DATASTORE_ID / VERTEX_SEARCH_LOCATION /
@@ -93,6 +127,7 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 - **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、既定0.40）でクリップ。
 - **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。総合中立化（dead-zone）は撤去（既定閾値0）。上限は ±AI_MAX_ABS_EFFECT（既定±5%）のみで担保。
 - **event_score の算出が是正済み**（`direction符号 × (impact/100) × 50 × confidence`）。
+- **背景SPOTの過去感度を引き下げ**（SPOT_BG_SHRINK=0.35 / SPOT_SPIKE_MAD_K=2.5）。floor=0.15・cap=0.20・known spot は不変。
 - **AI調査の取得経路が Vertex AI へ移行**。生ログは `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL を統合）。旧2枚→RAW の移送はヘッダ名マッチ＋シート名由来 axis。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソースの寄与に reliability_r を乗じる。既定ON（空ならno-op）。
 - **LMDI分解** が追加（CONFIG LMDI_DECOMPOSITION_ENABLED、既定OFF）。
@@ -102,6 +137,7 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
   `isSameClient_`（両側を `normalizeClientName_` で正規化して比較）に集約。A-9 入口で永続クライアントを
   正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記が一致する。`normalizeClientName_` の正規化対象は
   現状 ｳﾞｨｱﾄﾘｽ系の表記統合のみ。
+- **DASHBOARD は既定非表示**。EVAL_INSIGHTS は人手入力列を保持する upsert（dashboard-hide-insights-upsert）。
 
 ---
 
@@ -115,14 +151,16 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
   生ログは AI_RESEARCH_RAW（axis=web/rag）と AI_RESEARCH_TASK_LOG に保存。
 - 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT 更新。
   入口で CONFIG!B2 を `normalizeClientName_` で正規化し、以降の永続クライアントを正規化済みに統一（a9-client-normalize）。
-- ダッシュボード：updatePhase1Dashboard（A-10）
-- 検証：実績取込（B-1）→ EVAL_LOG / EVAL_COMPARE_MONTHLY（B-2）→ EVAL_INSIGHTS（B-3）
+- ダッシュボード：updatePhase1Dashboard（A-10）。DASHBOARD は既定非表示で、A-10 実行直後のみ前面表示。
+- 検証：実績取込（B-1）→ EVAL_LOG / EVAL_COMPARE_MONTHLY（B-2）→ EVAL_INSIGHTS（B-3）。
+  B-3 は人手入力列を保持する upsert。
 - 四半期レビュー：runQuarterlyReview（C-1）→ applyQuarterlyProposals（C-2）→ ログ閲覧（C-3）
 - 信頼度：SOURCE_RELIABILITY 適用＋C-1のreliability提案＋RELIABILITY_EVIDENCEへの raw hit/n 永続化
 - 横断プール：POOL_PRIOR のクライアント横断集約（adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks）
 - シート初期化：AI_RESEARCH_STRUCTURED は A-1 で先行作成。Vertex実行時に遅延作成されるのは
   AI_RESEARCH_TASK_LOG / AI_RESEARCH_RAW の2枚。`ensureAIResearchRuntimeSheets_` が STRUCTURED/TASK_LOG/RAW を
   冪等に整合し、旧2枚があれば `migrateLegacyAIResearchRawSheets_` で RAW へ一度だけ移送する。
+  LANDING_FORECAST / BACKTEST_REPORT は A-1 の order に含めず、DLM 実行時に遅延作成する。
 
 ### 1.2 既定OFF/中立のシャドウ機能（検証待ち）
 - DLM_ENGINE_MODE = off（shadow/primaryはCONFIGで切替可）
@@ -141,8 +179,9 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 - AI_RESEARCH_RAW の `frozen_flag` / `frozen_at` 列は将来のスナップショット凍結用の予約列（現状は未使用 / 既定0・空）。
 - `normalizeClientName_` の正規化辞書拡張（現状は ｳﾞｨｱﾄﾘｽ系のみハードコード）。新メーカーで表記ゆれが
   発生した場合の汎用正規化（全角/半角・法人格表記の一般則化）は別スコープ。
-- キャップ値（主観月次cap / AI上限）の経験ベイズ的な自動調整。現状は CONFIG の固定値で運用し、
-  検証KPIに基づき手動で調整する方針（overlay-cap-raise も手動の固定値引き上げ）。
+- キャップ値（主観月次cap / AI上限）・背景SPOT感度（shrink / spike MAD_K）の経験ベイズ的な自動調整。
+  現状は CONFIG の固定値で運用し、検証KPIに基づき手動で調整する方針（overlay-cap-raise /
+  spot-bg-sensitivity-down も手動の固定値変更）。
 
 ### 1.4 メニュー構成（実装同期）
 - A-1 初期セットアップ（setupForecastBook）
@@ -178,6 +217,9 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 
 ### 2.2 SPOT
 - 背景SPOT（未知の再発）：fitSpotRecurringModel_ が月別の期待値・発生確率・severity標本を作る（BASE P50比でcap）。
+  - 月別の背景SPOT期待値 = `max(monthAvg × SPOT_BG_SHRINK, monthAvg × SPOT_BG_FLOOR_RATE)` を
+    `BASE_P50 × SPOT_BG_CAP_RATE` で上限クリップ。`monthAvg` はスパイク除去後の同月平均で、スパイク判定は
+    `med + SPOT_SPIKE_MAD_K × mad` 超を除外する。**現行値：SHRINK=0.35 / SPIKE_MAD_K=2.5 / FLOOR=0.15 / CAP=0.20**。
 - 既知SPOT（DEV_SPOT）：金額×確度を月別に固定加算（knownSpot）。背景との二重計上はoffset率で調整。
 
 ### 2.3 主観乗算（forecastMonteCarloMixed_）
@@ -222,7 +264,7 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 - B-1：実績を ACTUAL_EVAL_MONTHLY に取り込む（取込時に client は正規化済み）。
 - B-2：提出済みの FORECAST_SNAPSHOT（`final_pred`=r[9]）と実績を `[client, target_month]` の複合キーで突合し
   EVAL_LOG / EVAL_COMPARE_MONTHLY に記録。snapshot 側 client も A-9 で正規化済みのため、生文字列突合でも一致する。
-- B-3：EVAL_INSIGHTS に外れ要因・次アクションを整理。
+- B-3：EVAL_INSIGHTS に外れ要因・次アクションを整理。人手入力列は保持する upsert（§4.7・§6）。
 - C-1：EVAL_LOG と impact履歴から reliability を学習。
 
 ---
@@ -234,8 +276,8 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 - read*FromConfig_ 系はすべてこのマップ経由。セル番地直読みは廃止。tuneRows に行を挿入しても壊れない。
 - ラベル末尾の注記（全角括弧内）は自由に変更可。キー部分が一致すれば読める。
 - **const 既定値は CONFIG セル欠落/不読時のフォールバック**。clasp push だけでは既存bookの CONFIG セルは
-  更新されないため、const 既定の引き上げ（overlay-cap-raise の 0.40 / 0.05 等）を発効させるには
-  A-1 再生成か該当セルの手動修正が必要。
+  更新されないため、const 既定の変更（overlay-cap-raise の 0.40 / 0.05、spot-bg-sensitivity-down の
+  0.35 / 2.5 等）を発効させるには A-1 再生成か該当セルの手動修正が必要。
 
 ### 3.2 主要キー（抜粋・現行同期）
 - AI_WEIGHT / **AI_MAX_ABS_EFFECT（既定0.05＝±5% / 読取上限clampも0.05）**
@@ -245,7 +287,9 @@ A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT �
 - AI_SCORE_BASIS（level/momentum）/ AI_MOMENTUM_LOOKBACK_QUARTERS / AI_MOMENTUM_MIN_HISTORY
 - AI_WEIGHT_PROPOSAL_MIN / AI_WEIGHT_PROPOSAL_MAX
 - **QUAL_SUBJECTIVE_MONTHLY_CAP（既定0.40 / 読取上限clampは2.0）** / QUAL_CALIBRATION_ENABLED
-- SPOT_BG_* / KNOWN_SPOT_* / SEASONAL_*
+- **SPOT_BG_SHRINK（既定0.35）** / SPOT_BG_FLOOR_RATE（既定0.15）/ SPOT_BG_CAP_RATE（既定0.20）/
+  **SPOT_SPIKE_MAD_K（既定2.5）** / KNOWN_SPOT_*
+- SEASONAL_*
 - DLM_ENGINE_MODE / DLM_PRIMARY_SPOT_CAP_BASIS / DLM_BACKTEST_* / DLM_LOG_EPSILON_RATE
 - RELIABILITY_APPLY_ENABLED（既定1）/ RELIABILITY_R_MIN / R_MAX / SHRINKAGE_K / MIN_SAMPLES / MIN_CHANGE
 - POOL_MIN_CLIENTS（既定2）
@@ -292,6 +336,17 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 - `calOverrideNum_(v)`：`''`/`null`/`undefined` は null（未設定→無視）、数値は isFinite なら採用。
 - 明示的に 0 を入れた場合は 0 が採用され、意図的にAIを止める運用は従来どおり有効。
 
+### 4.7 EVAL_INSIGHTS の人手入力保持 upsert（dashboard-hide-insights-upsert）
+- B-3（`updatePhase1LearningInsights`）の書込は `upsertEvalInsightsRows_` 経由の複合キー
+  `[client, target_month]` upsert。既存行があれば in-place 更新、無ければ末尾追記。
+- **機械算出列は毎回上書き**（actual_total / pred_p50 / diff / error_rate / 各 breach flag /
+  insight / next_action / diagnostic_type / feedback_target_sheet / next_cycle_reflection（既定文）/
+  review_cycle ほか）。
+- **人手入力列は既存値があれば保持**（HUMAN_COLS = 0-index 14,15,16,18,19,20,21,22：
+  `cause_hypothesis` / `cause_bucket` / `impacted_assumption` / `action_type` /
+  `next_cycle_reflection` / `owner` / `due_date` / `status`）。空セルには従来どおり機械の既定値が入る。
+- これにより B-3 再実行でメンバーの原因分析・担当・期日・ステータスが消えない。
+
 ---
 
 ## 5. 検証ポリシー（KPI）
@@ -300,24 +355,29 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 - 診断：月次APE、Q差分、定量寄与率、主観オーバーレイ率（AI除く）、AI寄与率、Known Spot寄与率、レンジ逸脱数。
 - レンジ逸脱月（actualがP10-P90外）はB-3で追加調査を必須化。
 - 1 client = 1 book。
-- ※ overlay-cap-raise（cap 0.40 / AI ±5%）適用後は、主観/AIオーバーレイのあるbookで P50 が変化しうるため、
-  本KPIの再確認（特に over-forecast rate の悪化有無）を1サイクル行うこと。
+- ※ overlay-cap-raise（cap 0.40 / AI ±5%）および spot-bg-sensitivity-down（背景SPOT shrink 0.35 / spike 2.5）
+  適用後は、主観/AI/背景SPOTの効いている book で P50 が変化しうるため、本KPIの再確認を1サイクル行うこと
+  （特に over-forecast rate の改善/悪化、および背景SPOT縮小による under 側の取りこぼし）。
 
 ---
 
 ## 6. ログ／永続シート
 - ユーザ表示シート：GUIDE / CONFIG / SALES_INPUT / SALES_MONTHLY / AI_RESEARCH（サマリービュー）/
-  PRODUCT / CLIENT / OPINIONS / DEV_SPOT / OUTPUT / DASHBOARD（hideNonUserSheets_ で制御）。
+  PRODUCT / CLIENT / OPINIONS / DEV_SPOT / OUTPUT（hideNonUserSheets_ で制御）。
+  **DASHBOARD は既定非表示**（hideNonUserSheets_ の userVisible に含めない）。A-10 実行直後のみ
+  `showSheet → setActiveSheet` で前面表示し、以降 A-4 等で `hideNonUserSheets_` が走ると再び隠れる。
 - 内部管理（原則非表示）：RUN_LOG / FORECAST_SNAPSHOT / PROCESS_STATUS / AI_SCORE_HISTORY /
   AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY / CALIBRATION_STATE / CALIBRATION_HISTORY /
   QUARTERLY_REVIEW / QUARTERLY_REVIEW_LOG / DLM_STATE / BACKTEST_REPORT / SOURCE_RELIABILITY /
   RELIABILITY_EVIDENCE / POOL_PRIOR / POOL_REGISTRY / POOL_AGGREGATION_LOG / LANDING_FORECAST /
-  AI_RESEARCH_STRUCTURED / AI_RESEARCH_TASK_LOG / AI_RESEARCH_RAW。
+  AI_RESEARCH_STRUCTURED / AI_RESEARCH_TASK_LOG / AI_RESEARCH_RAW / DASHBOARD。
 - **FORECAST_SNAPSHOT は15列**（snapshot_id / run_date / client / target_month / scenario / base_pred /
   subjective_adj / ai_adj / deterministic_adj / **final_pred(index 9)** / confidence_interval_lower /
   confidence_interval_upper / key_factors_json / subjective_input_date / calibration_applied_json）。
   client 列は A-9 入口で正規化された値が書かれる（a9-client-normalize）。これにより B-2 の生文字列複合キー
   突合（client+target_month）が ACTUAL_EVAL_MONTHLY と一致する。
+- **EVAL_INSIGHTS は24列**。機械算出列と人手入力列を持ち、B-3 は複合キー `[client, target_month]` の
+  upsert で機械列を上書き・人手列を保持する（§4.7）。
 - **AI_RESEARCH_RAW（旧 WEB + EXTERNAL の統合）**：headers は
   `client / as_of_date / axis / topic / direction / magnitude / uncertainty / relative_position /
   evidence / frozen_flag / frozen_at / note`。`axis`=web/rag で生応答の出所を区別する。
@@ -347,13 +407,14 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 現行コードは VERSION='2.3.37-dev' / BUILD_STAGE='overlay-cap-raise'。
+- 現行コードは VERSION='2.3.39-dev' / BUILD_STAGE='spot-bg-sensitivity-down'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- 本改訂（設計書 v2.3.6）は overlay-cap-raise（2.3.37 / 主観月次cap 0.20→0.40・AI上限 ±3%→±5%）を
-  ドキュメントへ反映する doc sync。**従来の doc sync と異なり予測値が変わる数値変更**であり、既存bookは
-  A-1再生成または CONFIG セルの手動修正で発効する。
+- 本改訂（設計書 v2.3.7）は spot-bg-sensitivity-down（2.3.39 / 背景SPOT shrink 0.50→0.35・spike MAD_K
+  3.0→2.5）と dashboard-hide-insights-upsert（2.3.38 / DASHBOARD既定非表示・EVAL_INSIGHTS人手入力保持upsert）を
+  ドキュメントへ反映する。**2.3.39 は予測値が変わる数値変更**であり、既存bookは A-1再生成または CONFIG セルの
+  手動修正（0.35 / 2.5）で発効する。2.3.38 は表示制御・運用上の変更で予測不変。
 - 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。コードが
-  2.3.33→2.3.37 と4増分先行していた点に留意し、今後は stage 確定のたびに doc を同期する。
+  2.3.37→2.3.39 と2増分先行していた点に留意し、今後は stage 確定のたびに doc を同期する。
 
 ---
 
@@ -455,6 +516,8 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
   永続クライアントを正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記を一致させた。
 - **AI_RESEARCH_RAW 旧データ移送の列整合**は raw-migrate-header-match（2.3.31）で解消（ヘッダ名マッチ＋シート名由来 axis）。
 - **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**は snapshot-vestigial-removal で物理削除済み。
+- **EVAL_INSIGHTS の B-3 再実行で人手入力が消える問題**は dashboard-hide-insights-upsert（2.3.38）で解消
+  （複合キー upsert ＋ HUMAN_COLS 保持）。
 - LANDING_FORECAST / EVAL_LOG の再実行追記増殖は複合キー upsert 化で解消済み。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY は追記のままで、重複排除は C-1 読取側で行う。
 - shadow mode 表示の `opsQuantOnly` エイリアス問題は objOnly 独立コピー化で解消済み。
@@ -470,9 +533,10 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 
 ---
 
-この v2.3.6 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典と、
-client-match-unify（2.3.32）/ a9-client-normalize（2.3.33）の正規化統一を維持しつつ、overlay-cap-raise
-（2.3.37 / 主観月次cap 0.20→0.40・AI上限 ±3%→±5%）を現行実装へ同期したドキュメント改訂である。本改訂は
-表示・構造のみの従来 doc sync とは異なり、主観/AIオーバーレイのあるbookで P10/P50/P90 が変わる数値変更であり、
-既存bookは A-1再生成または CONFIG セルの手動修正で発効する。年度合計は常に12ヶ月すべての予測simから算出する
-通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。ブロッキングな残存 latent issue は無い。
+この v2.3.7 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典と、
+client-match-unify（2.3.32）/ a9-client-normalize（2.3.33）の正規化統一、overlay-cap-raise（2.3.37 / 主観月次cap
+0.40・AI上限 ±5%）を維持しつつ、dashboard-hide-insights-upsert（2.3.38 / DASHBOARD既定非表示・EVAL_INSIGHTS人手入力
+保持upsert）と spot-bg-sensitivity-down（2.3.39 / 背景SPOT shrink 0.50→0.35・spike MAD_K 3.0→2.5）を現行実装へ
+同期したドキュメント改訂である。2.3.38 は表示制御・運用変更で予測不変、2.3.39 は背景SPOTの推計量が下がる数値変更で、
+背景SPOTのある book では A-1再生成または CONFIG セルの手動修正で発効する。年度合計は常に12ヶ月すべての予測simから
+算出する通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。ブロッキングな残存 latent issue は無い。
