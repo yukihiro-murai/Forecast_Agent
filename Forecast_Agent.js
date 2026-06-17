@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.36-dev / BUILD_STAGE ai-cap-note-sync）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.37-dev / BUILD_STAGE overlay-cap-raise）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.36-dev';
-const BUILD_STAGE = 'ai-cap-note-sync';
+const VERSION = '2.3.37-dev';
+const BUILD_STAGE = 'overlay-cap-raise';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -181,10 +181,11 @@ const SPOT_BG_CAP_RATE = 0.20;    // 背景SPOTの上限（BASE予測P50比）
 const SPOT_SPIKE_MAD_K = 3.0;     // SPOT再発推定のスパイク判定（MAD倍率）
 const KNOWN_SPOT_OFFSET_RATE = 0.60;      // 既知スポットが背景と重複する想定率
 const KNOWN_SPOT_BG_SUPPRESS_RATE = 0.50; // 既知スポット命中時の背景抑制率
-const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.30;  // 月次cap（quantOpsAfterResidual比）
+const QUAL_SUBJECTIVE_MONTHLY_CAP = 0.40;  // 月次cap（quantOpsAfterResidual比）
 const QUAL_CALIBRATION_ENABLED = 1;        // 1: 有効 / 0: 無効
 const AI_WEIGHT_DEFAULT = 0.0008; // AI重み（既定）
 const AI_MAX_ABS_EFFECT = 0.05;   // AI係数の絶対上限（±5%）
+const AI_TOPIC_SCORE_ABS_CAP = 50; // 各topic final scoreの絶対上限（±50 / 4軸合計±200 / OUTPUT 17-18行の表示レンジと一致）
 const AI_MISSING_CONFIDENCE_DEFAULT = 0.5; // confidence/relative_confidence欠落時の補完既定値（0で不採用＝従来挙動）
 const AI_TOPICS = ['Market', 'Competitor', 'Channel', 'DX'];
 const AI_MAX_AGE_MONTHS = 6;
@@ -4700,8 +4701,8 @@ function readAIResearchScores_(calibration, opt) {
     }
     const effectiveMultiplier = Math.min(degradedMultiplier, qualityMultiplier);
     finalScore *= effectiveMultiplier;
-    const capped = Math.abs(finalScore) > 40;
-    const clampedFinal = capped ? (finalScore > 0 ? 40 : -40) : finalScore;
+    const capped = Math.abs(finalScore) > AI_TOPIC_SCORE_ABS_CAP;
+    const clampedFinal = capped ? (finalScore > 0 ? AI_TOPIC_SCORE_ABS_CAP : -AI_TOPIC_SCORE_ABS_CAP) : finalScore;
     const scoreOut = Math.round(clampedFinal * 10) / 10;
     result[topic] = disabledTopics.has(topic) ? 0 : scoreOut;
     const latest = latestMeta[topic] || {};
