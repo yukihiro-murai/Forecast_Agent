@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.40-dev';
-const BUILD_STAGE = 'a4-structured-json-extract-firstobj';
+const VERSION = '2.3.41-dev';
+const BUILD_STAGE = 'report-text-compress';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -6725,20 +6725,17 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
 }
 
 /**
- * HOW TO TEST (a4-structured-json-extract-firstobj)
- * 1) VERSION='2.3.40-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変。
- * 2) 単体: parseJsonObjectFromText_('{"a":1}{"b":2}') が {a:1} を返す（後続オブジェクトを捨てる）。
- *    parseJsonObjectFromText_('{"a":"x}y"}') が {a:'x}y'} を返す（文字列内の } を誤検出しない）。
- *    parseJsonObjectFromText_('```json\n{"a":1}\n```') が {a:1} を返す（fence除去は従来どおり）。
- *    parseJsonObjectFromText_('{"a":1') は従来どおり JSON.parse で throw（末尾切れはフォールバックで投げる）。
- * 3) clasp push 後 A-4 を実行 → AI_RESEARCH_TASK_LOG の aspect=structure 行が全4topicで status=success / rows=2 になりやすくなる
- *    （DX等が間欠的に position N 型のパース失敗で0行になる事象が減る）。
- * 4) A-4 を2〜3回回し、特定topicが0点へ落ちる頻度が下がることを確認（完全にゼロにはならない）。
- * 5) OUTPUT 22行目の「⚠ AI調査データなし: DX」系の警告が出る頻度が下がることを確認。
- * 6) 仮に同一topicが2回（temp=0→0.3）とも失敗しても、A-4は完走し当該topicのみ中立化される（フォールバック健在）。
- * 7) A-9 を実行し予測が完走することを確認。これまで0点に中立化されていたtopicがスコアを持つようになるため、
- *    kAI経由でmixed予測がわずかに変わり得る（AI_WEIGHT / AI_MAX_ABS_EFFECT の範囲内＝小幅）。これは意図した改善。
- * 8) webの callVertexGeminiGrounded_（出力上限4096）・構造化プロンプト・中立化フォールバックは不変。
+ * HOW TO TEST (report-text-compress)
+ * 1) VERSION='2.3.41-dev' / BUILD_STAGE='report-text-compress'、DLM_BUILD_STAGE 不変。
+ * 2) grep で system instruction に report_text 圧縮ルールが1件、
+ *    user content に短文圧縮ルールが1件存在すること。
+ * 3) A-4 を再実行 → AI_RESEARCH_STRUCTURED の report_text が各 topic 2〜3文・短文になり、
+ *    競合の製品別シェア（武田/協和キリン等の個別製品明細）や出典マーカー [1]/[2] の羅列が消えること。
+ * 4) スコア列（event_score / benchmark_score / blended_score）と coverage / quality / neutralized が
+ *    本変更で構造的に変わらないこと（live検索の揺れ・要約変化に伴う微差は許容、算出式は不変）。
+ * 5) A-4 を再実行しない限り、既存 report_text は前回の長文のまま（本変更はプロンプトのみ＝既存データ非遡及）。
+ * 6) A-9 を実行し OUTPUT の年度合計および月次 P10/P50/P90 が本変更の前後で不変であること（予測コア無変更）。
+ * 7) AI_RESEARCH サマリービュー（①topic別要約文）が短くなり、横に伸びすぎず読めること。
  */
 function runVertexAIResearch() {
   const started = new Date();
@@ -7230,6 +7227,10 @@ function buildVertexStructureSystemInstruction_() {
     '【重要・event行は必ず向きを評価】web側では、観測できた範囲で direction（up/down/neutral）と impact_score を必ず付けてください。環境がほぼ動いていない場合のみ direction=neutral とし、その場合も impact_score は実態に合わせた小さい値（例 5〜15）を入れ、空欄にしないでください。弱くても実在する動きは捨てずに拾ってください（根拠の弱さは impact_score と confidence の低さで表現します）。',
     'confidence と relative_confidence は、その行を実際に出力するなら必須です。空欄にせず 0〜1 の数値を入れてください（自信がなければ低い値、例 0.3）。',
     '根拠が無いのに数値や向きを創作しないでください。根拠が弱いときは値を低くし、根拠がまったく無いときは benchmark を空にしてください（中立を捏造しない / ゼロを捏造しない、の両方を守ってください）。',
+    '【report_text の書き方・厳守】report_text は当該 topic の「最重要ポイントだけ」を 2〜3文・最大120字程度に圧縮した要約にしてください。長文の列挙・転記は禁止です。',
+    '- 競合や他社の製品別シェア・個別製品の販促状況などの明細は report_text に列挙しないでください。「競合各社の販促活動が活発化している」のように、外部環境の動きの方向と強さが分かる一言に集約してください（個別の根拠は evidence / relative_reason 側に置く）。',
+    '- ソースの文章をそのまま転記・引用しないでください。出典マーカー（[1] / [2] 等）や箇条書きの羅列を report_text に持ち込まないでください。',
+    '- 対象メーカー（client）の外部環境がどの向きに・どの程度動いているか、という結論を最優先で1文目に書いてください。',
     'JSONのみを返してください。'
   ].join('\n');
 }
@@ -7249,6 +7250,7 @@ function buildVertexStructureUserContent_(client, topic, web, rag) {
     'impact_score は 0〜100（0=影響なし・100=最大、50は中立ではない）。web の direction/impact_score/confidence は原則必ず記入（動きが無い場合のみ direction=neutral + 小さい impact_score）。',
     'impact_score と relative_percentile は中庸に丸めず（中位へ寄せず）、根拠の強さに応じてレンジ全体を使い、topic 間で差がはっきり出るようにしてください（根拠が無い benchmark は従来どおり空のまま）。',
     'report（benchmark）は根拠があるときだけ記入。根拠が無ければ relative_percentile / relative_position_label / peer_universe / peer_basis を null（空）にし、50 や middle のプレースホルダを入れないこと。',
+    'report_text は最重要ポイントだけの 2〜3文・最大120字程度の圧縮要約にすること。競合や他社の製品別明細を列挙せず、出典マーカーやソース文の転記もしないこと（詳細は evidence / relative_reason に置く）。',
     '{"topic":"Market|Competitor|Channel|DX","web":{"direction":"up|down|neutral","impact_score":0,"confidence":0,"evidence":"","time_horizon":"","business_relevance_reason":"","market_size_ref":""},"report":{"relative_percentile":null,"relative_confidence":null,"benchmark_quality":"high|medium|low","peer_universe":"","peer_basis":"","relative_position_label":"","relative_reason":"","evidence":""},"report_text":""}',
     '',
     'Web検索結果:',
