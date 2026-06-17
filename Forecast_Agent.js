@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.37-dev / BUILD_STAGE overlay-cap-raise）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.38-dev / BUILD_STAGE dashboard-hide-insights-upsert）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.37-dev';
-const BUILD_STAGE = 'overlay-cap-raise';
+const VERSION = '2.3.38-dev';
+const BUILD_STAGE = 'dashboard-hide-insights-upsert';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -7988,6 +7988,7 @@ function updatePhase1Dashboard() {
   safeSetNote_(dash, 6, 2, 'over-forecastはforecast-actualの正側を計測。');
   updateProcessStatus_('step6_status','success','',metrics.length,'');
   logRun_('updatePhase1Dashboard','', 'success', metrics.length, new Date(), '');
+  try { dash.showSheet(); } catch (e) {}
   ss.setActiveSheet(dash);
 }
 
@@ -8070,8 +8071,7 @@ function updatePhase1LearningInsights() {
     ]);
   });
 
-  out.getRange(2,1,Math.max(1,out.getMaxRows()-1),24).clearContent();
-  if (rows.length) out.getRange(2,1,rows.length,24).setValues(rows);
+  upsertEvalInsightsRows_(out, rows);
   safeSetNote_(out, 1, 10, 'diagnostic_type: monthly_diagnostic / range_breach 等。');
   safeSetNote_(out, 1, 13, 'overforecast_breach は過大予測制約違反の有無。');
   safeSetNote_(out, 1, 19, 'action_type: add/update/remove/keep の管理。');
@@ -8079,6 +8079,57 @@ function updatePhase1LearningInsights() {
   updateProcessStatus_('step7_status', 'success', client, rows.length, '');
   logRun_('updatePhase1LearningInsights', client, 'success', rows.length, new Date(), '');
   ss.setActiveSheet(out);
+}
+
+/**
+ * EVAL_INSIGHTS を複合キー [client, target_month] で upsert する。
+ * - 機械が算出する列は毎回上書き。
+ * - 人が手入力する列（cause_hypothesis/cause_bucket/impacted_assumption/action_type/
+ *   next_cycle_reflection/owner/due_date/status）は、既存行で値が入っていれば保持する。
+ * これにより B-3 再実行でメンバーの原因入力が消えない。
+ */
+function upsertEvalInsightsRows_(sh, rows) {
+  if (!sh) return;
+  const width = 24;
+  // 人手入力の保持対象列（0-index）
+  const HUMAN_COLS = [14, 15, 16, 18, 19, 20, 21, 22];
+  const keyClientIdx = 1;
+  const keyMonthIdx = 2;
+
+  const last = sh.getLastRow();
+  const existing = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
+  const rowByKey = new Map();
+  existing.forEach((r, i) => {
+    const key = [
+      String(r[keyClientIdx] || '').trim(),
+      String(r[keyMonthIdx] || '').trim()
+    ].join('|');
+    if (key !== '|') rowByKey.set(key, { rowNo: i + 2, values: r });
+  });
+
+  const merged = (rows || []).map(row => {
+    const key = [
+      String(row[keyClientIdx] || '').trim(),
+      String(row[keyMonthIdx] || '').trim()
+    ].join('|');
+    const prev = rowByKey.get(key);
+    if (prev) {
+      // 既存行の人手入力列に値があれば保持する
+      HUMAN_COLS.forEach(c => {
+        const existedVal = prev.values[c];
+        const hasExisting = !(existedVal === '' || existedVal === null || existedVal === undefined);
+        if (hasExisting) row[c] = existedVal;
+      });
+    }
+    return { key, row, rowNo: prev ? prev.rowNo : 0 };
+  });
+
+  // 既存行（rowNoあり）は in-place 更新、新規行は末尾に追記
+  const updates = merged.filter(m => m.rowNo > 0).map(m => ({ rowNo: m.rowNo, row: m.row }));
+  const appends = merged.filter(m => m.rowNo === 0).map(m => m.row);
+
+  writeContiguousRowUpdates_(sh, updates, width);
+  if (appends.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, appends, 500);
 }
 
 function updateProcessStatus_(stepKey, status, targetClient, count, err) {
@@ -8266,8 +8317,7 @@ function hideNonUserSheets_() {
     SHEETS.CLIENT,
     SHEETS.OPINIONS,
     SHEETS.DEV_SPOT,
-    SHEETS.OUTPUT,
-    SHEETS.DASHBOARD
+    SHEETS.OUTPUT
   ]);
 
   ss.getSheets().forEach(sh => {
@@ -8716,6 +8766,23 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) A-1（全上書き）では旧2枚が移送されず削除される従来挙動が不変であること。
  * 9) A-4 のサマリービュー（AI_RESEARCH）・構造化結果（AI_RESEARCH_STRUCTURED）・A-9 の OUTPUT 年度合計/
  *    月次 P10/P50/P90 が本変更の前後で不変であること（生ログ移送のみ・予測非影響）。
+ */
+
+/**
+ * HOW TO TEST (dashboard-hide-insights-upsert)
+ * 1) VERSION='2.3.38-dev' / BUILD_STAGE='dashboard-hide-insights-upsert'、DLM_BUILD_STAGE 不変。
+ * 2) A-1 初期セットアップ後、DASHBOARD タブが非表示になっていること（GUIDE/CONFIG/SALES_INPUT/
+ *    SALES_MONTHLY/AI_RESEARCH/PRODUCT/CLIENT/OPINIONS/DEV_SPOT/OUTPUT のみ表示）。
+ * 3) A-9 → A-10 を実行すると DASHBOARD が表示され、アクティブシートになること（showSheet→setActiveSheet）。
+ * 4) その後 A-4 を実行（hideNonUserSheets_ が走る）すると DASHBOARD が再び非表示になること。
+ * 5) B-1 → B-2 → B-3 を実行し EVAL_INSIGHTS に行が生成されること。
+ * 6) EVAL_INSIGHTS の任意の行で cause_hypothesis / owner / due_date / status に手入力する。
+ * 7) もう一度 B-3 を実行 → 同じ [client, target_month] の行で、手入力した
+ *    cause_hypothesis/owner/due_date/status が消えずに保持されること。
+ * 8) 一方 actual_total / pred_p50 / diff / error_rate / 各breach flag / insight / next_action は
+ *    最新の機械算出値で更新されていること。
+ * 9) 手入力していない（空の）人手列には、従来どおり機械の既定値（cause_bucket等）が入ること。
+ * 10) A-9 の OUTPUT 年度合計および月次 P10/P50/P90 が本変更の前後で不変であること（予測非影響）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
