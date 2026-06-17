@@ -1,83 +1,88 @@
-# 売上予測スクリプト 設計書 v2.3.5（2.3.32〜2.3.33 同期 / doc-sync）
+# 売上予測スクリプト 設計書 v2.3.6（2.3.34〜2.3.37 同期 / overlay-cap-raise）
 
 ## 0. 文書の目的
 この設計書は、実装（Forecast_Agent.js）の現行挙動を正確に記述する。
 旧v7の「三角観測 w1/w2/w3/w4 + 逆sMAPE重み更新」は実装に存在しないため撤去済み。
 3目的は不変：(1)予測精度向上 (2)透明化（根拠明示・再現性） (3)学習性（継続改善）。
 
-対象実装：`Forecast_Agent.js`（VERSION='2.3.33-dev' / BUILD_STAGE='a9-client-normalize'）
-設計書版：v2.3.5（v2.3.4 からのドキュメント改訂。client-match-unify（2.3.32）は client名マッチの
-比較方式統一、a9-client-normalize（2.3.33）は A-9 入口でのクライアント名正規化で、いずれも予測の
-P10/P50/P90 は不変。本改訂は「同梱の a9-client-normalize プロンプトを適用済み」の状態を記述する＝
-**コードを先に適用・検証してから本書へ差し替える**）。
+対象実装：`Forecast_Agent.js`（VERSION='2.3.37-dev' / BUILD_STAGE='overlay-cap-raise'）
+設計書版：v2.3.6（v2.3.5 からのドキュメント改訂）。
 DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
 
-### 0.0 v2.3.4 → v2.3.5 の更新点（この改訂で反映したもの）
-本改訂は2系統の実装変更をドキュメントへ同期する。各々は適用済み（a9-client-normalize は同梱プロンプトで
-適用する）であり、本改訂で新たな別系統のコード変更は行わない。
+本改訂は、設計書 v2.3.5 が記述する `2.3.33-dev / a9-client-normalize` から現行コード `2.3.37-dev /
+overlay-cap-raise` までの差分を同期する。コードはこの間に4増分（2.3.34〜2.3.37）進んでいるが、
+最終コードに残る実質的な挙動差分は **主観オーバーレイ月次cap と AI係数上限の2キャップ引き上げのみ**であり、
+これを overlay-cap-raise として記述する（中間stageが最終コードに痕跡を残していない場合は本書では追わない）。
 
-- **client-match-unify（2.3.32）**：クライアント名マッチの比較方式を統一。
-  `isSameClient_` を `normalizeClientName_(a) === normalizeClientName_(b)` に統一し、読取側の
-  クライアント突合（`readSourceReliability_` / `readCalibrationState_` / `writeCalibrationState_` /
+### 0.0 v2.3.5 → v2.3.6 の更新点（この改訂で反映したもの）— overlay-cap-raise（2.3.37）
+**従来の doc sync（表示・構造のみで予測不変）とは異なり、本改訂は予測値が変わる数値変更である。**
+2系統のキャップ定数を引き上げた。いずれも「主観/AIが定量土台へ上乗せできる量の上限」を緩める変更で、
+主観入力・AI調査の効いているbookでは P10/P50/P90 が変化しうる（意図した変更であり回帰ではない）。
+
+- **主観オーバーレイ月次cap の引き上げ**：`QUAL_SUBJECTIVE_MONTHLY_CAP` を **0.20 → 0.40** に引き上げ。
+  Monte Carlo 内で主観連続差分（kProd/kClient/kOpinion/kAI 由来）を `±(quantOpsBase × cap)` でクリップする
+  唯一の制御点（`applySubjectiveCap_`）。cap=0.40 により、主観差分が定量土台の ±40% まで通るようになった
+  （従来は ±20%）。`QUAL_CALIBRATION_ENABLED=0` のときは従来どおり cap 無効（無制限）。
+- **AI係数上限の引き上げ**：`AI_MAX_ABS_EFFECT` を **0.03（±3%）→ 0.05（±5%）** に引き上げ。
+  `kAI = 1 + clamp(Σ(topicスコア × reliability) × AI_WEIGHT, ±AI_MAX_ABS_EFFECT)` の絶対上限。
+  `readModelTuningFromConfig_` の上限clamp（`Math.min(0.05, …)`）と OUTPUT 注記（`AI_MAX_ABS_EFFECT=±5%`）も
+  ±5% へ整合済み。AI_TOPIC_SCORE_ABS_CAP（各軸±50 / 4軸合計±200）と AI_WEIGHT_DEFAULT（0.0008）は不変。
+
+**発効条件（既存bookの前提）**：両キャップは CONFIG のチューニング表セルから読まれる（番地非依存・キー照合）。
+コードの const 既定値（0.40 / 0.05）は CONFIG セルが欠落/不読のときのフォールバックに過ぎない。
+clasp push しただけでは既存bookの CONFIG セルは旧値（0.20 / 0.03）のまま残るため、**A-1初期セットアップで
+CONFIG を再生成するか、当該セルを 0.40 / 0.05 へ手動修正しない限り発効しない**（ai-score-degroundless と同じ前提）。
+新規book（A-1済み）は既定で 0.40 / 0.05 になる。
+
+**検証の扱い**：本変更は数値変更のため、主観/AIオーバーレイのあるbookでは A-9 の P10/P50/P90 が変わる。
+B-2/B-3 の精度KPI（annual_abs_error_rate / half_wape / over-forecast rate）を再確認すること。
+A-9 実行前の K_TOTAL 警告（warn ±30% / block ±50%）と Step/DEV_SPOT 警告は不変で、過大入力のガードは維持される。
+
+### 0.0' v2.3.4 → v2.3.5 の更新点（参考・再掲）
+- **client-match-unify（2.3.32）**：クライアント名マッチの比較方式を統一。`isSameClient_` を
+  `normalizeClientName_(a) === normalizeClientName_(b)` に統一し、読取側のクライアント突合
+  （`readSourceReliability_` / `readCalibrationState_` / `writeCalibrationState_` /
   `collectQuarterlyReviewData_` / `computeProductWeightsFromSalesInputClosed12_` /
   `syncSalesFromSalesInput_` / `fetchClientMonthlyRecords_` / `readAiScoreHistoryByTopic_` /
-  `readAIReportTextForClient_` / `updatePhase1LearningInsights` ほか）を**すべて `isSameClient_` に集約**。
-  inline の直接比較（`normalizeClientName_(a) === normalizeClientName_(b)` 形）を撤去した。
-  読取は両側を正規化してから比較するため、書込側に表記ゆれがあっても突合が頑健になる。
-  これにより §12 の latent issue「client名マッチの不整合（比較方式の混在）」を**解消**。予測の
-  P10/P50/P90 は不変。
+  `readAIReportTextForClient_` / `updatePhase1LearningInsights` / `writeDlmState_` ほか）を**すべて
+  `isSameClient_` に集約**。inline の直接比較を撤去。読取は両側を正規化してから比較するため、書込側に
+  表記ゆれがあっても突合が頑健。§12 の latent issue を解消。予測の P10/P50/P90 は不変。
 - **a9-client-normalize（2.3.33）**：A-9（`runPhase1Forecast`）の入口で CONFIG!B2 を
-  `normalizeClientName_` で正規化する。以降の**永続クライアント値**（`result.clientName` /
+  `normalizeClientName_` で正規化。以降の**永続クライアント値**（`result.clientName` /
   FORECAST_SNAPSHOT / AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY / LANDING_FORECAST /
-  OUTPUTタイトル）が正規化済みになる。ACTUAL_EVAL_MONTHLY は取込時（`importMonthlyFromExternal_` /
-  `fetchClientMonthlyRecords_`）に既に正規化済みのため、両者の表記が一致し、**B-2 の生文字列複合キー
-  突合**（`[client, target_month]`）が未正規化表記（例 `ｳﾞｨｱﾄﾘｽ製薬(株)`）でも外れない。
-  生成される予測値（P10/P50/P90）は不変。
+  OUTPUTタイトル）が正規化済みになる。ACTUAL_EVAL_MONTHLY は取込時に既に正規化済みのため、両者の表記が
+  一致し、**B-2 の生文字列複合キー突合**（`[client, target_month]`）が未正規化表記でも外れない。予測値は不変。
 
-### 0.0' v2.3.3 → v2.3.4 の更新点（参考・再掲）
-本改訂は2系統の実装変更をドキュメントへ同期した。
-
+### 0.0'' v2.3.3 → v2.3.4 の更新点（参考・再掲）
 - **output-display-tidy（2.3.30）**：表示専用の整形。
   ① 初期設定ダイアログ冒頭の黄色 notice（および `.notice` CSS）を撤去。
   ② OUTPUT 6行目の注記ブロックの赤字判定を「実警告（`⚠` / 製品重み警告 / `web_error`・`rag_error`・
-  `structure_error` が1以上）があるときのみ赤」へ変更。`vertex_rows=…; web_error=0;…` の all-zero
-  情報サマリーだけでは赤くしない（`step3aHasError` で error≥1 を検出）。
+  `structure_error` が1以上）があるときのみ赤」へ変更。all-zero 情報サマリーだけでは赤くしない。
   ③ row10「定量/主観/AI/KnownSpot 100%分解」テキストを E列→F列へ移動（E10は空・NOTEもF10）。
   ④ F9/F10 の長文を折り返し＋行高調整ではみ出し解消。
-  ⑤ 21行目 coverage を topic ごとの改行表示＋A〜F幅（6列）へ縮小（行高72）、22・23行目も折り返し・幅縮小。
-  **いずれも表示位置/書式のみで数値は不変。** 変更スコープは `showInitialSetupDialog_` / `writeOutputFY_` の2関数のみ。
+  ⑤ 21行目 coverage を topic ごとの改行表示＋A〜F幅へ縮小（行高72）、22・23行目も折り返し・幅縮小。
+  いずれも表示位置/書式のみで数値は不変。変更スコープは `showInitialSetupDialog_` / `writeOutputFY_` のみ。
 - **raw-migrate-header-match（2.3.31）**：`migrateLegacyAIResearchRawSheets_` の旧2枚→RAW 移送を
   **位置ベースから「ヘッダ名マッチ＋シート名由来の axis 確定」へ変更**（§10.6・§12）。旧 WEB/EXTERNAL の列順が
-  RAW と一致していなくても、`client/as_of_date/topic/evidence/note` は同名ヘッダの列へ入り、`axis` は
+  RAW と一致していなくても、`client/as_of_date/topic/evidence/note` は同名ヘッダ列へ入り、`axis` は
   シート名（AI_RESEARCH_WEB→web / AI_RESEARCH_EXTERNAL→rag）から確定する。旧2枚に axis 列が無くても空にならず、
   frozen_flag は旧側に無ければ 0・frozen_at は空で補完。生ログ移送のみで予測の P10/P50/P90 は不変、冪等性も不変。
 
-### 0.0'' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 8系統）
-- **snapshot-vestigial-removal（2.3.12）**：FORECAST_SNAPSHOT の三角測量系 vestigial カラムを物理削除。
-  現行ヘッダは15列、`final_pred` は J列（index 9）。B-2 の突合は `r[9]` を `final_pred` として読む。
-- **config-simplify（2.3.13）**：CONFIG の「[互換] 担当者（B10）」を撤去（担当者は B4 が単一の真実源）。
-  `QUAL_SUBJECTIVE_MAX_SCALE` 行を撤去（cap pass-through で不要）。
-- **config-deadknob-removal（2.3.15）**：未使用CONFIG行を撤去（`QUAL_SHARE_*` / `QUARTERLY_REVIEW_PERIOD_MONTHS` /
-  `BIAS_CORRECTION_*` / `AI_DIRECTION_HIT_*` / `AI_EFFECT_MIN_MEANINGFUL` / `DLM_FORECAST_HORIZON`）。
-- **rag-config-defaults（2.3.16）**：CONFIG に RAG 既定値を投入（`VERTEX_DATASTORE_ID` / `VERTEX_SEARCH_LOCATION` /
-  `VERTEX_SERVING_CONFIG`）。`discoveryEngineHost_` を地域エンドポイント対応化。
-- **ai-dx-confidence-diagnostics（2.3.21）**：confidence 欠落で event 不採用となった件数を `confDrop` として
-  OUTPUT coverage 行・degraded 警告へ可視化。採点は不変の純診断追加。
-- **output-note-relocate（2.3.22）**：年度≠月次合算の長文説明を短い1行注記に置換し、長文は Scenario Split の下へ移設。
-- **ai-score-robustness（2.3.23）**：event_score 算出を `direction符号 × (impact/100) × 50 × conf` へ是正。
+### 0.0''' v2.3.2 → v2.3.3 の更新点（参考・再掲 / 抜粋）
+- snapshot-vestigial-removal（2.3.12）：FORECAST_SNAPSHOT を15列化、`final_pred` は J列（index 9）。
+- config-simplify（2.3.13）/ config-deadknob-removal（2.3.15）：未使用CONFIG行・互換参照を撤去。
+- rag-config-defaults（2.3.16）：CONFIG に RAG 既定値（VERTEX_DATASTORE_ID / VERTEX_SEARCH_LOCATION /
+  VERTEX_SERVING_CONFIG）を A-1 で自動投入。`discoveryEngineHost_` を地域エンドポイント対応化。
+- ai-dx-confidence-diagnostics（2.3.21）：confidence 欠落で event 不採用となった件数を `confDrop` 可視化。
+- output-note-relocate（2.3.22）：年度≠月次合算の長文説明を Scenario Split の下へ移設。
+- ai-score-robustness（2.3.23）：event_score を `direction符号 × (impact/100) × 50 × conf` へ是正。
   `AI_MISSING_CONFIDENCE_DEFAULT`（既定0.5）導入。
-- **ai-score-degroundless（2.3.24）**：根拠なき中立化／捏造ゼロを是正（dead-zone撤去・event_only×0.5撤去・
+- ai-score-degroundless（2.3.24）：根拠なき中立化／捏造ゼロを是正（dead-zone撤去・event_only×0.5撤去・
   benchmark プレースホルダ禁止・構造化 temperature=0・momentum lookback を as_of_date 単位で dedup）。
-- **calibration-blank-override-fix（2.3.25）**：override 空欄判定を是正（`Number('')→0` の罠を回避し、空欄＝未設定/明示0＝意図的ゼロを区別）。
-- **rag-query-frame-align（2.3.26）**：`buildRagQuery_` を AI調査の新フレーム（外部観測可能な支援需要環境）に整合。
-- **qual-share-const-removal（2.3.27）**：未使用 const（QUAL_SHARE_*）をコードから撤去（デッドコード）。
-- **orphan-fn-removal（2.3.28）**：孤立関数2件（`adminShowCloneGuide` / `importPastSalesToSalesTab`）を物理削除。
-- **ai-research-raw-merge（2.3.29）**：生ログを `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL 統合）に集約。web/rag は `axis` 列で区別。
-
-### 0.0''' v2.3.1 → v2.3.2 / v2.3 の更新点（参考・再掲）
-- **objonly-dealias**：`objOnly` を `quantOnly` の独立コピー化（巻き込み変異防止）。予測コアは不変。
-- **gem-path-removal**：旧Gem手動貼付経路の関数群を物理削除。A-4 は `runVertexAIResearch`、A-9 は `countAIResearchStructuredRows_`。
-- **v2.3**：AI調査を Vertex AI 自動実行へ移行 / AI調査サマリービュー正典化 / ランタイムシート初期化正典化 / FORECAST_REPORT 撤去。
+- calibration-blank-override-fix（2.3.25）：override 空欄判定を是正（`Number('')→0` の罠を回避）。
+- rag-query-frame-align（2.3.26）：`buildRagQuery_` を AI調査の新フレームへ整合。
+- qual-share-const-removal（2.3.27）/ orphan-fn-removal（2.3.28）：デッドコード・孤立関数を物理削除。
+- ai-research-raw-merge（2.3.29）：生ログを `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL 統合）に集約。axis 列で区別。
 
 ---
 
@@ -85,8 +90,8 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - **三角観測は廃止済み**。実装は「単一Opsモデル（線形トレンド×季節指数）＋残差Monte Carlo」が定量土台。
 - **逆sMAPE重み更新（w_i）は存在しない**。FORECAST_SNAPSHOT の三角測量系カラムも物理削除済み。現行ヘッダは15列・`final_pred`はindex 9。
 - **DLM（対数空間の状態空間モデル）が追加**され、CONFIGの DLM_ENGINE_MODE（off/shadow/primary）で制御。
-- **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP）でクリップ。
-- **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。総合中立化（dead-zone）は撤去（既定閾値0）。上限は ±AI_MAX_ABS_EFFECT（±3%）のみで担保。
+- **主観は乗算係数（kProd/kClient/kOpinion/kAI）として反映**し、月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、既定0.40）でクリップ。
+- **AIは予測係数ではなく、benchmark/event blend のスコアとして kAI に限定反映**。総合中立化（dead-zone）は撤去（既定閾値0）。上限は ±AI_MAX_ABS_EFFECT（既定±5%）のみで担保。
 - **event_score の算出が是正済み**（`direction符号 × (impact/100) × 50 × confidence`）。
 - **AI調査の取得経路が Vertex AI へ移行**。生ログは `AI_RESEARCH_RAW`（旧 WEB/EXTERNAL を統合）。旧2枚→RAW の移送はヘッダ名マッチ＋シート名由来 axis。
 - **信頼度（SOURCE_RELIABILITY）** が追加され、各ソースの寄与に reliability_r を乗じる。既定ON（空ならno-op）。
@@ -95,8 +100,8 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - **calibration override の空欄/明示0 区別を是正**。
 - **クライアント名マッチを統一・正規化**（client-match-unify / a9-client-normalize）。読取側の突合は
   `isSameClient_`（両側を `normalizeClientName_` で正規化して比較）に集約。A-9 入口で永続クライアントを
-  正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記が一致するため、B-2 の生文字列複合キー突合が
-  表記ゆれ（ｳﾞｨｱﾄﾘｽ系）でも外れない。`normalizeClientName_` の正規化対象は現状 ｳﾞｨｱﾄﾘｽ系の表記統合のみ。
+  正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記が一致する。`normalizeClientName_` の正規化対象は
+  現状 ｳﾞｨｱﾄﾘｽ系の表記統合のみ。
 
 ---
 
@@ -109,13 +114,13 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
   構造化出力 → AI_RESEARCH_STRUCTURED へ記録、AI_RESEARCH（サマリービュー）へ再描画（§10・§11）。
   生ログは AI_RESEARCH_RAW（axis=web/rag）と AI_RESEARCH_TASK_LOG に保存。
 - 予測実行：runPhase1Forecast（A-9）。OUTPUT / FORECAST_SNAPSHOT 更新。
-  **入口で CONFIG!B2 を `normalizeClientName_` で正規化し、以降の永続クライアントを正規化済みに統一する（a9-client-normalize）。**
+  入口で CONFIG!B2 を `normalizeClientName_` で正規化し、以降の永続クライアントを正規化済みに統一（a9-client-normalize）。
 - ダッシュボード：updatePhase1Dashboard（A-10）
 - 検証：実績取込（B-1）→ EVAL_LOG / EVAL_COMPARE_MONTHLY（B-2）→ EVAL_INSIGHTS（B-3）
 - 四半期レビュー：runQuarterlyReview（C-1）→ applyQuarterlyProposals（C-2）→ ログ閲覧（C-3）
 - 信頼度：SOURCE_RELIABILITY 適用＋C-1のreliability提案＋RELIABILITY_EVIDENCEへの raw hit/n 永続化
 - 横断プール：POOL_PRIOR のクライアント横断集約（adminSetupPoolHub / adminAggregatePoolPriorAcrossBooks）
-- **シート初期化**：AI_RESEARCH_STRUCTURED は A-1 で先行作成。Vertex実行時に遅延作成されるのは
+- シート初期化：AI_RESEARCH_STRUCTURED は A-1 で先行作成。Vertex実行時に遅延作成されるのは
   AI_RESEARCH_TASK_LOG / AI_RESEARCH_RAW の2枚。`ensureAIResearchRuntimeSheets_` が STRUCTURED/TASK_LOG/RAW を
   冪等に整合し、旧2枚があれば `migrateLegacyAIResearchRawSheets_` で RAW へ一度だけ移送する。
 
@@ -136,6 +141,8 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - AI_RESEARCH_RAW の `frozen_flag` / `frozen_at` 列は将来のスナップショット凍結用の予約列（現状は未使用 / 既定0・空）。
 - `normalizeClientName_` の正規化辞書拡張（現状は ｳﾞｨｱﾄﾘｽ系のみハードコード）。新メーカーで表記ゆれが
   発生した場合の汎用正規化（全角/半角・法人格表記の一般則化）は別スコープ。
+- キャップ値（主観月次cap / AI上限）の経験ベイズ的な自動調整。現状は CONFIG の固定値で運用し、
+  検証KPIに基づき手動で調整する方針（overlay-cap-raise も手動の固定値引き上げ）。
 
 ### 1.4 メニュー構成（実装同期）
 - A-1 初期セットアップ（setupForecastBook）
@@ -178,9 +185,11 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - kClient = 1 + Σ(client step × reliability)
 - kOpinion = 担当者別の最新意見を ±5% jitter込みで合成（× reliability）
 - kAI = 1 + clamp(Σ(topicスコア × reliability) × AI_WEIGHT, ±AI_MAX_ABS_EFFECT)。
-  総合中立化（dead-zone）は既定OFF。上限は ±AI_MAX_ABS_EFFECT のみで担保。
+  総合中立化（dead-zone）は既定OFF。上限は ±AI_MAX_ABS_EFFECT（既定±5%）のみで担保。
 - Monte Carlo（N_SIM=1000）で各simの total を生成し、月次P10/P50/P90を取る。
-- 主観差分は月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、既定0.20）でクリップ（capHitを診断記録）。
+- 主観差分は月次cap（QUAL_SUBJECTIVE_MONTHLY_CAP、**既定0.40**）でクリップ（capHitを診断記録）。
+  cap は `±(quantOpsBase × cap)` を限度として主観連続差分をクリップする唯一の制御点（`applySubjectiveCap_`）。
+  `QUAL_CALIBRATION_ENABLED=0` のときは cap 無効（無制限）。
 - **kProd全月1.0のフェイルセーフ**：PRODUCTに有効行があるのに kProdが全月1.0（直近12ヶ月closed BASE実績の
   無い製品＝weight=0）の場合、throwせず警告（`productWeightWarning`）に置換し A-9を完走させる。
 
@@ -196,6 +205,7 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 
 ### 2.6 AIスコアの予測反映
 - readAIResearchScores_ が AI_RESEARCH_STRUCTURED から topic別 final blended score を返す。品質不足topicは中立化。
+- 各軸 final score は ±AI_TOPIC_SCORE_ABS_CAP（=50）でクリップ（4軸合計±200 / OUTPUT 17-18行の表示レンジと一致）。
 - AI_SCORE_BASIS=momentum のときは AI_SCORE_HISTORY の過去runとの差分（momentum）に切替（既定はlevel）。
   momentum の lookback は `as_of_date` 単位で dedup され、A-9実行回数では動かない。
 - AI_SCORE_HISTORY のクライアント絞り込みは `isSameClient_` 経由（client-match-unify）。
@@ -205,13 +215,13 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - 年度合計(P10/P50/P90)は、12ヶ月すべての予測simから算出する（経過月の実績で固定した着地値ではない＝通年予測の見通し）。
 - A-9 は実行直前に `syncSalesFromSalesInput_` で SALES窓を `[fy-4/04, fy/03]` に再整列し、予測窓 `[fy/04, fy+1/03]` と
   同一fyで隣接非重複に確定する。よって全月 `forecast_open` となり実績は混ざらない。
-- **クライアント名は A-9 入口で正規化される（a9-client-normalize）ため、書き出される FORECAST_SNAPSHOT /
-  履歴 / LANDING_FORECAST の client は ACTUAL_EVAL_MONTHLY と同表記になる。**
+- クライアント名は A-9 入口で正規化される（a9-client-normalize）ため、書き出される FORECAST_SNAPSHOT /
+  履歴 / LANDING_FORECAST の client は ACTUAL_EVAL_MONTHLY と同表記になる。
 
 **(b) 検証・学習経路（B-1 → B-2 → B-3、C-1）— 実績を使うが予測は書き換えない**
 - B-1：実績を ACTUAL_EVAL_MONTHLY に取り込む（取込時に client は正規化済み）。
 - B-2：提出済みの FORECAST_SNAPSHOT（`final_pred`=r[9]）と実績を `[client, target_month]` の複合キーで突合し
-  EVAL_LOG / EVAL_COMPARE_MONTHLY に記録。**snapshot 側 client も A-9 で正規化済みのため、生文字列突合でも一致する。**
+  EVAL_LOG / EVAL_COMPARE_MONTHLY に記録。snapshot 側 client も A-9 で正規化済みのため、生文字列突合でも一致する。
 - B-3：EVAL_INSIGHTS に外れ要因・次アクションを整理。
 - C-1：EVAL_LOG と impact履歴から reliability を学習。
 
@@ -223,15 +233,18 @@ DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置
 - readConfigLabelMap_ が CONFIG A:B を読み、configKeyOf_ で「（」または「(」より前をキー化して完全一致マップを作る。
 - read*FromConfig_ 系はすべてこのマップ経由。セル番地直読みは廃止。tuneRows に行を挿入しても壊れない。
 - ラベル末尾の注記（全角括弧内）は自由に変更可。キー部分が一致すれば読める。
+- **const 既定値は CONFIG セル欠落/不読時のフォールバック**。clasp push だけでは既存bookの CONFIG セルは
+  更新されないため、const 既定の引き上げ（overlay-cap-raise の 0.40 / 0.05 等）を発効させるには
+  A-1 再生成か該当セルの手動修正が必要。
 
 ### 3.2 主要キー（抜粋・現行同期）
-- AI_WEIGHT / AI_MAX_ABS_EFFECT
+- AI_WEIGHT / **AI_MAX_ABS_EFFECT（既定0.05＝±5% / 読取上限clampも0.05）**
 - AI_MISSING_CONFIDENCE_DEFAULT（既定0.5 / 0で不採用）
 - AI_TOTAL_NEUTRAL_THRESHOLD（既定0＝dead-zoneなし）
 - AI_QUALITY_NEUTRAL_THRESHOLD / AI_QUALITY_PARTIAL_THRESHOLD
 - AI_SCORE_BASIS（level/momentum）/ AI_MOMENTUM_LOOKBACK_QUARTERS / AI_MOMENTUM_MIN_HISTORY
 - AI_WEIGHT_PROPOSAL_MIN / AI_WEIGHT_PROPOSAL_MAX
-- QUAL_SUBJECTIVE_MONTHLY_CAP / QUAL_CALIBRATION_ENABLED
+- **QUAL_SUBJECTIVE_MONTHLY_CAP（既定0.40 / 読取上限clampは2.0）** / QUAL_CALIBRATION_ENABLED
 - SPOT_BG_* / KNOWN_SPOT_* / SEASONAL_*
 - DLM_ENGINE_MODE / DLM_PRIMARY_SPOT_CAP_BASIS / DLM_BACKTEST_* / DLM_LOG_EPSILON_RATE
 - RELIABILITY_APPLY_ENABLED（既定1）/ RELIABILITY_R_MIN / R_MAX / SHRINKAGE_K / MIN_SAMPLES / MIN_CHANGE
@@ -287,6 +300,8 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 - 診断：月次APE、Q差分、定量寄与率、主観オーバーレイ率（AI除く）、AI寄与率、Known Spot寄与率、レンジ逸脱数。
 - レンジ逸脱月（actualがP10-P90外）はB-3で追加調査を必須化。
 - 1 client = 1 book。
+- ※ overlay-cap-raise（cap 0.40 / AI ±5%）適用後は、主観/AIオーバーレイのあるbookで P50 が変化しうるため、
+  本KPIの再確認（特に over-forecast rate の悪化有無）を1サイクル行うこと。
 
 ---
 
@@ -301,7 +316,7 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 - **FORECAST_SNAPSHOT は15列**（snapshot_id / run_date / client / target_month / scenario / base_pred /
   subjective_adj / ai_adj / deterministic_adj / **final_pred(index 9)** / confidence_interval_lower /
   confidence_interval_upper / key_factors_json / subjective_input_date / calibration_applied_json）。
-  **client 列は A-9 入口で正規化された値が書かれる（a9-client-normalize）。** これにより B-2 の生文字列複合キー
+  client 列は A-9 入口で正規化された値が書かれる（a9-client-normalize）。これにより B-2 の生文字列複合キー
   突合（client+target_month）が ACTUAL_EVAL_MONTHLY と一致する。
 - **AI_RESEARCH_RAW（旧 WEB + EXTERNAL の統合）**：headers は
   `client / as_of_date / axis / topic / direction / magnitude / uncertainty / relative_position /
@@ -332,12 +347,13 @@ AI_DIRECTION_HIT_* / AI_EFFECT_MIN_MEANINGFUL / DLM_FORECAST_HORIZON は CONFIG 
 
 ## 8. バージョン整合と適用順序
 - VERSION / BUILD_STAGE / 設計書版 / 手動チェックリストは各リリースで同期する。
-- 現行コードは VERSION='2.3.33-dev' / BUILD_STAGE='a9-client-normalize'。
+- 現行コードは VERSION='2.3.37-dev' / BUILD_STAGE='overlay-cap-raise'。
   DLM_BUILD_STAGE は 'v8-step3c3c-1'（DLMロジック無変更のため据え置き）。
-- 本改訂（設計書 v2.3.5）は client-match-unify（2.3.32 / クライアント名マッチの比較方式統一）と
-  a9-client-normalize（2.3.33 / A-9 入口でのクライアント名正規化）をドキュメントへ反映する doc sync。
-  a9-client-normalize は同梱の Codex プロンプトで適用する前提のため、**コードを先に適用・検証してから本書へ差し替える**こと。
-- 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。
+- 本改訂（設計書 v2.3.6）は overlay-cap-raise（2.3.37 / 主観月次cap 0.20→0.40・AI上限 ±3%→±5%）を
+  ドキュメントへ反映する doc sync。**従来の doc sync と異なり予測値が変わる数値変更**であり、既存bookは
+  A-1再生成または CONFIG セルの手動修正で発効する。
+- 設計書ドリフトは既知の再発リスク。リリースごとに doc sync を独立タスクとして扱う。コードが
+  2.3.33→2.3.37 と4増分先行していた点に留意し、今後は stage 確定のたびに doc を同期する。
 
 ---
 
@@ -385,10 +401,11 @@ A-4はメーカー名（CONFIG!B2）について、4 topic（Market/Competitor/C
 - **event_score**：`direction符号 × (impact_score/100) × 50 × confidence` を ±50 にclamp。impact_score は 0〜100 の影響の大きさ（50は中立ではない）。
 - **benchmark_score**：`(relative_percentile-50) × relative_confidence × quality倍率(high1/medium0.75/low0.5)` を ±50 にclamp。
   benchmark 行は相対位置の根拠があるときだけ書く（プレースホルダ禁止）。
-- readAIResearchScores_ が topic別に blend（Market/Competitor/Channel=0.65:0.35 系、DX=0.50:0.50）。
+- readAIResearchScores_ が topic別に blend：Market=0.65:0.35 / **Competitor=0.70:0.30** / Channel=0.65:0.35 / DX=0.50:0.50。
+- 各topic final score は ±50（AI_TOPIC_SCORE_ABS_CAP）でclamp。
 
 ### 10.4 品質中立化と「根拠なき中立化／捏造ゼロ」の是正（ai-score-degroundless）
-- 総合 dead-zone 中立化は撤去（AI_TOTAL_NEUTRAL_THRESHOLD 既定0）。上限は ±AI_MAX_ABS_EFFECT のみ。
+- 総合 dead-zone 中立化は撤去（AI_TOTAL_NEUTRAL_THRESHOLD 既定0）。上限は ±AI_MAX_ABS_EFFECT（±5%）のみ。
 - event_only への構造的 ×0.5 ペナルティを撤去。信号の弱さは coverage 由来 qualityMultiplier のみで反映。
 - honest-zero：web が真に neutral かつ benchmark 根拠なしのトピックは 0 になりうる（捏造しない設計どおり）。
 
@@ -433,12 +450,11 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 現状、ブロッキングな latent issue は無い。
 
 解消済みメモ：
-- **client名マッチの不整合**は client-match-unify（2.3.32）で**解消**。`isSameClient_` を `normalizeClientName_`
+- **client名マッチの不整合**は client-match-unify（2.3.32）で解消。`isSameClient_` を `normalizeClientName_`
   経由に統一し、読取側の突合を全て `isSameClient_` に集約。さらに a9-client-normalize（2.3.33）で A-9 入口の
-  永続クライアントを正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記を一致させて、B-2 の生文字列
-  複合キー突合が表記ゆれでも外れないようにした。
-- **AI_RESEARCH_RAW 旧データ移送の列整合**は raw-migrate-header-match（2.3.31）で**解消**（ヘッダ名マッチ＋シート名由来 axis）。
-- **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**は snapshot-vestigial-removal で**物理削除済み**。
+  永続クライアントを正規化し、FORECAST_SNAPSHOT 等と ACTUAL_EVAL_MONTHLY の表記を一致させた。
+- **AI_RESEARCH_RAW 旧データ移送の列整合**は raw-migrate-header-match（2.3.31）で解消（ヘッダ名マッチ＋シート名由来 axis）。
+- **FORECAST_SNAPSHOT の三角測量系 vestigial カラム**は snapshot-vestigial-removal で物理削除済み。
 - LANDING_FORECAST / EVAL_LOG の再実行追記増殖は複合キー upsert 化で解消済み。
 - AI_IMPACT_HISTORY / SUBJECTIVE_IMPACT_HISTORY は追記のままで、重複排除は C-1 読取側で行う。
 - shadow mode 表示の `opsQuantOnly` エイリアス問題は objOnly 独立コピー化で解消済み。
@@ -448,11 +464,15 @@ A-4実行時に writeAIResearchSummaryView_ が AI_RESEARCH シートを再描�
 将来検討（実害なし / 別スコープ）：
 - `normalizeClientName_` の正規化辞書が現状 ｳﾞｨｱﾄﾘｽ系のハードコードのみ。新メーカーで表記ゆれが出た場合の
   汎用正規化（全角/半角・法人格表記の一般則化）は未対応。必要が生じた時点で別スコープで対応する。
+- `writeOutputFY_` の `warn_coerced` 判定（`coerceMatch`）は、Gem手動貼付経路撤去後の Vertex warning summary には
+  `warn_coerced=` が含まれないため常に空振り（coerceCount=0 で if ブロック非発火）の死にコード。`match` が null を
+  返すだけで無害だが、整理する場合は別スコープのデッドコード削除として扱う。
 
 ---
 
-この v2.3.5 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典を維持しつつ、
-client-match-unify（2.3.32 / クライアント名マッチの比較方式統一）と a9-client-normalize（2.3.33 / A-9 入口での
-クライアント名正規化）を現行実装へ同期したドキュメント改訂である。前者は読取側の比較統一、後者は永続クライアントの
-正規化のみで、いずれも予測の P10/P50/P90 は不変。年度合計は常に12ヶ月すべての予測simから算出する通年予測であり、
-実績は検証・学習経路（B/C）でのみ使用する。ブロッキングな残存 latent issue は無い。
+この v2.3.6 は、annual-forecast-mode（FORECAST_CLOSED_MONTH_MODE）の方針を「A=通年予測」とする正典と、
+client-match-unify（2.3.32）/ a9-client-normalize（2.3.33）の正規化統一を維持しつつ、overlay-cap-raise
+（2.3.37 / 主観月次cap 0.20→0.40・AI上限 ±3%→±5%）を現行実装へ同期したドキュメント改訂である。本改訂は
+表示・構造のみの従来 doc sync とは異なり、主観/AIオーバーレイのあるbookで P10/P50/P90 が変わる数値変更であり、
+既存bookは A-1再生成または CONFIG セルの手動修正で発効する。年度合計は常に12ヶ月すべての予測simから算出する
+通年予測であり、実績は検証・学習経路（B/C）でのみ使用する。ブロッキングな残存 latent issue は無い。
