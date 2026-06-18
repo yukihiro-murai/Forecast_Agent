@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.38-dev / BUILD_STAGE dashboard-hide-insights-upsert）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.43-dev / BUILD_STAGE output-budget-columns）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
