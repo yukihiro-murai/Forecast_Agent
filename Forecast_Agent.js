@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.43-dev / BUILD_STAGE output-budget-columns）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.44-dev / BUILD_STAGE budget-entry-polish）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.43-dev';
-const BUILD_STAGE = 'output-budget-columns';
+const VERSION = '2.3.44-dev';
+const BUILD_STAGE = 'budget-entry-polish';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -259,6 +259,7 @@ function onOpen() {
     .addItem('A-7 担当者意見を入力', 'openOpinionsEntryDialog')
     .addItem('A-8 開発/スポット要因を入力', 'openDevEntryDialog')
     .addItem('A-9 予測を実行', 'runPhase1Forecast')
+    .addItem('A-10 予算を策定', 'gotoBudgetEntry')
     .addSeparator()
     .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
@@ -269,6 +270,20 @@ function onOpen() {
     .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
     .addItem('C-3 過去の提案履歴を開く', 'openQuarterlyReviewLog')
     .addToUi();
+}
+
+/** A-10 予算を策定：OUTPUT の予算策定欄（H24）へ移動する（ナビゲーションのみ・予測非影響）。 */
+function gotoBudgetEntry() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.OUTPUT);
+  if (!sh) {
+    SpreadsheetApp.getUi().alert('OUTPUT がありません。先に A-9 予測を実行 を実行してください。');
+    return;
+  }
+  try { sh.showSheet(); } catch (e) {}
+  ss.setActiveSheet(sh);
+  sh.getRange('H24').activate();
+  ss.toast('予算策定欄（H24〜J40）に移動しました。Adopted Forecast と Sales Uplift を入力してください。', MENU_NAME, 6);
 }
 
 /**
@@ -2269,6 +2284,12 @@ function writeSectionBlock_(sh, startRow, opt) {
     const mEnd = r + table.length - 1;    // 月次データ末尾行
     const annualBudgetRow = annualHeaderRow + 1;
 
+    // 予算ブロックの見出し（H列起点）：H{startRow}:J{startRow} に「予算を策定」を結合表示（客観セクションには出さない）。
+    const budgetTitleRange = sh.getRange(startRow, 8, 1, 3);
+    budgetTitleRange.merge();
+    budgetTitleRange.setValue('予算を策定').setBackground(COLOR_SECTION_SOFT).setFontWeight('bold').setHorizontalAlignment('left');
+    sh.getRange(startRow, 8).setNote('予算を策定：会社へ打ち上げる予算を確定するブロックです。月次の Adopted Forecast（採用予測）と Sales Uplift（営業上積み）を入力すると、Final Budget（=両者の合計）が自動計算されます。');
+
     // 年度バンド：ヘッダ＋月次SUM
     sh.getRange(annualHeaderRow, 8, 1, 3).setValues(budgetHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
     sh.getRange(annualBudgetRow, 8, 1, 3).setFormulas([[
@@ -2298,6 +2319,10 @@ function writeSectionBlock_(sh, startRow, opt) {
     sh.getRange(annualHeaderRow, 8).setNote('年度合計（採用予測）＝月次 Adopted Forecast の合計（SUM）。');
     sh.getRange(annualHeaderRow, 9).setNote('年度合計（営業上積み）＝月次 Sales Uplift の合計（SUM）。');
     sh.getRange(annualHeaderRow, 10).setNote('年度合計（最終予算）＝月次 Final Budget の合計（SUM）。会社へ打ち上げる年間予算額。');
+
+    // 予算ブロック（見出し〜月次 Final Budget）を控えめに囲む：H{startRow}:J{mEnd} の外周のみ（内側罫線なし）。
+    sh.getRange(startRow, 8, mEnd - startRow + 1, 3)
+      .setBorder(true, true, true, true, false, false, '#6aa84f', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
 
   // P10/P50/P90説明（Note）※最初に登場する年度合計ヘッダに付与
@@ -2816,6 +2841,8 @@ function buildDEV_() {
 function buildOUTPUT_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = getOrCreateSheet_(ss, SHEETS.OUTPUT);
+  // A-1再セットアップ時に旧グラフが残ると、A-9後の再生成位置（L25）と食い違って見えるため先に除去する。
+  sh.getCharts().forEach(c => sh.removeChart(c));
   sh.clear({ contentsOnly: true });
   sh.clearFormats();
 }
@@ -8921,6 +8948,23 @@ function syncSalesFromSalesInput_(fy, client) {
  * 8) H/I/J ヘッダのホバー(NOTE)に日本語の趣旨説明が出ること。
  * 9) A-9 を再実行すると H/I の手入力は消え、H は再び P50 初期値・I は空欄に戻ること（A-9複数回前提・許容）。
  * 10) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）が本変更の前後で不変であること（表示追加のみ・予測非影響）。
+ */
+
+/**
+ * HOW TO TEST (budget-entry-polish)
+ * 1) VERSION='2.3.44-dev' / BUILD_STAGE='budget-entry-polish'、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
+ * 2) book を開き直す → メニュー A 群に「A-10 予算を策定」が A-9 の直下・区切り線の上に1件だけ追加され、
+ *    B 群は B-1〜B-4 のまま不変であること。
+ * 3) A-9 実行後、OUTPUT 混合（本命）セクションの H24:J24 に「予算を策定」が結合表示されること。
+ *    客観のみセクションには出ないこと。
+ * 4) 同 A-9 後、H24:J40 が外周のみの控えめな枠線（緑 #6aa84f / SOLID_MEDIUM・内側罫線なし）で囲まれること。
+ * 5) 「A-10 予算を策定」押下 → OUTPUT が前面化しアクティブセルが H24 へスクロール移動、トーストが出ること。
+ *    OUTPUT 不在時は注意ダイアログで終了すること。
+ * 6) A-1 初期セットアップ実行 → OUTPUT に旧グラフが残らないこと（buildOUTPUT_ がチャート除去）。
+ *    続けて A-9 → 混合セクションのグラフが L25（startRow+1 / L列）に生成され、A-9 を再実行しても同位置であること。
+ * 7) 予算列 H/I/J の初期値（月次 P50）・年度SUM・J=H+I・背景色（H/I=黄, J=緑）・NOTE が
+ *    output-budget-columns の挙動どおりで、見出し行（24）と枠線の追加以外は不変であること。
+ * 8) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）が本変更の前後で不変であること（表示・ナビ追加のみ・予測非影響）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
