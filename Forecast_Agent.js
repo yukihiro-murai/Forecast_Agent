@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.42-dev';
-const BUILD_STAGE = 'dashboard-menu-to-b';
+const VERSION = '2.3.43-dev';
+const BUILD_STAGE = 'output-budget-columns';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1546,6 +1546,11 @@ function writeOutputFY_(result) {
   sh.setColumnWidth(5, 200);
   sh.setColumnWidth(6, 190);
   for (let c = 7; c <= 12; c++) sh.setColumnWidth(c, 130);
+  // 予算列 H/I/J を読みやすく、K(11) を余白に（グラフは L(12) 列開始）
+  sh.setColumnWidth(8, 160);
+  sh.setColumnWidth(9, 160);
+  sh.setColumnWidth(10, 160);
+  sh.setColumnWidth(11, 40);
 
   const fy = result.fy;
   const client = result.clientName;
@@ -1774,6 +1779,7 @@ function writeOutputFY_(result) {
     spotBackgroundByMonth: result.spotBackgroundByMonth,
     seasonalWeighted: seasonalWeightedCore,
     annualSim: annualMixedCalSim,
+    budgetColumns: true,
     outputRangeExplainText: OUTPUT_RANGE_EXPLAIN_MAIN_TEXT,
     outputRangeExplainPrimary: true
   });
@@ -2253,6 +2259,47 @@ function writeSectionBlock_(sh, startRow, opt) {
   sh.getRange(r, 3, table.length, 1).setBackground(COLOR_NEU);
   sh.getRange(r, 4, table.length, 1).setBackground(COLOR_POS);
 
+  // ===== 予算列（H/I/J）：混合（本命）セクションのみ =====
+  // H=Adopted Forecast（採用予測 / 月次P50を初期値・手入力で上書き可）
+  // I=Sales Uplift（営業上積み / 手入力・空欄は0扱い）
+  // J=Final Budget（=H+I）。年度合計は月次のSUM。
+  if (opt.budgetColumns) {
+    const budgetHdr = [['Adopted Forecast', 'Sales Uplift', 'Final Budget']];
+    const mStart = r;                     // 月次データ先頭行
+    const mEnd = r + table.length - 1;    // 月次データ末尾行
+    const annualBudgetRow = annualHeaderRow + 1;
+
+    // 年度バンド：ヘッダ＋月次SUM
+    sh.getRange(annualHeaderRow, 8, 1, 3).setValues(budgetHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
+    sh.getRange(annualBudgetRow, 8, 1, 3).setFormulas([[
+      `=SUM(H${mStart}:H${mEnd})`,
+      `=SUM(I${mStart}:I${mEnd})`,
+      `=SUM(J${mStart}:J${mEnd})`
+    ]]);
+    sh.getRange(annualBudgetRow, 8, 1, 3).setNumberFormat('¥#,##0').setBackground(COLOR_SECTION_SOFT).setFontWeight('bold');
+
+    // 月次バンド：ヘッダ
+    sh.getRange(monthTableHeaderRow, 8, 1, 3).setValues(budgetHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
+    // H：月次P50を初期値（数値・手入力で上書き可）
+    const hInit = opt.months.map((_, i) => [Number((opt.series.p50 || [])[i] || 0)]);
+    sh.getRange(mStart, 8, table.length, 1).setValues(hInit);
+    // J：=H+I（月次）
+    const jFormulas = opt.months.map((_, i) => [`=H${mStart + i}+I${mStart + i}`]);
+    sh.getRange(mStart, 10, table.length, 1).setFormulas(jFormulas);
+    // 書式・色（H/I=編集可/黄、J=確定/緑・太字）。I は空欄スタート（手入力）。
+    sh.getRange(mStart, 8, table.length, 3).setNumberFormat('¥#,##0');
+    sh.getRange(mStart, 8, table.length, 2).setBackground(COLOR_OBJECTIVE);
+    sh.getRange(mStart, 10, table.length, 1).setBackground(COLOR_SECTION_SOFT).setFontWeight('bold');
+
+    // NOTE（非技術者向けホバー説明）
+    sh.getRange(monthTableHeaderRow, 8).setNote('Adopted Forecast（採用予測）：ディレクター/営業が最終的に予測として採用する金額を月ごとに入力します。初期値は混合シミュレーションの Baseline(P50)。上書きしてください。');
+    sh.getRange(monthTableHeaderRow, 9).setNote('Sales Uplift（営業上積み）：採用予測に営業目線で上積みする金額を月ごとに入力します。空欄は0として扱います。');
+    sh.getRange(monthTableHeaderRow, 10).setNote('Final Budget（最終予算）＝Adopted Forecast＋Sales Uplift。会社へ予算として打ち上げる最終確定額です（自動計算）。');
+    sh.getRange(annualHeaderRow, 8).setNote('年度合計（採用予測）＝月次 Adopted Forecast の合計（SUM）。');
+    sh.getRange(annualHeaderRow, 9).setNote('年度合計（営業上積み）＝月次 Sales Uplift の合計（SUM）。');
+    sh.getRange(annualHeaderRow, 10).setNote('年度合計（最終予算）＝月次 Final Budget の合計（SUM）。会社へ打ち上げる年間予算額。');
+  }
+
   // P10/P50/P90説明（Note）※最初に登場する年度合計ヘッダに付与
   sh.getRange(annualHeaderRow, 2).setNote('【Downside(P10)】\nシミュレーション分布の10パーセンタイル（下位10%点）です。\n通常想定より弱い条件が重なった場合の下振れ目安で、悲観ケースの確認に使います。');
   sh.getRange(annualHeaderRow, 3).setNote('【Baseline(P50)】\nシミュレーション分布の中央値（50パーセンタイル）です。\n通常運用時の中心シナリオで、まずこの値を基準に計画を立てます。');
@@ -2311,7 +2358,7 @@ function writeSectionBlock_(sh, startRow, opt) {
   const chartLinearRange = sh.getRange(monthTableHeaderRow, 5, table.length + 1, 1);
 
   const chartRow = startRow + 1;
-  const chartCol = 8; // H列開始
+  const chartCol = 12; // L列開始（H/I/J予算列の右に余白Kを取る）
 
   const chart = sh.newChart()
     .asLineChart()
@@ -8859,6 +8906,21 @@ function syncSalesFromSalesInput_(fy, client) {
  *    背景SPOT・年度合計・月次 P10/P50/P90 が不変であること（const はフォールバックのみで、
  *    既存bookは CONFIG セル値が優先されるため）。
  * 7) SPOT_BG_CAP_RATE / SPOT_BG_FLOOR_RATE は変更されていないこと（grep で 0.20 / 0.15 のまま）。
+ */
+
+/**
+ * HOW TO TEST (output-budget-columns)
+ * 1) VERSION='2.3.43-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変。
+ * 2) A-9 を実行 → OUTPUT 混合（本命）セクションに H=Adopted Forecast / I=Sales Uplift / J=Final Budget の
+ *    3列が、年度合計バンドと月次表バンドの両方に表示される。客観のみセクションには出ないこと。
+ * 3) 月次 H に当該月の混合 Baseline(P50) が初期値（数値）として入り、上書きできること（黄背景）。
+ * 4) 月次 I は空欄スタート（手入力・黄背景）。J=H+I の数式が入り、I 空欄時は J=H（=P50）が即表示（緑・太字）。
+ * 5) I に金額を入力 → 同月の J が H+I に更新され、年度合計 J も連動すること。
+ * 6) 年度合計バンドの H/I/J は月次の SUM 数式（=SUM(H..:H..) 等）で、月次編集に追従すること。
+ * 7) グラフ（混合・客観の両セクション）が L 列(12)開始へ右移動し、H/I/J(8〜10列)と重ならないこと（K列(11)が余白）。
+ * 8) H/I/J ヘッダのホバー(NOTE)に日本語の趣旨説明が出ること。
+ * 9) A-9 を再実行すると H/I の手入力は消え、H は再び P50 初期値・I は空欄に戻ること（A-9複数回前提・許容）。
+ * 10) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）が本変更の前後で不変であること（表示追加のみ・予測非影響）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
