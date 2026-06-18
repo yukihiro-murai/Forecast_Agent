@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.45-dev / BUILD_STAGE guide-a10-sync）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.46-dev / BUILD_STAGE budget-nav-guard）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.45-dev';
-const BUILD_STAGE = 'guide-a10-sync';
+const VERSION = '2.3.46-dev';
+const BUILD_STAGE = 'budget-nav-guard';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -278,6 +278,11 @@ function gotoBudgetEntry() {
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
   if (!sh) {
     SpreadsheetApp.getUi().alert('OUTPUT がありません。先に A-9 予測を実行 を実行してください。');
+    return;
+  }
+  const outputTitle = String(sh.getRange(1, 1).getValue() || '').trim();
+  if (!outputTitle) {
+    SpreadsheetApp.getUi().alert('まだ予測が実行されていません。先に A-9 予測を実行 を実行してから A-10 予算を策定 を実行してください。');
     return;
   }
   try { sh.showSheet(); } catch (e) {}
@@ -8978,6 +8983,16 @@ function syncSalesFromSalesInput_(fy, client) {
  *    （CONFIG〜QUARTERLY_REVIEW_LOG）が従来どおり並ぶこと。
  * 5) メニュー A 群（A-1〜A-10）と GUIDE 手順表の A 行が項目・順序とも一致すること。
  * 6) 予測・OUTPUT・予算列・他シートの挙動は不変（本変更は GUIDE シート表示のみ）。
+ */
+
+/**
+ * HOW TO TEST (budget-nav-guard)
+ * 1) VERSION='2.3.46-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変、先頭コメントも同期。
+ * 2) A-1 初期セットアップ直後（A-9 未実行）に「A-10 予算を策定」押下 →
+ *    未実行を示す注意ダイアログで終了し、空の H24 へ移動しないこと。
+ * 3) A-9 実行後に「A-10 予算を策定」押下 → 従来どおり OUTPUT 前面化・H24 アクティブ・トースト表示。
+ * 4) OUTPUT シート自体が無い場合は従来どおり「OUTPUT がありません」ダイアログで終了すること。
+ * 5) A-9 の OUTPUT・予算列・GUIDE 等その他の挙動は不変（本変更は A-10 ナビのガードのみ）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
