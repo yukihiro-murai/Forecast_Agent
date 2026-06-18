@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.44-dev / BUILD_STAGE budget-entry-polish）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.45-dev / BUILD_STAGE guide-a10-sync）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.44-dev';
-const BUILD_STAGE = 'budget-entry-polish';
+const VERSION = '2.3.45-dev';
+const BUILD_STAGE = 'guide-a10-sync';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -2444,7 +2444,8 @@ function buildGUIDE_() {
     ['A-予測', 'A-6 クライアント動向を入力', 'CLIENT へ入力。'],
     ['A-予測', 'A-7 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-8 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-9 予測を実行', 'OUTPUT を更新（実行前に注意ロジックで1件ずつ確認）。']
+    ['A-予測', 'A-9 予測を実行', 'OUTPUT を更新（実行前に注意ロジックで1件ずつ確認）。'],
+    ['A-予測', 'A-10 予算を策定', 'OUTPUT 混合セクションの予算欄（H24〜J40）へ移動。Adopted Forecast / Sales Uplift を入力し Final Budget（=両者の合計）を確定。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
@@ -2454,16 +2455,16 @@ function buildGUIDE_() {
     ['B-事後検証', 'B-3 予測ダッシュボードを更新', 'DASHBOARD を更新（B-2の比較結果からKPIを集計）。'],
     ['B-事後検証', 'B-4 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(12, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
+  sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
   const cRows = [
     ['C-四半期レビュー', 'C-1 四半期レビューを実行（3か月に1回）', 'AI診断と全体キャリブレーション提案を生成。'],
     ['C-四半期レビュー', 'C-2 承認済み提案を適用', '承認行だけCALIBRATION_STATEへ反映し履歴を更新。'],
     ['C-四半期レビュー', 'C-3 過去の提案履歴を開く', 'QUARTERLY_REVIEW_LOGを表示して履歴を閲覧。']
   ];
-  sh.getRange(16, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
+  sh.getRange(17, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
 
-  sh.getRange(20, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(21, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT, '予測入力（月次案件一覧）'],
@@ -2482,8 +2483,8 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
-  setGuideLinkTable_(sh, 21, links);
-  applySectionGapRows_(sh, [19]);
+  setGuideLinkTable_(sh, 22, links);
+  applySectionGapRows_(sh, [20]);
 
   const guideLast = sh.getLastRow();
   const guideCols = Math.max(3, sh.getLastColumn());
@@ -8965,6 +8966,18 @@ function syncSalesFromSalesInput_(fy, client) {
  * 7) 予算列 H/I/J の初期値（月次 P50）・年度SUM・J=H+I・背景色（H/I=黄, J=緑）・NOTE が
  *    output-budget-columns の挙動どおりで、見出し行（24）と枠線の追加以外は不変であること。
  * 8) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）が本変更の前後で不変であること（表示・ナビ追加のみ・予測非影響）。
+ */
+
+/**
+ * HOW TO TEST (guide-a10-sync)
+ * 1) VERSION='2.3.45-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
+ * 2) A-1 初期セットアップ → GUIDE 手順表の A 行が A-1〜A-10 の10行になり、
+ *    A-10 行（青 C_A 背景）に「予算を策定」の説明が表示されること。
+ * 3) B 行が A-10 の直下から B-1〜B-4、C 行が C-1〜C-3 で、行ズレ・重なり・空行欠落が無いこと。
+ * 4) cRows と「シート分類」見出しの間に空行（gap）が1行入り、見出し下のシートリンク表
+ *    （CONFIG〜QUARTERLY_REVIEW_LOG）が従来どおり並ぶこと。
+ * 5) メニュー A 群（A-1〜A-10）と GUIDE 手順表の A 行が項目・順序とも一致すること。
+ * 6) 予測・OUTPUT・予算列・他シートの挙動は不変（本変更は GUIDE シート表示のみ）。
  */
 
 // ========== v1.6 NEW: quarterly review ==========
