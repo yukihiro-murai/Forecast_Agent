@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.46-dev / BUILD_STAGE budget-nav-guard）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.47-dev / BUILD_STAGE config-blank-guard）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.46-dev';
-const BUILD_STAGE = 'budget-nav-guard';
+const VERSION = '2.3.47-dev';
+const BUILD_STAGE = 'config-blank-guard';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -1610,13 +1610,6 @@ function writeOutputFY_(result) {
   sh.getRange(6, 1).setValue(annualForecastNote + engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
     .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aHasError || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#000000')
     .setFontSize(10).setWrap(true);
-  const coerceMatch = String(step3aWarn || '').match(/warn_coerced=(\d+)/);
-  const coerceCount = coerceMatch ? Number(coerceMatch[1]) : 0;
-  if (coerceCount >= 3) {
-    sh.getRange(6, 1).setBackground('#fce5cd');
-    sh.getRange(6, 1).setNote(`warn_coerced=${coerceCount} 件検知。Gem出力の形式違反が多発しています。\n詳細は warn_coerced_detail を参照し、Gem側の出力形式を見直してください。`);
-  }
-
   // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
   const mixedP50 = result.mixed.p50 || new Array(12).fill(0);
@@ -3557,6 +3550,21 @@ function readVertexConfig_() {
   return cfg;
 }
 
+/**
+ * HOW TO TEST (config-blank-guard)
+ * 1) VERSION='2.3.47-dev' / BUILD_STAGE='config-blank-guard'、DLM_BUILD_STAGE 不変、先頭コメントも同期。
+ * 2) 正常セットアップ済み book（CONFIG 全シード）で A-9 → OUTPUT の年度合計・月次 P10/P50/P90 が
+ *    本変更の前後で不変（空セルが無く getCfg / readAiMissingConfidenceDefault_ の既定分岐に入らない）。
+ * 3) CONFIG チューニング表「QUAL_SUBJECTIVE_MONTHLY_CAP」B列を空にして A-9 →
+ *    変更前は cap が 0.01（≒無効）に化けたが、変更後は既定 0.40 が使われ主観オーバーレイが従来どおり効くこと。
+ * 4) 同「AI_WEIGHT」B列を空にして A-9 → 変更後は既定 0.0008 が使われ kAI 寄与が 0 に潰れないこと。
+ * 5) 同「AI_MISSING_CONFIDENCE_DEFAULT」B列を空にして A-4→A-9 → 変更後は既定 0.5 が使われ、
+ *    confidence 欠落の event 行が不採用（confDrop）でなく既定補完（confDefault）扱いになること。
+ *    明示的に 0 を入れた場合は従来どおり不採用（confDrop）になること（空と明示0を区別）。
+ * 6) grep で coercion 判定用の旧識別子が 0 件（writeOutputFY_ の死にコード削除）。OUTPUT row6 の
+ *    赤字判定（step3aHasError 由来）と表示内容は本削除の前後で不変であること。
+ * 7) AI_SCORE_HISTORY / AI_IMPACT_HISTORY のスキーマ・値（正常 book）が不変であること。
+ */
 function readModelTuningFromConfig_() {
   const out = {
     spotBgShrink: SPOT_BG_SHRINK,
@@ -3597,7 +3605,12 @@ function readModelTuningFromConfig_() {
 
   const labelMap = readConfigLabelMap_();
   const getCfg = (key, def) => {
-    const v = Number(labelMap[key]);
+    // 空セル('')/null/undefined・キー欠落は「未設定」として既定値へフォールバックする。
+    // Number('')===0 が isFinite を通り「0という上書き値」として採用され、各チューニング値が
+    // クランプ下限へ化ける罠（calibration-blank-override-fix と同型）を回避する。
+    const raw = labelMap[key];
+    if (raw === '' || raw === null || raw === undefined) return def;
+    const v = Number(raw);
     return isFinite(v) ? v : def;
   };
 
@@ -3653,7 +3666,12 @@ function readAiScoreBasis_() {
 
 function readAiMissingConfidenceDefault_() {
   const labelMap = readConfigLabelMap_();
-  const v = Number(labelMap.AI_MISSING_CONFIDENCE_DEFAULT);
+  // 空セル('')/null/undefined・キー欠落は既定値（0.5）へフォールバック。
+  // Number('')===0 が isFinite を通り 0（=confidence欠落の event 行は不採用）に化けるのを防ぐ。
+  // 明示的に 0 を入れた場合は従来どおり 0 を採用する（空と明示0を区別）。
+  const raw = labelMap.AI_MISSING_CONFIDENCE_DEFAULT;
+  if (raw === '' || raw === null || raw === undefined) return AI_MISSING_CONFIDENCE_DEFAULT;
+  const v = Number(raw);
   return isFinite(v) ? Math.max(0, Math.min(1, v)) : AI_MISSING_CONFIDENCE_DEFAULT;
 }
 
@@ -8986,7 +9004,7 @@ function syncSalesFromSalesInput_(fy, client) {
  */
 
 /**
- * HOW TO TEST (budget-nav-guard)
+ * HOW TO TEST (A-10 navigation guard)
  * 1) VERSION='2.3.46-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変、先頭コメントも同期。
  * 2) A-1 初期セットアップ直後（A-9 未実行）に「A-10 予算を策定」押下 →
  *    未実行を示す注意ダイアログで終了し、空の H24 へ移動しないこと。
