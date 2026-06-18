@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.41-dev';
-const BUILD_STAGE = 'report-text-compress';
+const VERSION = '2.3.42-dev';
+const BUILD_STAGE = 'dashboard-menu-to-b';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -30,7 +30,7 @@ const OVERFORECAST_RATE_CONSTRAINT = 0.05;
  *
  * [Phase1 -> Phase2 移行の目安]
  * 1) 最低3か月、月次運用が安定して継続されていること
- *    - A-1/A-2/A-9/A-10/B-2 の実行漏れがなく、PROCESS_STATUSが継続的に success
+ *    - A-1/A-2/A-9/B-1/B-2/B-3 の実行漏れがなく、PROCESS_STATUSが継続的に success
  * 2) 精度KPIが最低基準を満たすこと
  *    - 全体sMAPE <= 30%（目安）
  *    - 実測がネガ〜ポジ帯に入る割合 >= 70%（目安）
@@ -48,7 +48,7 @@ const OVERFORECAST_RATE_CONSTRAINT = 0.05;
  * 1) A-2 売上データを取り込み
  * 2) （必要時）A-4 AI調査を取り込む→AI結果貼付
  * 3) A-9 予測実行（単一クライアント）
- * 4) A-10 予測ダッシュボードを更新
+ * 4) B-3 ダッシュボード更新
  * 5) 実績確定後にB-1検証実績取り込み→B-2予測検証レポート更新
  *
  * [運用時の注意]
@@ -231,6 +231,20 @@ const SUBJECTIVE_OVERLAY_TARGET_CENTER = 0.08;
 const SUBJECTIVE_OVERLAY_TARGET_LOW = 0.05;
 const SUBJECTIVE_OVERLAY_TARGET_HIGH = 0.12;
 
+/**
+ * HOW TO TEST (dashboard-menu-to-b)
+ * 1) VERSION='2.3.42-dev' / BUILD_STAGE は本ブロック名、DLM_BUILD_STAGE 不変。
+ * 2) book を開き直す → Forecast Agent メニューの A 群が A-1〜A-9 で終わり、
+ *    旧ダッシュボード項目が A 群に無いこと。
+ * 3) B 群が 実績取込 / 検証レポート / ダッシュボード更新 / 検証インサイト の順で、
+ *    3番目が updatePhase1Dashboard を呼ぶこと。
+ * 4) A-1 初期セットアップ → GUIDE 手順表の A 行が A-1〜A-9、B 行が B-1〜B-4 で
+ *    B側3番目にダッシュボード更新が入ること。行ズレ・重なりが無いこと。
+ * 5) GUIDE 分類表で DASHBOARD が「事後検証用」に並び緑(#d9ead3)表示、OUTPUT は「出力用」のままであること。
+ * 6) B-1 → B-2 → B-3 → B-4 を順に実行し、各機能が従来どおり動作すること
+ *    （updatePhase1Dashboard は本体・ガード step4_status とも不変）。
+ * 7) A-9 の OUTPUT 年度合計・月次 P10/P50/P90 が本変更の前後で不変であること（表記/配置のみ・予測非影響）。
+ */
 /** ====== メニュー ====== */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
@@ -245,11 +259,11 @@ function onOpen() {
     .addItem('A-7 担当者意見を入力', 'openOpinionsEntryDialog')
     .addItem('A-8 開発/スポット要因を入力', 'openDevEntryDialog')
     .addItem('A-9 予測を実行', 'runPhase1Forecast')
-    .addItem('A-10 予測ダッシュボードを更新', 'updatePhase1Dashboard')
     .addSeparator()
     .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
-    .addItem('B-3 検証インサイトを更新', 'updatePhase1LearningInsights')
+    .addItem('B-3 予測ダッシュボードを更新', 'updatePhase1Dashboard')
+    .addItem('B-4 検証インサイトを更新', 'updatePhase1LearningInsights')
     .addSeparator()
     .addItem('C-1 四半期レビューを実行（3か月に1回）', 'runQuarterlyReview')
     .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
@@ -2358,17 +2372,17 @@ function buildGUIDE_() {
     ['A-予測', 'A-6 クライアント動向を入力', 'CLIENT へ入力。'],
     ['A-予測', 'A-7 担当者意見を入力', 'OPINIONS へ入力（担当者全員分）。'],
     ['A-予測', 'A-8 開発/スポット要因を入力', 'DEV_SPOT へ入力。'],
-    ['A-予測', 'A-9 予測を実行', 'OUTPUT を更新（実行前に注意ロジックで1件ずつ確認）。'],
-    ['A-予測', 'A-10 予測ダッシュボードを更新', 'DASHBOARD を更新。']
+    ['A-予測', 'A-9 予測を実行', 'OUTPUT を更新（実行前に注意ロジックで1件ずつ確認）。']
   ];
   sh.getRange(3, 1, aRows.length, 3).setValues(aRows).setBackground(C_A);
 
   const bRows = [
     ['B-事後検証', 'B-1 検証用に実績データを取り込み', '実績を ACTUAL_EVAL_MONTHLY に取り込み（BASE/SPOT判定つき）。'],
     ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
-    ['B-事後検証', 'B-3 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
+    ['B-事後検証', 'B-3 予測ダッシュボードを更新', 'DASHBOARD を更新（B-2の比較結果からKPIを集計）。'],
+    ['B-事後検証', 'B-4 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
   ];
-  sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
+  sh.getRange(12, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
   const cRows = [
     ['C-四半期レビュー', 'C-1 四半期レビューを実行（3か月に1回）', 'AI診断と全体キャリブレーション提案を生成。'],
@@ -2388,10 +2402,10 @@ function buildGUIDE_() {
     ['ユーザ入力用', SHEETS.OPINIONS, '担当者意見入力'],
     ['ユーザ入力用', SHEETS.DEV_SPOT, '開発/スポット要因入力'],
     ['出力用', SHEETS.OUTPUT, '予測出力'],
-    ['出力用', SHEETS.DASHBOARD, 'ダッシュボード'],
     ['事後検証用', SHEETS.ACTUAL_EVAL_MONTHLY, '検証実績（月次案件一覧）'],
     ['事後検証用', SHEETS.EVAL_COMPARE_MONTHLY, '予測/実績比較（BASE・SPOT）'],
     ['事後検証用', SHEETS.EVAL_LOG, '予測検証ログ'],
+    ['事後検証用', SHEETS.DASHBOARD, 'ダッシュボード（KPI集計）'],
     ['事後検証用', SHEETS.EVAL_INSIGHTS, '検証インサイト'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
@@ -7603,7 +7617,7 @@ function runPhase1Forecast() {
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     const prodWarn = result.productWeightWarning ? `;prodw=${result.productWeightWarning}` : '';
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}${prodWarn}`);
-    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は A-10 予測ダッシュボードを更新 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は B-3 のダッシュボード更新を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
