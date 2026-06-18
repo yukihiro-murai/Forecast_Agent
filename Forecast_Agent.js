@@ -8575,10 +8575,10 @@ function syncSalesFromSalesInput_(fy, client) {
  * 18) GUIDEの「シート分類」表で同一分類が連続配置され、色分けが分類と一致していることを確認。
  * 19) GUIDEの因果経路フローチャート本文に不要なグレー塗りが無いことを確認。
  * 20) CONFIGで担当者入力はA4/B4のみで、B10に互換用参照（=B4）が作られないことを確認。
- * 21) Gem出力の confidence 列に整数「4」を入れて A-9 実行時、warn_coerced_detail.conf15 が計上されることを確認。
+ * 21) Gem出力の confidence 列に整数「4」を入れて A-9 実行時、coercion detail の conf15 が計上されることを確認。
  * 22) Gem出力の relative_percentile を空欄＋relative_position_label のみで投入し、label逆引き補完が動くことを確認。
- * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、warn_coerced_detail.quality が計上されることを確認。
- * 24) Gem event 行のタブ不足TSVで A-9 実行時、warn_coerced_detail.colcount が増え、半分未満行のみinvalidになることを確認。
+ * 23) Gem出力の benchmark_quality に \"4\" を入れて A-9 実行時、coercion detail の quality が計上されることを確認。
+ * 24) Gem event 行のタブ不足TSVで A-9 実行時、coercion detail の colcount が増え、半分未満行のみinvalidになることを確認。
  * 25) AI_RESEARCH!G列に tsv_diagnostics が出力され、各行のタブ数/topic が確認できることを確認。
  * 26) RELIABILITY_APPLY_ENABLED 既定=1。SOURCE_RELIABILITY 空なら、A-9 の OUTPUT が信頼度OFF時と一致（no-op）。
  * 27) A-1 で SUBJECTIVE_IMPACT_HISTORY が新規・非表示で作成され、A-9 で push 行が追記される。
