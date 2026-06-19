@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.48-dev / BUILD_STAGE output-display-polish）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.49-dev / BUILD_STAGE output-nav-polish）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.48-dev';
-const BUILD_STAGE = 'output-display-polish';
+const VERSION = '2.3.49-dev';
+const BUILD_STAGE = 'output-nav-polish';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -272,7 +272,21 @@ function onOpen() {
     .addToUi();
 }
 
-/** A-10 予算を策定：OUTPUT の予算策定欄（H24）へ移動する（ナビゲーションのみ・予測非影響）。 */
+/**
+ * HOW TO TEST (nav polish)
+ * 1) VERSION='2.3.49-dev' / BUILD_STAGE='output-nav-polish'、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
+ * 2) A-9 実行後に「A-10 予算を策定」を押下 → OUTPUT が前面化し、予算ブロック（H24:J40）が画面の中ほどに
+ *    収まること（ヘッダ行 24 が画面下端に張り付く／J40 が見切れる状態にならない）。AI coverage 注記（21〜23 行）が
+ *    上の文脈として残り、その下に予算ブロック全体が見えること。アクティブセルは範囲左上の H24。
+ *    ※ 移動時に一瞬下→上へスクロールするちらつきは決定論的スクロールの仕様（許容）。
+ * 3) OUTPUT 不在 / A-9 未実行（タイトル空）のガードは従来どおり動作（注意ダイアログで終了）すること。
+ * 4) 「A-9 予測を実行」完了後にブロッキングな完了ダイアログ（B-3 への次手順案内）が出ないこと。
+ *    代わりに軽量トースト「予測を更新しました。」のみが出る（次手順の案内文言を含まない）こと。
+ * 5) grep で B-3 への次手順案内文言が 0 件であること（A-9 完了ダイアログ撤去の確認）。
+ * 6) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）および予算列 H/I/J の値・数式が本変更の前後で不変
+ *    であること（表示・ナビ・トーストのみ・予測非影響）。
+ */
+/** A-10 予算を策定：OUTPUT の予算策定欄（H24:J40）へ移動する（ナビゲーションのみ・予測非影響）。 */
 function gotoBudgetEntry() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
@@ -287,9 +301,20 @@ function gotoBudgetEntry() {
   }
   try { sh.showSheet(); } catch (e) {}
   ss.setActiveSheet(sh);
-  // 予算ブロック全体（H24:J40）を選択してアクティブ化し、対象範囲をできるだけ画面内に収める。
-  // 単一セル H24 だと J40 まで画面に入らずスクロール位置がずれるため、範囲選択で全体を可視化する
-  // （アクティブセルは範囲左上の H24 になる）。
+  SpreadsheetApp.flush();
+  // 予算ブロック（H24:J40）が画面の中ほどに収まる位置へ決定論的にスクロールする。
+  // 直接 H24:J40 を activate すると、直前のスクロール位置に依存してブロックが画面端（特に下端でヘッダ行だけ
+  // 見える状態）へ寄ってしまう。これを避けるため：
+  //   (1) ブロックより十分下の行へ一度ジャンプし（下方向スクロール）、
+  //   (2) ブロックの数行上（H21=AI coverage 注記）を上方向スクロールで画面最上部へアンカーし、
+  //   (3) 予算ブロック H24:J40 を選択する。
+  // (3) の時点で H24 は既に可視（最上部の数行下）のため再スクロールが起きず、(2) のアンカー位置
+  // （上に文脈を残した中ほど表示）が保たれる。アクティブセルは範囲左上の H24。
+  const budgetJumpRow = Math.max(80, sh.getLastRow());
+  sh.getRange(budgetJumpRow, 8).activate();
+  SpreadsheetApp.flush();
+  sh.getRange('H21').activate();
+  SpreadsheetApp.flush();
   sh.getRange('H24:J40').activate();
   ss.toast('予算策定欄（H24〜J40）に移動しました。Adopted Forecast と Sales Uplift を入力してください。', MENU_NAME, 6);
 }
@@ -1555,8 +1580,8 @@ function buildReliabilityText_(result) {
 }
 
 /**
- * HOW TO TEST (output-display-polish)
- * 1) VERSION='2.3.48-dev' / BUILD_STAGE='output-display-polish'、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
+ * HOW TO TEST (display polish)
+ * 1) 当時の VERSION / BUILD_STAGE、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
  * 2) A-9 を実行 → OUTPUT 6行目（注記ブロック）が、警告/エラーの有無にかかわらず常に黒字（既定色）で表示され、
  *    赤字（#b71c1c）にならないこと。productWeightWarning や AI取込エラー（web/rag/structure_error）がある場合も
  *    テキストは表示されるが、行全体は赤くならないこと（AI個別の警告強調は21〜23行に残る）。
@@ -7733,7 +7758,10 @@ function runPhase1Forecast() {
     updateProcessStatus_('step4_status','success',client,result.months.length,'');
     const prodWarn = result.productWeightWarning ? `;prodw=${result.productWeightWarning}` : '';
     logRun_('runPhase1Forecast', client, 'success', result.months.length, started, `ai_rows=${parsed.rows || 0};ai_warn=${parsed.warning || ''}${prodWarn}`);
-    SpreadsheetApp.getUi().alert('完了', '予測を更新しました。\n次は B-3 のダッシュボード更新を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 完了ダイアログ（ポップアップ）は廃止。予測の実行者と事後検証（B-3 等）の実行者は別であり、次手順の案内は
+    // 不要なため、ブロッキングな案内ダイアログは出さない。完了の手掛かりとして軽量トーストのみ表示する
+    // （次手順の案内文言は含めない）。トースト自体も不要なら次行を削除してよい。
+    ss.toast('予測を更新しました。', MENU_NAME, 5);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
     SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
