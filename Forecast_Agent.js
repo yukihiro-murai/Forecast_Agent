@@ -1,5 +1,5 @@
 /***************************************
- * Forecast Agent v8 track / multiclient-template（VERSION 2.3.47-dev / BUILD_STAGE config-blank-guard）
+ * Forecast Agent v8 track / multiclient-template（VERSION 2.3.48-dev / BUILD_STAGE output-display-polish）
  * 単一メーカー（1クライアント）用 / Google Sheets 実装
  *
  * 現行反映:
@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.47-dev';
-const BUILD_STAGE = 'config-blank-guard';
+const VERSION = '2.3.48-dev';
+const BUILD_STAGE = 'output-display-polish';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -287,7 +287,10 @@ function gotoBudgetEntry() {
   }
   try { sh.showSheet(); } catch (e) {}
   ss.setActiveSheet(sh);
-  sh.getRange('H24').activate();
+  // 予算ブロック全体（H24:J40）を選択してアクティブ化し、対象範囲をできるだけ画面内に収める。
+  // 単一セル H24 だと J40 まで画面に入らずスクロール位置がずれるため、範囲選択で全体を可視化する
+  // （アクティブセルは範囲左上の H24 になる）。
+  sh.getRange('H24:J40').activate();
   ss.toast('予算策定欄（H24〜J40）に移動しました。Adopted Forecast と Sales Uplift を入力してください。', MENU_NAME, 6);
 }
 
@@ -1551,6 +1554,22 @@ function buildReliabilityText_(result) {
   return `Source Reliability: ${apply ? 'ON' : 'OFF'} / 非1.0ソース数=${count}${detail} / SPOT上限基準=${(result && result.spotCapBasis) || 'dlm'}`;
 }
 
+/**
+ * HOW TO TEST (output-display-polish)
+ * 1) VERSION='2.3.48-dev' / BUILD_STAGE='output-display-polish'、DLM_BUILD_STAGE 不変、ファイル先頭コメントも同期。
+ * 2) A-9 を実行 → OUTPUT 6行目（注記ブロック）が、警告/エラーの有無にかかわらず常に黒字（既定色）で表示され、
+ *    赤字（#b71c1c）にならないこと。productWeightWarning や AI取込エラー（web/rag/structure_error）がある場合も
+ *    テキストは表示されるが、行全体は赤くならないこと（AI個別の警告強調は21〜23行に残る）。
+ * 3) grep で writeOutputFY_ 内の旧エラー判定識別子が定義・参照とも 0 件（死にコード削除）。
+ *    step3aWarn は「AI取込警告サマリー」表示に引き続き使われ残存していること。
+ * 4) A-9 実行後に「A-10 予算を策定」を押下 → OUTPUT が前面化し、H24:J40 の予算ブロック全体が
+ *    画面内にできるだけ収まる位置にスクロールし、アクティブセルが H24（左上）になること。
+ *    OUTPUT 不在 / A-9 未実行（タイトル空）のガードは従来どおり動作すること。
+ * 5) A-9 実行後、OUTPUT の K 列（11列目）の幅が 130px になり、潰れた細い列（旧 40px）でないこと。
+ *    H/I/J=160px、グラフが L 列（12列目）開始で H/I/J と重ならないことは不変。
+ * 6) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）および予算列 H/I/J の値・数式が
+ *    本変更の前後で不変であること（表示・ナビゲーションのみ・予測非影響）。
+ */
 function writeOutputFY_(result) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(SHEETS.OUTPUT);
@@ -1566,11 +1585,11 @@ function writeOutputFY_(result) {
   sh.setColumnWidth(5, 200);
   sh.setColumnWidth(6, 190);
   for (let c = 7; c <= 12; c++) sh.setColumnWidth(c, 130);
-  // 予算列 H/I/J を読みやすく、K(11) を余白に（グラフは L(12) 列開始）
+  // 予算列 H/I/J を読みやすく、K(11) は予算列とグラフ（L列開始）の間の余白として標準幅(130px)を確保（潰れ防止）
   sh.setColumnWidth(8, 160);
   sh.setColumnWidth(9, 160);
   sh.setColumnWidth(10, 160);
-  sh.setColumnWidth(11, 40);
+  sh.setColumnWidth(11, 130);
 
   const fy = result.fy;
   const client = result.clientName;
@@ -1605,10 +1624,9 @@ function writeOutputFY_(result) {
   const annualForecastNote = (result.closedMonthMode === 'forecast')
     ? '本予測は通年（12ヶ月）の見通しです。計画の主数値は「混合」セクションの年度合計 Baseline(P50)。期中の着地（実績差し替え）には用いず、経過月の実績は参考（ActualClosed列）として併記し予測値には混ぜていません。MonteCarlo / Linear / Seasonal の併記は比較・参考で、計画値は混合の年度合計 P50 です。\n'
     : '経過月は実績（ActualClosed列）で表示していますが、年度合計(P10/P50/P90)は12ヶ月すべてを予測として算出した通年予測です（経過実績で固定した着地値ではありません）。\n';
-  const step3aHasError = /(?:web_error|rag_error|structure_error)=[1-9]/.test(String(step3aWarn || ''));
   sh.getRange(6, 1, 1, 6).merge();
   sh.getRange(6, 1).setValue(annualForecastNote + engineText + '\n' + subjectiveCapText + '\n' + reliabilityText + '\n' + productWeightWarningText + (step3aWarn ? `AI取込警告サマリー: ${step3aWarn}` : 'AI取込警告サマリー: なし') + '\n' + calText)
-    .setFontColor((String(engineText).indexOf('⚠') >= 0 || step3aHasError || productWeightWarning || String(calText).indexOf('⚠') >= 0) ? '#b71c1c' : '#000000')
+    .setFontColor('#000000')
     .setFontSize(10).setWrap(true);
   // KPIブロック（診断）
   const quantP50 = (result.quantOnly || result.objOnly).p50 || new Array(12).fill(0);
@@ -3562,7 +3580,7 @@ function readVertexConfig_() {
  *    confidence 欠落の event 行が不採用（confDrop）でなく既定補完（confDefault）扱いになること。
  *    明示的に 0 を入れた場合は従来どおり不採用（confDrop）になること（空と明示0を区別）。
  * 6) grep で coercion 判定用の旧識別子が 0 件（writeOutputFY_ の死にコード削除）。OUTPUT row6 の
- *    赤字判定（step3aHasError 由来）と表示内容は本削除の前後で不変であること。
+ *    表示内容が本削除の前後で不変であること。
  * 7) AI_SCORE_HISTORY / AI_IMPACT_HISTORY のスキーマ・値（正常 book）が不変であること。
  */
 function readModelTuningFromConfig_() {
