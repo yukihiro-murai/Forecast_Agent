@@ -1,0 +1,7 @@
+# The Admin/forecast service project is composed only from root GAS files.
+# client_runtime is deployed independently to the clean Master Template project.
+**/**
+!**/*.js
+!**/*.html
+!appsscript.json
+client_runtime/**

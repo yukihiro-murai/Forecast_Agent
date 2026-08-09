@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    :root { --blue:#174ea6; --text:#202124; --muted:#5f6368; --line:#dadce0; --soft:#f8f9fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:18px; color:var(--text); font:14px/1.65 Arial,"Noto Sans JP",sans-serif; }
+    h1 { margin:0 0 8px; font-size:20px; }
+    h2 { margin:22px 0 8px; font-size:15px; color:var(--blue); }
+    p { margin:6px 0; }
+    ol,ul { margin:6px 0; padding-left:22px; }
+    .lead { padding:12px; border-radius:8px; background:#e8f0fe; }
+    .card { margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:8px; }
+    .term { display:grid; grid-template-columns:90px 1fr; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); }
+    .term:last-child { border-bottom:0; }
+    .term strong { color:var(--blue); }
+    .muted { color:var(--muted); font-size:12px; }
+    button { width:100%; margin-top:22px; padding:10px; border:0; border-radius:6px; color:#fff; background:var(--blue); font-weight:700; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h1>使い方・困ったとき</h1>
+  <div class="lead">迷ったら、まず「1_ホーム」の緑色の「次にすること」を確認してください。状態に応じて、必要な操作は1つだけ表示されます。</div>
+
+  <h2>基本の流れ</h2>
+  <ol>
+    <li>自分が知っている変化を回答します。</li>
+    <li>Forecast Ownerが予測を依頼します。</li>
+    <li>予測の根拠と振れ幅を確認し、計画案を作ります。</li>
+    <li>管理者が承認すると、正式計画として凍結されます。</li>
+  </ol>
+
+  <h2>入力で大切なこと</h2>
+  <div class="card">
+    <p><strong>「変化なし」「わからない」も有効な回答です。</strong></p>
+    <p>無理に数字を作る必要はありません。確認済みの事実、有力情報、仮説を区別して入力してください。</p>
+    <p class="muted">入力した内容は保存前に概算影響を確認できます。本人が確認するまで保存されません。</p>
+  </div>
+
+  <h2>数字の意味</h2>
+  <div class="card">
+    <div class="term"><strong>中心見込み</strong><span>現在使える情報を前提にした、売上予測の中心です。</span></div>
+    <div class="term"><strong>通常の振れ幅</strong><span>通常起こり得る不確実性の範囲です。必達目標ではありません。</span></div>
+    <div class="term"><strong>採用予測</strong><span>システム推奨予測を見た上で、Forecast Ownerが責任を持って採用した見込みです。</span></div>
+    <div class="term"><strong>営業上積み</strong><span>具体的な行動・責任者・期限を伴う、予測とは別の営業目標です。</span></div>
+    <div class="term"><strong>最終予算</strong><span>採用予測と営業上積みを合計した、親会社へ提出する年度計画です。</span></div>
+  </div>
+
+  <h2>よくある状況</h2>
+  <ul>
+    <li>入力できない：予測作成中、承認中、または正式計画の凍結後です。</li>
+    <li>数字がない：「1_ホーム」に戻り、表示された次の操作を進めてください。</li>
+    <li>誤ったAI情報がある：対象の根拠を添えてForecast Ownerへ知らせてください。</li>
+    <li>画面が古い：スプレッドシートを再読み込みし、「ホームに戻る」を選んでください。</li>
+  </ul>
+
+  <p class="muted">管理者設定、モデル係数、Vertex AI設定はこのブックにはありません。技術的な問題は、クライアント名・FY・画面の状態を添えて管理者へ連絡してください。</p>
+  <button type="button" onclick="google.script.host.close()">閉じる</button>
+</body>
+</html>

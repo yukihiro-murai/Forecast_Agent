@@ -1,0 +1,7852 @@
+/**
+ * Forecast vNext Admin Hub / Provisioner.
+ * Existing Forecast_Agent.js is intentionally not modified; all entry points are vNext-prefixed.
+ */
+
+const VN_ADMIN_SCHEMA_VERSION = 'vnext-admin-1';
+const VN_ADMIN_MENU_NAME = 'Forecast vNext Admin';
+const VN_ADMIN_META_SHEET = 'BOOK_META';
+const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
+const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
+const VN_ADMIN_OFFICIAL_COPY_SHEET = 'OFFICIAL_SNAPSHOT';
+const VN_ADMIN_CLIENT_REQUEST_SHEET = 'VN_CLIENT_REQUEST';
+const VN_ADMIN_SCHEDULED_HANDLER = 'vNextAdminScheduledSweep';
+const VN_ADMIN_PILOT_INITIAL_LIMIT = 3;
+const VN_ADMIN_PILOT_CANARY_LIMIT = 5;
+const VN_ADMIN_STALE_MINUTES = 15;
+const VN_ADMIN_MIGRATION_APPLY_ENABLED = false;
+const VN_ADMIN_MODES = ['LEGACY', 'ADMIN', 'TEMPLATE', 'CLIENT'];
+const VN_ADMIN_CLIENT_STATES = [
+  'INPUT_OPEN', 'READY_TO_RUN', 'RUNNING', 'DRAFT_READY', 'SUBMITTED',
+  'CHANGES_REQUESTED', 'OFFICIAL_LOCKED', 'REVIEW_DUE', 'YEAR_CLOSED'
+];
+
+const VN_ADMIN_RUNTIME_KEYS = [
+  'FORECAST_SOURCE_SPREADSHEET_ID',
+  'VNEXT_ZAC_SOURCE_SPREADSHEET_ID',
+  'VERTEX_PROJECT_ID',
+  'VERTEX_LOCATION',
+  'VERTEX_GEMINI_MODEL',
+  'VERTEX_DATASTORE_ID',
+  'VERTEX_SEARCH_LOCATION',
+  'VERTEX_SERVING_CONFIG',
+  'VNEXT_ADMIN_EMAILS',
+  'VNEXT_ROOT_FOLDER_ID',
+  'VNEXT_ADMIN_HUB_SPREADSHEET_ID',
+  'VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID',
+  'VNEXT_DEFAULT_EDITORS',
+  'VNEXT_DEFAULT_VIEWERS',
+  'VNEXT_ACTIVE_RELEASE_ID',
+  'VNEXT_ACTIVE_MODEL_RELEASE_ID'
+];
+
+const VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS = Object.freeze([
+  'requestId', 'bookId', 'clientId', 'clientName', 'fiscalYear', 'asOf',
+  'cutoff', 'bookConfiguredAsOf', 'requestedAt', 'requestedBy'
+]);
+const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V2';
+const VN_ADMIN_TEMPLATE_FORBIDDEN_FORMULA = /\b(?:IMPORTRANGE|IMPORTDATA|IMPORTHTML|IMPORTXML|GOOGLEFINANCE)\s*\(/i;
+const VN_ADMIN_AI_ROLLBACK_SCOPES = Object.freeze(['ALL', 'SELECTED']);
+const VN_ADMIN_RETURN_ROUTES = Object.freeze({
+  PLAN_ONLY: 'CHANGES_REQUESTED',
+  REOPEN_INPUT: 'INPUT_OPEN',
+  RERUN_SAME_INPUT: 'READY_TO_RUN'
+});
+
+const VN_ADMIN_SHEETS = {
+  HOME: 'ADMIN_HOME',
+  EXCEPTIONS: 'TODAY_EXCEPTIONS',
+  REGISTRY: 'BOOK_REGISTRY',
+  TEAM: 'TEAM_REGISTRY',
+  JOBS: 'JOB_QUEUE',
+  JOB_LOG: 'JOB_LOG',
+  OFFICIAL: 'OFFICIAL_RUNS',
+  APPROVALS: 'PLAN_APPROVALS',
+  RELEASES: 'RELEASES',
+  TEMPLATE_JOURNAL: 'TEMPLATE_RELEASE_JOURNAL',
+  SETTINGS: 'MODEL_SETTINGS',
+  MIGRATIONS: 'MIGRATION_LOG',
+  AUDIT: 'ADMIN_AUDIT_LOG'
+};
+
+const VN_ADMIN_HEADERS = {};
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.EXCEPTIONS] = [
+  'exception_id', 'severity', 'exception_type', 'book_id', 'client_name', 'fiscal_year',
+  'title', 'detail', 'recommended_action', 'status', 'detected_at', 'source_ref'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.REGISTRY] = [
+  'book_id', 'mode', 'client_id', 'client_name', 'fiscal_year', 'spreadsheet_id', 'spreadsheet_url',
+  'client_script_id', 'client_runtime_version', 'client_runtime_sha256',
+  'admin_script_id', 'admin_runtime_sha256',
+  'template_release_id', 'schema_version', 'state', 'status', 'health_status', 'health_code',
+  'last_health_at', 'last_forecast_at', 'current_official_id', 'forecast_owner_emails',
+  'editor_emails', 'viewer_emails', 'created_at', 'created_by', 'updated_at', 'note'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEAM] = [
+  'team_key', 'book_id', 'client_id', 'fiscal_year', 'email', 'role', 'status',
+  'created_at', 'created_by', 'updated_at', 'note'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.JOBS] = [
+  'job_id', 'job_type', 'target_book_id', 'target_spreadsheet_id', 'request_json', 'idempotency_key',
+  'status', 'priority', 'attempts', 'not_before', 'locked_at', 'locked_by', 'started_at',
+  'finished_at', 'result_json', 'error', 'created_at', 'created_by', 'updated_at'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.JOB_LOG] = [
+  'log_id', 'job_id', 'logged_at', 'status', 'message', 'detail_json', 'actor'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.OFFICIAL] = [
+  'official_id', 'book_id', 'client_id', 'client_name', 'fiscal_year', 'forecast_run_id',
+  'source_forecast_run_id',
+  'approval_request_id', 'record_type', 'supersedes_official_id', 'amendment_reason',
+  'snapshot_json', 'snapshot_hash', 'immutable_hash', 'model_release_id', 'issued_at',
+  'issued_by', 'note'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.APPROVALS] = [
+  'approval_request_id', 'request_type', 'book_id', 'client_id', 'client_name', 'fiscal_year',
+  'forecast_run_id', 'plan_version_id', 'supersedes_official_id', 'amendment_reason', 'snapshot_json', 'snapshot_hash',
+  'status', 'processing_attempts', 'requested_at', 'requested_by', 'decision_at', 'decision_by', 'decision_comment',
+  'official_id', 'idempotency_key', 'updated_at'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_CLIENT_REQUEST_SHEET] = [
+  'request_event_id', 'request_id', 'book_id', 'event_type', 'status', 'request_hash',
+  'request_json', 'requested_at', 'requested_by', 'related_job_id', 'related_run_id',
+  'detail_json', 'created_at'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.RELEASES] = [
+  'release_id', 'release_name', 'status', 'template_spreadsheet_id', 'schema_version',
+  'engine_version', 'ux_version', 'admin_version', 'client_runtime_version',
+  'client_runtime_sha256', 'template_content_sha256', 'template_manifest_schema',
+  'template_script_id', 'created_at', 'created_by',
+  'activated_at', 'note'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEMPLATE_JOURNAL] = [
+  'journal_id', 'operation_id', 'release_id', 'model_release_id', 'previous_release_id',
+  'previous_model_release_id', 'template_spreadsheet_id', 'phase', 'status',
+  'detail_json', 'occurred_at', 'actor'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.SETTINGS] = [
+  'setting_key', 'setting_value', 'value_type', 'scope', 'effective_from', 'updated_at',
+  'updated_by', 'note'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.MIGRATIONS] = [
+  'migration_id', 'book_id', 'spreadsheet_id', 'from_release_id', 'to_release_id', 'status',
+  'dry_run', 'plan_json', 'result_json', 'started_at', 'finished_at', 'actor', 'error'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.AUDIT] = [
+  'audit_id', 'occurred_at', 'actor', 'action', 'entity_type', 'entity_id', 'status',
+  'detail_json', 'before_hash', 'after_hash'
+];
+
+const VN_ADMIN_DEFAULT_CLIENT_VISIBLE = ['1_ホーム', '2_予測と計画'];
+const VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE = ['1_ホーム', '2_予測と計画', '3_振り返り'];
+const VN_ADMIN_DEFAULT_HUB_VISIBLE = [
+  VN_ADMIN_SHEETS.HOME, VN_ADMIN_SHEETS.EXCEPTIONS, VN_ADMIN_SHEETS.REGISTRY,
+  VN_ADMIN_SHEETS.JOBS, VN_ADMIN_SHEETS.APPROVALS, VN_ADMIN_SHEETS.OFFICIAL,
+  VN_ADMIN_SHEETS.RELEASES
+];
+
+/**
+ * Store runtime configuration in Script Properties. Values are deliberately not returned.
+ * This is a public, menu-free API intended for clasp/API setup.
+ */
+function vNextConfigureRuntime(config) {
+  return vNextAdminGuard_('vNextConfigureRuntime', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const input = config && typeof config === 'object' ? config : {};
+    if (Object.prototype.hasOwnProperty.call(input, 'VNEXT_ACTIVE_MODEL_RELEASE_ID')) {
+      throw new Error('Use vNextAdminActivateModelRelease or vNextAdminRollbackModelRelease to change the active model pointer.');
+    }
+    const unknown = Object.keys(input).filter(function (key) {
+      return VN_ADMIN_RUNTIME_KEYS.indexOf(key) < 0;
+    });
+    if (unknown.length) throw new Error('Unsupported runtime configuration keys: ' + unknown.join(', '));
+
+    return vNextAdminWithScriptLock_('runtime-config', function () {
+      const props = PropertiesService.getScriptProperties();
+      const saved = [];
+      const normalizedInput = Object.assign({}, input);
+      if (normalizedInput.FORECAST_SOURCE_SPREADSHEET_ID && !normalizedInput.VNEXT_ZAC_SOURCE_SPREADSHEET_ID) {
+        normalizedInput.VNEXT_ZAC_SOURCE_SPREADSHEET_ID = normalizedInput.FORECAST_SOURCE_SPREADSHEET_ID;
+      }
+      if (normalizedInput.VNEXT_ZAC_SOURCE_SPREADSHEET_ID && !normalizedInput.FORECAST_SOURCE_SPREADSHEET_ID) {
+        normalizedInput.FORECAST_SOURCE_SPREADSHEET_ID = normalizedInput.VNEXT_ZAC_SOURCE_SPREADSHEET_ID;
+      }
+      Object.keys(normalizedInput).forEach(function (key) {
+        let value = normalizedInput[key];
+        if (Array.isArray(value)) value = value.join(',');
+        if (value === null || value === undefined || String(value).trim() === '') {
+          props.deleteProperty(key);
+          saved.push(key);
+          return;
+        }
+        props.setProperty(key, String(value).trim());
+        saved.push(key);
+      });
+      const active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active && vNextDetectBookMode_(active) === 'ADMIN') {
+        const hubConfigPatch = {};
+        [
+          'FORECAST_SOURCE_SPREADSHEET_ID', 'VNEXT_ZAC_SOURCE_SPREADSHEET_ID',
+          'VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL',
+          'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG',
+          'VNEXT_ADMIN_EMAILS', 'VNEXT_ACTIVE_RELEASE_ID', 'VNEXT_ACTIVE_MODEL_RELEASE_ID'
+        ].forEach(function (key) {
+          if (!Object.prototype.hasOwnProperty.call(normalizedInput, key)) return;
+          if (key === 'FORECAST_SOURCE_SPREADSHEET_ID' || key === 'VNEXT_ZAC_SOURCE_SPREADSHEET_ID') {
+            hubConfigPatch.source_spreadsheet_id = normalizedInput[key] || '';
+          } else if (key === 'VNEXT_ADMIN_EMAILS') {
+            hubConfigPatch.admin_emails = normalizedInput[key] || '';
+          } else if (key === 'VNEXT_ACTIVE_RELEASE_ID') {
+            hubConfigPatch.active_release_id = normalizedInput[key] || '';
+          } else if (key === 'VNEXT_ACTIVE_MODEL_RELEASE_ID') {
+            hubConfigPatch.active_model_release_id = normalizedInput[key] || '';
+          } else {
+            hubConfigPatch[key] = normalizedInput[key] || '';
+          }
+        });
+        if (Object.keys(hubConfigPatch).length) vNextAdminWriteSystemConfig_(active, hubConfigPatch);
+      }
+      Logger.log('vNext runtime configuration updated keys=%s', saved.join(','));
+      return { savedKeys: saved.sort() };
+    });
+  });
+}
+
+/** Internal runtime reader. Do not expose this object through employee-facing APIs. */
+function vNextGetRuntimeConfig_() {
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const out = {};
+  VN_ADMIN_RUNTIME_KEYS.forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(props, key)) out[key] = props[key];
+  });
+  return out;
+}
+
+/**
+ * Global mode detector consumed by the shared vNext onOpen router.
+ * Returns one of LEGACY / ADMIN / TEMPLATE / CLIENT.
+ */
+function vNextDetectBookMode_(spreadsheet) {
+  try {
+    const ss = vNextAdminResolveSpreadsheet_(spreadsheet);
+    const routing = Object.assign(
+      {},
+      vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET),
+      vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET)
+    );
+    const explicit = String(routing.mode || '').trim().toUpperCase();
+    if (VN_ADMIN_MODES.indexOf(explicit) >= 0) {
+      vNextAdminHydrateLocalRuntime_(ss, routing);
+      return explicit;
+    }
+
+    const names = new Set(ss.getSheets().map(function (sheet) { return sheet.getName(); }));
+    if (names.has(VN_ADMIN_SHEETS.REGISTRY) && names.has(VN_ADMIN_SHEETS.JOBS) && names.has(VN_ADMIN_SHEETS.RELEASES)) {
+      return 'ADMIN';
+    }
+    // BOOK_META is reserved for VNext_Core's append-only 20-column schema.
+    // A legacy key/value BOOK_META is never created by this module.
+    return 'LEGACY';
+  } catch (err) {
+    Logger.log('vNextDetectBookMode_ fallback LEGACY: %s', String(err && err.message || err));
+    return 'LEGACY';
+  }
+}
+
+function vNextIsAdminHub_() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    return vNextDetectBookMode_(ss) === 'ADMIN' && vNextAdminIsRegisteredHub_(ss);
+  }
+  catch (err) { Logger.log('vNextIsAdminHub_ error: %s', String(err && err.message || err)); return false; }
+}
+
+/** Hub-only menu builder. The UX module owns the single global onOpen router. */
+function vNextBuildAdminMenu_() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) return false;
+    SpreadsheetApp.getUi().createMenu(VN_ADMIN_MENU_NAME)
+      .addItem('Admin Hubを開く', 'vNextAdminOpenSidebar')
+      .addSeparator()
+      .addItem('今日の例外を更新', 'vNextAdminMenuRefreshExceptions')
+      .addItem('全bookの状態を確認', 'vNextAdminMenuRunHealthScan')
+      .addItem('待機中の処理を実行', 'vNextAdminMenuProcessJobs')
+      .addSeparator()
+      .addItem('Book一覧を開く', 'vNextAdminMenuOpenRegistry')
+      .addItem('承認一覧を開く', 'vNextAdminMenuOpenApprovals')
+      .addItem('リリース一覧を開く', 'vNextAdminMenuOpenReleases')
+      .addToUi();
+    return true;
+  } catch (err) {
+    Logger.log('vNextBuildAdminMenu_ error: %s', String(err && err.stack || err));
+    return false;
+  }
+}
+
+/** Optional best-effort hook called after the existing legacy menu is built. */
+function vNextBuildLegacySetupMenu_() {
+  try {
+    if (vNextDetectBookMode_() !== 'LEGACY') return false;
+    vNextAdminAssertRuntimeConfigurator_();
+    SpreadsheetApp.getUi().createMenu('Forecast vNext 移行')
+      .addItem('初期設定を開く', 'vNextAdminOpenSidebar')
+      .addToUi();
+    return true;
+  } catch (err) {
+    Logger.log('vNextBuildLegacySetupMenu_ skipped: %s', String(err && err.message || err));
+    return false;
+  }
+}
+
+/** Consumes TEMPLATE onOpen so it can never fall through to the legacy operation menu. */
+function vNextBuildTemplateMenu_() {
+  try {
+    if (vNextDetectBookMode_() !== 'TEMPLATE') return false;
+    SpreadsheetApp.getUi().createMenu('Forecast vNext Template')
+      .addItem('Template情報を開く', 'vNextAdminOpenSidebar')
+      .addToUi();
+    return true;
+  } catch (err) {
+    Logger.log('vNextBuildTemplateMenu_ error: %s', String(err && err.message || err));
+    return true;
+  }
+}
+
+function vNextAdminOpenSidebar() {
+  return vNextAdminGuard_('vNextAdminOpenSidebar', function () {
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (vNextDetectBookMode_(active) === 'ADMIN') {
+      if (!vNextAdminIsRegisteredHub_(active)) throw new Error('Admin Hubの登録情報を確認できません。');
+      vNextAdminAssertHubAdmin_(active, false);
+    }
+    const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
+      .setTitle('Forecast vNext Admin');
+    SpreadsheetApp.getUi().showSidebar(html);
+    return true;
+  });
+}
+
+function vNextAdminGetSidebarModel() {
+  return vNextAdminGuard_('vNextAdminGetSidebarModel', function () {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const mode = vNextDetectBookMode_(ss);
+    const runtime = vNextGetRuntimeConfig_();
+    const model = {
+      mode: mode,
+      spreadsheetName: ss.getName(),
+      spreadsheetUrl: ss.getUrl(),
+      configured: {
+        source: !!runtime.FORECAST_SOURCE_SPREADSHEET_ID,
+        hub: !!runtime.VNEXT_ADMIN_HUB_SPREADSHEET_ID,
+        template: !!runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID,
+        vertex: !!runtime.VERTEX_PROJECT_ID
+      },
+      automationInstalled: false,
+      counts: { exceptions: 0, queuedJobs: 0, pendingApprovals: 0, clients: 0 },
+      topExceptions: [],
+      pendingApprovals: [],
+      activeTemplateReleaseId: '',
+      templateRuntimeVersion: '',
+      adminRuntimeSha256: '',
+      adminRuntimeUpdatable: false,
+      activeModelReleaseId: '',
+      modelReleases: [],
+      templateDrafts: [],
+      stagedTemplateReleases: [],
+      operations: {},
+      pilot: {}
+    };
+    if (mode === 'ADMIN') {
+      if (!vNextAdminIsRegisteredHub_(ss)) throw new Error('Admin Hubの登録情報を確認できません。');
+      vNextAdminAssertHubAdmin_(ss, false);
+      model.automationInstalled = vNextAdminAutomationInstalled_();
+      model.counts.exceptions = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.EXCEPTIONS, 'status', 'OPEN');
+      model.counts.queuedJobs = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.JOBS, 'status', 'QUEUED');
+      model.counts.pendingApprovals = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.APPROVALS, 'status', 'PENDING');
+      model.counts.clients = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.REGISTRY, 'mode', 'CLIENT');
+      model.operations = vNextAdminOperationalMetrics_(ss, model.automationInstalled);
+      model.pilot = vNextAdminPilotStatus_(ss);
+      const severityRank = { ERROR: 0, WARN: 1, INFO: 2 };
+      model.topExceptions = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.EXCEPTIONS).rows
+        .filter(function (row) { return String(row.status || 'OPEN').toUpperCase() === 'OPEN'; })
+        .sort(function (a, b) {
+          const aKey = String(a.severity || '').toUpperCase();
+          const bKey = String(b.severity || '').toUpperCase();
+          const rank = (Object.prototype.hasOwnProperty.call(severityRank, aKey) ? severityRank[aKey] : 9) -
+            (Object.prototype.hasOwnProperty.call(severityRank, bKey) ? severityRank[bKey] : 9);
+          return rank || new Date(b.detected_at || 0).getTime() - new Date(a.detected_at || 0).getTime();
+        }).slice(0, 8).map(function (row) {
+          return {
+            bookId: String(row.book_id || ''), clientName: String(row.client_name || ''),
+            fiscalYear: row.fiscal_year || '', severity: String(row.severity || ''),
+            category: String(row.exception_type || ''), message: String(row.title || row.detail || ''),
+            detail: String(row.detail || ''), actionGuidance: String(row.recommended_action || '')
+          };
+        });
+      model.pendingApprovals = vNextAdminListPendingApprovals_(ss).slice(0, 20);
+      const activeTemplate = vNextAdminResolveRelease_(ss,
+        vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id || '');
+      model.activeTemplateReleaseId = String(activeTemplate.release_id || '');
+      model.templateRuntimeVersion = String(activeTemplate.client_runtime_version || '');
+      const hubConfig = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      model.adminRuntimeSha256 = String(hubConfig.admin_runtime_sha256 || '');
+      model.adminRuntimeUpdatable = Boolean(
+        String(hubConfig.admin_source_script_id || '') && String(hubConfig.admin_hub_script_id || '') &&
+        String(hubConfig.admin_hub_script_id || '') === String(ScriptApp.getScriptId())
+      );
+      const activeModel = vNextAdminTryResolveActiveModelRelease_(ss);
+      model.activeModelReleaseId = activeModel && activeModel.model_release_id || '';
+      model.modelReleases = vNextAdminLatestModelReleaseSummaries_(ss);
+      model.templateDrafts = vNextAdminListTemplateDrafts_(ss);
+      model.stagedTemplateReleases = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.RELEASES).rows
+        .filter(function (row) { return String(row.status || '').toUpperCase() === 'STAGED'; })
+        .map(function (row) {
+          return {
+            releaseId: String(row.release_id || ''), releaseName: String(row.release_name || ''),
+            templateSpreadsheetId: String(row.template_spreadsheet_id || ''),
+            templateContentSha256: String(row.template_content_sha256 || ''), createdAt: row.created_at || ''
+          };
+        });
+    }
+    return vNextAdminJsonSafe_(model);
+  });
+}
+
+/**
+ * Create a clean Admin Hub and a clean Master Template from the current
+ * deployed runtimes. The legacy workbook's sheets, cells and bound script are
+ * never copied into either operational container.
+ */
+function vNextAdminBootstrapFromCurrent(request) {
+  return vNextAdminGuard_('vNextAdminBootstrapFromCurrent', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const source = SpreadsheetApp.getActiveSpreadsheet();
+    const sourceMode = vNextDetectBookMode_(source);
+    if (sourceMode === 'ADMIN') {
+      return { reused: true, mode: sourceMode, hubUrl: source.getUrl(), message: 'This workbook is already an Admin Hub.' };
+    }
+    if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
+      throw new Error('Bootstrap is allowed only from a LEGACY or TEMPLATE workbook. Current mode=' + sourceMode);
+    }
+
+    return vNextAdminWithScriptLock_('bootstrap', function () {
+      const runtime = vNextGetRuntimeConfig_();
+      const actualSourceId = vNextAdminText_(req.forecastSourceSpreadsheetId || req.sourceSpreadsheetId) ||
+        runtime.VNEXT_ZAC_SOURCE_SPREADSHEET_ID || runtime.FORECAST_SOURCE_SPREADSHEET_ID;
+      if (!actualSourceId) {
+        throw new Error('VNEXT_ZAC_SOURCE_SPREADSHEET_ID is required. Configure it with vNextConfigureRuntime before bootstrap.');
+      }
+      if (!vNextAdminSpreadsheetAccessible_(actualSourceId)) throw new Error('Configured forecast source spreadsheet is not accessible.');
+      const props = PropertiesService.getScriptProperties();
+      const existingHubId = runtime.VNEXT_ADMIN_HUB_SPREADSHEET_ID;
+      const existingTemplateId = runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID;
+      if (!vNextAdminBool_(req.force) && vNextAdminSpreadsheetAccessible_(existingHubId) && vNextAdminSpreadsheetAccessible_(existingTemplateId)) {
+        const existingHub = SpreadsheetApp.openById(existingHubId);
+        const existingTemplate = SpreadsheetApp.openById(existingTemplateId);
+        const existingHubConfig = vNextAdminReadKeyValueSheet_(existingHub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+        const templateConfig = vNextAdminReadKeyValueSheet_(existingTemplate, VN_ADMIN_BOOK_CONFIG_SHEET);
+        const existingRelease = vNextAdminReadTable_(existingHub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+          return String(row.release_id || '') === String(templateConfig.version || '') &&
+            String(row.status || '').toUpperCase() === 'ACTIVE';
+        });
+        const cleanHubRuntime = String(existingHubConfig.admin_source_script_id || '') &&
+          String(existingHubConfig.admin_hub_script_id || '') &&
+          String(existingHubConfig.admin_runtime_sha256 || '');
+        if (cleanHubRuntime && typeof vNextAdminRuntimeAssertBoundParent_ === 'function') {
+          vNextAdminRuntimeAssertBoundParent_(String(existingHubConfig.admin_hub_script_id), existingHub.getId());
+        }
+        if (cleanHubRuntime && existingRelease && String(existingRelease.client_runtime_sha256 || '') &&
+            String(existingRelease.client_runtime_sha256 || '') === String(templateConfig.client_runtime_bundle_sha256 || '')) {
+          const existingModelRelease = vNextAdminTryResolveActiveModelRelease_(existingHub);
+          return {
+            reused: true,
+            hubId: existingHubId,
+            hubUrl: existingHub.getUrl(),
+            templateId: existingTemplateId,
+            templateUrl: existingTemplate.getUrl(),
+            releaseId: existingRelease.release_id,
+            modelReleaseId: existingModelRelease && existingModelRelease.model_release_id || '',
+            adminHubScriptId: String(existingHubConfig.admin_hub_script_id || ''),
+            adminRuntimeSha256: String(existingHubConfig.admin_runtime_sha256 || ''),
+            clientRuntimeVersion: existingRelease.client_runtime_version,
+            clientRuntimeSha256: existingRelease.client_runtime_sha256
+          };
+        }
+      }
+
+      const now = new Date();
+      const actor = vNextAdminActor_();
+      const vertexConfig = vNextAdminResolveBootstrapVertexConfig_(runtime);
+      const stamp = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
+      const hubName = vNextAdminText_(req.hubName) || ('Forecast vNext Admin Hub ' + stamp);
+      const templateName = vNextAdminText_(req.templateName) || ('Forecast vNext Master Template ' + stamp);
+      const releaseId = vNextAdminText_(req.releaseId) || ('vnext-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd'));
+      const modelReleaseId = vNextAdminText_(req.modelReleaseId) ||
+        ('model-vnext-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd'));
+      if (modelReleaseId === releaseId) {
+        throw new Error('Model Release ID must be different from the Template Release ID.');
+      }
+      const adminEmails = vNextAdminMergeEmails_(req.adminEmails, runtime.VNEXT_ADMIN_EMAILS, actor);
+      const folder = vNextAdminPreparePrivateBootstrapFolder_(
+        req.folderId || runtime.VNEXT_ROOT_FOLDER_ID,
+        'Forecast vNext Private ' + stamp,
+        adminEmails
+      );
+
+      if (typeof vNextClientRuntimeCreateBoundSpreadsheet_ !== 'function' ||
+          typeof vNextAdminRuntimeCreateBoundSpreadsheet_ !== 'function') {
+        throw new Error('Runtime provisioner is not installed for both Admin and Client projects.');
+      }
+      const templateRuntime = vNextClientRuntimeCreateBoundSpreadsheet_({
+        title: templateName, folderId: folder.getId()
+      });
+      const templateFile = DriveApp.getFileById(templateRuntime.spreadsheetId);
+      const adminSourceScriptId = ScriptApp.getScriptId();
+      const adminRuntime = vNextAdminRuntimeCreateBoundSpreadsheet_({
+        title: hubName, folderId: folder.getId(), sourceScriptId: adminSourceScriptId
+      });
+      const hubFile = DriveApp.getFileById(adminRuntime.spreadsheetId);
+      const hub = SpreadsheetApp.openById(adminRuntime.spreadsheetId);
+      const template = SpreadsheetApp.openById(templateRuntime.spreadsheetId);
+      const hubBookId = 'HUB-' + Utilities.getUuid();
+      const templateBookId = 'TPL-' + Utilities.getUuid();
+
+      vNextAdminInitializeHub_(hub, {
+        bookId: hubBookId,
+        sourceSpreadsheetId: actualSourceId,
+        templateSpreadsheetId: template.getId(),
+        releaseId: releaseId,
+        modelReleaseId: modelReleaseId,
+        vertexConfig: vertexConfig,
+        adminSourceScriptId: adminRuntime.sourceScriptId,
+        adminHubScriptId: adminRuntime.scriptId,
+        adminRuntimeSha256: adminRuntime.adminRuntimeSha256,
+        adminEmails: adminEmails,
+        actor: actor,
+        now: now, resetCopied: true
+      });
+      vNextAdminEnforcePrivateFileAcl_(hubFile, adminEmails);
+      vNextAdminEnforcePrivateFileAcl_(templateFile, adminEmails);
+      vNextAdminWriteSystemConfig_(hub, {
+        client_runtime_version: templateRuntime.runtimeVersion,
+        client_runtime_sha256: templateRuntime.bundleSha256,
+        template_script_id: templateRuntime.scriptId,
+        admin_source_script_id: adminRuntime.sourceScriptId,
+        admin_hub_script_id: adminRuntime.scriptId,
+        admin_runtime_sha256: adminRuntime.adminRuntimeSha256,
+        private_root_folder_id: folder.getId()
+      });
+      vNextAdminInitializeTemplate_(template, {
+        bookId: templateBookId,
+        releaseId: releaseId,
+        clientRuntimeVersion: templateRuntime.runtimeVersion,
+        clientRuntimeSha256: templateRuntime.bundleSha256,
+        adminEmails: adminEmails,
+        actor: actor,
+        now: now, resetCopied: true
+      });
+
+      vNextAdminRegisterBook_(hub, {
+        book_id: hubBookId, mode: 'ADMIN', client_id: '', client_name: '', fiscal_year: '',
+        spreadsheet_id: hub.getId(), spreadsheet_url: hub.getUrl(), template_release_id: releaseId,
+        admin_script_id: adminRuntime.scriptId, admin_runtime_sha256: adminRuntime.adminRuntimeSha256,
+        schema_version: VN_ADMIN_SCHEMA_VERSION, state: 'ACTIVE', status: 'ACTIVE',
+        health_status: 'OK', health_code: 'BOOTSTRAPPED', last_health_at: now,
+        forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
+        created_at: now, created_by: actor, updated_at: now, note: 'Admin Hub'
+      });
+      vNextAdminRegisterBook_(hub, {
+        book_id: templateBookId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
+        spreadsheet_id: template.getId(), spreadsheet_url: template.getUrl(), template_release_id: releaseId,
+        client_script_id: templateRuntime.scriptId,
+        client_runtime_version: templateRuntime.runtimeVersion,
+        client_runtime_sha256: templateRuntime.bundleSha256,
+        schema_version: vNextAdminClientSchemaVersion_(), state: 'TEMPLATE_READY', status: 'ACTIVE',
+        health_status: 'OK', health_code: 'BOOTSTRAPPED', last_health_at: now,
+        forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
+        created_at: now, created_by: actor, updated_at: now,
+        note: 'Master Template runtime=' + templateRuntime.runtimeVersion + ' sha256=' + templateRuntime.bundleSha256
+      });
+      vNextAdminRegisterRelease_(hub, {
+        release_id: releaseId,
+        release_name: vNextAdminText_(req.releaseName) || releaseId,
+        status: 'ACTIVE',
+        template_spreadsheet_id: template.getId(),
+        schema_version: vNextAdminClientSchemaVersion_(),
+        engine_version: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : vNextAdminText_(req.engineVersion),
+        ux_version: vNextAdminText_(req.uxVersion),
+        admin_version: VN_ADMIN_SCHEMA_VERSION,
+        client_runtime_version: templateRuntime.runtimeVersion,
+        client_runtime_sha256: templateRuntime.bundleSha256,
+        template_content_sha256: vNextAdminTemplateUiManifestHash_(template),
+        template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+        template_script_id: templateRuntime.scriptId,
+        created_at: now, created_by: actor, activated_at: now,
+        note: 'Initial bootstrap release'
+      });
+      const initialModelRelease = vNextAdminEnsureInitialModelRelease_(hub, {
+        modelReleaseId: modelReleaseId,
+        modelVersion: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION :
+          (vNextAdminText_(req.modelVersion || req.engineVersion) || 'vnext-initial'),
+        templateVersion: releaseId,
+        parameters: req.modelParameters || {},
+        actor: actor,
+        now: now
+      });
+      vNextAdminWriteCanonicalReleasePair_(hub, releaseId, modelReleaseId, template.getId());
+      const initialTemplateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+        return String(row.release_id || '') === releaseId;
+      });
+      vNextAdminWriteActiveReleasePairCaches_(hub, initialTemplateRelease, initialModelRelease);
+      props.setProperties({
+        FORECAST_SOURCE_SPREADSHEET_ID: actualSourceId,
+        VNEXT_ZAC_SOURCE_SPREADSHEET_ID: actualSourceId,
+        VNEXT_ADMIN_HUB_SPREADSHEET_ID: hub.getId(),
+        VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID: template.getId(),
+        VNEXT_ACTIVE_RELEASE_ID: releaseId,
+        VNEXT_ACTIVE_MODEL_RELEASE_ID: modelReleaseId
+      }, false);
+      vNextAdminWriteAudit_(hub, 'BOOTSTRAP', 'WORKBOOK_SET', hubBookId, 'SUCCESS', {
+        legacyBootstrapSpreadsheetId: source.getId(), forecastSourceSpreadsheetId: actualSourceId,
+        templateSpreadsheetId: template.getId(), releaseId: releaseId,
+        modelReleaseId: modelReleaseId,
+        adminSourceScriptId: adminRuntime.sourceScriptId,
+        adminHubScriptId: adminRuntime.scriptId,
+        adminRuntimeSha256: adminRuntime.adminRuntimeSha256,
+        clientRuntimeVersion: templateRuntime.runtimeVersion,
+        clientRuntimeSha256: templateRuntime.bundleSha256,
+        templateScriptId: templateRuntime.scriptId
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      SpreadsheetApp.flush();
+      return {
+        reused: false,
+        hubId: hub.getId(), hubUrl: hub.getUrl(),
+        templateId: template.getId(), templateUrl: template.getUrl(),
+        releaseId: releaseId, modelReleaseId: modelReleaseId,
+        adminHubScriptId: adminRuntime.scriptId,
+        adminRuntimeSha256: adminRuntime.adminRuntimeSha256,
+        clientRuntimeVersion: templateRuntime.runtimeVersion,
+        clientRuntimeSha256: templateRuntime.bundleSha256,
+        nextStep: 'Admin Hubを開いて再読込し、サイドバーの「自動運用を有効化」を1回押してください。'
+      };
+    });
+  });
+}
+
+/** Re-run the idempotent Hub initialization in an already copied workbook. */
+function vNextAdminActivateCurrentHub(request) {
+  return vNextAdminGuard_('vNextAdminActivateCurrentHub', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const mode = vNextDetectBookMode_(ss);
+    if (!vNextAdminCanActivateHubMode_(mode) || !vNextAdminIsRegisteredHub_(ss)) {
+      throw new Error('既存Hubの再初期化だけが許可されています。現在のmode=' + mode + '（CLIENTは変換できません）。');
+    }
+    vNextAdminAssertHubAdmin_(ss, false);
+    return vNextAdminWithDocumentLock_('activate-hub', function () {
+      const runtime = vNextGetRuntimeConfig_();
+      const routing = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET);
+      const bookId = routing.book_id || ('HUB-' + Utilities.getUuid());
+      const templateId = req.templateSpreadsheetId || runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID || routing.template_spreadsheet_id || '';
+      vNextAdminInitializeHub_(ss, {
+        bookId: bookId,
+        sourceSpreadsheetId: req.sourceSpreadsheetId || runtime.FORECAST_SOURCE_SPREADSHEET_ID || '',
+        templateSpreadsheetId: templateId,
+        releaseId: req.releaseId || runtime.VNEXT_ACTIVE_RELEASE_ID || routing.version || '',
+        modelReleaseId: req.modelReleaseId || runtime.VNEXT_ACTIVE_MODEL_RELEASE_ID || '',
+        vertexConfig: vNextAdminResolveBootstrapVertexConfig_(runtime),
+        adminEmails: vNextAdminMergeEmails_(req.adminEmails, runtime.VNEXT_ADMIN_EMAILS, vNextAdminActor_()),
+        actor: vNextAdminActor_(), now: new Date()
+      });
+      vNextBuildAdminMenu_();
+      vNextAdminRefreshTodayExceptions_(ss);
+      vNextAdminRefreshHome_(ss);
+      return { mode: vNextDetectBookMode_(ss), spreadsheetUrl: ss.getUrl(), bookId: bookId };
+    });
+  });
+}
+
+function vNextAdminCanActivateHubMode_(mode) {
+  return String(mode || '').toUpperCase() === 'ADMIN';
+}
+
+/**
+ * A routing cell alone is not sufficient to authorize Hub operations. Client
+ * editors can edit local hidden sheets, so require the Hub-only tables and the
+ * self-referential ADMIN registry row before any destructive reinitialization.
+ */
+function vNextAdminIsRegisteredHub_(ss) {
+  try {
+    if (!ss) return false;
+    const required = [VN_ADMIN_SHEETS.REGISTRY, VN_ADMIN_SHEETS.JOBS, VN_ADMIN_SHEETS.RELEASES];
+    if (required.some(function (name) { return !ss.getSheetByName(name); })) return false;
+    const routing = Object.assign(
+      {},
+      vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET),
+      vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET)
+    );
+    if (String(routing.mode || '').toUpperCase() !== 'ADMIN' || !String(routing.book_id || '')) return false;
+    return vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows.some(function (row) {
+      return String(row.book_id || '') === String(routing.book_id || '') &&
+        String(row.mode || '').toUpperCase() === 'ADMIN' &&
+        String(row.spreadsheet_id || '') === String(ss.getId());
+    });
+  } catch (err) {
+    Logger.log('Registered Hub verification failed: %s', String(err && err.message || err));
+    return false;
+  }
+}
+
+function vNextAdminResolveBootstrapVertexConfig_(runtime) {
+  const source = runtime || {};
+  let legacy = {};
+  if (typeof readVertexConfig_ === 'function') {
+    try { legacy = readVertexConfig_() || {}; }
+    catch (err) { Logger.log('Legacy Vertex config read skipped: %s', String(err && err.message || err)); }
+  }
+  return {
+    VERTEX_PROJECT_ID: source.VERTEX_PROJECT_ID || legacy.projectId || '',
+    VERTEX_LOCATION: source.VERTEX_LOCATION || legacy.location || '',
+    VERTEX_GEMINI_MODEL: source.VERTEX_GEMINI_MODEL || legacy.geminiModel || '',
+    VERTEX_DATASTORE_ID: source.VERTEX_DATASTORE_ID || legacy.datastoreId || '',
+    VERTEX_SEARCH_LOCATION: source.VERTEX_SEARCH_LOCATION || legacy.searchLocation || '',
+    VERTEX_SERVING_CONFIG: source.VERTEX_SERVING_CONFIG || legacy.servingConfig || ''
+  };
+}
+
+/** Provision one client x fiscal-year workbook from the active release template. */
+function vNextAdminProvisionClient(request) {
+  return vNextAdminGuard_('vNextAdminProvisionClient', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('provision-client', function () {
+      const runtime = vNextGetRuntimeConfig_();
+      const clientName = vNextAdminRequiredText_(req.clientName, 'clientName');
+      const clientId = vNextAdminText_(req.clientId) || vNextAdminDeriveClientId_(clientName);
+      const fiscalYear = vNextAdminNormalizeFiscalYear_(req.fiscalYear);
+      const release = vNextAdminResolveRelease_(hub, req.releaseId || runtime.VNEXT_ACTIVE_RELEASE_ID);
+      const modelRelease = vNextAdminResolveActiveModelRelease_(hub, req.modelReleaseId);
+      vNextAdminAssertModelTemplateCompatibility_(hub, modelRelease, release);
+      const templateId = vNextAdminText_(req.templateSpreadsheetId) || release.template_spreadsheet_id || runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID;
+      if (!templateId) throw new Error('No Master Template is configured.');
+      const clientRuntimeVersion = vNextAdminRequiredText_(release.client_runtime_version, 'release.client_runtime_version');
+      const clientRuntimeSha256 = vNextAdminRequiredText_(release.client_runtime_sha256, 'release.client_runtime_sha256');
+      vNextAdminRequiredText_(release.template_script_id, 'release.template_script_id');
+      if (String(release.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+        throw new Error('Selected release schema is not supported by this Client runtime.');
+      }
+      const template = SpreadsheetApp.openById(templateId);
+      if (vNextDetectBookMode_(template) !== 'TEMPLATE') throw new Error('Configured template is not mode=TEMPLATE.');
+      const templateConfig = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
+      if (String(templateConfig.version || '') !== String(release.release_id || '') ||
+          String(templateConfig.client_runtime_bundle_sha256 || '') !== clientRuntimeSha256 ||
+          String(templateConfig.client_runtime_version || '') !== clientRuntimeVersion) {
+        throw new Error('Master Template runtime identity does not match the selected RELEASES record.');
+      }
+      vNextAdminAssertReleaseTemplateManifest_(release, template);
+
+      const idempotencyKey = vNextAdminText_(req.idempotencyKey) || ['PROVISION', clientId, fiscalYear, release.release_id].join('|');
+      const existing = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.mode) === 'CLIENT' && String(row.client_id) === clientId &&
+          String(row.fiscal_year) === String(fiscalYear) && String(row.template_release_id) === String(release.release_id) &&
+          String(row.status) !== 'ARCHIVED';
+      });
+      if (existing) {
+        if (String(existing.status || '').toUpperCase() === 'ACTIVE' && vNextAdminSpreadsheetAccessible_(existing.spreadsheet_id)) {
+          return { reused: true, bookId: existing.book_id, spreadsheetId: existing.spreadsheet_id, spreadsheetUrl: existing.spreadsheet_url };
+        }
+        throw new Error('同じclient/FY/releaseの生成途中bookがあります。BOOK_REGISTRYのPROVISIONING例外を解消してから再実行してください。bookId=' + existing.book_id);
+      }
+
+      const name = vNextAdminText_(req.bookName) || ('Forecast ' + clientName + ' FY' + fiscalYear);
+      const bookId = 'CLIENT-' + Utilities.getUuid();
+      const actor = vNextAdminActor_();
+      const now = new Date();
+      const pilot = vNextAdminAssertPilotProvisionAllowed_(hub);
+      const adminEmails = vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, actor);
+      const folder = vNextAdminPrepareClientDestinationFolder_(hub, req.folderId,
+        clientId + '-FY' + fiscalYear + '-' + bookId.slice(-8), adminEmails);
+      const stagingFolder = folder;
+      const forecastOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
+      if (forecastOwners.length !== 1) throw new Error('Forecast Ownerを1名だけ指定してください。');
+      const editors = vNextAdminMergeEmails_(forecastOwners, req.editorEmails, runtime.VNEXT_DEFAULT_EDITORS);
+      const viewers = vNextAdminMergeEmails_(req.viewerEmails, runtime.VNEXT_DEFAULT_VIEWERS);
+      const asOf = vNextAdminText_(req.asOf) || Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd');
+      // cutoff is an invariant: always the last day of the month before asOf.
+      // It cannot be overridden from provisioning or employee UI.
+      const cutoff = vNextAdminCutoffFromAsOf_(asOf);
+      const defaultDue = new Date(now.getTime());
+      defaultDue.setDate(defaultDue.getDate() + 7);
+      const dueDate = vNextAdminText_(req.inputDueDate) ||
+        Utilities.formatDate(defaultDue, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      // Create a fresh container and bind only the client-safe runtime. A
+      // Spreadsheet copy would create an unknown bound-script ID and make
+      // versioned runtime maintenance impossible.
+      if (typeof vNextClientRuntimeCreateBoundSpreadsheet_ !== 'function') {
+        throw new Error('Client runtime provisioner is not installed.');
+      }
+      const clientRuntime = vNextClientRuntimeCreateBoundSpreadsheet_({
+        title: name, folderId: stagingFolder.getId()
+      });
+      if (String(clientRuntime.runtimeVersion || '') !== clientRuntimeVersion ||
+          String(clientRuntime.bundleSha256 || '') !== clientRuntimeSha256) {
+        throw new Error('Generated Client runtime does not match the selected ACTIVE release.');
+      }
+      if (typeof vNextClientRuntimeAssertBoundParent_ !== 'function') {
+        throw new Error('Client runtime parent verifier is not installed.');
+      }
+      vNextClientRuntimeAssertBoundParent_(clientRuntime.scriptId, clientRuntime.spreadsheetId);
+      const clientFile = DriveApp.getFileById(clientRuntime.spreadsheetId);
+      const clientBook = SpreadsheetApp.openById(clientRuntime.spreadsheetId);
+      vNextAdminCopyTemplateUiToClient_(template, clientBook);
+      const registryBase = {
+        book_id: bookId, mode: 'CLIENT', client_id: clientId, client_name: clientName,
+        fiscal_year: fiscalYear, spreadsheet_id: clientBook.getId(), spreadsheet_url: clientBook.getUrl(),
+        client_script_id: clientRuntime.scriptId,
+        client_runtime_version: clientRuntimeVersion, client_runtime_sha256: clientRuntimeSha256,
+        template_release_id: release.release_id, schema_version: release.schema_version,
+        state: 'INPUT_OPEN', status: 'PROVISIONING', health_status: 'PENDING', health_code: 'PROVISIONING',
+        last_health_at: '', last_forecast_at: '', current_official_id: '',
+        forecast_owner_emails: forecastOwners.join(','), editor_emails: editors.join(','), viewer_emails: viewers.join(','),
+        created_at: now, created_by: actor, updated_at: now,
+        note: 'idempotency=' + idempotencyKey + '; runtime=' + clientRuntimeVersion +
+          '; runtime_sha256=' + clientRuntimeSha256 + '; model_release=' + modelRelease.model_release_id
+      };
+      let registryCreated = false;
+      let teamCreated = false;
+      let employeeAclAttempted = false;
+      let employeeAclGranted = false;
+      try {
+        // The copied file remains Admin-only until initialization, central
+        // registration and the first integrity-checked sync all succeed.
+        const clientInitialization = vNextAdminInitializeClient_(clientBook, {
+          bookId: bookId, clientId: clientId, clientName: clientName, fiscalYear: fiscalYear,
+          asOf: asOf, cutoff: cutoff, inputDueDate: dueDate,
+          clientRuntimeVersion: clientRuntimeVersion, clientRuntimeSha256: clientRuntimeSha256,
+          forecastOwnerEmails: forecastOwners, editors: editors, viewers: viewers,
+          hubSpreadsheetId: hub.getId(), templateSpreadsheetId: templateId,
+          releaseId: release.release_id, modelReleaseId: modelRelease.model_release_id,
+          actor: actor, now: now,
+          visibleSheets: req.visibleSheets
+        });
+        vNextAdminRegisterBook_(hub, registryBase);
+        registryCreated = true;
+        vNextAdminRegisterTeam_(hub, bookId, clientId, fiscalYear, forecastOwners, editors, viewers, 'PROVISIONING');
+        teamCreated = true;
+        // BOOK_META is created while the file is still Admin-only. Promote that
+        // exact record centrally before employee ACL is granted; later Client
+        // edits are mirrors only and are never authoritative metadata.
+        if (!clientInitialization || !clientInitialization.bookMeta) {
+          throw new Error('Trusted Client BOOK_META was not returned by initialization.');
+        }
+        vNextAdminAppendCoreRowsNoLock_(hub, 'BOOK_META', [clientInitialization.bookMeta]);
+        vNextAdminSyncClientToHub_(hub, clientBook, bookId);
+        // Employee ACL is the final external side effect. ACTIVE is published
+        // only after Drive accepted those grants.
+        employeeAclAttempted = true;
+        if (folder.getId() !== stagingFolder.getId()) clientFile.moveTo(folder);
+        vNextAdminApplyFileAcl_(clientFile, editors, viewers, []);
+        vNextAdminAssertClientFileAcl_(clientFile, editors, viewers);
+        vNextAdminPreparePrivateBootstrapFolder_(folder.getId(), folder.getName(), adminEmails);
+        employeeAclGranted = true;
+        vNextAdminPatchRegistryByBookId_(hub, bookId, {
+          status: 'ACTIVE', health_status: 'PENDING', health_code: 'NEW_BOOK', updated_at: new Date()
+        });
+        vNextAdminSetTeamStatus_(hub, bookId, 'ACTIVE');
+      } catch (provisionError) {
+        const failure = String(provisionError && provisionError.message || provisionError);
+        try {
+          if (!registryCreated) {
+            vNextAdminRegisterBook_(hub, Object.assign({}, registryBase, {
+              status: 'PROVISIONING', health_status: 'ERROR', health_code: 'PROVISION_FAILED',
+              updated_at: new Date(), note: registryBase.note + '; failure=' + failure.slice(0, 500)
+            }));
+            registryCreated = true;
+          } else {
+            vNextAdminPatchRegistryByBookId_(hub, bookId, {
+              status: 'PROVISIONING', health_status: 'ERROR', health_code: 'PROVISION_FAILED',
+              updated_at: new Date(), note: registryBase.note + '; failure=' + failure.slice(0, 500)
+            });
+          }
+          if (!teamCreated) vNextAdminRegisterTeam_(hub, bookId, clientId, fiscalYear, forecastOwners, editors, viewers, 'PROVISIONING');
+          else vNextAdminSetTeamStatus_(hub, bookId, 'PROVISIONING');
+          if (employeeAclAttempted) {
+            try {
+              if (folder.getId() !== stagingFolder.getId()) clientFile.moveTo(stagingFolder);
+              vNextAdminEnforcePrivateFileAcl_(clientFile, vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, actor));
+            } catch (aclRecoveryError) {
+              Logger.log('Provision ACL rollback needs manual attention book=%s error=%s', bookId,
+                String(aclRecoveryError && aclRecoveryError.stack || aclRecoveryError));
+            }
+          }
+          vNextAdminAppendException_(hub, {
+            severity: 'ERROR', exception_type: 'CLIENT_PROVISION_FAILED', book_id: bookId,
+            client_name: clientName, fiscal_year: fiscalYear,
+            title: 'Client bookの生成が途中で停止', detail: failure,
+            recommended_action: 'privateな生成途中bookとBOOK_REGISTRYを確認し、復旧またはARCHIVED化',
+            source_ref: clientBook.getUrl()
+          });
+          vNextAdminWriteAudit_(hub, 'PROVISION_CLIENT', 'BOOK', bookId, 'FAILED', {
+            spreadsheetId: clientBook.getId(), failure: failure, employeeAclRevoked: employeeAclAttempted
+          });
+        } catch (recoveryError) {
+          Logger.log('Provision failure recovery failed book=%s error=%s', bookId, String(recoveryError && recoveryError.stack || recoveryError));
+        }
+        throw provisionError;
+      }
+      vNextAdminEnqueueJobInternal_(hub, {
+        jobType: 'HEALTH_SCAN', targetBookId: bookId, targetSpreadsheetId: clientBook.getId(),
+        request: { bookId: bookId, spreadsheetId: clientBook.getId() },
+        idempotencyKey: 'HEALTH|' + bookId + '|' + VN_ADMIN_SCHEMA_VERSION, priority: 20
+      });
+      vNextAdminWriteAudit_(hub, 'PROVISION_CLIENT', 'BOOK', bookId, 'SUCCESS', {
+        clientId: clientId, clientName: clientName, fiscalYear: fiscalYear,
+        spreadsheetId: clientBook.getId(), releaseId: release.release_id,
+        modelReleaseId: modelRelease.model_release_id,
+        clientRuntimeVersion: clientRuntimeVersion, clientRuntimeSha256: clientRuntimeSha256,
+        clientScriptIdRecordedInHub: Boolean(clientRuntime.scriptId),
+        clientFolderId: folder.getId(), pilotPhase: pilot.phase, pilotClientCountBefore: pilot.clientCount
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      SpreadsheetApp.flush();
+      return {
+        reused: false, bookId: bookId, spreadsheetId: clientBook.getId(),
+        spreadsheetUrl: clientBook.getUrl(), clientName: clientName, fiscalYear: fiscalYear,
+        releaseId: release.release_id, modelReleaseId: modelRelease.model_release_id,
+        state: 'INPUT_OPEN'
+      };
+    });
+  });
+}
+
+/** Explicitly open the 4th/5th Client canary only after the first three pilot books were reviewed. */
+function vNextAdminApprovePilotCanary(request) {
+  return vNextAdminGuard_('vNextAdminApprovePilotCanary', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const reason = vNextAdminRequiredText_(req.reason, 'reason');
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('approve-pilot-canary', function () {
+      const status = vNextAdminPilotStatus_(hub);
+      if (status.clientCount < VN_ADMIN_PILOT_INITIAL_LIMIT) {
+        throw new Error('Canary承認は初期pilot 3冊の結果確認後に行ってください。');
+      }
+      if (status.canaryApproved) return status;
+      const now = new Date();
+      vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'PILOT_CANARY_APPROVED', {
+        setting_key: 'PILOT_CANARY_APPROVED', setting_value: 'true', value_type: 'BOOLEAN',
+        scope: 'ADMIN_PILOT_GATE', effective_from: now, updated_at: now,
+        updated_by: vNextAdminActor_(), note: reason
+      });
+      vNextAdminWriteAudit_(hub, 'APPROVE_PILOT_CANARY', 'PILOT_GATE', 'PILOT_CANARY_APPROVED', 'SUCCESS', {
+        clientCount: status.clientCount, reason: reason, hardLimit: VN_ADMIN_PILOT_CANARY_LIMIT
+      });
+      vNextAdminRefreshHome_(hub);
+      return vNextAdminPilotStatus_(hub);
+    });
+  });
+}
+
+function vNextAdminPilotStatus_(hub) {
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
+  const clientCount = rows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() !== 'ARCHIVED';
+  }).length;
+  const approvedRow = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
+    return String(row.setting_key || '') === 'PILOT_CANARY_APPROVED';
+  });
+  const canaryApproved = String(approvedRow && approvedRow.setting_value || '').toLowerCase() === 'true';
+  const limit = canaryApproved ? VN_ADMIN_PILOT_CANARY_LIMIT : VN_ADMIN_PILOT_INITIAL_LIMIT;
+  return {
+    clientCount: clientCount, initialLimit: VN_ADMIN_PILOT_INITIAL_LIMIT,
+    hardLimit: VN_ADMIN_PILOT_CANARY_LIMIT, canaryApproved: canaryApproved,
+    currentLimit: limit, phase: canaryApproved ? 'CANARY' : 'INITIAL_PILOT',
+    blocked: clientCount >= limit,
+    blockedReason: clientCount >= VN_ADMIN_PILOT_CANARY_LIMIT
+      ? '5冊canary上限に達しています。30冊展開は実測検証後のreleaseで開放します。'
+      : (clientCount >= VN_ADMIN_PILOT_INITIAL_LIMIT && !canaryApproved
+        ? '初期pilot 3冊の結果を確認し、Canary承認後に4〜5冊目を作成できます。' : '')
+  };
+}
+
+function vNextAdminAssertPilotProvisionAllowed_(hub) {
+  const status = vNextAdminPilotStatus_(hub);
+  if (status.clientCount >= status.currentLimit) throw new Error(status.blockedReason || 'Pilot Client上限に達しました。');
+  return status;
+}
+
+/**
+ * Employee-book request entry point. It never opens the Admin Hub.
+ * The immutable local event is harvested later by an Admin-owned scan/trigger.
+ */
+function vNextQueueClientForecastRequest(request) {
+  return vNextAdminGuard_('vNextQueueClientForecastRequest', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (vNextDetectBookMode_(ss) !== 'CLIENT') throw new Error('予測依頼はクライアントbookから行ってください。');
+    return vNextAdminWithDocumentLock_('client-forecast-request', function () {
+      if (typeof vNextGetBookContext_ !== 'function') throw new Error('VNext_Core context API is not installed.');
+      const context = vNextGetBookContext_(ss);
+      if (!context.isForecastOwner) throw new Error('予測を依頼できるのはForecast Ownerだけです。');
+      if (String(context.state || '').toUpperCase() !== 'READY_TO_RUN') {
+        throw new Error('現在は予測を依頼できません。状態=' + String(context.state || ''));
+      }
+      const nowIso = new Date().toISOString();
+      const requestId = 'REQ-' + Utilities.getUuid();
+      // asOf is the server-side request date, not an employee-supplied or provisioning date.
+      const asOf = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      const payload = {
+        requestId: requestId,
+        bookId: context.bookId,
+        clientId: context.clientId,
+        clientName: context.clientName,
+        fiscalYear: Number(context.fiscalYear),
+        asOf: asOf,
+        cutoff: vNextAdminCutoffFromAsOf_(asOf),
+        bookConfiguredAsOf: vNextAdminText_(context.asOf),
+        requestedAt: nowIso,
+        requestedBy: String(context.userEmail || vNextAdminActor_()).toLowerCase()
+      };
+      const requestJson = vNextAdminCanonicalJson_(payload);
+      const requestHash = vNextAdminSha256_(requestJson);
+      vNextAdminEnsureTable_(ss, VN_ADMIN_CLIENT_REQUEST_SHEET, VN_ADMIN_HEADERS[VN_ADMIN_CLIENT_REQUEST_SHEET]);
+      vNextAdminAppendClientRequestEvent_(ss, {
+        requestId: requestId, bookId: context.bookId, eventType: 'REQUESTED', status: 'PENDING',
+        requestHash: requestHash, requestJson: requestJson, requestedAt: nowIso,
+        requestedBy: payload.requestedBy, detail: { source: 'CLIENT_BOOK' }
+      });
+      const stateResult = vNextAdminAppendStateEvent_(ss, 'RUNNING', {
+        fromState: 'READY_TO_RUN', reason: 'forecast_requested:' + requestId, actorEmail: payload.requestedBy,
+        actorRole: 'FORECAST_OWNER'
+      });
+      vNextAdminMirrorClientState_(ss, 'RUNNING');
+      return { ok: true, requestId: requestId, requestHash: requestHash, stateEventId: stateResult.stateEventId };
+    });
+  });
+}
+
+/** Enqueue a forecast request without directly coupling Admin to the engine implementation. */
+function vNextAdminRequestForecast(request) {
+  return vNextAdminGuard_('vNextAdminRequestForecast', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const reg = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+    if (!reg || reg.mode !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+    const requestAsOf = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    const idempotencyKey = req.idempotencyKey || ['FORECAST', bookId, req.manualRequestId || requestAsOf, req.inputDataHash || ''].join('|');
+    const existingJob = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.find(function (row) {
+      return String(row.idempotency_key || '') === idempotencyKey &&
+        ['QUEUED', 'RUNNING', 'SUCCEEDED'].indexOf(String(row.status || '')) >= 0;
+    });
+    if (existingJob) return vNextAdminJsonSafe_(existingJob);
+    const client = SpreadsheetApp.openById(String(reg.spreadsheet_id));
+    const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+    const requestPayload = {
+      bookId: bookId,
+      clientId: reg.client_id,
+      clientName: reg.client_name,
+      fiscalYear: Number(reg.fiscal_year),
+      asOf: requestAsOf,
+      cutoff: vNextAdminCutoffFromAsOf_(requestAsOf),
+      bookConfiguredAsOf: vNextAdminText_(routing.as_of),
+      targetSpreadsheetId: reg.spreadsheet_id,
+      manualRequestId: vNextAdminText_(req.manualRequestId),
+      requestedAt: new Date().toISOString(),
+      requestedBy: vNextAdminActor_().toLowerCase()
+    };
+    return vNextAdminWithScriptLock_('manual-forecast-request', function () {
+      const job = vNextAdminEnqueueJobInternal_(hub, {
+        jobType: 'FORECAST_REQUEST', targetBookId: bookId, targetSpreadsheetId: reg.spreadsheet_id,
+        request: requestPayload, idempotencyKey: idempotencyKey, priority: req.priority || 50
+      });
+      if (String(job.status || '') === 'SUCCEEDED' || String(job.status || '') === 'RUNNING') return job;
+      try {
+        vNextAdminSetClientState_(reg.spreadsheet_id, 'RUNNING', {
+          reason: 'admin_manual_forecast_request', actorRole: 'ADMIN'
+        });
+        vNextAdminSyncClientToHub_(hub, client, bookId);
+        return job;
+      } catch (err) {
+        const latest = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.find(function (row) {
+          return String(row.job_id || '') === String(job.job_id || '');
+        });
+        if (latest) vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, latest._rowNumber, {
+          status: 'FAILED', finished_at: new Date(), error: 'State claim failed: ' + String(err && err.message || err), updated_at: new Date()
+        });
+        throw err;
+      }
+    });
+  });
+}
+
+/**
+ * Admin-reviewed AI finding. Numeric impact is deterministic and server-capped;
+ * model output can never bypass citation/version/cap metadata.
+ */
+function vNextAdminAppendAiEvidence(request) {
+  return vNextAdminGuard_('vNextAdminAppendAiEvidence', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('append-ai-evidence', function () {
+      return vNextAdminAppendAiEvidenceInternal_(hub, request || {});
+    });
+  });
+}
+
+/** Read-only basis for the Admin AI rollback control. Raw prompts are not returned. */
+function vNextAdminGetAiRollbackBasis(request) {
+  return vNextAdminGuard_('vNextAdminGetAiRollbackBasis', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const basis = vNextAdminResolveAiRollbackBasis_(hub, bookId, req.sourceForecastRunId, false);
+    const active = vNextAdminResolveBasisAiEvidence_(hub, basis.run);
+    return vNextAdminJsonSafe_({
+      bookId: bookId, clientName: basis.registry.client_name, fiscalYear: Number(basis.registry.fiscal_year),
+      sourceForecastRunId: basis.run.run_id, asOf: basis.run.as_of,
+      aiDelta: Number(basis.run.ai_delta || 0), systemRecommended: Number(basis.run.system_recommended || 0),
+      evidence: active.map(function (row) {
+        const metadata = vNextAdminParseJson_(row.evidence_text, {});
+        return {
+          evidenceId: String(row.evidence_id || ''), target: String(row.target || ''),
+          direction: String(row.direction || ''), appliedAmount: Number(row.applied_amount || row.amount_mid || 0),
+          summary: String(metadata.summary || row.target || ''), sourceDate: String(row.source_date || ''),
+          evidenceQuality: String(row.evidence_quality || ''), parentRequestId: String(metadata.parentRequestId || '')
+        };
+      })
+    });
+  });
+}
+
+/**
+ * Append AI tombstones and queue a same-seed counterfactual run. Trusted seed
+ * and lineage fields are created later by the Admin worker, never by the UI.
+ */
+function vNextAdminRollbackAiEvidence(request) {
+  return vNextAdminGuard_('vNextAdminRollbackAiEvidence', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('rollback-ai-evidence', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const scope = vNextAdminNormalizeAiRollbackScope_(req.scope);
+      const requestedIds = scope === 'SELECTED'
+        ? Array.from(new Set(vNextAdminParseList_(req.evidenceIds || req.selectedEvidenceIds))).sort()
+        : [];
+      if (scope === 'SELECTED' && !requestedIds.length) throw new Error('SELECTED rollback requires one or more evidenceIds.');
+      const basis = vNextAdminResolveAiRollbackBasis_(hub, bookId, req.sourceForecastRunId, true);
+      const operationIdentity = vNextAdminCanonicalJson_({
+        bookId: bookId, sourceForecastRunId: basis.run.run_id, scope: scope,
+        selectedEvidenceIds: requestedIds, reason: reason
+      });
+      const operationId = 'AI-RBOP-' + vNextAdminSha256_(operationIdentity).slice(0, 24).toUpperCase();
+      const idempotencyKey = 'AI_ROLLBACK_FORECAST|' + operationId;
+      const priorJobs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.filter(function (row) {
+        return String(row.idempotency_key || '') === idempotencyKey;
+      });
+      const prior = priorJobs.length ? priorJobs[priorJobs.length - 1] : null;
+      const priorPayload = prior ? vNextAdminParseJson_(prior.request_json, null) : null;
+      const authoritativeState = vNextAdminLatestClientState_(hub, bookId, basis.registry.state);
+      if (!prior && String(basis.run.run_id || '') !== String(basis.latestRunId || '')) {
+        throw new Error('A new AI rollback basis must be the latest successful draft run.');
+      }
+      if (!prior && authoritativeState !== 'DRAFT_READY') {
+        throw new Error('A new AI rollback requires DRAFT_READY. current=' + authoritativeState);
+      }
+      if (prior && ['DRAFT_READY', 'READY_TO_RUN', 'RUNNING'].indexOf(authoritativeState) < 0) {
+        throw new Error('The existing AI rollback cannot be resumed from state=' + authoritativeState);
+      }
+      if (prior && ['RUNNING', 'SUCCEEDED'].indexOf(String(prior.status || '').toUpperCase()) >= 0) {
+        return vNextAdminJsonSafe_({
+          reused: true, operationId: operationId, jobId: prior.job_id, status: prior.status,
+          sourceForecastRunId: basis.run.run_id,
+          tombstoneEvidenceIds: priorPayload && priorPayload.tombstoneEvidenceIds || []
+        });
+      }
+
+      const allActive = vNextAdminResolveBasisAiEvidence_(hub, basis.run);
+      let targetRows;
+      if (priorPayload && String(priorPayload.rollbackOperationId || '') === operationId) {
+        const byId = new Map(vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').map(function (row) {
+          return [String(row.evidence_id || ''), row];
+        }));
+        targetRows = (priorPayload.targetEvidenceIds || []).map(function (id) { return byId.get(String(id)); });
+        if (!targetRows.length || targetRows.some(function (row) { return !row; })) {
+          throw new Error('Failed rollback retry cannot reconstruct its original evidence lineage.');
+        }
+      } else if (scope === 'ALL') {
+        targetRows = allActive.slice();
+      } else {
+        const activeById = new Map(allActive.map(function (row) { return [String(row.evidence_id || ''), row]; }));
+        targetRows = requestedIds.map(function (id) {
+          const row = activeById.get(String(id));
+          if (!row) throw new Error('Selected evidence is not active for the basis run: ' + id);
+          return row;
+        });
+      }
+      if (!targetRows.length) throw new Error('The basis run has no active AI evidence to roll back.');
+      targetRows = targetRows.slice().sort(function (a, b) {
+        return String(a.evidence_id || '').localeCompare(String(b.evidence_id || ''));
+      });
+
+      const rollbackRequestId = 'REQ-AI-RB-' + vNextAdminSha256_(operationId).slice(0, 20).toUpperCase();
+      const requestedAt = new Date().toISOString();
+      const basisAsOf = vNextAdminDateOnly_(basis.run.as_of);
+      const activeIds = allActive.map(function (row) { return String(row.evidence_id || ''); }).sort();
+      const targetIds = targetRows.map(function (row) { return String(row.evidence_id || ''); });
+      const tombstones = targetRows.map(function (row) {
+        return vNextAdminBuildAiRollbackTombstone_(basis.registry, basis.run, row, {
+          operationId: operationId, rollbackRequestId: rollbackRequestId,
+          reason: reason, requestedAt: requestedAt, requestedBy: vNextAdminActor_()
+        });
+      });
+      const existingById = new Map(vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').map(function (row) {
+        return [String(row.evidence_id || ''), row];
+      }));
+      const missingTombstones = [];
+      tombstones.forEach(function (record) {
+        const existing = existingById.get(record.evidence_id);
+        if (!existing) {
+          missingTombstones.push(record);
+          return;
+        }
+        const metadata = vNextAdminParseJson_(existing.evidence_text, {});
+        if (String(existing.supersedes_evidence_id || '') !== String(record.supersedes_evidence_id || '') ||
+            String(metadata.rollbackOperationId || '') !== operationId ||
+            String(metadata.sourceForecastRunId || '') !== String(basis.run.run_id || '')) {
+          throw new Error('Existing AI rollback tombstone has conflicting immutable lineage: ' + record.evidence_id);
+        }
+      });
+      if (missingTombstones.length) vNextAdminAppendCoreRowsNoLock_(hub, 'EVIDENCE_EVENT', missingTombstones);
+
+      const parentRequestIds = Array.from(new Set(allActive.map(function (row) {
+        return String(vNextAdminParseJson_(row.evidence_text, {}).parentRequestId || '');
+      }).filter(Boolean))).sort();
+      const jobPayload = priorPayload && String(priorPayload.rollbackOperationId || '') === operationId
+        ? priorPayload
+        : {
+          rollbackOperationId: operationId,
+          rollbackRequestId: rollbackRequestId,
+          requestId: rollbackRequestId,
+          bookId: bookId,
+          sourceForecastRunId: String(basis.run.run_id || ''),
+          sourceInputDataHash: String(basis.run.input_data_hash || ''),
+          sourceModelReleaseId: String(basis.run.model_release_id || ''),
+          asOf: basisAsOf,
+          cutoff: vNextAdminDateOnly_(basis.run.cutoff),
+          scope: scope,
+          targetEvidenceIds: targetIds,
+          basisActiveAiEvidenceIds: activeIds,
+          tombstoneEvidenceIds: tombstones.map(function (row) { return row.evidence_id; }),
+          sourceAiParentRequestIds: parentRequestIds,
+          reason: reason,
+          requestedAt: requestedAt,
+          requestedBy: vNextAdminActor_().toLowerCase()
+        };
+      const job = vNextAdminEnqueueJobInternal_(hub, {
+        jobType: 'AI_ROLLBACK_FORECAST', targetBookId: bookId,
+        targetSpreadsheetId: basis.registry.spreadsheet_id, request: jobPayload,
+        idempotencyKey: idempotencyKey, priority: Number(req.priority || 90)
+      });
+      try {
+        const state = vNextAdminLatestClientState_(hub, bookId, basis.registry.state);
+        if (state === 'DRAFT_READY') {
+          vNextAdminSetClientState_(basis.registry.spreadsheet_id, 'READY_TO_RUN', {
+            hub: hub, reason: 'ai_rollback_queued: ' + reason, actorRole: 'ADMIN', relatedRunId: basis.run.run_id
+          });
+        }
+        const readyState = vNextAdminLatestClientState_(hub, bookId, 'READY_TO_RUN');
+        if (readyState === 'READY_TO_RUN') {
+          vNextAdminSetClientState_(basis.registry.spreadsheet_id, 'RUNNING', {
+            hub: hub, reason: 'ai_rollback_forecast_started: ' + reason,
+            actorRole: 'ADMIN', relatedRunId: basis.run.run_id
+          });
+        } else if (readyState !== 'RUNNING') {
+          throw new Error('AI rollback could not claim RUNNING state. current=' + readyState);
+        }
+      } catch (stateError) {
+        try {
+          if (vNextAdminLatestClientState_(hub, bookId, basis.registry.state) === 'RUNNING') {
+            vNextAdminSetClientState_(basis.registry.spreadsheet_id, 'READY_TO_RUN', {
+              hub: hub, reason: 'ai_rollback_state_claim_failed: ' +
+                String(stateError && stateError.message || stateError).slice(0, 300), actorRole: 'ADMIN'
+            });
+          }
+        } catch (stateRecoveryError) {
+          Logger.log('AI rollback state claim recovery failed operation=%s error=%s', operationId,
+            String(stateRecoveryError && stateRecoveryError.stack || stateRecoveryError));
+        }
+        const latestJob = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.filter(function (row) {
+          return String(row.job_id || '') === String(job.job_id || '');
+        }).slice(-1)[0];
+        if (latestJob) vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, latestJob._rowNumber, {
+          status: 'FAILED', finished_at: new Date(), error: 'Rollback state claim failed: ' +
+            String(stateError && stateError.message || stateError), updated_at: new Date()
+        });
+        vNextAdminAppendException_(hub, {
+          severity: 'ERROR', exception_type: 'AI_ROLLBACK_STATE_CLAIM_FAILED', book_id: bookId,
+          client_name: basis.registry.client_name, fiscal_year: basis.registry.fiscal_year,
+          title: 'AI反映の取消後の状態更新に失敗', detail: String(stateError && stateError.message || stateError),
+          recommended_action: '状態とjobを確認し、同じ取消操作を再実行', source_ref: operationId
+        });
+        vNextAdminWriteAudit_(hub, 'ROLLBACK_AI_EVIDENCE', 'AI_ROLLBACK', operationId, 'FAILED', {
+          jobId: job.job_id, reason: reason, error: String(stateError && stateError.message || stateError).slice(0, 1000)
+        });
+        throw stateError;
+      }
+      vNextAdminWriteAudit_(hub, 'ROLLBACK_AI_EVIDENCE', 'AI_ROLLBACK', operationId, 'SUCCESS', {
+        bookId: bookId, sourceForecastRunId: basis.run.run_id, scope: scope,
+        targetEvidenceIds: targetIds, tombstoneEvidenceIds: tombstones.map(function (row) { return row.evidence_id; }),
+        rollbackRequestId: rollbackRequestId, jobId: job.job_id, reason: reason
+      });
+      return vNextAdminJsonSafe_({
+        reused: false, operationId: operationId, jobId: job.job_id, status: 'RUNNING',
+        sourceForecastRunId: basis.run.run_id, targetEvidenceIds: targetIds,
+        tombstoneEvidenceIds: tombstones.map(function (row) { return row.evidence_id; })
+      });
+    });
+  });
+}
+
+function vNextAdminEnqueueAiResearch(request) {
+  return vNextAdminGuard_('vNextAdminEnqueueAiResearch', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+    if (!registry || String(registry.mode) !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+    return vNextAdminEnqueueJob({
+      jobType: 'AI_RESEARCH', targetBookId: bookId, targetSpreadsheetId: registry.spreadsheet_id,
+      request: Object.assign({}, req, { bookId: bookId, clientName: registry.client_name, fiscalYear: Number(registry.fiscal_year) }),
+      idempotencyKey: req.idempotencyKey || ('AI_RESEARCH|' + bookId + '|' + vNextAdminSha256_(vNextAdminCanonicalJson_(req))),
+      priority: req.priority || 60
+    });
+  });
+}
+
+function vNextAdminEnqueueJob(request) {
+  return vNextAdminGuard_('vNextAdminEnqueueJob', function () {
+    const hub = vNextAdminRequireHub_();
+    if (String(request && request.jobType || '').toUpperCase() === 'AI_ROLLBACK_FORECAST') {
+      throw new Error('Use vNextAdminRollbackAiEvidence for AI rollback jobs.');
+    }
+    return vNextAdminWithScriptLock_('enqueue-job', function () {
+      return vNextAdminEnqueueJobInternal_(hub, request || {});
+    });
+  });
+}
+
+function vNextAdminProcessJobQueue(limit) {
+  return vNextAdminGuard_('vNextAdminProcessJobQueue', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminProcessJobsForHub_(hub, limit);
+  });
+}
+
+function vNextAdminRunHealthScan() {
+  return vNextAdminGuard_('vNextAdminRunHealthScan', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('health-scan', function () {
+      return vNextAdminScanRegistryForHub_(hub);
+    });
+  });
+}
+
+/** Install one idempotent, Admin-owned five-minute sweep in the Hub script project. */
+function vNextAdminInstallAutomation() {
+  return vNextAdminGuard_('vNextAdminInstallAutomation', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('install-automation', function () {
+      const existing = ScriptApp.getProjectTriggers().filter(function (trigger) {
+        return trigger.getHandlerFunction() === VN_ADMIN_SCHEDULED_HANDLER;
+      });
+      if (!existing.length) {
+        ScriptApp.newTrigger(VN_ADMIN_SCHEDULED_HANDLER).timeBased().everyMinutes(5).create();
+      }
+      PropertiesService.getScriptProperties().setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hub.getId());
+      vNextAdminWriteAudit_(hub, 'INSTALL_AUTOMATION', 'TRIGGER', VN_ADMIN_SCHEDULED_HANDLER, 'SUCCESS', {
+        reused: existing.length > 0, intervalMinutes: 5
+      });
+      return { installed: true, reused: existing.length > 0, intervalMinutes: 5 };
+    });
+  });
+}
+
+/** Time-trigger handler. It resolves the Hub by property and never depends on UI focus. */
+function vNextAdminScheduledSweep() {
+  return vNextAdminGuard_('vNextAdminScheduledSweep', function () {
+    const hub = vNextAdminResolveHubForAutomation_();
+    const startedAt = Date.now();
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('VNEXT_LAST_SWEEP_STARTED_AT', new Date(startedAt).toISOString());
+    const maintenance = vNextAdminWithScriptLock_('scheduled-maintenance', function () {
+      return {
+        leases: vNextAdminRecoverStaleLeases_(hub, 20),
+        scan: vNextAdminScanRegistryBatch_(hub, 10)
+      };
+    });
+    const jobs = vNextAdminProcessJobsForHub_(hub, 4, startedAt + 270000);
+    const finishedAt = Date.now();
+    props.setProperties({
+      VNEXT_LAST_SWEEP_SUCCEEDED_AT: new Date(finishedAt).toISOString(),
+      VNEXT_LAST_SWEEP_DURATION_MS: String(finishedAt - startedAt)
+    }, false);
+    vNextAdminRefreshTodayExceptions_(hub);
+    vNextAdminRefreshHome_(hub);
+    return { maintenance: maintenance, jobs: jobs, elapsedMs: finishedAt - startedAt };
+  });
+}
+
+/** Submit an immutable candidate snapshot for approval. */
+function vNextAdminSubmitPlanApproval(request) {
+  return vNextAdminGuard_('vNextAdminSubmitPlanApproval', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('submit-approval', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+      if (!registry || registry.mode !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+      const clientBook = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+      vNextAdminSyncClientToHub_(hub, clientBook, bookId);
+      const requestType = String(req.requestType || 'PUBLISH').trim().toUpperCase();
+      if (['PUBLISH', 'AMENDMENT'].indexOf(requestType) < 0) throw new Error('requestType must be PUBLISH or AMENDMENT.');
+      const currentOfficialId = vNextAdminText_(registry.current_official_id);
+      let supersedes = '';
+      if (requestType === 'AMENDMENT') {
+        if (!currentOfficialId) throw new Error('An amendment requires a current official vintage.');
+        supersedes = vNextAdminText_(req.supersedesOfficialId || currentOfficialId);
+        if (supersedes !== currentOfficialId) {
+          throw new Error('supersedesOfficialId must equal the registry current official vintage.');
+        }
+      } else if (currentOfficialId) {
+        throw new Error('An official vintage already exists. Submit an AMENDMENT instead of PUBLISH.');
+      }
+      const amendmentReason = vNextAdminText_(req.amendmentReason);
+      if (requestType === 'AMENDMENT' && !amendmentReason) throw new Error('An amendment reason is required.');
+      // Approval payloads never supply authoritative snapshot data. Rebuild the
+      // candidate solely from append-only Hub records and validate every link.
+      const snapshot = vNextAdminResolveSnapshot_(Object.assign({}, req, {
+        requestType: requestType, supersedesOfficialId: supersedes,
+        amendmentReason: amendmentReason, allowedSubmitter: vNextAdminActor_().toLowerCase()
+      }), registry, hub);
+      const snapshotJson = vNextAdminCanonicalJson_(snapshot);
+      const snapshotHash = vNextAdminSha256_(snapshotJson);
+      const forecastRunId = vNextAdminText_(snapshot.forecast && snapshot.forecast.runId);
+      const planVersionId = vNextAdminText_(snapshot.plan && snapshot.plan.planVersionId);
+      if (!forecastRunId) throw new Error('forecastRunId is required.');
+      if (!planVersionId) throw new Error('planVersionId is required.');
+      const idempotencyKey = vNextAdminText_(req.idempotencyKey) ||
+        [requestType, bookId, forecastRunId, planVersionId, snapshotHash, supersedes].join('|');
+      const existing = vNextAdminFindApproval_(hub, function (row) { return String(row.idempotency_key) === idempotencyKey; });
+      if (existing) return vNextAdminJsonSafe_(existing);
+
+      const now = new Date();
+      const approvalId = 'APR-' + Utilities.getUuid();
+      const row = {
+        approval_request_id: approvalId, request_type: requestType, book_id: bookId,
+        client_id: registry.client_id, client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+        forecast_run_id: forecastRunId, plan_version_id: planVersionId, supersedes_official_id: supersedes,
+        amendment_reason: amendmentReason, snapshot_json: snapshotJson, snapshot_hash: snapshotHash,
+        status: 'PENDING', processing_attempts: 0, requested_at: now, requested_by: vNextAdminActor_(),
+        decision_at: '', decision_by: '', decision_comment: '', official_id: '',
+        idempotency_key: idempotencyKey, updated_at: now
+      };
+      vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.APPROVALS, row);
+      if (requestType === 'PUBLISH') {
+        vNextAdminSetClientState_(registry.spreadsheet_id, 'SUBMITTED', {
+          reason: 'plan_submitted_for_admin_approval', relatedRunId: forecastRunId,
+          relatedPlanVersionId: planVersionId
+        });
+      }
+      vNextAdminSyncClientToHub_(hub, clientBook, bookId);
+      vNextAdminWriteAudit_(hub, 'SUBMIT_APPROVAL', 'APPROVAL', approvalId, 'SUCCESS', {
+        bookId: bookId, requestType: requestType, forecastRunId: forecastRunId, snapshotHash: snapshotHash
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      return vNextAdminJsonSafe_(row);
+    });
+  });
+}
+
+function vNextAdminSubmitAmendment(request) {
+  const req = Object.assign({}, request || {}, { requestType: 'AMENDMENT' });
+  return vNextAdminSubmitPlanApproval(req);
+}
+
+/** Return the immutable current-official basis used by the Admin amendment form. */
+function vNextAdminGetAmendmentBasis(request) {
+  return vNextAdminGuard_('vNextAdminGetAmendmentBasis', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const basis = vNextAdminResolveCurrentOfficialBasis_(hub, bookId);
+    const state = vNextAdminLatestClientState_(hub, bookId, basis.registry.state);
+    if (state !== 'OFFICIAL_LOCKED') throw new Error('訂正案を作成できるのはOFFICIAL_LOCKEDのbookだけです。現在=' + state);
+    const plan = basis.approvedPlan;
+    return vNextAdminJsonSafe_({
+      bookId: bookId, clientName: basis.registry.client_name, fiscalYear: Number(basis.registry.fiscal_year),
+      state: state, currentOfficialId: basis.officialId,
+      basisHash: vNextAdminAmendmentBasisHash_(basis),
+      officialForecastRunId: basis.officialForecast.run_id,
+      sourceForecastRunId: basis.sourceForecast.run_id,
+      approvedPlanVersionId: plan.plan_version_id,
+      systemRecommended: Number(basis.sourceForecast.system_recommended || 0),
+      adoptionDelta: Number(plan.adoption_delta || 0), adoptionReason: String(plan.adoption_reason || ''),
+      adoptedForecast: Number(plan.adopted_forecast || 0), salesUplift: Number(plan.sales_uplift || 0),
+      upliftReason: String(plan.uplift_reason || ''), upliftOwner: String(plan.uplift_owner || ''),
+      upliftAction: String(plan.uplift_action || ''), upliftDueDate: vNextAdminDateOnlyText_(plan.uplift_due_date),
+      upliftAllocation: vNextAdminParseJson_(plan.uplift_allocation_json, []),
+      finalBudget: Number(plan.final_budget || 0)
+    });
+  });
+}
+
+/**
+ * Append a new Hub-side amendment PLAN_VERSION and immutable approval request.
+ * The current approved plan and official vintage are never updated in place.
+ */
+function vNextAdminCreateAmendmentApproval(request) {
+  return vNextAdminGuard_('vNextAdminCreateAmendmentApproval', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('create-amendment-approval', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const amendmentReason = vNextAdminRequiredText_(req.amendmentReason || req.correctionReason, 'amendmentReason');
+      const basis = vNextAdminResolveCurrentOfficialBasis_(hub, bookId);
+      const state = vNextAdminLatestClientState_(hub, bookId, basis.registry.state);
+      if (state !== 'OFFICIAL_LOCKED') throw new Error('訂正案を作成できるのはOFFICIAL_LOCKEDのbookだけです。現在=' + state);
+      const expectedOfficialId = vNextAdminRequiredText_(req.expectedCurrentOfficialId, 'expectedCurrentOfficialId');
+      const expectedPlanId = vNextAdminRequiredText_(req.expectedCurrentApprovedPlanId, 'expectedCurrentApprovedPlanId');
+      const expectedBasisHash = vNextAdminRequiredText_(req.expectedBasisHash, 'expectedBasisHash');
+      if (expectedOfficialId !== basis.officialId || expectedPlanId !== String(basis.approvedPlan.plan_version_id || '') ||
+          expectedBasisHash !== vNextAdminAmendmentBasisHash_(basis)) {
+        throw new Error('表示後に正式計画が更新されました。現在値を再読込してください。');
+      }
+      if (req.supersedesOfficialId && String(req.supersedesOfficialId) !== basis.officialId) {
+        throw new Error('supersedesOfficialId must equal the current official vintage.');
+      }
+      const normalized = vNextAdminNormalizeAmendmentInput_(req, basis);
+      const actor = vNextAdminActor_().toLowerCase();
+      const identity = vNextAdminCanonicalJson_({
+        action: 'ADMIN_AMENDMENT_PLAN_V1', bookId: bookId, supersedesOfficialId: basis.officialId,
+        sourceForecastRunId: basis.sourceForecast.run_id,
+        amendsPlanVersionId: basis.approvedPlan.plan_version_id,
+        requestedBy: actor,
+        amendmentReason: amendmentReason, adoptionDelta: normalized.adoptionDelta,
+        adoptionReason: normalized.adoptionReason, salesUplift: normalized.salesUplift,
+        upliftReason: normalized.upliftReason, upliftOwner: normalized.upliftOwner,
+        upliftAction: normalized.upliftAction, upliftDueDate: normalized.upliftDueDate,
+        upliftAllocation: normalized.upliftAllocation
+      });
+      const identityHash = vNextAdminSha256_(identity);
+      const planId = 'AMD-PLAN-' + identityHash.slice(0, 24).toUpperCase();
+      const approvalId = 'APR-AMD-' + identityHash.slice(0, 24).toUpperCase();
+      const idempotencyKey = 'AMENDMENT|' + bookId + '|' + basis.officialId + '|' + identityHash;
+      const conflictingApproval = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.find(function (row) {
+        return String(row.request_type || '').toUpperCase() === 'AMENDMENT' &&
+          String(row.book_id || '') === bookId && String(row.supersedes_official_id || '') === basis.officialId &&
+          ['PENDING', 'PROCESSING_APPROVE', 'PROCESSING_RETURN', 'PROCESSING_REJECT'].indexOf(String(row.status || '').toUpperCase()) >= 0 &&
+          String(row.idempotency_key || '') !== idempotencyKey;
+      });
+      if (conflictingApproval) {
+        throw new Error('この正式計画には別の訂正承認が進行中です。approval=' + conflictingApproval.approval_request_id);
+      }
+      const allPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+        return String(row.book_id || '') === bookId;
+      });
+      let plan = allPlans.find(function (row) { return String(row.plan_version_id || '') === planId; });
+      if (!plan) {
+        const versionNo = allPlans.reduce(function (max, row) {
+          return Math.max(max, Number(row.version_no || 0));
+        }, 0) + 1;
+        const nowIso = new Date().toISOString();
+        plan = {
+          plan_version_id: planId, book_id: bookId, run_id: basis.sourceForecast.run_id,
+          official_vintage_id: '', version_no: versionNo, status: 'SUBMITTED',
+          system_recommended: normalized.systemRecommended, adoption_delta: normalized.adoptionDelta,
+          adoption_reason: normalized.adoptionReason, adopted_forecast: normalized.adoptedForecast,
+          sales_uplift: normalized.salesUplift, uplift_reason: normalized.upliftReason,
+          uplift_owner: normalized.upliftOwner, uplift_action: normalized.upliftAction,
+          uplift_due_date: normalized.upliftDueDate,
+          uplift_allocation_json: vNextAdminCanonicalJson_(normalized.upliftAllocation),
+          final_budget: normalized.finalBudget,
+          amends_plan_version_id: basis.approvedPlan.plan_version_id,
+          submitted_at: nowIso, submitted_by: actor, approved_at: '', approved_by: '', created_at: nowIso
+        };
+        vNextAdminAppendCoreRowsNoLock_(hub, 'PLAN_VERSION', [plan]);
+      }
+      const expectedPlanContent = vNextAdminCanonicalJson_({
+        bookId: bookId, runId: basis.sourceForecast.run_id, status: 'SUBMITTED',
+        systemRecommended: normalized.systemRecommended, adoptionDelta: normalized.adoptionDelta,
+        adoptionReason: normalized.adoptionReason, adoptedForecast: normalized.adoptedForecast,
+        salesUplift: normalized.salesUplift, upliftReason: normalized.upliftReason,
+        upliftOwner: normalized.upliftOwner, upliftAction: normalized.upliftAction,
+        upliftDueDate: normalized.upliftDueDate, upliftAllocation: normalized.upliftAllocation,
+        finalBudget: normalized.finalBudget, amendsPlanVersionId: basis.approvedPlan.plan_version_id,
+        submittedBy: actor
+      });
+      const actualPlanContent = vNextAdminCanonicalJson_({
+        bookId: String(plan.book_id || ''), runId: String(plan.run_id || ''), status: String(plan.status || '').toUpperCase(),
+        systemRecommended: Number(plan.system_recommended), adoptionDelta: Number(plan.adoption_delta),
+        adoptionReason: String(plan.adoption_reason || ''), adoptedForecast: Number(plan.adopted_forecast),
+        salesUplift: Number(plan.sales_uplift), upliftReason: String(plan.uplift_reason || ''),
+        upliftOwner: String(plan.uplift_owner || ''), upliftAction: String(plan.uplift_action || ''),
+        upliftDueDate: String(plan.uplift_due_date || ''),
+        upliftAllocation: vNextAdminParseJson_(plan.uplift_allocation_json, []),
+        finalBudget: Number(plan.final_budget), amendsPlanVersionId: String(plan.amends_plan_version_id || ''),
+        submittedBy: String(plan.submitted_by || '').toLowerCase()
+      });
+      if (actualPlanContent !== expectedPlanContent) {
+        throw new Error('Existing deterministic amendment PLAN_VERSION is inconsistent; no new record was appended.');
+      }
+      const validationOptions = {
+        requestType: 'AMENDMENT', allowedSubmitter: actor,
+        supersedesOfficialId: basis.officialId, officialBasis: basis
+      };
+      vNextAdminValidateSubmittedPlan_(basis.registry, basis.sourceForecast, plan, validationOptions);
+      const snapshot = vNextAdminBuildPlanApprovalSnapshot_(basis.registry, basis.sourceForecast, plan, {
+        requestType: 'AMENDMENT', supersedesOfficialId: basis.officialId,
+        amendmentReason: amendmentReason, officialBasis: basis
+      });
+      const snapshotJson = vNextAdminCanonicalJson_(snapshot);
+      const snapshotHash = vNextAdminSha256_(snapshotJson);
+      const existing = vNextAdminFindApproval_(hub, function (row) {
+        return String(row.approval_request_id || '') === approvalId || String(row.idempotency_key || '') === idempotencyKey;
+      });
+      if (existing) {
+        if (String(existing.request_type || '') !== 'AMENDMENT' || String(existing.book_id || '') !== bookId ||
+            String(existing.forecast_run_id || '') !== String(basis.sourceForecast.run_id) ||
+            String(existing.plan_version_id || '') !== planId ||
+            String(existing.supersedes_official_id || '') !== basis.officialId ||
+            String(existing.amendment_reason || '') !== amendmentReason ||
+            String(existing.snapshot_hash || '') !== snapshotHash || String(existing.snapshot_json || '') !== snapshotJson) {
+          throw new Error('Existing amendment idempotency record is inconsistent; no new record was appended.');
+        }
+        return vNextAdminJsonSafe_({
+          reused: true, approvalRequestId: existing.approval_request_id, planVersionId: planId,
+          supersedesOfficialId: basis.officialId, status: existing.status
+        });
+      }
+      const now = new Date();
+      const approval = {
+        approval_request_id: approvalId, request_type: 'AMENDMENT', book_id: bookId,
+        client_id: basis.registry.client_id, client_name: basis.registry.client_name,
+        fiscal_year: basis.registry.fiscal_year, forecast_run_id: basis.sourceForecast.run_id,
+        plan_version_id: planId, supersedes_official_id: basis.officialId,
+        amendment_reason: amendmentReason, snapshot_json: snapshotJson, snapshot_hash: snapshotHash,
+        status: 'PENDING', processing_attempts: 0, requested_at: now, requested_by: actor,
+        decision_at: '', decision_by: '', decision_comment: '', official_id: '',
+        idempotency_key: idempotencyKey, updated_at: now
+      };
+      vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.APPROVALS, approval);
+      vNextAdminWriteAudit_(hub, 'CREATE_AMENDMENT_APPROVAL', 'APPROVAL', approvalId, 'SUCCESS', {
+        bookId: bookId, supersedesOfficialId: basis.officialId,
+        officialForecastRunId: basis.officialForecast.run_id,
+        sourceForecastRunId: basis.sourceForecast.run_id,
+        amendsPlanVersionId: basis.approvedPlan.plan_version_id,
+        planVersionId: planId, snapshotHash: snapshotHash, amendmentReason: amendmentReason
+      }, vNextAdminAmendmentBasisHash_(basis), snapshotHash);
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      return vNextAdminJsonSafe_({
+        reused: false, approvalRequestId: approvalId, planVersionId: planId,
+        supersedesOfficialId: basis.officialId, status: 'PENDING'
+      });
+    });
+  });
+}
+
+/** decision must be APPROVE, RETURN, or REJECT. */
+function vNextAdminDecideApproval(request) {
+  return vNextAdminGuard_('vNextAdminDecideApproval', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const decision = String(req.decision || '').trim().toUpperCase();
+    if (['APPROVE', 'RETURN', 'REJECT'].indexOf(decision) < 0) throw new Error('decision must be APPROVE, RETURN, or REJECT.');
+    const hub = vNextAdminRequireHub_();
+    const approvalId = vNextAdminRequiredText_(req.approvalRequestId, 'approvalRequestId');
+    if ((decision === 'RETURN' || decision === 'REJECT') && !vNextAdminText_(req.comment)) {
+      throw new Error('A decision comment is required for RETURN or REJECT.');
+    }
+    const claim = vNextAdminWithScriptLock_('claim-approval', function () {
+      const approval = vNextAdminFindApproval_(hub, function (row) { return String(row.approval_request_id) === approvalId; });
+      if (!approval) throw new Error('Approval request not found: ' + approvalId);
+      if (approval.status !== 'PENDING') {
+        if (decision === 'APPROVE' && approval.status === 'APPROVED') return { alreadyComplete: true, approval: approval };
+        throw new Error('Approval request is already decided: ' + approval.status);
+      }
+      const processingAttempts = Number(approval.processing_attempts || 0);
+      if (processingAttempts >= 3) {
+        vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
+          status: 'FAILED', decision_comment: '承認処理が3回失敗したため管理者確認が必要です。', updated_at: new Date()
+        });
+        throw new Error('Approval processing failed three times; inspect the exception and create a new approval request after correction.');
+      }
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
+        status: 'PROCESSING_' + decision, decision_by: vNextAdminActor_(),
+        decision_comment: vNextAdminText_(req.comment), processing_attempts: processingAttempts + 1, updated_at: new Date()
+      });
+      return { alreadyComplete: false, approval: approval };
+    });
+    if (claim.alreadyComplete) return vNextAdminJsonSafe_(claim.approval);
+    const approval = claim.approval;
+    try {
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === String(approval.book_id); });
+      if (!registry) throw new Error('Registry entry not found for book: ' + approval.book_id);
+      const now = new Date();
+      let officialId = '';
+      if (decision === 'APPROVE') {
+        const issued = vNextAdminIssueOfficial_(hub, approval, registry, req.comment || '');
+        officialId = issued.officialId;
+        try {
+          if (String(approval.request_type || '') !== 'AMENDMENT') {
+            vNextAdminSetClientState_(registry.spreadsheet_id, 'OFFICIAL_LOCKED', {
+              reason: 'plan_approved', relatedRunId: issued.officialForecastRunId || approval.forecast_run_id,
+              relatedPlanVersionId: issued.approvedPlanVersionId || approval.plan_version_id
+            });
+          }
+          const approvedClientBook = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+          vNextAdminSyncClientToHub_(hub, approvedClientBook, registry.book_id);
+          vNextAdminSyncHubToClient_(hub, approvedClientBook, registry.book_id, ['FORECAST_RUN', 'PLAN_VERSION', 'STATE_EVENT']);
+          vNextAdminMirrorClientState_(approvedClientBook, 'OFFICIAL_LOCKED');
+        } catch (syncError) {
+          vNextAdminAppendException_(hub, {
+            severity: 'ERROR', exception_type: 'OFFICIAL_CLIENT_SYNC_FAILED', book_id: registry.book_id,
+            client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+            title: '公式化後のclient同期に失敗', detail: String(syncError && syncError.message || syncError),
+            recommended_action: 'client権限を確認し、Admin Sidebarの「正式計画をClientへ再同期」を実行', source_ref: officialId
+          });
+          Logger.log('Post-official client sync failed approval=%s error=%s', approvalId, String(syncError && syncError.stack || syncError));
+        }
+      } else {
+        if (String(approval.request_type || '') !== 'AMENDMENT') {
+          vNextAdminSetClientState_(registry.spreadsheet_id, 'CHANGES_REQUESTED', {
+            reason: (decision === 'RETURN' ? 'changes_requested: ' : 'plan_rejected: ') + vNextAdminText_(req.comment),
+            relatedRunId: approval.forecast_run_id, relatedPlanVersionId: approval.plan_version_id
+          });
+        }
+        const clientBook = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+        vNextAdminSyncClientToHub_(hub, clientBook, registry.book_id);
+      }
+      const patch = {
+        status: decision === 'APPROVE' ? 'APPROVED' : (decision === 'RETURN' ? 'RETURNED' : 'REJECTED'),
+        decision_at: now, decision_by: vNextAdminActor_(), decision_comment: vNextAdminText_(req.comment),
+        official_id: officialId, updated_at: now
+      };
+      vNextAdminWithScriptLock_('finish-approval', function () {
+        const latest = vNextAdminFindApproval_(hub, function (row) { return String(row.approval_request_id) === approvalId; });
+        if (!latest) throw new Error('Approval request disappeared during decision.');
+        vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, latest._rowNumber, patch);
+      });
+      vNextAdminWriteAudit_(hub, 'DECIDE_APPROVAL', 'APPROVAL', approvalId, 'SUCCESS', {
+        decision: decision, officialId: officialId, comment: vNextAdminText_(req.comment)
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      return { approvalRequestId: approvalId, status: patch.status, officialId: officialId };
+    } catch (err) {
+      try {
+        vNextAdminWithScriptLock_('release-approval', function () {
+          const latest = vNextAdminFindApproval_(hub, function (row) { return String(row.approval_request_id) === approvalId; });
+          if (latest && String(latest.status || '').indexOf('PROCESSING_') === 0) {
+            vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, latest._rowNumber, {
+              status: 'PENDING', decision_at: '', decision_by: '',
+              decision_comment: '前回処理失敗: ' + String(err && err.message || err).slice(0, 500), updated_at: new Date()
+            });
+          }
+        });
+      } catch (releaseError) {
+        Logger.log('Approval claim release failed id=%s error=%s', approvalId, String(releaseError && releaseError.stack || releaseError));
+      }
+      throw err;
+    }
+  });
+}
+
+/** Route a returned plan without changing the immutable approval decision. */
+function vNextAdminRouteReturnedPlan(request) {
+  return vNextAdminGuard_('vNextAdminRouteReturnedPlan', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithUserLock_('route-returned-plan', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const route = String(req.route || 'PLAN_ONLY').trim().toUpperCase();
+      const targetState = vNextAdminReturnedPlanTargetState_(route);
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT' &&
+          String(row.status || '').toUpperCase() === 'ACTIVE';
+      });
+      if (!registry) throw new Error('Registered ACTIVE CLIENT book not found: ' + bookId);
+      const returned = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.status || '').toUpperCase() === 'RETURNED' &&
+          (!req.approvalRequestId || String(row.approval_request_id || '') === String(req.approvalRequestId));
+      });
+      if (!returned.length) throw new Error('A RETURNED approval for this book is required before routing.');
+      const approval = returned[returned.length - 1];
+      const currentState = vNextAdminLatestClientState_(hub, bookId, registry.state);
+      if (currentState !== 'CHANGES_REQUESTED' && currentState !== targetState) {
+        throw new Error('Returned plan routing requires CHANGES_REQUESTED. current=' + currentState);
+      }
+      const operationId = 'RETURN-ROUTE-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        approvalRequestId: approval.approval_request_id, bookId: bookId, route: route, reason: reason
+      })).slice(0, 24).toUpperCase();
+      let round = null;
+      const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+      if (route === 'REOPEN_INPUT') {
+        const latestMeta = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+          return String(row.book_id || '') === bookId;
+        }).slice(-1)[0];
+        round = currentState === 'INPUT_OPEN' && latestMeta && String(latestMeta.event_type || '') === 'INPUT_REOPENED'
+          ? { reused: true, recordId: latestMeta.record_id, roundStartedAt: String(latestMeta.recorded_at || '') }
+          : vNextAdminAppendInputReopenedMeta_(hub, client, registry, operationId);
+        vNextAdminWriteBookConfig_(client, {
+          input_submitted: 0, input_answered_count: 0, state: 'INPUT_OPEN',
+          input_round_started_at: round.roundStartedAt
+        });
+      }
+      const stateResult = currentState === targetState
+        ? { changed: false, fromState: currentState, toState: targetState, stateEventId: '' }
+        : vNextAdminSetClientState_(registry.spreadsheet_id, targetState, {
+          hub: hub, reason: 'returned_plan_route/' + route + ': ' + reason,
+          actorRole: 'ADMIN', relatedRunId: approval.forecast_run_id,
+          relatedPlanVersionId: approval.plan_version_id
+        });
+      vNextAdminSyncHubToClient_(hub, client, bookId, ['STATE_EVENT']);
+      vNextAdminMirrorClientState_(client, targetState);
+      vNextAdminPatchRegistryByBookId_(hub, bookId, { state: targetState, updated_at: new Date() });
+      vNextAdminWriteAudit_(hub, 'ROUTE_RETURNED_PLAN', 'APPROVAL', approval.approval_request_id, 'SUCCESS', {
+        operationId: operationId, bookId: bookId, route: route,
+        fromState: currentState, toState: targetState, reason: reason,
+        roundStartedAt: round && round.roundStartedAt || ''
+      });
+      return vNextAdminJsonSafe_({
+        reused: currentState === targetState, operationId: operationId,
+        approvalRequestId: approval.approval_request_id, bookId: bookId,
+        route: route, state: targetState, stateEventId: stateResult.stateEventId || '',
+        roundStartedAt: round && round.roundStartedAt || ''
+      });
+    });
+  });
+}
+
+function vNextAdminReturnedPlanTargetState_(route) {
+  const normalized = String(route || '').trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(VN_ADMIN_RETURN_ROUTES, normalized)) {
+    throw new Error('route must be PLAN_ONLY, REOPEN_INPUT, or RERUN_SAME_INPUT.');
+  }
+  return VN_ADMIN_RETURN_ROUTES[normalized];
+}
+
+function vNextAdminAppendInputReopenedMeta_(hub, client, registry, operationId) {
+  const bookId = String(registry.book_id || '');
+  const metas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  if (!metas.length) throw new Error('BOOK_META is missing for input reopen: ' + bookId);
+  const source = metas[metas.length - 1];
+  const recordId = 'META-REOPEN-' + vNextAdminSha256_(String(operationId || '') + '|' + bookId).slice(0, 24).toUpperCase();
+  const existing = metas.find(function (row) { return String(row.record_id || '') === recordId; });
+  if (existing) {
+    if (String(existing.event_type || '') !== 'INPUT_REOPENED' || String(existing.supersedes_record_id || '') !== String(source.supersedes_record_id || source.record_id || '')) {
+      // If source is the marker itself, a normal idempotent replay is valid.
+      if (String(source.record_id || '') !== recordId) throw new Error('Existing INPUT_REOPENED marker lineage is inconsistent.');
+    }
+    return { reused: true, recordId: recordId, roundStartedAt: String(existing.recorded_at || '') };
+  }
+  const now = new Date().toISOString();
+  const record = Object.assign({}, source, {
+    record_id: recordId,
+    state: 'INPUT_OPEN',
+    event_type: 'INPUT_REOPENED',
+    supersedes_record_id: String(source.record_id || ''),
+    recorded_at: now,
+    recorded_by: vNextAdminActor_().toLowerCase()
+  });
+  delete record._rowNumber;
+  vNextAdminAppendCoreRowsNoLock_(hub, 'BOOK_META', [record]);
+  const clientIds = new Set(vNextAdminReadCoreRows_(client, 'BOOK_META').map(function (row) {
+    return String(row.record_id || '');
+  }));
+  if (!clientIds.has(recordId)) vNextAdminAppendCoreRowsNoLock_(client, 'BOOK_META', [record]);
+  return { reused: false, recordId: recordId, roundStartedAt: now };
+}
+
+/** Replays only the Client propagation step for an already-issued central official vintage. */
+function vNextAdminRetryOfficialClientSync(request) {
+  return vNextAdminGuard_('vNextAdminRetryOfficialClientSync', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    return vNextAdminWithUserLock_('retry-official-client-sync', function () {
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry) throw new Error('Registered CLIENT book not found: ' + bookId);
+      const officialId = vNextAdminRequiredText_(registry.current_official_id, 'currentOfficialId');
+      const officialRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.official_id || '') === officialId;
+      });
+      if (!officialRows.length) throw new Error('Current OFFICIAL_RUNS record was not found.');
+      const official = officialRows[officialRows.length - 1];
+      const frozen = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.run_id || '') === String(official.forecast_run_id || '') &&
+          String(row.official_vintage_id || '') === officialId && Number(row.is_official || 0) === 1;
+      });
+      const approvedPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId &&
+          String(row.status || '').toUpperCase() === 'APPROVED' &&
+          String(row.run_id || '') === String(official.source_forecast_run_id || '');
+      });
+      if (!frozen.length || !approvedPlans.length) {
+        throw new Error('Central official forecast/approved plan linkage is incomplete; Client sync was not attempted.');
+      }
+
+      const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+      const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+      vNextAdminSyncClientToHub_(hub, client, bookId);
+      const hubState = vNextAdminLatestClientState_(hub, bookId, registry.state || 'OFFICIAL_LOCKED');
+      const preservedState = vNextAdminOfficialSyncTargetState_(hubState);
+      vNextAdminSyncHubToClient_(hub, client, bookId, ['FORECAST_RUN', 'PLAN_VERSION', 'STATE_EVENT']);
+      const clientStateAfterSync = vNextAdminLatestClientState_(client, bookId, routing.state || registry.state);
+      if (clientStateAfterSync !== preservedState) {
+        // REVIEW_DUE/YEAR_CLOSED must arrive through the authoritative Hub event
+        // chain. Only the ordinary official-lock recovery may synthesize a
+        // missing final transition on the Client.
+        if (preservedState !== 'OFFICIAL_LOCKED') {
+          throw new Error('Hub state event chain did not synchronize to Client: expected=' + preservedState + ', actual=' + clientStateAfterSync);
+        }
+        vNextAdminSetClientState_(registry.spreadsheet_id, preservedState, {
+          reason: 'official_client_sync_recovery', relatedRunId: official.forecast_run_id,
+          relatedPlanVersionId: approvedPlans[approvedPlans.length - 1].plan_version_id, actorRole: 'ADMIN'
+        });
+      }
+      vNextAdminCopyOfficialToClient_(registry.spreadsheet_id, official);
+      vNextAdminMirrorClientState_(client, preservedState);
+      vNextAdminPatchRegistryByBookId_(hub, bookId, {
+        state: preservedState, health_status: 'OK', health_code: 'OFFICIAL_SYNC_RECOVERED',
+        updated_at: new Date()
+      });
+      vNextAdminResolveOpenExceptions_(hub, bookId,
+        ['OFFICIAL_CLIENT_SYNC_FAILED', 'OFFICIAL_COPY_FAILED'], officialId);
+      vNextAdminWriteAudit_(hub, 'RETRY_OFFICIAL_CLIENT_SYNC', 'BOOK', bookId, 'SUCCESS', {
+        officialId: officialId, clientSpreadsheetId: registry.spreadsheet_id, preservedState: preservedState
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      return { ok: true, bookId: bookId, officialId: officialId, state: preservedState };
+    });
+  });
+}
+
+function vNextAdminOfficialSyncTargetState_(hubState) {
+  const normalized = String(hubState || '').toUpperCase();
+  return ['REVIEW_DUE', 'YEAR_CLOSED'].indexOf(normalized) >= 0 ? normalized : 'OFFICIAL_LOCKED';
+}
+
+/** Aggregate confirmed BE actuals for the full FY and start the learning review. */
+function vNextAdminStartReview(request) {
+  return vNextAdminGuard_('vNextAdminStartReview', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    let reviewClaimKey = '';
+    let reviewClaimAcquired = false;
+    try {
+      return vNextAdminWithUserLock_('start-review', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+      if (!registry || String(registry.mode) !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+      const officialId = vNextAdminRequiredText_(registry.current_official_id, 'currentOfficialId');
+      if (req.officialVintageId && String(req.officialVintageId) !== officialId) {
+        throw new Error('振り返りはBOOK_REGISTRYの現在の公式vintageだけを対象にできます。');
+      }
+      const officialRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.official_id || '') === officialId;
+      });
+      if (!officialRows.length) throw new Error('Current official record was not found in OFFICIAL_RUNS.');
+      const officialRow = officialRows[officialRows.length - 1];
+      const officialForecasts = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId &&
+          String(row.run_id || '') === String(officialRow.forecast_run_id || '') && Number(row.is_official || 0) === 1;
+      });
+      if (!officialForecasts.length) throw new Error('The current official FORECAST_RUN is missing or does not match OFFICIAL_RUNS.');
+
+      const fiscalYear = Number(registry.fiscal_year);
+      const fyStart = new Date(fiscalYear, 3, 1);
+      const fyEndDate = new Date(fiscalYear + 1, 2, 31);
+      const fyEnd = new Date(fiscalYear + 1, 2, 31, 23, 59, 59, 999);
+      const minimumAsOf = new Date(fiscalYear + 1, 3, 1);
+      const asOf = typeof vNextParseDate_ === 'function'
+        ? vNextParseDate_(req.asOf || new Date(), 'asOf')
+        : new Date(req.asOf || new Date());
+      if (isNaN(asOf.getTime()) || asOf < minimumAsOf) {
+        throw new Error('年度末12か月の確定実績を含めるため、asOfは翌年度4月1日以降にしてください。');
+      }
+      const asOfCutoff = typeof vNextParseDate_ === 'function'
+        ? vNextParseDate_(vNextAdminCutoffFromAsOf_(asOf), 'asOfCutoff')
+        : new Date(vNextAdminCutoffFromAsOf_(asOf));
+      if (asOfCutoff < fyEndDate) throw new Error('asOfから算出した情報締切が対象年度末より前です。');
+
+      const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+      const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+      const currentState = String(routing.state || registry.state || '').toUpperCase();
+      if (currentState === 'YEAR_CLOSED') throw new Error('終了済み年度の振り返り評価は再作成できません。');
+      if (['OFFICIAL_LOCKED', 'REVIEW_DUE'].indexOf(currentState) < 0) {
+        throw new Error('年度振り返りを開始できる状態ではありません: ' + currentState);
+      }
+      vNextAdminSyncClientToHub_(hub, client, bookId);
+
+      const existing = vNextAdminReadCoreRows_(hub, 'EVALUATION').filter(function (row) {
+        return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId;
+      });
+      let evaluation = existing.length ? existing[existing.length - 1] : null;
+      const evaluationId = 'EVAL-' + vNextAdminSha256_([bookId, officialId].join('|')).slice(0, 24).toUpperCase();
+      reviewClaimKey = 'REVIEW_CLAIM|' + bookId + '|' + officialId;
+      if (evaluation && String(evaluation.source_run_id || '') !== String(officialRow.forecast_run_id || '')) {
+        throw new Error('Existing evaluation points to a non-current official run.');
+      }
+      if (!evaluation) {
+        vNextAdminWithScriptLock_('claim-start-review', function () {
+          const recheck = vNextAdminReadCoreRows_(hub, 'EVALUATION').filter(function (row) {
+            return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId;
+          });
+          if (recheck.length) {
+            evaluation = recheck[recheck.length - 1];
+            return;
+          }
+          const setting = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
+            return String(row.setting_key || '') === reviewClaimKey;
+          });
+          const priorClaim = setting ? vNextAdminParseJson_(setting.setting_value, {}) : {};
+          const priorTime = new Date(priorClaim.claimedAt || 0).getTime();
+          if (String(priorClaim.status || '') === 'RUNNING' && isFinite(priorTime) && Date.now() - priorTime < 20 * 60000) {
+            throw new Error('同じ公式vintageの年度評価を別の処理が作成中です。');
+          }
+          const now = new Date();
+          vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', reviewClaimKey, {
+            setting_key: reviewClaimKey,
+            setting_value: vNextAdminCanonicalJson_({
+              status: 'RUNNING', evaluationId: evaluationId, claimedAt: now.toISOString(), actor: vNextAdminActor_()
+            }),
+            value_type: 'JSON', scope: 'REVIEW_CLAIM', effective_from: now,
+            updated_at: now, updated_by: vNextAdminActor_(), note: 'duplicate-prevention lease'
+          });
+          reviewClaimAcquired = true;
+        });
+      }
+      if (!evaluation) {
+        if (typeof vNextFetchActualRecordsBridge_ !== 'function' || typeof vNextAppendEvaluation_ !== 'function') {
+          throw new Error('Actual-data evaluation APIs are not installed.');
+        }
+        vNextAdminHydrateHubRuntime_(hub);
+        const records = vNextFetchActualRecordsBridge_(registry.client_name, {
+          fiscalYear: fiscalYear, asOf: asOf, cutoff: fyEnd
+        });
+        const fyActuals = records.filter(function (record) {
+          const date = record.actualDate instanceof Date ? record.actualDate : new Date(record.actualDate);
+          return record.isConfirmed === true && String(record.dateSource || '').indexOf('ACTUAL') === 0 &&
+            date >= fyStart && date <= fyEnd;
+        });
+        const actualTotal = fyActuals.reduce(function (sum, record) { return sum + Number(record.amount || 0); }, 0);
+        const observedMonths = new Set(fyActuals.map(function (record) {
+          const date = record.actualDate instanceof Date ? record.actualDate : new Date(record.actualDate);
+          return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM');
+        }));
+        const expectedMonths = [];
+        for (let offset = 0; offset < 12; offset++) {
+          expectedMonths.push(Utilities.formatDate(new Date(fiscalYear, 3 + offset, 1), Session.getScriptTimeZone(), 'yyyy-MM'));
+        }
+        const missingMonths = expectedMonths.filter(function (month) { return !observedMonths.has(month); });
+        const latestActual = fyActuals.reduce(function (latest, record) {
+          const date = record.actualDate instanceof Date ? record.actualDate : new Date(record.actualDate);
+          return !latest || date > latest ? date : latest;
+        }, null);
+        const freshnessThreshold = new Date(fiscalYear + 1, 2, 1);
+        const completenessIssues = [];
+        if (!fyActuals.length) completenessIssues.push('ZERO_ACTUAL_ROWS');
+        if (actualTotal === 0) completenessIssues.push('ZERO_ACTUAL_TOTAL');
+        if (missingMonths.length) completenessIssues.push('MISSING_MONTHS=' + missingMonths.join(','));
+        if (!latestActual || latestActual < freshnessThreshold) completenessIssues.push('STALE_LATEST_ACTUAL');
+        const overrideReason = vNextAdminText_(req.actualCompletenessOverrideReason || req.overrideReason);
+        if (completenessIssues.length && !(req.allowIncompleteActuals === true && overrideReason)) {
+          throw new Error('ZAC確定実績の完全性を確認できません: ' + completenessIssues.join('; ') +
+            '。例外評価が必要な場合はallowIncompleteActuals=trueと理由を指定してください。');
+        }
+
+        const plans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+          return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId &&
+            String(row.status || '').toUpperCase() === 'APPROVED';
+        });
+        const plan = plans.length ? plans[plans.length - 1] : null;
+        if (!plan) throw new Error('Approved plan linked to the current official vintage was not found.');
+        if (String(plan.run_id || '') !== String(officialRow.source_forecast_run_id || '')) {
+          throw new Error('Approved plan does not point to the source run of the current official vintage.');
+        }
+        if (completenessIssues.length) {
+          // This direct append is intentionally fail-closed; the immutable
+          // evaluation is never written unless the override reason is recorded.
+          vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.AUDIT, {
+            audit_id: 'AUD-' + Utilities.getUuid(), occurred_at: new Date(), actor: vNextAdminActor_(),
+            action: 'ACTUAL_COMPLETENESS_OVERRIDE', entity_type: 'BOOK', entity_id: bookId, status: 'APPROVED_EXCEPTION',
+            detail_json: vNextAdminCanonicalJson_({
+              officialVintageId: officialId, fiscalYear: fiscalYear, issues: completenessIssues,
+              reason: overrideReason, actualRows: fyActuals.length, actualTotal: actualTotal,
+              observedMonths: Array.from(observedMonths), latestActual: latestActual && latestActual.toISOString()
+            }), before_hash: '', after_hash: ''
+          });
+        }
+        if (typeof vNextEngineBuildEvaluationBreakdown !== 'function' ||
+            typeof vNextForecastRecordToResult_ !== 'function') {
+          throw new Error('Automatic evaluation breakdown API is not installed.');
+        }
+        const actualBaseMonths = new Array(12).fill(0);
+        const actualSpotMonths = new Array(12).fill(0);
+        fyActuals.forEach(function (record) {
+          const date = record.actualDate instanceof Date ? record.actualDate : new Date(record.actualDate);
+          const monthIndex = (date.getFullYear() - fiscalYear) * 12 + date.getMonth() - 3;
+          if (monthIndex < 0 || monthIndex > 11) return;
+          const target = String(record.serviceType || '').toUpperCase() === 'SPOT'
+            ? actualSpotMonths : actualBaseMonths;
+          target[monthIndex] += Number(record.amount || 0);
+        });
+        const officialForecast = vNextForecastRecordToResult_(officialForecasts[officialForecasts.length - 1]);
+        const automaticBreakdown = vNextEngineBuildEvaluationBreakdown({
+          officialForecast: officialForecast,
+          actualBaseMonths: actualBaseMonths,
+          actualSpotMonths: actualSpotMonths,
+          actualTotal: actualTotal,
+          dataQualityIssues: completenessIssues
+        });
+        if (!automaticBreakdown.reconciled || Math.abs(Number(automaticBreakdown.reconciliationResidual || 0)) > 0.000001) {
+          throw new Error('Automatic evaluation breakdown does not reconcile to the official system error.');
+        }
+        evaluation = vNextAppendEvaluation_({
+          evaluationId: evaluationId, bookId: bookId, officialVintageId: officialId, actualTotal: actualTotal,
+          adoptedForecast: Number(plan.adopted_forecast || 0), finalBudget: Number(plan.final_budget || 0),
+          evaluatedAt: new Date().toISOString(), errorComponents: automaticBreakdown.errorComponents,
+          confirmedCause: '', causeHypothesis: '', nextInformation: [], createdBy: vNextAdminActor_()
+        }, { spreadsheet: hub });
+        vNextAdminWriteAudit_(hub, 'START_REVIEW', 'EVALUATION', evaluation.evaluation_id, 'SUCCESS', {
+          bookId: bookId, officialVintageId: officialId, officialRunId: officialRow.forecast_run_id,
+          actualRows: fyActuals.length, actualTotal: actualTotal, observedMonthCount: observedMonths.size,
+          missingMonths: missingMonths, latestActual: latestActual && latestActual.toISOString(),
+          asOf: asOf.toISOString(), cutoff: fyEndDate.toISOString(), dateSource: 'BE_ACTUAL_ONLY',
+          completenessOverride: completenessIssues.length ? overrideReason : '',
+          automaticBreakdown: automaticBreakdown
+        });
+        vNextAdminWithScriptLock_('complete-start-review', function () {
+          const now = new Date();
+          vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', reviewClaimKey, {
+            setting_key: reviewClaimKey,
+            setting_value: vNextAdminCanonicalJson_({
+              status: 'COMPLETE', evaluationId: evaluation.evaluation_id, completedAt: now.toISOString(), actor: vNextAdminActor_()
+            }),
+            value_type: 'JSON', scope: 'REVIEW_CLAIM', effective_from: now,
+            updated_at: now, updated_by: vNextAdminActor_(), note: 'immutable evaluation created'
+          });
+          reviewClaimAcquired = false;
+        });
+      }
+      vNextAdminSetClientState_(registry.spreadsheet_id, 'REVIEW_DUE', {
+        reason: 'full_year_actuals_ready_for_review', relatedRunId: evaluation.source_run_id
+      });
+      vNextAdminSyncClientToHub_(hub, client, bookId);
+      vNextAdminSyncHubToClient_(hub, client, bookId, ['EVALUATION', 'STATE_EVENT']);
+      vNextAdminMirrorClientState_(client, 'REVIEW_DUE');
+      vNextAdminPatchRegistryByBookId_(hub, bookId, { state: 'REVIEW_DUE', updated_at: new Date() });
+      return vNextAdminJsonSafe_({
+        bookId: bookId, officialVintageId: officialId,
+        evaluationId: evaluation.evaluation_id, state: 'REVIEW_DUE'
+      });
+      });
+    } catch (error) {
+      if (reviewClaimAcquired && reviewClaimKey) {
+        try {
+          vNextAdminWithScriptLock_('release-start-review', function () {
+            const now = new Date();
+            vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', reviewClaimKey, {
+              setting_key: reviewClaimKey,
+              setting_value: vNextAdminCanonicalJson_({
+                status: 'FAILED', failedAt: now.toISOString(), actor: vNextAdminActor_(),
+                error: String(error && error.message || error).slice(0, 500)
+              }),
+              value_type: 'JSON', scope: 'REVIEW_CLAIM', effective_from: now,
+              updated_at: now, updated_by: vNextAdminActor_(), note: 'claim released after failed review start'
+            });
+          });
+        } catch (releaseError) {
+          Logger.log('Review claim release failed key=%s error=%s', reviewClaimKey,
+            String(releaseError && releaseError.stack || releaseError));
+        }
+      }
+      throw error;
+    }
+  });
+}
+
+function vNextAdminCloseYear(request) {
+  return vNextAdminGuard_('vNextAdminCloseYear', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const reason = vNextAdminRequiredText_(req.reason, 'reason');
+    const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+    if (!registry || String(registry.mode) !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+    const officialId = vNextAdminRequiredText_(registry.current_official_id, 'currentOfficialId');
+    const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+    vNextAdminSyncClientToHub_(hub, client, bookId);
+    const evaluations = vNextAdminReadCoreRows_(hub, 'EVALUATION').filter(function (row) {
+      return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId;
+    });
+    if (!evaluations.length) throw new Error('年度を終了する前に、現在の公式vintageの振り返りを開始してください。');
+    const evaluation = evaluations[evaluations.length - 1];
+    if (Number(evaluation.fiscal_year) !== Number(registry.fiscal_year)) {
+      throw new Error('Current evaluation fiscal year does not match BOOK_REGISTRY.');
+    }
+    const evaluatedAt = new Date(evaluation.evaluated_at || 0).getTime();
+    const validReviews = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').filter(function (row) {
+      if (String(row.book_id || '') !== bookId || Number(row.fiscal_year) !== Number(registry.fiscal_year) ||
+          String(row.evidence_type || '').toUpperCase() !== 'REVIEW_LEARNING' ||
+          String(row.status || 'ACTIVE').toUpperCase() === 'VOID') return false;
+      const createdAt = new Date(row.created_at || 0).getTime();
+      if (!isFinite(createdAt) || !isFinite(evaluatedAt) || createdAt < evaluatedAt) return false;
+      const learning = vNextAdminParseJson_(row.evidence_text, null);
+      if (!learning || String(learning.bookId || '') !== bookId ||
+          Number(learning.fiscalYear) !== Number(registry.fiscal_year) ||
+          String(learning.officialVintageId || '') !== officialId ||
+          String(learning.evaluationId || '') !== String(evaluation.evaluation_id || '')) return false;
+      const hasCause = !!vNextAdminText_(learning.confirmedCause || learning.causeHypothesis);
+      const nextInformation = Array.isArray(learning.nextInformation) ? learning.nextInformation.filter(Boolean) : [];
+      return hasCause && nextInformation.length > 0;
+    });
+    if (!validReviews.length) {
+      throw new Error('現在の公式vintage・評価IDに紐づく振り返り（原因と次に確認する情報）が保存されるまで年度終了できません。');
+    }
+    const review = validReviews[validReviews.length - 1];
+    vNextAdminSetClientState_(registry.spreadsheet_id, 'YEAR_CLOSED', {
+      reason: 'year_closed: ' + reason, actorRole: 'ADMIN'
+    });
+    vNextAdminSyncClientToHub_(hub, client, bookId);
+    vNextAdminMirrorClientState_(client, 'YEAR_CLOSED');
+    vNextAdminPatchRegistryByBookId_(hub, bookId, { state: 'YEAR_CLOSED', updated_at: new Date() });
+    vNextAdminWriteAudit_(hub, 'CLOSE_YEAR', 'BOOK', bookId, 'SUCCESS', {
+      officialVintageId: officialId, evaluationId: evaluation.evaluation_id,
+      reviewEvidenceId: review.evidence_id, fiscalYear: Number(registry.fiscal_year), reason: reason
+    });
+    return { bookId: bookId, officialVintageId: officialId, state: 'YEAR_CLOSED' };
+  });
+}
+
+function vNextAdminEnqueueMigration(request) {
+  return vNextAdminGuard_('vNextAdminEnqueueMigration', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    if (req.dryRun === false && !VN_ADMIN_MIGRATION_APPLY_ENABLED) {
+      throw new Error('Pilot期間はClient release移行のAPPLYをserver-sideで停止しています。dry-runだけを使用してください。');
+    }
+    const hub = vNextAdminRequireHub_();
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    const targetReleaseId = vNextAdminRequiredText_(req.targetReleaseId, 'targetReleaseId');
+    const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+    if (!registry || String(registry.mode || '') !== 'CLIENT') throw new Error('Client Book not found: ' + bookId);
+    const targetRelease = vNextAdminResolveRelease_(hub, targetReleaseId);
+    if (String(targetRelease.release_id || '') === String(registry.template_release_id || '') && req.dryRun === false) {
+      throw new Error('Client Book already uses the requested release.');
+    }
+    const reason = req.dryRun === false ? vNextAdminRequiredText_(req.reason, 'reason') : vNextAdminText_(req.reason);
+    return vNextAdminEnqueueJob({
+      jobType: 'MIGRATION', targetBookId: bookId, targetSpreadsheetId: registry.spreadsheet_id,
+      request: { bookId: bookId, spreadsheetId: registry.spreadsheet_id, fromReleaseId: registry.template_release_id,
+        targetReleaseId: targetReleaseId, dryRun: req.dryRun !== false,
+        critical: req.critical === true, reason: reason },
+      idempotencyKey: ['MIGRATION', bookId, registry.template_release_id, targetReleaseId, req.dryRun !== false ? 'DRY' : 'APPLY'].join('|'),
+      priority: req.priority || 10
+    });
+  });
+}
+
+function vNextAdminRegisterRelease(request) {
+  return vNextAdminPublishTemplateRelease(request);
+}
+
+/**
+ * Pull the full verified Admin runtime from the centrally deployed clasp
+ * project into this known Hub-bound project. Spreadsheet data, releases,
+ * approvals and Script Properties are not replaced.
+ */
+function vNextAdminUpdateHubRuntimeFromSource(request) {
+  return vNextAdminGuard_('vNextAdminUpdateHubRuntimeFromSource', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('update-admin-runtime', function () {
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      const sourceScriptId = vNextAdminRequiredText_(config.admin_source_script_id, 'admin_source_script_id');
+      const targetScriptId = vNextAdminRequiredText_(config.admin_hub_script_id, 'admin_hub_script_id');
+      if (String(ScriptApp.getScriptId()) !== targetScriptId) {
+        throw new Error('The current bound project does not match the registered Admin Hub script ID.');
+      }
+      if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
+        throw new Error('Verified Admin runtime copy helper is not installed.');
+      }
+      const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
+      vNextAdminWriteSystemConfig_(hub, {
+        admin_runtime_sha256: copied.adminRuntimeSha256,
+        admin_runtime_updated_at: new Date().toISOString(),
+        admin_runtime_updated_by: vNextAdminActor_()
+      });
+      const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
+      });
+      if (!hubRegistry) throw new Error('Admin Hub BOOK_REGISTRY row is missing.');
+      vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
+        admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
+        health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
+        note: 'Admin runtime updated from central source; reason=' + reason
+      });
+      vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
+        sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
+        adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason
+      });
+      return {
+        ok: true, adminRuntimeSha256: copied.adminRuntimeSha256,
+        fileCount: copied.fileCount, message: 'Admin Hub runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
+      };
+    });
+  });
+}
+
+/**
+ * Create an Admin-private, mutable UI draft. Only the three employee-facing
+ * sheets cross the boundary; runtime/config/audit sheets are freshly created.
+ */
+function vNextAdminCreateTemplateDraft(request) {
+  return vNextAdminGuard_('vNextAdminCreateTemplateDraft', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('create-template-draft', function () {
+      if (typeof vNextClientRuntimeVerifiedBundle_ !== 'function' ||
+          typeof vNextClientRuntimeCreateBoundSpreadsheet_ !== 'function') {
+        throw new Error('Verified Client runtime publisher is not installed.');
+      }
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const source = vNextAdminResolveTemplateUiSource_(hub, req.templateDraftSpreadsheetId || '');
+      const bundle = vNextClientRuntimeVerifiedBundle_();
+      const draftName = vNextAdminText_(req.draftName) ||
+        ('Forecast vNext Template Draft ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmm'));
+      const draftId = vNextAdminText_(req.draftId) || ('TD-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        sourceSpreadsheetId: source.spreadsheet.getId(), sourceReleaseId: source.sourceReleaseId,
+        draftName: draftName, reason: reason, actor: vNextAdminActor_().toLowerCase()
+      })).slice(0, 24).toUpperCase());
+      const existing = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === draftId && String(row.mode || '') === 'TEMPLATE';
+      });
+      if (existing) {
+        if (String(existing.status || '').toUpperCase() !== 'DRAFT' ||
+            !vNextAdminSpreadsheetAccessible_(existing.spreadsheet_id)) {
+          throw new Error('draftId already exists but is not a usable TEMPLATE_DRAFT: ' + draftId);
+        }
+        const existingDraft = SpreadsheetApp.openById(String(existing.spreadsheet_id));
+        const existingConfig = vNextAdminReadKeyValueSheet_(existingDraft, VN_ADMIN_BOOK_CONFIG_SHEET);
+        if (String(existingConfig.template_draft_id || '') !== draftId ||
+            String(existingConfig.source_template_release_id || '') !== String(source.sourceReleaseId || '')) {
+          throw new Error('Existing TEMPLATE_DRAFT identity does not match this request.');
+        }
+        vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(existingDraft.getId()), source.adminEmails);
+        return {
+          reused: true, draftId: draftId, spreadsheetId: existingDraft.getId(),
+          spreadsheetUrl: existingDraft.getUrl(), sourceReleaseId: source.sourceReleaseId,
+          manifestSha256: vNextAdminTemplateUiManifestHash_(existingDraft)
+        };
+      }
+
+      const sourceFile = DriveApp.getFileById(source.spreadsheet.getId());
+      const parents = sourceFile.getParents();
+      const folder = vNextAdminPreparePrivateBootstrapFolder_(parents.hasNext() ? parents.next().getId() : '',
+        'Forecast vNext Template Drafts', source.adminEmails);
+      const created = vNextClientRuntimeCreateBoundSpreadsheet_({ title: draftName, folderId: folder.getId() });
+      if (String(created.runtimeVersion || '') !== String(bundle.version || '') ||
+          String(created.bundleSha256 || '') !== String(bundle.sha256 || '')) {
+        throw new Error('TEMPLATE_DRAFT runtime does not match the verified Client bundle.');
+      }
+      if (typeof vNextClientRuntimeAssertBoundParent_ !== 'function') {
+        throw new Error('Client runtime parent verifier is not installed.');
+      }
+      vNextClientRuntimeAssertBoundParent_(created.scriptId, created.spreadsheetId);
+      const draft = SpreadsheetApp.openById(created.spreadsheetId);
+      vNextAdminInitializeTemplate_(draft, {
+        bookId: draftId, releaseId: source.sourceReleaseId,
+        clientRuntimeVersion: bundle.version, clientRuntimeSha256: bundle.sha256,
+        adminEmails: source.adminEmails, actor: vNextAdminActor_(), now: new Date(), resetCopied: true
+      });
+      const copied = vNextAdminCopyAndVerifyTemplateUi_(source.spreadsheet, draft);
+      vNextAdminWriteBookConfig_(draft, {
+        state: 'TEMPLATE_DRAFT', template_kind: 'TEMPLATE_DRAFT', template_draft_id: draftId,
+        source_template_release_id: source.sourceReleaseId,
+        template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+        template_manifest_sha256: copied.manifestSha256, updated_at: new Date(), updated_by: vNextAdminActor_()
+      });
+      vNextAdminWriteSystemConfig_(draft, {
+        mode: 'TEMPLATE', book_id: draftId, active_release_id: source.sourceReleaseId,
+        schema_version: vNextAdminClientSchemaVersion_()
+      });
+      vNextAdminApplyVisibility_(draft, VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE);
+      vNextAdminEnforcePrivateFileAcl_(DriveApp.getFileById(draft.getId()), source.adminEmails);
+      vNextAdminRegisterBook_(hub, {
+        book_id: draftId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
+        spreadsheet_id: draft.getId(), spreadsheet_url: draft.getUrl(), client_script_id: created.scriptId,
+        client_runtime_version: bundle.version, client_runtime_sha256: bundle.sha256,
+        template_release_id: source.sourceReleaseId, schema_version: vNextAdminClientSchemaVersion_(),
+        state: 'TEMPLATE_DRAFT', status: 'DRAFT', health_status: 'OK', health_code: 'TEMPLATE_DRAFT_CREATED',
+        last_health_at: new Date(), forecast_owner_emails: source.adminEmails.join(','),
+        editor_emails: source.adminEmails.join(','), viewer_emails: '', created_at: new Date(),
+        created_by: vNextAdminActor_(), updated_at: new Date(),
+        note: vNextAdminCanonicalJson_({ templateKind: 'TEMPLATE_DRAFT', sourceReleaseId: source.sourceReleaseId,
+          manifestSchema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, initialManifestSha256: copied.manifestSha256,
+          reason: reason })
+      });
+      vNextAdminWriteAudit_(hub, 'CREATE_TEMPLATE_DRAFT', 'TEMPLATE_DRAFT', draftId, 'SUCCESS', {
+        sourceSpreadsheetId: source.spreadsheet.getId(), sourceReleaseId: source.sourceReleaseId,
+        draftSpreadsheetId: draft.getId(), manifestSha256: copied.manifestSha256, reason: reason
+      });
+      return {
+        reused: false, draftId: draftId, spreadsheetId: draft.getId(), spreadsheetUrl: draft.getUrl(),
+        sourceReleaseId: source.sourceReleaseId, manifestSha256: copied.manifestSha256,
+        message: 'Admin専用の編集用Template Draftを作成しました。公開前にSTAGEDへ複製して完全検証します。'
+      };
+    });
+  });
+}
+
+/**
+ * Create a clean, known-bound STAGED Template. The future-book pointers do not
+ * move until vNextAdminActivateReleasePair has validated a PASS model candidate.
+ */
+function vNextAdminPublishTemplateRelease(request) {
+  return vNextAdminGuard_('vNextAdminPublishTemplateRelease', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('publish-template-release', function () {
+      const reason = vNextAdminRequiredText_(req.reason || req.note, 'reason');
+      if (typeof vNextClientRuntimeVerifiedBundle_ !== 'function' ||
+          typeof vNextClientRuntimeCreateBoundSpreadsheet_ !== 'function') {
+        throw new Error('Verified Client runtime publisher is not installed.');
+      }
+      const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      const current = vNextAdminResolveRelease_(hub, hubConfig.active_release_id || '');
+      if (req.expectedActiveReleaseId &&
+          String(req.expectedActiveReleaseId) !== String(current.release_id || '')) {
+        throw new Error('Active release changed before publication. Reload Admin Hub and retry.');
+      }
+      const bundle = vNextClientRuntimeVerifiedBundle_();
+      const source = vNextAdminResolveTemplateUiSource_(hub, req.templateDraftSpreadsheetId || '');
+      const sourceManifestSha256 = vNextAdminTemplateUiManifestHash_(source.spreadsheet);
+      const releaseId = vNextAdminText_(req.releaseId) ||
+        ('vnext-client-' + String(bundle.version || '').replace(/[^A-Za-z0-9.-]/g, '-') + '-' +
+          String(bundle.sha256 || '').slice(0, 8) + '-' + sourceManifestSha256.slice(0, 8));
+      const releases = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES);
+      const existing = releases.rows.find(function (row) {
+        return String(row.release_id || '') === releaseId;
+      });
+      if (existing && (
+        !String(existing.template_spreadsheet_id || '') || !String(existing.template_script_id || '') ||
+        String(existing.client_runtime_version || '') !== String(bundle.version || '') ||
+        String(existing.client_runtime_sha256 || '') !== String(bundle.sha256 || '') ||
+        String(existing.schema_version || '') !== vNextAdminClientSchemaVersion_() ||
+        String(existing.template_manifest_schema || '') !== VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA ||
+        String(existing.template_content_sha256 || '') !== sourceManifestSha256
+      )) {
+        throw new Error('Release ID already exists with different immutable content: ' + releaseId);
+      }
+      if (String(current.client_runtime_sha256 || '') === String(bundle.sha256 || '') &&
+          String(current.client_runtime_version || '') === String(bundle.version || '') &&
+          String(current.template_content_sha256 || '') === sourceManifestSha256 &&
+          !source.isDraft && !req.releaseId && !existing) {
+        const currentTemplate = SpreadsheetApp.openById(String(current.template_spreadsheet_id || ''));
+        vNextAdminAssertReleaseTemplateManifest_(current, currentTemplate);
+        return {
+          reused: true, releaseId: current.release_id,
+          clientRuntimeVersion: current.client_runtime_version,
+          clientRuntimeSha256: current.client_runtime_sha256,
+          message: '現在のTemplate Releaseは配備済みbundleと一致しています。'
+        };
+      }
+
+      const adminEmails = vNextAdminParseList_(
+        hubConfig.admin_emails || vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS
+      );
+      if (!adminEmails.length) throw new Error('At least one Admin email is required for Template publication.');
+      vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(source.spreadsheet.getId()), adminEmails);
+      let templateId = existing && String(existing.template_spreadsheet_id || '');
+      let templateScriptId = existing && String(existing.template_script_id || '');
+      let templateBookId = '';
+      let template = null;
+      if (existing) {
+        const existingStatus = String(existing.status || '').toUpperCase();
+        if (['STAGED', 'ACTIVE'].indexOf(existingStatus) < 0) {
+          throw new Error('Existing Template Release cannot be reused from status=' + existingStatus);
+        }
+        template = SpreadsheetApp.openById(templateId);
+        const existingConfig = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
+        templateBookId = vNextAdminRequiredText_(existingConfig.book_id, 'existingTemplate.book_id');
+        if (String(existingConfig.version || '') !== releaseId ||
+            String(existingConfig.client_runtime_bundle_sha256 || '') !== String(bundle.sha256 || '') ||
+            String(existing.template_content_sha256 || '') !== vNextAdminTemplateUiManifestHash_(template)) {
+          throw new Error('Existing release Template identity is inconsistent.');
+        }
+      } else {
+        const currentTemplateFile = DriveApp.getFileById(
+          vNextAdminRequiredText_(current.template_spreadsheet_id, 'activeRelease.template_spreadsheet_id')
+        );
+        const parentIterator = currentTemplateFile.getParents();
+        const parentId = parentIterator.hasNext() ? parentIterator.next().getId() : '';
+        const created = vNextClientRuntimeCreateBoundSpreadsheet_({
+          title: (vNextAdminText_(req.releaseName) || 'Forecast vNext Master Template') + ' [' + releaseId + ']',
+          folderId: parentId
+        });
+        if (String(created.runtimeVersion || '') !== String(bundle.version || '') ||
+            String(created.bundleSha256 || '') !== String(bundle.sha256 || '')) {
+          throw new Error('New immutable Template runtime does not match the verified bundle.');
+        }
+        templateId = created.spreadsheetId;
+        templateScriptId = created.scriptId;
+        templateBookId = 'TPL-' + Utilities.getUuid();
+        template = SpreadsheetApp.openById(templateId);
+        vNextAdminInitializeTemplate_(template, {
+          bookId: templateBookId, releaseId: releaseId,
+          clientRuntimeVersion: bundle.version, clientRuntimeSha256: bundle.sha256,
+          adminEmails: adminEmails, actor: vNextAdminActor_(), now: new Date(), resetCopied: true
+        });
+        const copied = vNextAdminCopyAndVerifyTemplateUi_(source.spreadsheet, template);
+        if (copied.manifestSha256 !== sourceManifestSha256) {
+          throw new Error('STAGED Template manifest differs from the selected UI source.');
+        }
+        vNextAdminWriteBookConfig_(template, {
+          state: 'TEMPLATE_STAGED', template_kind: 'IMMUTABLE_STAGED',
+          source_template_release_id: source.sourceReleaseId,
+          template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+          template_manifest_sha256: sourceManifestSha256, updated_at: new Date(), updated_by: vNextAdminActor_()
+        });
+        vNextAdminEnforcePrivateFileAcl_(DriveApp.getFileById(templateId), adminEmails);
+      }
+      if (vNextDetectBookMode_(template) !== 'TEMPLATE') throw new Error('Published Template is not mode=TEMPLATE.');
+      if (typeof vNextClientRuntimeAssertBoundParent_ !== 'function') {
+        throw new Error('Client runtime parent verifier is not installed.');
+      }
+      vNextClientRuntimeAssertBoundParent_(templateScriptId, templateId);
+      vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(templateId), adminEmails);
+
+      let published = existing;
+      if (!published) {
+        published = vNextAdminRegisterRelease_(hub, {
+          release_id: releaseId, release_name: vNextAdminText_(req.releaseName) || releaseId,
+          status: 'STAGED', template_spreadsheet_id: templateId,
+          schema_version: vNextAdminClientSchemaVersion_(),
+          engine_version: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '',
+          ux_version: typeof VNEXT_UX_CONFIG_ !== 'undefined' ? VNEXT_UX_CONFIG_.VERSION || '' : '',
+          admin_version: VN_ADMIN_SCHEMA_VERSION,
+          client_runtime_version: bundle.version, client_runtime_sha256: bundle.sha256,
+          template_content_sha256: sourceManifestSha256,
+          template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+          template_script_id: templateScriptId, created_at: new Date(),
+          created_by: vNextAdminActor_(), activated_at: '', note: reason
+        });
+      }
+      let templateRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.mode || '') === 'TEMPLATE' && String(row.spreadsheet_id || '') === templateId;
+      });
+      if (!templateRegistry) {
+        vNextAdminRegisterBook_(hub, {
+          book_id: templateBookId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
+          spreadsheet_id: templateId, spreadsheet_url: template.getUrl(),
+          client_script_id: templateScriptId, client_runtime_version: bundle.version,
+          client_runtime_sha256: bundle.sha256, template_release_id: releaseId,
+          schema_version: vNextAdminClientSchemaVersion_(), state: 'TEMPLATE_STAGED', status: 'STAGED',
+          health_status: 'OK', health_code: 'RELEASE_STAGED', last_health_at: new Date(),
+          forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
+          created_at: new Date(), created_by: vNextAdminActor_(), updated_at: new Date(),
+          note: vNextAdminCanonicalJson_({ templateKind: 'IMMUTABLE_STAGED', sourceReleaseId: source.sourceReleaseId,
+            manifestSchema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, manifestSha256: sourceManifestSha256,
+            runtimeVersion: bundle.version, runtimeSha256: bundle.sha256 })
+        });
+        templateRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+          return String(row.book_id || '') === templateBookId;
+        });
+      }
+      if (!templateRegistry) throw new Error('Template BOOK_REGISTRY row is missing.');
+      const stageOperationId = 'TPL-STAGE-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        releaseId: releaseId, previousReleaseId: current.release_id, sourceManifestSha256: sourceManifestSha256,
+        runtimeSha256: bundle.sha256, reason: reason
+      })).slice(0, 24).toUpperCase();
+      vNextAdminAppendTemplateJournal_(hub, {
+        operationId: stageOperationId, releaseId: releaseId, previousReleaseId: current.release_id,
+        templateSpreadsheetId: templateId, phase: 'STAGED_VERIFIED', status: 'SUCCEEDED',
+        detail: { sourceSpreadsheetId: source.spreadsheet.getId(), sourceReleaseId: source.sourceReleaseId,
+          manifestSchema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, manifestSha256: sourceManifestSha256,
+          runtimeVersion: bundle.version, runtimeSha256: bundle.sha256, reason: reason }
+      });
+      vNextAdminWriteAudit_(hub, 'STAGE_TEMPLATE_RELEASE', 'RELEASE', releaseId, 'SUCCESS', {
+        previousReleaseId: current.release_id, templateSpreadsheetId: templateId,
+        templateScriptId: templateScriptId, clientRuntimeVersion: bundle.version,
+        clientRuntimeSha256: bundle.sha256, templateManifestSha256: sourceManifestSha256,
+        sourceTemplateDraftId: source.draftId || '', reason: reason
+      });
+      if (vNextAdminText_(req.modelReleaseId)) {
+        return vNextAdminActivateReleasePairInternal_(hub, {
+          releaseId: releaseId, modelReleaseId: req.modelReleaseId, reason: reason,
+          expectedActiveReleaseId: req.expectedActiveReleaseId || current.release_id,
+          expectedActiveModelReleaseId: req.expectedActiveModelReleaseId || ''
+        });
+      }
+      return { reused: Boolean(existing), staged: true, operationId: stageOperationId,
+        releaseId: releaseId, previousReleaseId: current.release_id,
+        templateSpreadsheetId: templateId, templateManifestSha256: sourceManifestSha256,
+        clientRuntimeVersion: bundle.version, clientRuntimeSha256: bundle.sha256,
+        message: 'STAGED Templateを作成しました。templateVersionをこのRelease IDにしたPASS済MODEL_RELEASEを登録し、pairを有効化してください。' };
+    });
+  });
+}
+
+/** Activate a STAGED Template and its exact PASS model candidate as one pair. */
+function vNextAdminActivateReleasePair(request) {
+  return vNextAdminGuard_('vNextAdminActivateReleasePair', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('activate-release-pair', function () {
+      return vNextAdminActivateReleasePairInternal_(hub, req);
+    });
+  });
+}
+
+/** Register an immutable DRAFT model release. Activation never mutates workbook structure. */
+function vNextAdminRegisterModelRelease(request) {
+  return vNextAdminGuard_('vNextAdminRegisterModelRelease', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('register-model-release', function () {
+      const modelReleaseId = vNextAdminRequiredText_(req.modelReleaseId, 'modelReleaseId');
+      const modelVersion = vNextAdminRequiredText_(req.modelVersion, 'modelVersion');
+      const note = vNextAdminRequiredText_(req.note || req.reason, 'note');
+      vNextAdminAssertModelReleaseIdSeparated_(hub, modelReleaseId);
+      if (typeof VNEXT_ENGINE === 'undefined' || modelVersion !== String(VNEXT_ENGINE.VERSION || '')) {
+        throw new Error('modelVersion must equal the deployed Forecast Engine version: ' +
+          (typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '(engine unavailable)'));
+      }
+      const schemaVersion = vNextAdminText_(req.schemaVersion) || vNextAdminClientSchemaVersion_();
+      if (schemaVersion !== vNextAdminClientSchemaVersion_()) {
+        throw new Error('MODEL_RELEASE schemaVersion is incompatible with the deployed Core.');
+      }
+      const parameters = vNextAdminNormalizeModelParameters_(
+        vNextAdminParseObjectPayload_(req.parameters, 'parameters')
+      );
+      const templateVersion = vNextAdminText_(req.templateVersion) ||
+        vNextAdminText_(vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id);
+      const templateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+        return String(row.release_id || '') === templateVersion;
+      });
+      if (!templateRelease || String(templateRelease.schema_version || '') !== schemaVersion ||
+          String(templateRelease.engine_version || '') !== modelVersion ||
+          ['STAGED', 'ACTIVE'].indexOf(String(templateRelease.status || '').toUpperCase()) < 0) {
+        throw new Error('MODEL_RELEASE is not compatible with the referenced Template Release.');
+      }
+      const candidateHash = vNextAdminModelCandidateHash_({
+        modelVersion: modelVersion, schemaVersion: schemaVersion,
+        templateVersion: templateVersion, parameters: parameters
+      });
+      const backtest = vNextAdminBindModelCheck_(
+        vNextAdminParseObjectPayload_(req.backtest, 'backtest'), candidateHash, 'backtest'
+      );
+      const canary = vNextAdminBindModelCheck_(
+        vNextAdminParseObjectPayload_(req.canary, 'canary'), candidateHash, 'canary'
+      );
+      if ((vNextAdminModelCheckPassed_(backtest) || vNextAdminModelCheckPassed_(canary)) && req.attestationConfirmed !== true) {
+        throw new Error('PASS JSON is an Admin attestation. Confirm attestationConfirmed=true after reviewing its evidence.');
+      }
+      const existing = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+      if (existing) {
+        const exactDraft = String(existing.status || '').toUpperCase() === 'DRAFT' &&
+          String(existing.model_version || '') === modelVersion &&
+          String(existing.parameters_json || '') === vNextAdminCanonicalJson_(parameters) &&
+          String(existing.backtest_json || '') === vNextAdminCanonicalJson_(backtest) &&
+          String(existing.canary_json || '') === vNextAdminCanonicalJson_(canary) &&
+          String(existing.template_version || '') === templateVersion &&
+          String(existing.note || '') === note;
+        if (exactDraft) return vNextAdminJsonSafe_(Object.assign({ reused: true }, existing));
+        throw new Error('modelReleaseId already exists with different immutable content: ' + modelReleaseId);
+      }
+      const record = vNextAdminBuildModelReleaseRecord_({
+        modelReleaseId: modelReleaseId,
+        status: 'DRAFT',
+        modelVersion: modelVersion,
+        schemaVersion: schemaVersion,
+        templateVersion: templateVersion,
+        parameters: parameters,
+        backtest: backtest,
+        canary: canary,
+        note: note,
+        actor: vNextAdminActor_(),
+        now: new Date()
+      });
+      vNextAdminAppendCoreRowsNoLock_(hub, 'MODEL_RELEASE', [record]);
+      vNextAdminWriteAudit_(hub, 'REGISTER_MODEL_RELEASE', 'MODEL_RELEASE', modelReleaseId, 'SUCCESS', {
+        status: 'DRAFT', modelVersion: modelVersion, templateVersion: record.template_version,
+        adminAttestation: req.attestationConfirmed === true, note: note
+      });
+      return vNextAdminJsonSafe_(record);
+    });
+  });
+}
+
+/** Activate only a DRAFT whose immutable backtest and canary results both PASS. */
+function vNextAdminActivateModelRelease(request) {
+  return vNextAdminGuard_('vNextAdminActivateModelRelease', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('activate-model-release', function () {
+      const modelReleaseId = vNextAdminRequiredText_(req.modelReleaseId, 'modelReleaseId');
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      vNextAdminAssertModelReleaseIdSeparated_(hub, modelReleaseId);
+      const current = vNextAdminTryResolveActiveModelRelease_(hub);
+      const source = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+      if (!source) throw new Error('MODEL_RELEASE not found: ' + modelReleaseId);
+      const activationOperationId = 'MODEL-ACT-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        modelReleaseId: modelReleaseId, previousActiveModelReleaseId: current && current.model_release_id || '', reason: reason
+      })).slice(0, 24).toUpperCase();
+      const sourceNote = vNextAdminParseJson_(source.note, {});
+      if (current && String(current.model_release_id) === modelReleaseId && String(source.status).toUpperCase() === 'ACTIVE') {
+        return { reused: true, activeModelReleaseId: modelReleaseId, status: 'ACTIVE' };
+      }
+      if (String(source.status || '').toUpperCase() === 'ACTIVE' &&
+          String(sourceNote.operationId || '') === activationOperationId &&
+          String(sourceNote.action || '') === 'ACTIVATE' && (!current || String(current.model_release_id || '') !== modelReleaseId)) {
+        vNextAdminAssertModelReleaseChecksPassed_(source);
+        vNextAdminAssertModelTemplateCompatibility_(hub, source);
+        vNextAdminSetActiveModelRelease_(hub, modelReleaseId);
+        vNextAdminWriteAudit_(hub, 'RECOVER_MODEL_RELEASE_ACTIVATION', 'MODEL_RELEASE', modelReleaseId, 'SUCCESS', {
+          previousActiveModelReleaseId: current && current.model_release_id || '', reason: reason
+        });
+        return { reused: true, recovered: true, activeModelReleaseId: modelReleaseId,
+          previousActiveModelReleaseId: current && current.model_release_id || '' };
+      }
+      if (String(source.status || '').toUpperCase() !== 'DRAFT') {
+        throw new Error('Only a DRAFT model release can be activated. Use rollback for a previously active release.');
+      }
+      vNextAdminAssertModelReleaseChecksPassed_(source);
+      vNextAdminAssertModelTemplateCompatibility_(hub, source);
+      const activated = Object.assign({}, source, {
+        status: 'ACTIVE', approved_at: new Date().toISOString(), approved_by: vNextAdminActor_().toLowerCase(),
+        rollback_release_id: '', created_at: new Date().toISOString(), created_by: vNextAdminActor_().toLowerCase(),
+        note: vNextAdminCanonicalJson_({ action: 'ACTIVATE', operationId: activationOperationId, reason: reason })
+      });
+      delete activated._rowNumber;
+      vNextAdminAppendCoreRowsNoLock_(hub, 'MODEL_RELEASE', [activated]);
+      vNextAdminSetActiveModelRelease_(hub, modelReleaseId);
+      vNextAdminWriteAudit_(hub, 'ACTIVATE_MODEL_RELEASE', 'MODEL_RELEASE', modelReleaseId, 'SUCCESS', {
+        previousActiveModelReleaseId: current && current.model_release_id || '', reason: reason,
+        backtest: vNextAdminParseJson_(source.backtest_json, {}), canary: vNextAdminParseJson_(source.canary_json, {}),
+        structuralChangesApplied: false
+      });
+      return { reused: false, activeModelReleaseId: modelReleaseId, previousActiveModelReleaseId: current && current.model_release_id || '' };
+    });
+  });
+}
+
+/** Point future books back to a previously ACTIVE model release; existing books remain pinned. */
+function vNextAdminRollbackModelRelease(request) {
+  return vNextAdminGuard_('vNextAdminRollbackModelRelease', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('rollback-model-release', function () {
+      const targetId = vNextAdminRequiredText_(req.targetModelReleaseId || req.modelReleaseId, 'targetModelReleaseId');
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const current = vNextAdminResolveActiveModelRelease_(hub);
+      if (String(current.model_release_id || '') === targetId) {
+        return { reused: true, activeModelReleaseId: targetId, status: 'ACTIVE' };
+      }
+      const history = vNextAdminModelReleaseRows_(hub, targetId);
+      const target = history.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'ACTIVE';
+      }).slice(-1)[0];
+      if (!target) throw new Error('Rollback target must be a previously ACTIVE model release: ' + targetId);
+      vNextAdminAssertModelReleaseChecksPassed_(target);
+      vNextAdminAssertModelTemplateCompatibility_(hub, target);
+      const rollbackOperationId = 'MODEL-RB-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        targetModelReleaseId: targetId, fromModelReleaseId: current.model_release_id, reason: reason
+      })).slice(0, 24).toUpperCase();
+      const targetNote = vNextAdminParseJson_(target.note, {});
+      if (String(target.rollback_release_id || '') === String(current.model_release_id || '') &&
+          String(targetNote.operationId || '') === rollbackOperationId && String(targetNote.action || '') === 'ROLLBACK') {
+        vNextAdminSetActiveModelRelease_(hub, targetId);
+        vNextAdminWriteAudit_(hub, 'RECOVER_MODEL_RELEASE_ROLLBACK', 'MODEL_RELEASE', targetId, 'SUCCESS', {
+          fromModelReleaseId: current.model_release_id, reason: reason
+        });
+        return { reused: true, recovered: true, activeModelReleaseId: targetId, rolledBackFromModelReleaseId: current.model_release_id };
+      }
+      const rollback = Object.assign({}, target, {
+        status: 'ACTIVE', approved_at: new Date().toISOString(), approved_by: vNextAdminActor_().toLowerCase(),
+        rollback_release_id: current.model_release_id, created_at: new Date().toISOString(),
+        created_by: vNextAdminActor_().toLowerCase(),
+        note: vNextAdminCanonicalJson_({ action: 'ROLLBACK', operationId: rollbackOperationId, reason: reason })
+      });
+      delete rollback._rowNumber;
+      vNextAdminAppendCoreRowsNoLock_(hub, 'MODEL_RELEASE', [rollback]);
+      vNextAdminSetActiveModelRelease_(hub, targetId);
+      vNextAdminWriteAudit_(hub, 'ROLLBACK_MODEL_RELEASE', 'MODEL_RELEASE', targetId, 'SUCCESS', {
+        fromModelReleaseId: current.model_release_id, toModelReleaseId: targetId,
+        reason: reason, structuralChangesApplied: false
+      });
+      return { reused: false, activeModelReleaseId: targetId, rolledBackFromModelReleaseId: current.model_release_id };
+    });
+  });
+}
+
+function vNextAdminMenuRefreshExceptions() {
+  return vNextAdminMenuAction_('今日の例外を更新しました。', function () {
+    const hub = vNextAdminRequireHub_();
+    const out = vNextAdminRefreshTodayExceptions_(hub);
+    vNextAdminRefreshHome_(hub);
+    return out;
+  });
+}
+
+function vNextAdminMenuRunHealthScan() {
+  const out = vNextAdminRunHealthScan();
+  SpreadsheetApp.getActiveSpreadsheet().toast('全bookの状態確認を完了しました。', VN_ADMIN_MENU_NAME, 5);
+  return out;
+}
+
+function vNextAdminMenuProcessJobs() {
+  const out = vNextAdminProcessJobQueue(5);
+  SpreadsheetApp.getActiveSpreadsheet().toast('待機中の処理を実行しました。', VN_ADMIN_MENU_NAME, 5);
+  return out;
+}
+
+function vNextAdminMenuOpenRegistry() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.REGISTRY); }
+function vNextAdminMenuOpenExceptions() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.EXCEPTIONS); }
+function vNextAdminMenuOpenApprovals() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.APPROVALS); }
+function vNextAdminMenuOpenReleases() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.RELEASES); }
+
+// ---------------------------- Initialization ----------------------------
+
+function vNextAdminInitializeHub_(ss, opt) {
+  if (opt.resetCopied) vNextAdminResetCopiedWorkbook_(ss, []);
+  vNextAdminEnsureCoreStore_(ss);
+  Object.keys(VN_ADMIN_HEADERS).forEach(function (name) {
+    vNextAdminEnsureTable_(ss, name, VN_ADMIN_HEADERS[name]);
+  });
+  const home = vNextAdminGetOrCreateSheet_(ss, VN_ADMIN_SHEETS.HOME);
+  const existingSystemConfig = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const buildSheet = ss.getSheetByName('__VNEXT_BUILD__');
+  if (buildSheet && ss.getSheets().length > 1) ss.deleteSheet(buildSheet);
+  if (home.getMaxColumns() < 8) home.insertColumnsAfter(home.getMaxColumns(), 8 - home.getMaxColumns());
+  vNextAdminReplaceBookConfig_(ss, {
+    mode: 'ADMIN', book_id: opt.bookId, state: 'ACTIVE', default_role: 'ADMIN',
+    forecast_owner_emails: (opt.adminEmails || []).join(','), version: opt.releaseId || '',
+    schema_version: VN_ADMIN_SCHEMA_VERSION, source_spreadsheet_id: opt.sourceSpreadsheetId || '',
+    template_spreadsheet_id: opt.templateSpreadsheetId || '', created_at: opt.now,
+    created_by: opt.actor, updated_at: opt.now, updated_by: opt.actor
+  });
+  vNextAdminWriteSystemConfig_(ss, {
+    mode: 'ADMIN', book_id: opt.bookId, admin_hub_spreadsheet_id: ss.getId(), template_spreadsheet_id: opt.templateSpreadsheetId || '',
+    active_release_id: opt.releaseId || '', source_spreadsheet_id: opt.sourceSpreadsheetId || '',
+    active_model_release_id: opt.modelReleaseId || '',
+    admin_source_script_id: opt.adminSourceScriptId || existingSystemConfig.admin_source_script_id || '',
+    admin_hub_script_id: opt.adminHubScriptId || existingSystemConfig.admin_hub_script_id || '',
+    admin_runtime_sha256: opt.adminRuntimeSha256 || existingSystemConfig.admin_runtime_sha256 || '',
+    admin_emails: (opt.adminEmails || []).join(','),
+    VERTEX_PROJECT_ID: opt.vertexConfig && opt.vertexConfig.VERTEX_PROJECT_ID || '',
+    VERTEX_LOCATION: opt.vertexConfig && opt.vertexConfig.VERTEX_LOCATION || '',
+    VERTEX_GEMINI_MODEL: opt.vertexConfig && opt.vertexConfig.VERTEX_GEMINI_MODEL || '',
+    VERTEX_DATASTORE_ID: opt.vertexConfig && opt.vertexConfig.VERTEX_DATASTORE_ID || '',
+    VERTEX_SEARCH_LOCATION: opt.vertexConfig && opt.vertexConfig.VERTEX_SEARCH_LOCATION || '',
+    VERTEX_SERVING_CONFIG: opt.vertexConfig && opt.vertexConfig.VERTEX_SERVING_CONFIG || '',
+    schema_version: VN_ADMIN_SCHEMA_VERSION
+  });
+  vNextAdminHydrateHubRuntime_(ss);
+  vNextAdminApplyVisibility_(ss, VN_ADMIN_DEFAULT_HUB_VISIBLE);
+  vNextAdminProtectInternalSheets_(ss, opt.adminEmails || [], Object.keys(VN_ADMIN_HEADERS)
+    .concat([VN_ADMIN_SHEETS.HOME, VN_ADMIN_META_SHEET, VN_ADMIN_BOOK_CONFIG_SHEET, VN_ADMIN_SYSTEM_CONFIG_SHEET])
+    .concat(typeof VNEXT_CORE !== 'undefined' ? Object.keys(VNEXT_CORE.INTERNAL_SHEETS) : []));
+  vNextAdminRefreshHome_(ss);
+}
+
+function vNextAdminInitializeTemplate_(ss, opt) {
+  if (opt.resetCopied) vNextAdminResetCopiedWorkbook_(ss, VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE);
+  vNextAdminEnsureUiShell_(ss, { template: true });
+  vNextAdminEnsureCoreStore_(ss);
+  vNextAdminReplaceBookConfig_(ss, {
+    mode: 'TEMPLATE', book_id: opt.bookId, state: 'TEMPLATE_READY', default_role: 'ADMIN',
+    forecast_owner_emails: (opt.adminEmails || []).join(','), version: opt.releaseId || '',
+    client_runtime_version: opt.clientRuntimeVersion || '',
+    client_runtime_bundle_sha256: opt.clientRuntimeSha256 || '',
+    schema_version: vNextAdminClientSchemaVersion_(),
+    created_at: opt.now, created_by: opt.actor, updated_at: opt.now, updated_by: opt.actor
+  });
+  vNextAdminReplaceSystemConfig_(ss, {
+    mode: 'TEMPLATE', book_id: opt.bookId,
+    active_release_id: opt.releaseId || '', schema_version: vNextAdminClientSchemaVersion_()
+  });
+  vNextAdminApplyVisibility_(ss, VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE);
+  vNextAdminProtectInternalSheets_(ss, opt.adminEmails || [],
+    [VN_ADMIN_META_SHEET, VN_ADMIN_BOOK_CONFIG_SHEET, VN_ADMIN_SYSTEM_CONFIG_SHEET]
+      .concat(typeof VNEXT_CORE !== 'undefined' ? Object.keys(VNEXT_CORE.INTERNAL_SHEETS) : []));
+}
+
+function vNextAdminInitializeClient_(ss, opt) {
+  if (VN_ADMIN_CLIENT_STATES.indexOf('INPUT_OPEN') < 0) throw new Error('Invalid initial CLIENT state.');
+  vNextAdminEnsureUiShell_(ss, { clientName: opt.clientName, fiscalYear: opt.fiscalYear });
+  vNextAdminEnsureCoreStore_(ss);
+  vNextAdminEnsureTable_(ss, VN_ADMIN_CLIENT_REQUEST_SHEET, VN_ADMIN_HEADERS[VN_ADMIN_CLIENT_REQUEST_SHEET]);
+  vNextAdminReplaceBookConfig_(ss, {
+    mode: 'CLIENT', book_id: opt.bookId, client_id: opt.clientId, client_name: opt.clientName,
+    fiscal_year: opt.fiscalYear, as_of: opt.asOf, cutoff: opt.cutoff, state: 'INPUT_OPEN',
+    default_role: 'EMPLOYEE', forecast_owner_emails: (opt.forecastOwnerEmails || []).join(','),
+    input_submitted: 0, input_answered_count: 0, input_total_count: 0,
+    input_due_date: opt.inputDueDate || '', version: opt.releaseId,
+    model_release_id: opt.modelReleaseId || '',
+    client_runtime_version: opt.clientRuntimeVersion || '',
+    client_runtime_bundle_sha256: opt.clientRuntimeSha256 || '',
+    template_release_id: opt.releaseId, schema_version: vNextAdminClientSchemaVersion_(),
+    created_at: opt.now, created_by: opt.actor, updated_at: opt.now, updated_by: opt.actor
+  });
+  // This sheet is hidden and protected. It contains routing IDs only, never Vertex or other runtime secrets.
+  vNextAdminReplaceSystemConfig_(ss, {
+    mode: 'CLIENT', book_id: opt.bookId, active_release_id: opt.releaseId,
+    schema_version: vNextAdminClientSchemaVersion_()
+  });
+  const bookMeta = vNextAdminCreateClientCoreMeta_(ss, opt);
+  vNextAdminApplyVisibility_(ss, vNextAdminParseList_(opt.visibleSheets).length ? vNextAdminParseList_(opt.visibleSheets) : VN_ADMIN_DEFAULT_CLIENT_VISIBLE);
+  const protectedNames = [
+    VN_ADMIN_META_SHEET, VN_ADMIN_BOOK_CONFIG_SHEET, VN_ADMIN_SYSTEM_CONFIG_SHEET,
+    VN_ADMIN_OFFICIAL_COPY_SHEET, VN_ADMIN_CLIENT_REQUEST_SHEET,
+    'FORECAST_SNAPSHOT', 'EVAL_LOG', 'RUN_LOG', 'PROCESS_STATUS', 'CALIBRATION_STATE',
+    'CALIBRATION_HISTORY', 'AI_IMPACT_HISTORY', 'SUBJECTIVE_IMPACT_HISTORY', 'POOL_PRIOR',
+    'RELIABILITY_EVIDENCE', 'DLM_STATE', 'BACKTEST_REPORT'
+  ].concat(typeof VNEXT_CORE !== 'undefined' ? Object.keys(VNEXT_CORE.INTERNAL_SHEETS) : []);
+  // Bound client APIs execute as the employee, so hard protections would also
+  // block legitimate append-only writes. Use warning-only protection here and
+  // rely on strict Hub ingest validation; no employee is granted as a hidden
+  // sheet protection editor. A future execute-as-owner service removes this
+  // unavoidable Sheets-only trust boundary.
+  vNextAdminProtectClientInternalSheets_(ss, protectedNames);
+  return { bookMeta: bookMeta };
+}
+
+/**
+ * Copies only employee-visible release assets from the immutable Template.
+ * Core sheets, routing IDs, Admin settings and hidden data never cross this
+ * boundary. The bound client-only script was already created separately.
+ */
+function vNextAdminCopyTemplateUiToClient_(template, client) {
+  const allowed = VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.slice();
+  const sourceSheets = allowed.map(function (name) {
+    const sheet = template.getSheetByName(name);
+    if (!sheet) throw new Error('Immutable Template is missing visible sheet: ' + name);
+    return sheet;
+  });
+  const initialTargetSheets = client.getSheets().slice();
+  const removableBlank = initialTargetSheets.length === 1 &&
+    allowed.indexOf(initialTargetSheets[0].getName()) < 0 &&
+    !String(initialTargetSheets[0].getRange('A1').getValue() || '').trim()
+    ? initialTargetSheets[0] : null;
+  sourceSheets.forEach(function (source) {
+    const name = source.getName();
+    const existing = client.getSheetByName(name);
+    if (existing) client.deleteSheet(existing);
+    source.copyTo(client).setName(name);
+  });
+  if (removableBlank && client.getSheets().length > allowed.length) client.deleteSheet(removableBlank);
+  client.setActiveSheet(client.getSheetByName(allowed[0]));
+  return { copiedSheets: allowed };
+}
+
+function vNextAdminResolveTemplateUiSource_(hub, draftSpreadsheetId) {
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const adminEmails = vNextAdminMergeEmails_(hubConfig.admin_emails,
+    vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS, vNextAdminActor_());
+  if (!adminEmails.length) throw new Error('Template UI source requires at least one Admin email.');
+  const draftIdOrSpreadsheetId = vNextAdminText_(draftSpreadsheetId);
+  if (!draftIdOrSpreadsheetId) {
+    const active = vNextAdminResolveRelease_(hub, hubConfig.active_release_id || '');
+    const spreadsheet = SpreadsheetApp.openById(vNextAdminRequiredText_(active.template_spreadsheet_id,
+      'activeTemplate.template_spreadsheet_id'));
+    vNextAdminAssertReleaseTemplateManifest_(active, spreadsheet);
+    vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(spreadsheet.getId()), adminEmails);
+    return { spreadsheet: spreadsheet, sourceReleaseId: String(active.release_id || ''),
+      draftId: '', isDraft: false, adminEmails: adminEmails };
+  }
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.mode || '') === 'TEMPLATE' &&
+      (String(row.spreadsheet_id || '') === draftIdOrSpreadsheetId || String(row.book_id || '') === draftIdOrSpreadsheetId);
+  });
+  if (!registry || String(registry.status || '').toUpperCase() !== 'DRAFT') {
+    throw new Error('UI source must be an Admin-registered mutable TEMPLATE_DRAFT.');
+  }
+  const spreadsheet = SpreadsheetApp.openById(String(registry.spreadsheet_id || ''));
+  const config = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (vNextDetectBookMode_(spreadsheet) !== 'TEMPLATE' ||
+      String(config.template_kind || '') !== 'TEMPLATE_DRAFT' ||
+      String(config.template_draft_id || '') !== String(registry.book_id || '')) {
+    throw new Error('TEMPLATE_DRAFT routing identity is inconsistent.');
+  }
+  vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(spreadsheet.getId()), adminEmails);
+  vNextAdminTemplateUiManifest_(spreadsheet);
+  return { spreadsheet: spreadsheet,
+    sourceReleaseId: vNextAdminRequiredText_(config.source_template_release_id || registry.template_release_id,
+      'source_template_release_id'),
+    draftId: String(registry.book_id || ''), isDraft: true, adminEmails: adminEmails };
+}
+
+function vNextAdminListTemplateDrafts_(hub) {
+  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '') === 'TEMPLATE' && String(row.status || '').toUpperCase() === 'DRAFT';
+  }).map(function (row) {
+    const note = vNextAdminParseJson_(row.note, {});
+    return {
+      draftId: String(row.book_id || ''), spreadsheetId: String(row.spreadsheet_id || ''),
+      spreadsheetUrl: String(row.spreadsheet_url || ''), sourceReleaseId: String(row.template_release_id || ''),
+      manifestSha256: String(note.initialManifestSha256 || ''), createdAt: row.created_at || ''
+    };
+  });
+}
+
+function vNextAdminAssertPrivateAdminFile_(file, adminEmails) {
+  const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
+  const allowed = new Set(vNextAdminMergeEmails_(adminEmails, owner, vNextAdminActor_()));
+  if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+    throw new Error('Template source must be PRIVATE.');
+  }
+  const unexpected = file.getEditors().concat(file.getViewers()).filter(function (user) {
+    return !allowed.has(String(user.getEmail() || '').toLowerCase());
+  });
+  if (unexpected.length) throw new Error('Template source has a non-Admin collaborator.');
+  return true;
+}
+
+function vNextAdminCopyAndVerifyTemplateUi_(source, target) {
+  const before = vNextAdminTemplateUiManifest_(source);
+  VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.forEach(function (name, index) {
+    const sourceSheet = source.getSheetByName(name);
+    if (!sourceSheet) throw new Error('Template UI source is missing sheet: ' + name);
+    const existing = target.getSheetByName(name);
+    if (existing) target.deleteSheet(existing);
+    sourceSheet.copyTo(target).setName(name).setIndex(index + 1);
+  });
+  target.setActiveSheet(target.getSheetByName(VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE[0]));
+  SpreadsheetApp.flush();
+  const after = vNextAdminTemplateUiManifest_(target);
+  const beforeJson = vNextAdminCanonicalJson_(before);
+  const afterJson = vNextAdminCanonicalJson_(after);
+  if (beforeJson !== afterJson) {
+    throw new Error('Template UI copy verification failed. Sheet.copyTo did not preserve the V2 manifest.');
+  }
+  return { manifest: after, manifestSha256: vNextAdminSha256_(afterJson), copiedSheets: VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.slice() };
+}
+
+function vNextAdminAssertReleaseTemplateManifest_(release, template) {
+  const expected = vNextAdminRequiredText_(release && release.template_content_sha256,
+    'release.template_content_sha256');
+  const schema = String(release && release.template_manifest_schema || 'LEGACY_V1');
+  const actual = schema === VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA
+    ? vNextAdminTemplateUiManifestHash_(template)
+    : vNextAdminTemplateContentHash_(template);
+  if (expected !== actual) {
+    throw new Error('Master Template visible content differs from the immutable RELEASES manifest.');
+  }
+  return true;
+}
+
+function vNextAdminTemplateUiManifestHash_(template) {
+  return vNextAdminSha256_(vNextAdminCanonicalJson_(vNextAdminTemplateUiManifest_(template)));
+}
+
+/**
+ * V2 UI manifest. Every copied attribute that Apps Script can inspect is
+ * hashed. Objects that Sheet.copyTo cannot safely isolate are rejected before
+ * publication instead of being silently dropped.
+ */
+function vNextAdminTemplateUiManifest_(template) {
+  const allowed = new Set(VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE);
+  const unexpectedVisible = template.getSheets().filter(function (sheet) {
+    return !sheet.isSheetHidden() && !allowed.has(sheet.getName());
+  }).map(function (sheet) { return sheet.getName(); });
+  if (unexpectedVisible.length) {
+    throw new Error('Template contains non-allowlisted visible sheets: ' + unexpectedVisible.join(', '));
+  }
+  if (typeof template.getNamedRanges === 'function' && template.getNamedRanges().length) {
+    throw new Error('Named ranges are forbidden in Template UI; use direct ranges inside the three allowlisted sheets.');
+  }
+  return {
+    schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+    allowedSheets: VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.slice(),
+    sheets: VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.map(function (name) {
+      const sheet = template.getSheetByName(name);
+      if (!sheet) throw new Error('Template manifest cannot find sheet: ' + name);
+      vNextAdminAssertTemplateSheetHasNoForbiddenAssets_(template, sheet);
+      return vNextAdminTemplateSheetManifest_(template, sheet);
+    })
+  };
+}
+
+function vNextAdminAssertTemplateSheetHasNoForbiddenAssets_(template, sheet) {
+  const forbidden = [];
+  if (typeof sheet.getCharts === 'function' && sheet.getCharts().length) forbidden.push('charts');
+  if (typeof sheet.getDrawings === 'function' && sheet.getDrawings().length) forbidden.push('drawings');
+  if (typeof sheet.getImages === 'function' && sheet.getImages().length) forbidden.push('over-grid images');
+  if (typeof sheet.getPivotTables === 'function' && sheet.getPivotTables().length) forbidden.push('pivot tables');
+  if (typeof sheet.getSlicers === 'function' && sheet.getSlicers().length) forbidden.push('slicers');
+  if (typeof sheet.getDataSourceTables === 'function' && sheet.getDataSourceTables().length) forbidden.push('data source tables');
+  if (typeof sheet.getDeveloperMetadata === 'function' && sheet.getDeveloperMetadata().length) forbidden.push('developer metadata');
+  if (typeof sheet.getProtections === 'function') {
+    const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+      .concat(sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE));
+    if (protections.length) forbidden.push('UI-sheet protections');
+  }
+  if (forbidden.length) {
+    throw new Error(sheet.getName() + ' contains explicitly forbidden Template assets: ' + forbidden.join(', '));
+  }
+  const formulas = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).getFormulas();
+  const internalNames = template.getSheets().map(function (item) { return item.getName(); })
+    .filter(function (name) { return !VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.includes(name); });
+  formulas.forEach(function (row) {
+    row.forEach(function (formula) {
+      const text = String(formula || '');
+      if (!text) return;
+      if (VN_ADMIN_TEMPLATE_FORBIDDEN_FORMULA.test(text)) {
+        throw new Error(sheet.getName() + ' contains a forbidden external-data formula.');
+      }
+      internalNames.forEach(function (internalName) {
+        const quoted = "'" + String(internalName).replace(/'/g, "''") + "'!";
+        if (text.indexOf(quoted) >= 0 || text.indexOf(internalName + '!') >= 0) {
+          throw new Error(sheet.getName() + ' formula references non-published sheet: ' + internalName);
+        }
+      });
+    });
+  });
+  return true;
+}
+
+function vNextAdminTemplateSheetManifest_(template, sheet) {
+  const rows = sheet.getMaxRows();
+  const columns = sheet.getMaxColumns();
+  if (rows * columns > 200000) {
+    throw new Error(sheet.getName() + ' exceeds the 200,000-cell Template UI manifest limit.');
+  }
+  const range = sheet.getRange(1, 1, rows, columns);
+  const validations = [];
+  range.getDataValidations().forEach(function (row, rowIndex) {
+    row.forEach(function (rule, columnIndex) {
+      if (!rule) return;
+      validations.push({ cell: vNextAdminA1_(rowIndex + 1, columnIndex + 1),
+        rule: vNextAdminSerializeValidation_(template, rule) });
+    });
+  });
+  const richText = [];
+  range.getRichTextValues().forEach(function (row, rowIndex) {
+    row.forEach(function (value, columnIndex) {
+      const serialized = vNextAdminSerializeRichText_(value);
+      if (serialized) richText.push({ cell: vNextAdminA1_(rowIndex + 1, columnIndex + 1), value: serialized });
+    });
+  });
+  const conditionalRules = sheet.getConditionalFormatRules().map(function (rule) {
+    return vNextAdminSerializeConditionalRule_(template, rule);
+  });
+  const merges = sheet.getRange(1, 1, rows, columns).getMergedRanges().map(function (item) {
+    return item.getA1Notation();
+  }).sort();
+  const bandings = typeof range.getBandings === 'function' ? range.getBandings().map(function (banding) {
+    return vNextAdminSerializeBanding_(banding);
+  }) : [];
+  const columnWidths = [];
+  const rowHeights = [];
+  const hiddenColumns = [];
+  const hiddenRows = [];
+  for (let column = 1; column <= columns; column++) {
+    columnWidths.push(sheet.getColumnWidth(column));
+    if (sheet.isColumnHiddenByUser(column)) hiddenColumns.push(column);
+  }
+  for (let row = 1; row <= rows; row++) {
+    rowHeights.push(sheet.getRowHeight(row));
+    if (sheet.isRowHiddenByUser(row)) hiddenRows.push(row);
+  }
+  return {
+    name: sheet.getName(), maxRows: rows, maxColumns: columns,
+    frozenRows: sheet.getFrozenRows(), frozenColumns: sheet.getFrozenColumns(),
+    hiddenGridlines: typeof sheet.hasHiddenGridlines === 'function' ? sheet.hasHiddenGridlines() : false,
+    rightToLeft: typeof sheet.isRightToLeft === 'function' ? sheet.isRightToLeft() : false,
+    tabColor: typeof sheet.getTabColor === 'function' ? String(sheet.getTabColor() || '') : '',
+    valuesHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getValues())),
+    formulasHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFormulas())),
+    notesHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getNotes())),
+    numberFormatsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getNumberFormats())),
+    backgroundsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getBackgrounds())),
+    fontFamiliesHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFontFamilies())),
+    fontSizesHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFontSizes())),
+    fontWeightsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFontWeights())),
+    fontStylesHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFontStyles())),
+    fontColorsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getFontColors())),
+    horizontalAlignmentsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getHorizontalAlignments())),
+    verticalAlignmentsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getVerticalAlignments())),
+    wrapsHash: vNextAdminSha256_(vNextAdminCanonicalJson_(range.getWraps())),
+    textDirectionsHash: typeof range.getTextDirections === 'function'
+      ? vNextAdminSha256_(vNextAdminCanonicalJson_(range.getTextDirections().map(function (row) {
+        return row.map(function (item) { return String(item || ''); });
+      }))) : '',
+    textRotationsHash: typeof range.getTextRotations === 'function'
+      ? vNextAdminSha256_(vNextAdminCanonicalJson_(range.getTextRotations().map(function (row) {
+        return row.map(vNextAdminSerializeTextRotation_);
+      }))) : '',
+    validations: validations, conditionalFormatting: conditionalRules,
+    mergedRanges: merges, richText: richText, bandings: bandings,
+    filter: vNextAdminSerializeFilter_(template, sheet.getFilter()),
+    columnWidths: columnWidths, rowHeights: rowHeights,
+    hiddenColumns: hiddenColumns, hiddenRows: hiddenRows
+  };
+}
+
+function vNextAdminSerializeValidation_(template, rule) {
+  return {
+    criteriaType: String(rule.getCriteriaType() || ''),
+    criteriaValues: (rule.getCriteriaValues() || []).map(function (value) {
+      return vNextAdminManifestValue_(template, value);
+    }),
+    allowInvalid: rule.getAllowInvalid(), helpText: String(rule.getHelpText() || '')
+  };
+}
+
+function vNextAdminSerializeConditionalRule_(template, rule) {
+  const ranges = rule.getRanges().map(function (range) {
+    return range.getSheet().getName() + '!' + range.getA1Notation();
+  }).sort();
+  const booleanCondition = rule.getBooleanCondition();
+  const gradientCondition = rule.getGradientCondition();
+  return {
+    ranges: ranges,
+    boolean: booleanCondition ? {
+      criteriaType: String(booleanCondition.getCriteriaType() || ''),
+      criteriaValues: (booleanCondition.getCriteriaValues() || []).map(function (value) {
+        return vNextAdminManifestValue_(template, value);
+      }),
+      background: String(booleanCondition.getBackground() || ''),
+      fontColor: String(booleanCondition.getFontColor() || ''),
+      bold: booleanCondition.getBold(), italic: booleanCondition.getItalic(),
+      strikethrough: booleanCondition.getStrikethrough(), underline: booleanCondition.getUnderline()
+    } : null,
+    gradient: gradientCondition ? {
+      min: vNextAdminSerializeGradientPoint_(gradientCondition.getMinpoint()),
+      mid: vNextAdminSerializeGradientPoint_(gradientCondition.getMidpoint()),
+      max: vNextAdminSerializeGradientPoint_(gradientCondition.getMaxpoint())
+    } : null
+  };
+}
+
+function vNextAdminSerializeGradientPoint_(point) {
+  if (!point) return null;
+  return { color: vNextAdminColorString_(point.getColor()), type: String(point.getType() || ''),
+    value: vNextAdminText_(point.getValue()) };
+}
+
+function vNextAdminSerializeRichText_(value) {
+  if (!value) return null;
+  const text = String(value.getText() || '');
+  if (!text) return null;
+  const runs = value.getRuns ? value.getRuns() : [];
+  return { text: text, runs: runs.map(function (run) {
+    return { start: run.getStartIndex(), end: run.getEndIndex(), text: run.getText(),
+      linkUrl: String(run.getLinkUrl && run.getLinkUrl() || ''),
+      style: vNextAdminSerializeTextStyle_(run.getTextStyle && run.getTextStyle()) };
+  }) };
+}
+
+function vNextAdminSerializeTextStyle_(style) {
+  if (!style) return null;
+  return {
+    bold: style.isBold(), italic: style.isItalic(), underline: style.isUnderline(),
+    strikethrough: style.isStrikethrough(), fontFamily: String(style.getFontFamily() || ''),
+    fontSize: style.getFontSize(), foregroundColor: style.getForegroundColor ? String(style.getForegroundColor() || '') : ''
+  };
+}
+
+function vNextAdminSerializeTextRotation_(rotation) {
+  if (!rotation) return null;
+  return { degrees: rotation.getDegrees(), vertical: rotation.isVertical() };
+}
+
+function vNextAdminSerializeBanding_(banding) {
+  return {
+    range: banding.getRange().getA1Notation(),
+    headerColor: typeof banding.getHeaderRowColor === 'function' ? String(banding.getHeaderRowColor() || '') : '',
+    firstRowColor: typeof banding.getFirstRowColor === 'function' ? String(banding.getFirstRowColor() || '') : '',
+    secondRowColor: typeof banding.getSecondRowColor === 'function' ? String(banding.getSecondRowColor() || '') : '',
+    footerColor: typeof banding.getFooterRowColor === 'function' ? String(banding.getFooterRowColor() || '') : '',
+    firstColumnColor: typeof banding.getFirstColumnColor === 'function' ? String(banding.getFirstColumnColor() || '') : '',
+    secondColumnColor: typeof banding.getSecondColumnColor === 'function' ? String(banding.getSecondColumnColor() || '') : ''
+  };
+}
+
+function vNextAdminSerializeFilter_(template, filter) {
+  if (!filter) return null;
+  const range = filter.getRange();
+  const criteria = [];
+  for (let column = 1; column <= range.getNumColumns(); column++) {
+    const rule = filter.getColumnFilterCriteria(column);
+    if (!rule) continue;
+    criteria.push({ column: column, criteriaType: String(rule.getCriteriaType() || ''),
+      criteriaValues: (rule.getCriteriaValues() || []).map(function (value) {
+        return vNextAdminManifestValue_(template, value);
+      }), hiddenValues: rule.getHiddenValues ? rule.getHiddenValues() : [] });
+  }
+  return { range: range.getA1Notation(), criteria: criteria };
+}
+
+function vNextAdminManifestValue_(template, value) {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(function (item) { return vNextAdminManifestValue_(template, item); });
+  if (value && typeof value.getA1Notation === 'function' && typeof value.getSheet === 'function') {
+    const valueSheet = value.getSheet();
+    return { type: 'RANGE', scope: valueSheet.getParent().getId() === template.getId() ? 'LOCAL' : 'EXTERNAL',
+      sheet: valueSheet.getName(), a1: value.getA1Notation() };
+  }
+  if (value && typeof value === 'object') return String(value);
+  return value;
+}
+
+function vNextAdminColorString_(color) {
+  if (!color) return '';
+  try { return color.asRgbColor().asHexString(); } catch (error) { return String(color); }
+}
+
+function vNextAdminA1_(row, column) {
+  let value = Number(column);
+  let letters = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    value = Math.floor((value - 1) / 26);
+  }
+  return letters + String(row);
+}
+
+/** Canonical visible-sheet manifest bound to each immutable Template release. */
+function vNextAdminTemplateContentHash_(template) {
+  const manifest = VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.map(function (name) {
+    const sheet = template.getSheetByName(name);
+    if (!sheet) throw new Error('Template content hash cannot find sheet: ' + name);
+    const range = sheet.getDataRange();
+    const rows = Math.max(1, range.getNumRows());
+    const columns = Math.max(1, range.getNumColumns());
+    const columnWidths = [];
+    const rowHeights = [];
+    for (let column = 1; column <= columns; column++) columnWidths.push(sheet.getColumnWidth(column));
+    for (let row = 1; row <= rows; row++) rowHeights.push(sheet.getRowHeight(row));
+    return {
+      name: name, rows: rows, columns: columns,
+      frozenRows: sheet.getFrozenRows(), frozenColumns: sheet.getFrozenColumns(),
+      hiddenGridlines: typeof sheet.hasHiddenGridlines === 'function' ? sheet.hasHiddenGridlines() : false,
+      values: range.getValues(), formulas: range.getFormulas(), notes: range.getNotes(),
+      numberFormats: range.getNumberFormats(), backgrounds: range.getBackgrounds(),
+      fontFamilies: range.getFontFamilies(), fontSizes: range.getFontSizes(),
+      fontWeights: range.getFontWeights(), fontStyles: range.getFontStyles(),
+      fontColors: range.getFontColors(), horizontalAlignments: range.getHorizontalAlignments(),
+      verticalAlignments: range.getVerticalAlignments(), wraps: range.getWraps(),
+      columnWidths: columnWidths, rowHeights: rowHeights
+    };
+  });
+  return vNextAdminSha256_(vNextAdminCanonicalJson_(manifest));
+}
+
+function vNextAdminResetCopiedWorkbook_(ss, initialSheets) {
+  const tempName = '__VNEXT_BUILD__';
+  let temp = ss.getSheetByName(tempName);
+  if (!temp) temp = ss.insertSheet(tempName);
+  ss.setActiveSheet(temp);
+  // This runs only on newly-created copies. The legacy source workbook is never passed here.
+  ss.getSheets().forEach(function (sheet) {
+    if (sheet.getName() !== tempName) ss.deleteSheet(sheet);
+  });
+  (initialSheets || []).forEach(function (name) {
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
+  });
+  if ((initialSheets || []).length) {
+    ss.setActiveSheet(ss.getSheetByName(initialSheets[0]));
+    ss.deleteSheet(temp);
+  }
+}
+
+function vNextAdminEnsureUiShell_(ss, options) {
+  const opt = options || {};
+  VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.forEach(function (name) {
+    const sheet = vNextAdminGetOrCreateSheet_(ss, name);
+    if (!String(sheet.getRange('A1').getValue() || '').trim() || !opt.template) {
+      if (name === '1_ホーム') {
+        const title = opt.template
+          ? 'Forecast vNext Master Template'
+          : ((opt.clientName || 'クライアント') + '｜FY' + (opt.fiscalYear || '') + ' 年度計画');
+        sheet.getRange('A1').setValue(title).setFontWeight('bold').setFontSize(16);
+        sheet.getRange('A3').setValue(opt.template
+          ? 'Master Templateです。クライアントbookはAdmin Hubから生成してください。'
+          : '準備中です。年度計画メニューから「ホームに戻る」を選んでください。');
+      } else if (name === '2_予測と計画') {
+        sheet.getRange('A1').setValue('予測と計画').setFontWeight('bold');
+      } else {
+        sheet.getRange('A1').setValue('振り返り').setFontWeight('bold');
+      }
+    }
+  });
+}
+
+// ---------------------------- Jobs / health ----------------------------
+
+function vNextAdminQueueAgeMetrics_(rows, nowMs) {
+  const now = Number(nowMs || Date.now());
+  const queued = (rows || []).filter(function (row) { return String(row.status || '').toUpperCase() === 'QUEUED'; });
+  const running = (rows || []).filter(function (row) { return String(row.status || '').toUpperCase() === 'RUNNING'; });
+  const ages = queued.map(function (row) {
+    const created = new Date(row.created_at || row.updated_at || 0).getTime();
+    return isFinite(created) && created > 0 ? Math.max(0, (now - created) / 60000) : 0;
+  });
+  const oldest = ages.length ? Math.max.apply(null, ages) : 0;
+  return {
+    queued: queued.length, running: running.length,
+    oldestQueuedAgeMinutes: Math.round(oldest * 10) / 10,
+    staleQueued: ages.filter(function (age) { return age >= VN_ADMIN_STALE_MINUTES; }).length
+  };
+}
+
+function vNextAdminOperationalMetrics_(hub, automationInstalled) {
+  const now = Date.now();
+  const queue = vNextAdminQueueAgeMetrics_(vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows, now);
+  const props = PropertiesService.getScriptProperties();
+  const succeededAt = String(props.getProperty('VNEXT_LAST_SWEEP_SUCCEEDED_AT') || '');
+  const successMs = new Date(succeededAt || 0).getTime();
+  const sweepAge = isFinite(successMs) && successMs > 0 ? Math.max(0, (now - successMs) / 60000) : null;
+  return Object.assign({}, queue, {
+    lastSweepSucceededAt: succeededAt,
+    lastSweepAgeMinutes: sweepAge === null ? null : Math.round(sweepAge * 10) / 10,
+    lastSweepDurationMs: Number(props.getProperty('VNEXT_LAST_SWEEP_DURATION_MS') || 0),
+    schedulerStale: Boolean(automationInstalled && (sweepAge === null || sweepAge >= VN_ADMIN_STALE_MINUTES)),
+    queueStale: queue.staleQueued > 0
+  });
+}
+
+function vNextAdminProcessJobsForHub_(hub, limit, deadlineMs) {
+  const maxJobs = Math.max(1, Math.min(20, Number(limit || 5)));
+  const results = [];
+  for (let i = 0; i < maxJobs; i++) {
+    if (deadlineMs && Date.now() >= deadlineMs) break;
+    const job = vNextAdminWithScriptLock_('claim-job', function () { return vNextAdminClaimNextJob_(hub); });
+    if (!job) break;
+    try {
+      const result = vNextAdminExecuteJob_(hub, job);
+      vNextAdminWithScriptLock_('finish-job', function () { vNextAdminFinishJob_(hub, job.job_id, 'SUCCEEDED', result, ''); });
+      results.push({ jobId: job.job_id, status: 'SUCCEEDED', result: result });
+    } catch (err) {
+      const message = String(err && err.message || err);
+      vNextAdminWithScriptLock_('fail-job', function () { vNextAdminFinishJob_(hub, job.job_id, 'FAILED', null, message); });
+      results.push({ jobId: job.job_id, status: 'FAILED', error: message });
+      Logger.log('Job failed id=%s type=%s error=%s', job.job_id, job.job_type, String(err && err.stack || err));
+    }
+  }
+  vNextAdminRefreshTodayExceptions_(hub);
+  vNextAdminRefreshHome_(hub);
+  return vNextAdminJsonSafe_({ processed: results.length, jobs: results });
+}
+
+function vNextAdminScanRegistryForHub_(hub) {
+  const registry = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY);
+  const results = [];
+  registry.rows.forEach(function (row) {
+    if (!row.book_id || String(row.status) === 'ARCHIVED') return;
+    results.push(vNextAdminScanOneBook_(hub, row));
+  });
+  vNextAdminRefreshTodayExceptions_(hub);
+  vNextAdminRefreshHome_(hub);
+  return vNextAdminJsonSafe_({ scanned: results.length, results: results });
+}
+
+function vNextAdminScanRegistryBatch_(hub, limit) {
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return row.book_id && String(row.status) !== 'ARCHIVED';
+  });
+  if (!rows.length) return { scanned: 0, results: [], nextCursor: 0 };
+  const props = PropertiesService.getScriptProperties();
+  let cursor = Number(props.getProperty('VNEXT_SCAN_CURSOR') || 0);
+  if (!isFinite(cursor) || cursor < 0) cursor = 0;
+  cursor = cursor % rows.length;
+  const count = Math.min(Math.max(1, Number(limit || 5)), rows.length);
+  const results = [];
+  for (let i = 0; i < count; i++) results.push(vNextAdminScanOneBook_(hub, rows[(cursor + i) % rows.length]));
+  const next = (cursor + count) % rows.length;
+  props.setProperty('VNEXT_SCAN_CURSOR', String(next));
+  vNextAdminRefreshTodayExceptions_(hub);
+  vNextAdminRefreshHome_(hub);
+  return vNextAdminJsonSafe_({ scanned: results.length, results: results, nextCursor: next });
+}
+
+function vNextAdminRecoverStaleLeases_(hub, staleMinutes) {
+  const threshold = Date.now() - Math.max(5, Number(staleMinutes || 20)) * 60000;
+  let requeued = 0;
+  let failed = 0;
+  let approvalsReleased = 0;
+  let approvalsFailed = 0;
+  const jobs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows;
+  jobs.forEach(function (job) {
+    if (String(job.status || '') !== 'RUNNING') return;
+    const leaseTime = new Date(job.locked_at || job.started_at || job.updated_at || 0).getTime();
+    if (!isFinite(leaseTime) || leaseTime > threshold) return;
+    const attempts = Number(job.attempts || 0);
+    if (attempts < 3) {
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
+        status: 'QUEUED', locked_at: '', locked_by: '', started_at: '',
+        error: 'Stale lease recovered at ' + new Date().toISOString(), updated_at: new Date()
+      });
+      requeued++;
+    } else {
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
+        status: 'FAILED', finished_at: new Date(), error: 'Lease expired after 3 attempts.', updated_at: new Date()
+      });
+      let recoveryDetail = '';
+      if (['FORECAST_REQUEST', 'AI_ROLLBACK_FORECAST'].indexOf(String(job.job_type || '')) >= 0) {
+        try {
+          recoveryDetail = vNextAdminRecoverExhaustedForecastJob_(hub, job);
+        } catch (recoveryError) {
+          recoveryDetail = ' client recovery failed: ' + String(recoveryError && recoveryError.message || recoveryError);
+          Logger.log('Exhausted forecast recovery failed job=%s error=%s', job.job_id, String(recoveryError && recoveryError.stack || recoveryError));
+        }
+      }
+      vNextAdminAppendException_(hub, {
+        severity: 'ERROR', exception_type: 'JOB_LEASE_EXHAUSTED', book_id: job.target_book_id,
+        title: '自動処理が3回中断されました', detail: 'job=' + job.job_id + recoveryDetail,
+        recommended_action: '権限・実行時間・入力データを確認して再投入', source_ref: job.job_id
+      });
+      failed++;
+    }
+  });
+  const approvals = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows;
+  approvals.forEach(function (approval) {
+    if (String(approval.status || '').indexOf('PROCESSING_') !== 0) return;
+    const leaseTime = new Date(approval.updated_at || 0).getTime();
+    if (!isFinite(leaseTime) || leaseTime > threshold) return;
+    const attempts = Number(approval.processing_attempts || 0);
+    if (attempts < 3) {
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
+        status: 'PENDING', decision_at: '', decision_by: '',
+        decision_comment: '前回の承認処理が中断されたため再開待ちに戻しました。', updated_at: new Date()
+      });
+      approvalsReleased++;
+    } else {
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
+        status: 'FAILED', decision_at: '',
+        decision_comment: '承認処理が3回中断されたため管理者確認が必要です。', updated_at: new Date()
+      });
+      vNextAdminAppendException_(hub, {
+        severity: 'ERROR', exception_type: 'APPROVAL_LEASE_EXHAUSTED', book_id: approval.book_id,
+        client_name: approval.client_name, fiscal_year: approval.fiscal_year,
+        title: '承認処理が3回中断されました', detail: 'approval=' + approval.approval_request_id,
+        recommended_action: '公式化の途中記録を確認し、必要なら新しい承認依頼を作成', source_ref: approval.approval_request_id
+      });
+      approvalsFailed++;
+    }
+  });
+  return {
+    requeuedJobs: requeued, failedJobs: failed,
+    releasedApprovals: approvalsReleased, failedApprovals: approvalsFailed
+  };
+}
+
+function vNextAdminRecoverExhaustedForecastJob_(hub, job) {
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(job.target_book_id || '');
+  });
+  if (!registry || String(registry.mode || '') !== 'CLIENT') return '; registry missing';
+  const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+  const payload = vNextAdminParseJson_(job.request_json, {});
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || routing.state);
+  if (authoritativeState === 'RUNNING') {
+    vNextAdminSetClientState_(registry.spreadsheet_id, 'READY_TO_RUN', {
+      reason: 'forecast_job_lease_exhausted_after_3_attempts', actorRole: 'ADMIN'
+    });
+  }
+  if (payload.requestId && String(job.job_type || '') === 'FORECAST_REQUEST') {
+    vNextAdminAppendClientRequestEvent_(client, {
+      requestId: payload.requestId, bookId: registry.book_id, eventType: 'FAILED', status: 'FAILED',
+      requestHash: payload.requestHash || '', requestJson: '', requestedAt: payload.requestedAt || '',
+      requestedBy: payload.requestedBy || '', relatedJobId: job.job_id,
+      detail: { error: 'forecast job lease exhausted after 3 attempts', recoveredAt: new Date().toISOString() }
+    });
+  }
+  vNextAdminSyncClientToHub_(hub, client, registry.book_id);
+  const recovered = authoritativeState === 'RUNNING';
+  if (recovered) vNextAdminPatchRegistryByBookId_(hub, registry.book_id, { state: 'READY_TO_RUN', updated_at: new Date() });
+  if (String(job.job_type || '') === 'AI_ROLLBACK_FORECAST') {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'AI_ROLLBACK_FORECAST_LEASE_EXHAUSTED', book_id: registry.book_id,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'AI反映の取消後の再予測が3回中断', detail: 'job=' + job.job_id,
+      recommended_action: '原因を確認し、同じ取消操作を再実行', source_ref: payload.rollbackOperationId || job.job_id
+    });
+    vNextAdminWriteAudit_(hub, 'AI_ROLLBACK_FORECAST', 'AI_ROLLBACK', payload.rollbackOperationId || job.job_id, 'FAILED', {
+      jobId: job.job_id, reason: 'lease_exhausted_after_3_attempts', recoveredTo: recovered ? 'READY_TO_RUN' : authoritativeState
+    });
+  }
+  return recovered ? '; client state restored to READY_TO_RUN' : '; client state already advanced; no rollback applied';
+}
+
+function vNextAdminEnqueueJobInternal_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const type = vNextAdminRequiredText_(req.jobType, 'jobType').toUpperCase();
+  const idempotency = vNextAdminText_(req.idempotencyKey) || [type, req.targetBookId || '', vNextAdminSha256_(vNextAdminCanonicalJson_(req.request || {}))].join('|');
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS);
+  const existing = table.rows.find(function (row) {
+    return String(row.idempotency_key) === idempotency && ['QUEUED', 'RUNNING', 'SUCCEEDED'].indexOf(String(row.status)) >= 0;
+  });
+  if (existing) return vNextAdminJsonSafe_(existing);
+  const now = new Date();
+  const job = {
+    job_id: 'JOB-' + Utilities.getUuid(), job_type: type,
+    target_book_id: vNextAdminText_(req.targetBookId), target_spreadsheet_id: vNextAdminText_(req.targetSpreadsheetId),
+    request_json: JSON.stringify(req.request || {}), idempotency_key: idempotency,
+    status: 'QUEUED', priority: Number(req.priority || 0), attempts: 0,
+    not_before: req.notBefore || '', locked_at: '', locked_by: '', started_at: '', finished_at: '',
+    result_json: '', error: '', created_at: now, created_by: vNextAdminActor_(), updated_at: now
+  };
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOBS, job);
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOB_LOG, {
+    log_id: 'JLOG-' + Utilities.getUuid(), job_id: job.job_id, logged_at: now,
+    status: 'QUEUED', message: 'Job queued', detail_json: '{}', actor: vNextAdminActor_()
+  });
+  return vNextAdminJsonSafe_(job);
+}
+
+function vNextAdminClaimNextJob_(hub) {
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS);
+  const nowMs = Date.now();
+  const eligible = table.rows.filter(function (row) {
+    if (String(row.status) !== 'QUEUED') return false;
+    // A forecast that requested AI research waits while that dependency can
+    // still complete.  A terminal AI failure does not block the forecast: the
+    // worker will record an explicit AI-unavailable degradation and continue
+    // with the other two lenses.
+    if (String(row.job_type || '') === 'FORECAST_REQUEST') {
+      const request = vNextAdminParseJson_(row.request_json, {});
+      if (request.aiResearchJobId) {
+        const dependency = table.rows.find(function (candidate) {
+          return String(candidate.job_id || '') === String(request.aiResearchJobId || '');
+        });
+        const dependencyStatus = String(dependency && dependency.status || '').toUpperCase();
+        if (dependencyStatus === 'QUEUED' || dependencyStatus === 'RUNNING') return false;
+      }
+    }
+    if (!row.not_before) return true;
+    const t = new Date(row.not_before).getTime();
+    return !isFinite(t) || t <= nowMs;
+  }).sort(function (a, b) {
+    const p = Number(b.priority || 0) - Number(a.priority || 0);
+    if (p) return p;
+    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  });
+  if (!eligible.length) return null;
+  const job = eligible[0];
+  const now = new Date();
+  vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
+    status: 'RUNNING', attempts: Number(job.attempts || 0) + 1,
+    locked_at: now, locked_by: vNextAdminActor_(), started_at: now, updated_at: now, error: ''
+  });
+  job.status = 'RUNNING';
+  job.attempts = Number(job.attempts || 0) + 1;
+  return job;
+}
+
+function vNextAdminExecuteJob_(hub, job) {
+  const payload = vNextAdminParseJson_(job.request_json, {});
+  switch (String(job.job_type)) {
+    case 'FORECAST_REQUEST':
+    case 'AI_ROLLBACK_FORECAST': {
+      const isAiRollback = String(job.job_type || '') === 'AI_ROLLBACK_FORECAST';
+      if (typeof vNextRunForecast_ !== 'function') throw new Error('Trusted forecast worker API is not installed (expected vNextRunForecast_).');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id) === String(job.target_book_id);
+      });
+      if (!registry) throw new Error('Registry entry not found for forecast request.');
+      const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+      try {
+        if (!isAiRollback) vNextAdminAssertNoTrustedForecastPayload_(payload);
+        vNextAdminAssertClientPinnedReleasePair_(hub, client, registry);
+        vNextAdminSyncClientToHub_(hub, client, registry.book_id);
+        let rollbackAuthorization = null;
+        const engineRequest = Object.assign({}, payload, {
+          bookId: registry.book_id,
+          clientId: registry.client_id,
+          clientName: registry.client_name,
+          fiscalYear: Number(registry.fiscal_year),
+          spreadsheet: hub,
+          persist: true,
+          manageState: true,
+          internalOperation: 'ADMIN_JOB'
+        });
+        if (payload.aiResearchJobId) {
+          const dependency = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.find(function (row) {
+            return String(row.job_id || '') === String(payload.aiResearchJobId);
+          });
+          const dependencyStatus = String(dependency && dependency.status || 'MISSING').toUpperCase();
+          if (dependencyStatus === 'QUEUED' || dependencyStatus === 'RUNNING') {
+            throw new Error('AI research dependency is still in progress: ' + String(payload.aiResearchJobId));
+          }
+          if (dependencyStatus !== 'SUCCEEDED') {
+            engineRequest.aiUnavailable = true;
+            engineRequest.aiUnavailableReason = 'AI_RESEARCH_' + dependencyStatus;
+            vNextAdminAppendException_(hub, {
+              severity: 'WARN', exception_type: 'AI_RESEARCH_UNAVAILABLE', book_id: registry.book_id,
+              client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+              title: 'AI調査を使わずに予測を継続',
+              detail: 'dependency=' + String(payload.aiResearchJobId) + ', status=' + dependencyStatus,
+              recommended_action: '予測は継続性・案件・現場情報で完了しています。必要ならAI設定を確認して新しいrunを依頼してください。',
+              source_ref: payload.aiResearchJobId
+            });
+            vNextAdminWriteAudit_(hub, 'AI_RESEARCH_DEGRADED', 'FORECAST_JOB', job.job_id, 'WARN', {
+              bookId: registry.book_id, dependencyJobId: payload.aiResearchJobId,
+              dependencyStatus: dependencyStatus, policy: 'CONTINUE_WITH_AI_ZERO_AND_WIDER_INTERVAL'
+            });
+          }
+        }
+        // Revalidate immediately before Engine entry; neither a queued request
+        // nor an earlier health scan authorizes a different release pair.
+        vNextAdminAssertClientPinnedReleasePair_(hub, client, registry);
+        vNextAdminHydrateHubRuntime_(hub);
+        if (typeof vNextEngineBuildAdminRunIdentity_ !== 'function' ||
+            typeof vNextEngineLookupRunForResume_ !== 'function') {
+          throw new Error('Deterministic forecast run identity APIs are not installed.');
+        }
+        const runIdentity = vNextEngineBuildAdminRunIdentity_(registry.book_id, String(job.idempotency_key || ''));
+        engineRequest.runId = runIdentity.runId;
+        engineRequest.idempotencyKey = runIdentity.idempotencyKey;
+        const resume = vNextEngineLookupRunForResume_(engineRequest);
+        vNextAdminAppendJobPhase_(hub, job.job_id, 'RUN_LOOKUP', {
+          runId: runIdentity.runId, resumablePhase: resume.resumablePhase,
+          existingStatuses: resume.statuses || []
+        });
+        const authoritativeRunState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || '');
+        if (!resume.hasSuccess && authoritativeRunState !== 'RUNNING') {
+          throw vNextAdminRunIdentityFailure_(
+            'No replayable SUCCESS exists, but the Hub forecast state is ' + authoritativeRunState + ' instead of RUNNING.'
+          );
+        }
+        if (isAiRollback) {
+          rollbackAuthorization = vNextAdminAuthorizeAiRollbackJob_(hub, job, payload, registry, {
+            allowPersistedResume: resume.hasSuccess === true,
+            persistedRunId: resume.hasSuccess ? runIdentity.runId : ''
+          });
+          if (!resume.hasSuccess) {
+            engineRequest.requestId = rollbackAuthorization.rollbackRequestId;
+            engineRequest.asOf = vNextAdminDateOnly_(rollbackAuthorization.sourceRun.as_of);
+            engineRequest.cutoff = vNextAdminDateOnly_(rollbackAuthorization.sourceRun.cutoff);
+            engineRequest.trustedReuseSeedFromRunId = rollbackAuthorization.trustedReuseSeedFromRunId;
+            engineRequest.trustedRollbackContext = rollbackAuthorization.trustedRollbackContext;
+            engineRequest.trustedAllowedDelayedAiRequestIds = rollbackAuthorization.trustedAllowedDelayedAiRequestIds;
+            engineRequest.internalJobType = 'AI_ROLLBACK_FORECAST';
+          }
+        }
+        const result = resume.hasSuccess ? resume.result : vNextRunForecast_(engineRequest);
+        const stateFinalization = vNextAdminEnsurePersistedForecastDraftState_(hub, registry, result);
+        vNextAdminAppendJobPhase_(hub, job.job_id, 'RUN_PERSISTED', {
+          runId: result.runId, inputDataHash: result.inputDataHash || '',
+          replayed: resume.hasSuccess === true, stateFinalization: stateFinalization
+        });
+        vNextAdminSyncHubToClient_(hub, client, registry.book_id, ['FORECAST_RUN', 'STATE_EVENT']);
+        vNextAdminMirrorClientState_(client, 'DRAFT_READY');
+        if (payload.requestId && !isAiRollback) {
+          vNextAdminAppendClientRequestEvent_(client, {
+            requestId: payload.requestId, bookId: registry.book_id, eventType: 'COMPLETED', status: 'COMPLETED',
+            requestHash: payload.requestHash || '', requestJson: '', requestedAt: payload.requestedAt || '',
+            requestedBy: payload.requestedBy || '', relatedJobId: job.job_id, relatedRunId: result.runId,
+            detail: { inputDataHash: result.inputDataHash || '', status: result.status }
+          });
+        }
+        vNextAdminPatchRegistryByBookId_(hub, job.target_book_id, {
+          last_forecast_at: new Date(), state: 'DRAFT_READY', updated_at: new Date()
+        });
+        vNextAdminAppendJobPhase_(hub, job.job_id, 'CLIENT_SYNCED', {
+          runId: result.runId, bookId: registry.book_id, state: 'DRAFT_READY'
+        });
+        if (isAiRollback) {
+          vNextAdminWriteAudit_(hub, 'AI_ROLLBACK_FORECAST', 'AI_ROLLBACK', payload.rollbackOperationId, 'SUCCESS', {
+            jobId: job.job_id, sourceForecastRunId: payload.sourceForecastRunId,
+            resultRunId: result.runId, targetEvidenceIds: payload.targetEvidenceIds,
+            tombstoneEvidenceIds: payload.tombstoneEvidenceIds
+          });
+        }
+        return result;
+      } catch (engineError) {
+        if (engineError && engineError.vNextRunIdentityFailure === true) {
+          vNextAdminAppendException_(hub, {
+            severity: 'CRITICAL', exception_type: 'FORECAST_RUN_IDENTITY_CONFLICT', book_id: registry.book_id,
+            client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+            title: '保存済み予測runの再開整合性に失敗',
+            detail: String(engineError && engineError.message || engineError),
+            recommended_action: '状態を巻き戻さず、JOB_LOG・FORECAST_RUN・入力hashを管理者が確認してください。',
+            source_ref: job.job_id
+          });
+          vNextAdminAppendJobPhase_(hub, job.job_id, 'RUN_IDENTITY_BLOCKED', {
+            error: String(engineError && engineError.message || engineError).slice(0, 1000)
+          });
+          throw engineError;
+        }
+        try {
+          const hubStates = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+            return String(row.book_id || '') === String(registry.book_id);
+          });
+          const hubState = hubStates.length ? String(hubStates[hubStates.length - 1].to_state || '') : 'RUNNING';
+          let recoveryState = hubState || 'RUNNING';
+          if (hubState === 'RUNNING') {
+            vNextAdminSetClientState_(registry.spreadsheet_id, 'READY_TO_RUN', {
+              reason: 'admin_forecast_job_failed: ' + String(engineError && engineError.message || engineError).slice(0, 500),
+              actorRole: 'ADMIN'
+            });
+            vNextAdminSyncClientToHub_(hub, client, registry.book_id);
+            recoveryState = 'READY_TO_RUN';
+          }
+          vNextAdminSyncHubToClient_(hub, client, registry.book_id, ['FORECAST_RUN', 'STATE_EVENT']);
+          vNextAdminMirrorClientState_(client, recoveryState);
+          if (payload.requestId && !isAiRollback) {
+            vNextAdminAppendClientRequestEvent_(client, {
+              requestId: payload.requestId, bookId: registry.book_id, eventType: 'FAILED', status: 'FAILED',
+              requestHash: payload.requestHash || '', requestJson: '', requestedAt: payload.requestedAt || '',
+              requestedBy: payload.requestedBy || '', relatedJobId: job.job_id,
+              detail: { error: String(engineError && engineError.message || engineError).slice(0, 1000) }
+            });
+          }
+          vNextAdminPatchRegistryByBookId_(hub, job.target_book_id, { state: recoveryState, updated_at: new Date() });
+          if (isAiRollback) {
+            vNextAdminAppendException_(hub, {
+              severity: 'ERROR', exception_type: 'AI_ROLLBACK_FORECAST_FAILED', book_id: registry.book_id,
+              client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+              title: 'AI反映の取消後の再予測に失敗',
+              detail: String(engineError && engineError.message || engineError),
+              recommended_action: '原因を確認し、同じ取消操作を再実行して再投入', source_ref: payload.rollbackOperationId || job.job_id
+            });
+            vNextAdminWriteAudit_(hub, 'AI_ROLLBACK_FORECAST', 'AI_ROLLBACK', payload.rollbackOperationId, 'FAILED', {
+              jobId: job.job_id, sourceForecastRunId: payload.sourceForecastRunId,
+              error: String(engineError && engineError.message || engineError).slice(0, 1000)
+            });
+          }
+        } catch (recoveryError) {
+          Logger.log('Forecast client recovery failed book=%s error=%s', registry.book_id, String(recoveryError && recoveryError.stack || recoveryError));
+        }
+        throw engineError;
+      }
+    }
+    case 'HEALTH_SCAN': {
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id) === String(job.target_book_id) || String(row.spreadsheet_id) === String(job.target_spreadsheet_id);
+      });
+      if (!registry) throw new Error('Registry entry not found for health scan.');
+      return vNextAdminScanOneBook_(hub, registry);
+    }
+    case 'AI_RESEARCH': {
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id) === String(job.target_book_id);
+      });
+      if (!registry) throw new Error('Registry entry not found for AI research.');
+      let provider = null;
+      if (typeof vNextAdminAiResearchProvider_ === 'function') provider = vNextAdminAiResearchProvider_;
+      else if (typeof vNextVertexAiResearch_ === 'function') provider = vNextVertexAiResearch_;
+      if (!provider) {
+        vNextAdminAppendException_(hub, {
+          severity: 'WARN', exception_type: 'AI_RESEARCH_PROVIDER_MISSING', book_id: registry.book_id,
+          client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+          title: 'AI調査の接続先が未設定', detail: 'Install vNextAdminAiResearchProvider_ or vNextVertexAiResearch_.',
+          recommended_action: 'Vertex AI接続設定とprovider hookを確認', source_ref: job.job_id
+        });
+        throw new Error('AI research provider hook is not installed.');
+      }
+      const findings = provider(Object.assign({}, payload, {
+        bookId: registry.book_id, clientName: registry.client_name,
+        fiscalYear: Number(registry.fiscal_year)
+      })) || [];
+      const list = Array.isArray(findings) ? findings : (findings.findings || []);
+      if (!list.length) return { findings: 0, appended: 0 };
+      const appended = list.map(function (finding) {
+        return vNextAdminAppendAiEvidenceInternal_(hub, Object.assign({}, finding, {
+          bookId: registry.book_id,
+          parentRequestId: String(payload.parentRequestId || payload.requestId || ''),
+          effectiveAsOf: String(payload.asOf || payload.effectiveAsOf || '')
+        }));
+      });
+      return { findings: list.length, appended: appended.length, evidenceIds: appended.map(function (row) { return row.evidenceId; }) };
+    }
+    case 'MIGRATION':
+      return vNextAdminExecuteMigrationSkeleton_(hub, job, payload);
+    case 'REFRESH_CLIENT_VIEW':
+      if (typeof vNextRefreshEmployeeViews !== 'function') throw new Error('UX refresh API is not installed.');
+      return vNextRefreshEmployeeViews(payload);
+    default:
+      if (typeof vNextAdminExternalJobHandler_ === 'function') return vNextAdminExternalJobHandler_(job.job_type, payload);
+      throw new Error('Unsupported job type: ' + job.job_type);
+  }
+}
+
+function vNextAdminFinishJob_(hub, jobId, status, result, error) {
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS);
+  const row = table.rows.find(function (item) { return String(item.job_id) === String(jobId); });
+  if (!row) return;
+  const now = new Date();
+  vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, row._rowNumber, {
+    status: status, finished_at: now, result_json: result == null ? '' : JSON.stringify(result),
+    error: error || '', updated_at: now
+  });
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOB_LOG, {
+    log_id: 'JLOG-' + Utilities.getUuid(), job_id: jobId, logged_at: now,
+    status: status, message: error || 'Job completed', detail_json: result == null ? '{}' : JSON.stringify(result),
+    actor: vNextAdminActor_()
+  });
+}
+
+function vNextAdminAppendJobPhase_(hub, jobId, phase, detail) {
+  const now = new Date();
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOB_LOG, {
+    log_id: 'JLOG-' + Utilities.getUuid(), job_id: String(jobId || ''), logged_at: now,
+    status: String(phase || 'PHASE'), message: String(phase || 'Job phase'),
+    detail_json: vNextAdminCanonicalJson_(detail || {}), actor: vNextAdminActor_()
+  });
+}
+
+/**
+ * Complete or verify only the state phase that follows an already durable
+ * deterministic SUCCESS. Client and registry mirrors are updated afterwards.
+ */
+function vNextAdminEnsurePersistedForecastDraftState_(hub, registry, result) {
+  const runId = vNextAdminRequiredText_(result && result.runId, 'forecastResult.runId');
+  const bookId = String(registry && registry.book_id || '');
+  let rows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  if (!rows.length) throw vNextAdminRunIdentityFailure_('Hub STATE_EVENT is missing for deterministic forecast finalization.');
+  let latest = rows[rows.length - 1];
+  let state = String(latest.to_state || '').toUpperCase();
+  if (state === 'RUNNING') {
+    vNextTransitionState_({
+      bookId: bookId,
+      fromState: 'RUNNING',
+      toState: 'DRAFT_READY',
+      reason: 'Forecast run completed (durable resume)',
+      relatedRunId: runId,
+      actorEmail: vNextAdminActor_(),
+      actorRole: 'SYSTEM',
+      internalOperation: 'FORECAST_ENGINE',
+      spreadsheet: hub
+    });
+    rows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+      return String(row.book_id || '') === bookId;
+    });
+    latest = rows[rows.length - 1];
+    state = String(latest && latest.to_state || '').toUpperCase();
+    if (state !== 'DRAFT_READY' || String(latest.related_run_id || '') !== runId) {
+      throw vNextAdminRunIdentityFailure_('RUNNING>DRAFT_READY resume was not durably linked to the deterministic run.');
+    }
+    return 'DRAFT_READY_APPENDED';
+  }
+  if (state === 'DRAFT_READY' && String(latest.related_run_id || '') === runId) {
+    return 'DRAFT_READY_VERIFIED';
+  }
+  throw vNextAdminRunIdentityFailure_(
+    'Persisted SUCCESS cannot finalize from Hub state=' + state +
+    ' relatedRunId=' + String(latest.related_run_id || '')
+  );
+}
+
+function vNextAdminRunIdentityFailure_(message) {
+  const error = new Error(String(message || 'Deterministic forecast identity failure.'));
+  error.vNextRunIdentityFailure = true;
+  return error;
+}
+
+function vNextAdminAssertClientPinnedReleasePair_(hub, client, registry) {
+  if (String(registry.mode || '') !== 'CLIENT' || String(registry.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('Forecast pair validation requires an ACTIVE CLIENT registry row.');
+  }
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const releaseId = vNextAdminRequiredText_(registry.template_release_id, 'registry.template_release_id');
+  const modelId = vNextAdminRequiredText_(routing.model_release_id, 'client.model_release_id');
+  if (String(routing.book_id || '') !== String(registry.book_id || '') ||
+      String(routing.version || '') !== releaseId ||
+      String(routing.template_release_id || releaseId) !== releaseId) {
+    throw new Error('Client routing does not match its pinned Template Release.');
+  }
+  const release = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+    return String(row.release_id || '') === releaseId;
+  });
+  if (!release || ['ACTIVE', 'RETIRED'].indexOf(String(release.status || '').toUpperCase()) < 0) {
+    throw new Error('Pinned Template Release is not a valid immutable release: ' + releaseId);
+  }
+  const clientMeta = vNextAdminReadCoreRows_(client, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '');
+  }).slice(-1)[0];
+  const hubMeta = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '');
+  }).slice(-1)[0];
+  if (!clientMeta || !hubMeta || String(clientMeta.record_id || '') !== String(hubMeta.record_id || '') ||
+      String(clientMeta.template_version || '') !== releaseId || String(hubMeta.template_version || '') !== releaseId ||
+      String(clientMeta.model_release_id || '') !== modelId || String(hubMeta.model_release_id || '') !== modelId) {
+    throw new Error('Client/Hub BOOK_META does not exactly match the pinned Template/Model pair.');
+  }
+  const model = vNextAdminModelReleaseRows_(hub, modelId).filter(function (row) {
+    return String(row.status || '').toUpperCase() === 'ACTIVE';
+  }).slice(-1)[0];
+  if (!model) throw new Error('Pinned MODEL_RELEASE was never ACTIVE: ' + modelId);
+  vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  if (String(routing.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(routing.client_runtime_bundle_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
+    throw new Error('Client runtime does not match its pinned Template Release.');
+  }
+  return { release: release, model: model, bookMeta: hubMeta };
+}
+
+function vNextAdminScanOneBook_(hub, registry) {
+  const now = new Date();
+  let status = 'OK';
+  let code = 'HEALTHY';
+  let detail = '';
+  let harvestedRequests = 0;
+  let approvalCreated = false;
+  let observedState = String(registry.state || '');
+  try {
+    const ss = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+    const detected = vNextDetectBookMode_(ss);
+    if (detected !== String(registry.mode)) {
+      status = 'ERROR'; code = 'MODE_MISMATCH'; detail = 'registry=' + registry.mode + ', detected=' + detected;
+    }
+    const routing = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET);
+    const required = detected === 'CLIENT'
+      ? ['book_id', 'client_name', 'fiscal_year', 'version', 'model_release_id']
+      : ['book_id', 'mode', 'version'];
+    const missing = required.filter(function (key) { return routing[key] === '' || routing[key] === null || routing[key] === undefined; });
+    if (missing.length) {
+      status = 'ERROR'; code = 'META_MISSING'; detail = 'missing=' + missing.join(',');
+    }
+    if (detected === 'CLIENT') vNextAdminAssertClientPinnedReleasePair_(hub, ss, registry);
+    if (detected === 'CLIENT') {
+      const eventState = vNextAdminLatestClientState_(ss, registry.book_id, routing.state);
+      if (eventState) observedState = eventState;
+      if (eventState && eventState !== String(routing.state || '').toUpperCase()) {
+        vNextAdminMirrorClientState_(ss, eventState);
+        if (status === 'OK') {
+          status = 'WARN'; code = 'STATE_MIRROR_REPAIRED';
+          detail = 'VN_BOOK_CONFIG state was repaired from append-only STATE_EVENT: ' + eventState;
+        }
+      }
+    }
+    let context = null;
+    if (detected === 'CLIENT' && typeof vNextGetBookContext_ === 'function') {
+      context = vNextGetBookContext_({ bookId: registry.book_id, spreadsheet: ss, userEmail: vNextAdminActor_() });
+      observedState = vNextAdminLatestClientState_(ss, registry.book_id, context.state || observedState);
+      if (VN_ADMIN_CLIENT_STATES.indexOf(String(context.state || '')) < 0) {
+        status = 'ERROR'; code = 'INVALID_STATE'; detail = 'state=' + String(context.state || '');
+      }
+      const harvest = vNextAdminHarvestClientRequests_(hub, ss, registry);
+      harvestedRequests = harvest.harvested;
+      // Request rows are harvested first so a malformed request can be marked
+      // REJECTED and its local RUNNING state repaired before Core row ingest.
+      // Evidence and plans are still ingested before STATE_EVENT inside sync.
+      vNextAdminSyncClientToHub_(hub, ss, registry.book_id);
+      observedState = vNextAdminLatestClientState_(ss, registry.book_id, observedState);
+      if (harvest.rejected && status === 'OK') {
+        status = 'WARN'; code = 'CLIENT_REQUEST_REJECTED';
+        detail = String(harvest.rejected) + ' invalid request(s) were rejected and safely recovered.';
+      }
+      const approval = vNextAdminCreateApprovalFromSubmittedPlan_(hub, ss, registry);
+      approvalCreated = !!(approval && approval.created);
+      if (String(observedState || '').toUpperCase() === 'SUBMITTED' && approval &&
+          !approval.created && !approval.approvalRequestId && approval.reason !== 'STATE_NOT_SUBMITTED') {
+        if (status === 'OK') {
+          status = 'WARN'; code = 'APPROVAL_DATA_PENDING'; detail = 'reason=' + String(approval.reason || 'UNKNOWN');
+        }
+      }
+    }
+    if (detected === 'CLIENT' && registry.template_release_id && routing.version && String(registry.template_release_id) !== String(routing.version)) {
+      if (status === 'OK') { status = 'WARN'; code = 'RELEASE_MISMATCH'; detail = 'registry=' + registry.template_release_id + ', book=' + routing.version; }
+    }
+    if (detected === 'CLIENT') {
+      const expectedRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+        return String(row.release_id || '') === String(registry.template_release_id || routing.version || '');
+      });
+      if (!expectedRelease || !String(expectedRelease.client_runtime_sha256 || '') ||
+          String(routing.client_runtime_version || '') !== String(expectedRelease.client_runtime_version || '') ||
+          String(routing.client_runtime_bundle_sha256 || '') !== String(expectedRelease.client_runtime_sha256 || '')) {
+        status = 'ERROR'; code = 'CLIENT_RUNTIME_MISMATCH';
+        detail = 'Client runtime identity does not match RELEASES.';
+      }
+      const bookMeta = vNextAdminReadCoreRows_(ss, 'BOOK_META').filter(function (row) {
+        return String(row.book_id || '') === String(registry.book_id || '');
+      }).slice(-1)[0];
+      const pinnedModelId = String(bookMeta && bookMeta.model_release_id || routing.model_release_id || '');
+      const modelHistory = vNextAdminModelReleaseRows_(hub, pinnedModelId);
+      const pinnedModel = modelHistory.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'ACTIVE';
+      }).slice(-1)[0];
+      if (!pinnedModelId || String(routing.model_release_id || '') !== pinnedModelId ||
+          !pinnedModel || !expectedRelease ||
+          String(pinnedModel.template_version || '') !== String(expectedRelease.release_id || '') ||
+          String(pinnedModel.schema_version || '') !== String(expectedRelease.schema_version || '') ||
+          String(pinnedModel.model_version || '') !== String(expectedRelease.engine_version || '')) {
+        status = 'ERROR'; code = 'MODEL_RELEASE_MISMATCH';
+        detail = 'Client model release is missing, was never ACTIVE, or is not exactly paired with its Template Release.';
+      }
+    }
+  } catch (err) {
+    status = 'ERROR'; code = 'INACCESSIBLE'; detail = String(err && err.message || err);
+  }
+  vNextAdminPatchRegistryByBookId_(hub, registry.book_id, {
+    health_status: status, health_code: code, state: observedState,
+    last_health_at: now, updated_at: now
+  });
+  return {
+    bookId: registry.book_id, healthStatus: status, healthCode: code, detail: detail,
+    harvestedRequests: harvestedRequests, approvalCreated: approvalCreated
+  };
+}
+
+function vNextAdminHarvestClientRequests_(hub, client, registry) {
+  vNextAdminAssertClientPinnedReleasePair_(hub, client, registry);
+  const sheet = client.getSheetByName(VN_ADMIN_CLIENT_REQUEST_SHEET);
+  if (!sheet) return { examined: 0, harvested: 0, rejected: 0 };
+  const rows = vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows;
+  const latest = {};
+  rows.forEach(function (row) {
+    const requestId = String(row.request_id || '');
+    if (requestId) latest[requestId] = row;
+  });
+  let harvested = 0;
+  let rejected = 0;
+  Object.keys(latest).forEach(function (requestId) {
+    const row = latest[requestId];
+    if (String(row.status || '').toUpperCase() !== 'PENDING') return;
+    const ownerEmails = vNextAdminParseList_(registry.forecast_owner_emails).map(function (email) {
+      return String(email || '').toLowerCase();
+    });
+    try {
+      if (ownerEmails.length !== 1) throw new Error('BOOK_REGISTRY must contain exactly one Forecast Owner.');
+      const validated = vNextAdminValidateClientRequestRow_(row, registry, ownerEmails[0]);
+      const harvestAsOf = Utilities.formatDate(new Date(validated.requestedAtMs), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      // Never promote the untrusted parsed object. Build the worker request from
+      // the allowlisted identity plus server-derived vintage and audit fields.
+      const payload = {
+        requestId: requestId,
+        requestHash: validated.requestHash,
+        bookId: String(registry.book_id || ''),
+        clientId: String(registry.client_id || ''),
+        clientName: String(registry.client_name || ''),
+        fiscalYear: Number(registry.fiscal_year),
+        asOf: harvestAsOf,
+        cutoff: vNextAdminCutoffFromAsOf_(harvestAsOf),
+        bookConfiguredAsOf: String(validated.payload.bookConfiguredAsOf || ''),
+        requestedAt: validated.payload.requestedAt,
+        requestedBy: ownerEmails[0],
+        harvestedAt: new Date().toISOString()
+      };
+      const runtime = vNextGetRuntimeConfig_();
+      if (runtime.VERTEX_PROJECT_ID) {
+        const aiJob = vNextAdminEnqueueJobInternal_(hub, {
+          jobType: 'AI_RESEARCH', targetBookId: registry.book_id,
+          targetSpreadsheetId: registry.spreadsheet_id,
+          request: {
+            bookId: registry.book_id, clientName: registry.client_name,
+            fiscalYear: Number(registry.fiscal_year), asOf: payload.asOf,
+            researchQuestion: '予測時点までに公開された、顧客・市場・規制の売上影響を確認する',
+            parentRequestId: requestId
+          },
+          idempotencyKey: 'AUTO_AI_RESEARCH|' + requestId + '|' + validated.requestHash,
+          priority: 60
+        });
+        payload.aiResearchJobId = aiJob.job_id;
+      }
+      const job = vNextAdminEnqueueJobInternal_(hub, {
+        jobType: 'FORECAST_REQUEST', targetBookId: registry.book_id,
+        targetSpreadsheetId: registry.spreadsheet_id, request: payload,
+        idempotencyKey: 'CLIENT_REQUEST|' + requestId + '|' + validated.requestHash, priority: 50
+      });
+      const eventData = {
+        requestId: requestId, bookId: registry.book_id, eventType: 'HARVESTED', status: 'QUEUED',
+        requestHash: validated.requestHash, requestJson: validated.requestJson, requestedAt: row.requested_at,
+        requestedBy: row.requested_by, relatedJobId: job.job_id,
+        detail: { harvestedBy: vNextAdminActor_(), harvestedAt: new Date().toISOString() }
+      };
+      vNextAdminAppendClientRequestEvent_(hub, eventData);
+      vNextAdminAppendClientRequestEvent_(client, eventData);
+      harvested++;
+    } catch (requestError) {
+      const recovery = vNextAdminRejectClientRequest_(hub, client, registry, row, requestError);
+      rejected += recovery.rejected ? 1 : 0;
+    }
+  });
+  return { examined: Object.keys(latest).length, harvested: harvested, rejected: rejected };
+}
+
+function vNextAdminValidateClientRequestRow_(row, registry, ownerEmail) {
+  const requestId = String(row.request_id || '');
+  if (!requestId || !String(row.request_event_id || '')) throw new Error('Client request IDs are missing.');
+  if (String(row.event_type || '').toUpperCase() !== 'REQUESTED' ||
+      String(row.status || '').toUpperCase() !== 'PENDING') {
+    throw new Error('Client request row must be the immutable REQUESTED/PENDING event: ' + requestId);
+  }
+  if (String(row.book_id || '') !== String(registry.book_id || '')) {
+    throw new Error('Client request book mismatch: ' + requestId);
+  }
+  const requestJson = String(row.request_json || '');
+  const requestHash = vNextAdminSha256_(requestJson);
+  if (requestHash !== String(row.request_hash || '')) throw new Error('Client request hash mismatch: ' + requestId);
+  const payload = vNextAdminParseJson_(requestJson, null);
+  vNextAdminAssertClientRequestPayload_(payload, requestJson, requestId);
+  const owner = String(ownerEmail || '').toLowerCase();
+  if (!owner || String(row.requested_by || '').toLowerCase() !== owner ||
+      String(payload.requestedBy || '').toLowerCase() !== owner) {
+    throw new Error('Client request was not created by the registered Forecast Owner: ' + requestId);
+  }
+  if (String(payload.bookId || '') !== String(registry.book_id || '') ||
+      String(payload.clientId || '') !== String(registry.client_id || '') ||
+      String(payload.clientName || '') !== String(registry.client_name || '') ||
+      Number(payload.fiscalYear) !== Number(registry.fiscal_year)) {
+    throw new Error('Client request book/client/FY payload does not match BOOK_REGISTRY: ' + requestId);
+  }
+  const payloadRequestedAt = String(payload.requestedAt || '');
+  const rowRequestedAt = row.requested_at instanceof Date ? row.requested_at.toISOString() : String(row.requested_at || '');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(payloadRequestedAt) ||
+      payloadRequestedAt !== rowRequestedAt) {
+    throw new Error('Client request timestamp is invalid or inconsistent: ' + requestId);
+  }
+  const requestedAtMs = vNextAdminStrictTimestampMs_(payloadRequestedAt, 'Client request requestedAt');
+  if (requestedAtMs > Date.now() + 5 * 60000) throw new Error('Client request timestamp is in the future: ' + requestId);
+  const expectedAsOf = Utilities.formatDate(new Date(requestedAtMs), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (String(payload.asOf || '') !== expectedAsOf ||
+      String(payload.cutoff || '') !== vNextAdminCutoffFromAsOf_(expectedAsOf)) {
+    throw new Error('Client request asOf/cutoff is not server-derivable: ' + requestId);
+  }
+  return {
+    requestId: requestId, requestJson: requestJson, requestHash: requestHash,
+    payload: payload, requestedAtMs: requestedAtMs
+  };
+}
+
+function vNextAdminRejectClientRequest_(hub, client, registry, row, error) {
+  const requestId = String(row.request_id || 'UNKNOWN');
+  const reason = String(error && error.message || error || 'invalid request');
+  let requestedAtMs = NaN;
+  try { requestedAtMs = vNextAdminStrictTimestampMs_(row.requested_at, 'rejected request timestamp'); }
+  catch (ignoredTimestampError) { requestedAtMs = NaN; }
+  const stateRows = vNextAdminReadCoreRows_(client, 'STATE_EVENT').filter(function (event) {
+    if (String(event.book_id || '') !== String(registry.book_id || '') ||
+        String(event.from_state || '').toUpperCase() !== 'READY_TO_RUN' ||
+        String(event.to_state || '').toUpperCase() !== 'RUNNING' ||
+        String(event.reason || '') !== 'forecast_requested:' + requestId) return false;
+    if (!isFinite(requestedAtMs)) return true;
+    return Math.abs(vNextAdminStrictTimestampMs_(event.created_at, 'request state timestamp') - requestedAtMs) <= 5 * 60000;
+  });
+  const requestState = stateRows.length ? stateRows[stateRows.length - 1] : null;
+  let recoveryState = null;
+  const hubState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || 'READY_TO_RUN');
+  const clientState = vNextAdminLatestClientState_(client, registry.book_id, registry.state || 'READY_TO_RUN');
+  const activeJob = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.some(function (job) {
+    if (String(job.target_book_id || '') !== String(registry.book_id || '') ||
+        String(job.job_type || '') !== 'FORECAST_REQUEST' ||
+        ['QUEUED', 'RUNNING'].indexOf(String(job.status || '').toUpperCase()) < 0 ||
+        String(job.idempotency_key || '') !== 'CLIENT_REQUEST|' + requestId + '|' + String(row.request_hash || '')) {
+      return false;
+    }
+    const jobPayload = vNextAdminParseJson_(job.request_json, {});
+    return String(jobPayload.requestId || '') === requestId &&
+      String(jobPayload.requestHash || '') === String(row.request_hash || '') &&
+      String(jobPayload.bookId || '') === String(registry.book_id || '');
+  });
+  if (!activeJob && requestState && hubState === 'READY_TO_RUN' && clientState === 'RUNNING') {
+    recoveryState = {
+      state_event_id: 'REPAIR-' + Utilities.getUuid(), book_id: registry.book_id,
+      from_state: 'RUNNING', to_state: 'READY_TO_RUN',
+      reason: 'rejected_request_recovery:' + requestId,
+      actor_email: vNextAdminActor_(), actor_role: 'ADMIN', related_run_id: '',
+      related_plan_version_id: '', created_at: new Date().toISOString()
+    };
+  }
+  const detail = {
+    rejectedBy: vNextAdminActor_(), rejectedAt: new Date().toISOString(), reason: reason,
+    stateEventId: requestState && requestState.state_event_id || '',
+    recoveryStateEventId: recoveryState && recoveryState.state_event_id || ''
+  };
+  const eventData = {
+    requestId: requestId, bookId: registry.book_id, eventType: 'REJECTED', status: 'REJECTED',
+    requestHash: String(row.request_hash || ''), requestJson: String(row.request_json || ''),
+    requestedAt: row.requested_at || '', requestedBy: row.requested_by || '', detail: detail
+  };
+  // Hub copy is the authority used to recognize and skip only this rejected
+  // local state pair on subsequent syncs.
+  vNextAdminAppendClientRequestEvent_(hub, eventData);
+  vNextAdminAppendClientRequestEvent_(client, eventData);
+  if (recoveryState) {
+    vNextAdminAppendCoreRowsNoLock_(client, 'STATE_EVENT', [recoveryState]);
+    vNextAdminMirrorClientState_(client, 'READY_TO_RUN');
+  }
+  vNextAdminAppendException_(hub, {
+    severity: 'ERROR', exception_type: 'CLIENT_REQUEST_REJECTED', book_id: registry.book_id,
+    client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+    title: 'Client予測依頼を拒否', detail: reason,
+    recommended_action: '直接編集の有無を確認し、Forecast Ownerが再依頼', source_ref: requestId
+  });
+  return { rejected: true, requestId: requestId, recoveredState: Boolean(recoveryState) };
+}
+
+function vNextAdminAppendClientRequestEvent_(client, data) {
+  const record = {
+    request_event_id: 'REQEV-' + Utilities.getUuid(),
+    request_id: String(data.requestId || ''),
+    book_id: String(data.bookId || ''),
+    event_type: String(data.eventType || ''),
+    status: String(data.status || ''),
+    request_hash: String(data.requestHash || ''),
+    request_json: String(data.requestJson || ''),
+    requested_at: data.requestedAt || '',
+    requested_by: String(data.requestedBy || '').toLowerCase(),
+    related_job_id: String(data.relatedJobId || ''),
+    related_run_id: String(data.relatedRunId || ''),
+    detail_json: vNextAdminCanonicalJson_(data.detail || {}),
+    created_at: new Date().toISOString()
+  };
+  vNextAdminAppendObject_(client, VN_ADMIN_CLIENT_REQUEST_SHEET, record, VN_ADMIN_HEADERS[VN_ADMIN_CLIENT_REQUEST_SHEET]);
+  try { client.getSheetByName(VN_ADMIN_CLIENT_REQUEST_SHEET).hideSheet(); } catch (hideError) { Logger.log('Request log hide skipped: %s', String(hideError)); }
+  return record;
+}
+
+function vNextAdminAppendAiEvidenceInternal_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id) === bookId; });
+  if (!registry || String(registry.mode) !== 'CLIENT') throw new Error('Registered CLIENT book not found: ' + bookId);
+  const target = vNextAdminRequiredText_(req.target, 'target');
+  const startMonth = vNextAdminRequiredText_(req.targetStartMonth || req.startMonth, 'targetStartMonth');
+  const endMonth = vNextAdminRequiredText_(req.targetEndMonth || req.endMonth || startMonth, 'targetEndMonth');
+  if (!/^\d{4}-\d{2}$/.test(startMonth) || !/^\d{4}-\d{2}$/.test(endMonth)) throw new Error('AI evidence period must be YYYY-MM.');
+  const effectRate = Number(req.effectRate);
+  if (!isFinite(effectRate) || effectRate === 0 || Math.abs(effectRate) > 0.25) {
+    throw new Error('effectRate must be non-zero and between -0.25 and 0.25.');
+  }
+  const sourceUrl = vNextAdminRequiredText_(req.sourceUrl, 'sourceUrl');
+  if (!/^https?:\/\//i.test(sourceUrl)) throw new Error('sourceUrl must be an http(s) citation URL.');
+  const sourceDate = vNextAdminRequiredText_(req.sourceDate, 'sourceDate');
+  const parsedSourceDate = typeof vNextParseDate_ === 'function' ? vNextParseDate_(sourceDate, 'sourceDate') : new Date(sourceDate);
+  const effectiveAsOfInput = vNextAdminText_(req.effectiveAsOf || req.asOf) ||
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const parsedEffectiveAsOf = typeof vNextParseDate_ === 'function'
+    ? vNextParseDate_(effectiveAsOfInput, 'effectiveAsOf') : new Date(effectiveAsOfInput);
+  if (isNaN(parsedSourceDate.getTime()) || isNaN(parsedEffectiveAsOf.getTime()) ||
+      parsedSourceDate.getTime() > parsedEffectiveAsOf.getTime()) {
+    throw new Error('sourceDate must be a valid date on or before effectiveAsOf.');
+  }
+  const effectiveAsOf = Utilities.formatDate(parsedEffectiveAsOf, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const normalizedSourceDate = Utilities.formatDate(parsedSourceDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  let expiresAt = '';
+  if (req.expiresAt) {
+    const parsedExpiry = typeof vNextParseDate_ === 'function'
+      ? vNextParseDate_(req.expiresAt, 'expiresAt') : new Date(req.expiresAt);
+    if (isNaN(parsedExpiry.getTime())) throw new Error('expiresAt is invalid.');
+    expiresAt = Utilities.formatDate(parsedExpiry, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (expiresAt < effectiveAsOf) throw new Error('expiresAt must be on or after effectiveAsOf.');
+  }
+  const parentRequestId = vNextAdminText_(req.parentRequestId);
+  const summary = vNextAdminRequiredText_(req.summary || req.evidenceText, 'summary');
+  const runtime = vNextGetRuntimeConfig_();
+  const aiModel = vNextAdminRequiredText_(req.aiModel || runtime.VERTEX_GEMINI_MODEL, 'aiModel');
+  const promptVersion = vNextAdminRequiredText_(req.promptVersion, 'promptVersion');
+  const schemaVersion = vNextAdminRequiredText_(req.aiSchemaVersion || req.schemaVersion, 'aiSchemaVersion');
+  const ruleVersion = vNextAdminRequiredText_(req.ruleVersion, 'ruleVersion');
+  const evidenceQuality = String(req.evidenceQuality || req.evidenceGrade || '').trim().toUpperCase();
+  if (['A', 'B', 'C', 'D'].indexOf(evidenceQuality) < 0) throw new Error('evidenceQuality must be A, B, C, or D.');
+  const confidence = String(req.confidenceClass || '').trim().toUpperCase();
+  if (['CONFIRMED_FACT', 'LIKELY', 'HYPOTHESIS'].indexOf(confidence) < 0) {
+    throw new Error('confidenceClass must be CONFIRMED_FACT, LIKELY, or HYPOTHESIS.');
+  }
+  const forecastRows = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === bookId && ['SUCCESS', 'OFFICIAL_LOCKED'].indexOf(String(row.status || '')) >= 0;
+  });
+  const latest = forecastRows.length ? forecastRows[forecastRows.length - 1] : null;
+  const derivedBasis = latest ? Number(latest.system_recommended || 0) - Number(latest.ai_delta || 0) : NaN;
+  const basisAmount = isFinite(derivedBasis) && derivedBasis > 0 ? derivedBasis : Number(req.basisAmount);
+  if (!isFinite(basisAmount) || basisAmount <= 0) {
+    throw new Error('A positive basisAmount is required when no prior forecast can provide the pre-AI basis.');
+  }
+  const engineCapRate = typeof VNEXT_ENGINE !== 'undefined' ? Number(VNEXT_ENGINE.AI_MAX_ABS_EFFECT || 0.05) : 0.05;
+  const gradeCapRate = { A: 0.05, B: 0.03, C: 0.01, D: 0 }[evidenceQuality];
+  const capRate = Math.min(engineCapRate, gradeCapRate);
+  const capAmount = basisAmount * capRate;
+  const allEvidence = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT');
+  if (req.supersedesEvidenceId && !allEvidence.some(function (row) {
+    return String(row.evidence_id || '') === String(req.supersedesEvidenceId) && String(row.book_id || '') === bookId &&
+      String(row.evidence_type || '').toUpperCase().indexOf('AI') >= 0;
+  })) throw new Error('supersedesEvidenceId is not an AI evidence record for this book.');
+  // A future-dated superseder must not erase an older event from a historical
+  // cap calculation. First select events valid at this asOf, then derive the
+  // superseded IDs only from that temporal slice.
+  const existingAi = vNextAdminSelectActiveAiEvidenceAt_(allEvidence, bookId, effectiveAsOf).filter(function (row) {
+    return String(row.evidence_id || '') !== String(req.supersedesEvidenceId || '');
+  });
+  const existingNet = existingAi.reduce(function (sum, row) {
+    const sign = String(row.direction || '').toUpperCase() === 'DOWN' ? -1 : 1;
+    return sum + sign * Number(row.applied_amount || row.amount_mid || 0);
+  }, 0);
+  const requestedSigned = basisAmount * effectRate;
+  const appliedSigned = requestedSigned > 0
+    ? Math.max(0, Math.min(requestedSigned, capAmount - existingNet))
+    : Math.min(0, Math.max(requestedSigned, -capAmount - existingNet));
+  const cappedNet = existingNet + appliedSigned;
+  const appliedAmount = Math.abs(appliedSigned);
+  const capApplied = Math.abs(appliedSigned - requestedSigned) > 0.5;
+  const direction = appliedSigned < 0 || (appliedSigned === 0 && effectRate < 0) ? 'DOWN' : 'UP';
+  const retrievedAt = new Date().toISOString();
+  const metadata = {
+    summary: summary, citationTitle: String(req.citationTitle || ''), sourceUrl: sourceUrl,
+    sourceDate: normalizedSourceDate, retrievedAt: retrievedAt,
+    parentRequestId: parentRequestId, effectiveAsOf: effectiveAsOf, aiModel: aiModel,
+    promptVersion: promptVersion, aiSchemaVersion: schemaVersion, ruleVersion: ruleVersion,
+    evidenceQuality: evidenceQuality, confidenceClass: confidence,
+    basisAmount: basisAmount, basisSourceRunId: latest && latest.run_id || '',
+    requestedEffectRate: effectRate, requestedSignedAmount: requestedSigned,
+    existingAiNetAmount: existingNet, appliedSignedAmount: appliedSigned,
+    engineCapRate: engineCapRate, evidenceGradeCapRate: gradeCapRate,
+    capRate: capRate, capAmount: capAmount, capApplied: capApplied
+  };
+  const identity = vNextAdminCanonicalJson_({
+    bookId: bookId, target: target, startMonth: startMonth, endMonth: endMonth,
+    sourceUrl: sourceUrl, sourceDate: normalizedSourceDate, promptVersion: promptVersion,
+    aiModel: aiModel, schemaVersion: schemaVersion, ruleVersion: ruleVersion, requestedEffectRate: effectRate,
+    supersedesEvidenceId: String(req.supersedesEvidenceId || ''), summary: summary,
+    parentRequestId: parentRequestId, effectiveAsOf: effectiveAsOf
+  });
+  const evidenceId = 'AI-' + vNextAdminSha256_(identity).slice(0, 24).toUpperCase();
+  const existing = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').find(function (row) {
+    return String(row.evidence_id || '') === evidenceId;
+  });
+  if (existing) return { reused: true, evidenceId: evidenceId, appliedAmount: Number(existing.applied_amount || 0), capApplied: Number(existing.cap_applied || 0) === 1 };
+  const record = {
+    evidence_id: evidenceId, book_id: bookId, client_id: registry.client_id,
+    fiscal_year: Number(registry.fiscal_year), actor_email: vNextAdminActor_().toLowerCase(),
+    response_type: 'CHANGE', evidence_type: 'AI_RESEARCH', target: target,
+    target_start_month: startMonth, target_end_month: endMonth, direction: direction,
+    amount_mode: 'PERCENT', amount_low: appliedAmount, amount_mid: appliedAmount,
+    amount_high: appliedAmount, amount_band: '', confidence_class: confidence,
+    evidence_text: vNextAdminCanonicalJson_(metadata), source_url: sourceUrl,
+    source_date: normalizedSourceDate, expires_at: expiresAt, status: 'ACTIVE',
+    supersedes_evidence_id: String(req.supersedesEvidenceId || ''), created_at: retrievedAt,
+    evidence_quality: evidenceQuality, ai_model: aiModel, prompt_version: promptVersion,
+    ai_schema_version: schemaVersion, rule_version: ruleVersion,
+    applied_amount: appliedAmount, cap_applied: capApplied ? 1 : 0
+  };
+  vNextAdminAppendCoreRowsNoLock_(hub, 'EVIDENCE_EVENT', [record]);
+  // Raw prompt/model/research metadata remains Admin-Hub-only. Client books receive
+  // only the engine's sanitized FORECAST_RUN evidence summary.
+  vNextAdminWriteAudit_(hub, 'APPEND_AI_EVIDENCE', 'EVIDENCE', evidenceId, 'SUCCESS', metadata);
+  return { reused: false, evidenceId: evidenceId, appliedAmount: appliedAmount, capApplied: capApplied, capRate: capRate };
+}
+
+function vNextAdminAiEvidenceActiveAt_(row, bookId, effectiveAsOf, supersededIds) {
+  if (String(row.book_id || '') !== String(bookId || '') ||
+      String(row.evidence_type || '').toUpperCase().indexOf('AI') < 0 ||
+      String(row.status || 'ACTIVE').toUpperCase() !== 'ACTIVE' ||
+      (supersededIds && supersededIds.has(String(row.evidence_id || '')))) return false;
+  const rowSourceDate = row.source_date instanceof Date
+    ? Utilities.formatDate(row.source_date, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(row.source_date || '').slice(0, 10);
+  const rowExpiry = row.expires_at instanceof Date
+    ? Utilities.formatDate(row.expires_at, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(row.expires_at || '').slice(0, 10);
+  const rowMetadata = vNextAdminParseJson_(row.evidence_text, {});
+  const rowEffectiveAsOf = String(rowMetadata.effectiveAsOf || '').slice(0, 10);
+  return !!rowSourceDate && rowSourceDate <= effectiveAsOf && (!rowExpiry || rowExpiry >= effectiveAsOf) &&
+    !!rowEffectiveAsOf && rowEffectiveAsOf <= effectiveAsOf;
+}
+
+function vNextAdminSelectActiveAiEvidenceAt_(rows, bookId, effectiveAsOf) {
+  const temporallyValid = (rows || []).filter(function (row) {
+    return vNextAdminAiEvidenceActiveAt_(row, bookId, effectiveAsOf, new Set());
+  });
+  const supersededIds = new Set(temporallyValid.map(function (row) {
+    return String(row.supersedes_evidence_id || '');
+  }).filter(Boolean));
+  return temporallyValid.filter(function (row) {
+    return !supersededIds.has(String(row.evidence_id || ''));
+  });
+}
+
+function vNextAdminNormalizeAiRollbackScope_(scope) {
+  const normalized = String(scope || 'ALL').trim().toUpperCase();
+  if (VN_ADMIN_AI_ROLLBACK_SCOPES.indexOf(normalized) < 0) {
+    throw new Error('AI rollback scope must be ALL or SELECTED.');
+  }
+  return normalized;
+}
+
+function vNextAdminResolveAiRollbackBasis_(hub, bookId, requestedRunId, allowResume) {
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(bookId || '');
+  });
+  if (!registry || String(registry.mode || '') !== 'CLIENT' || String(registry.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('AI rollback requires an ACTIVE CLIENT book.');
+  }
+  const runs = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === String(bookId || '') &&
+      String(row.status || '').toUpperCase() === 'SUCCESS' && Number(row.is_official || 0) !== 1;
+  });
+  if (!runs.length) throw new Error('No successful draft FORECAST_RUN is available for AI rollback.');
+  const latest = runs[runs.length - 1];
+  const selected = requestedRunId
+    ? runs.filter(function (row) { return String(row.run_id || '') === String(requestedRunId); }).slice(-1)[0]
+    : latest;
+  if (!selected) throw new Error('Requested AI rollback source run was not found.');
+  if (!allowResume && String(selected.run_id || '') !== String(latest.run_id || '')) {
+    throw new Error('AI rollback basis must be the latest successful draft run.');
+  }
+  if ((String(selected.client_id || '') && String(selected.client_id || '') !== String(registry.client_id || '')) ||
+      Number(selected.fiscal_year) !== Number(registry.fiscal_year)) {
+    throw new Error('AI rollback basis book/client/FY linkage is invalid.');
+  }
+  const state = vNextAdminLatestClientState_(hub, bookId, registry.state);
+  if (!allowResume && state !== 'DRAFT_READY') {
+    throw new Error('AI rollback basis is available only in DRAFT_READY. current=' + state);
+  }
+  return { registry: registry, run: selected, latestRunId: latest.run_id, state: state };
+}
+
+function vNextAdminResolveBasisAiEvidence_(hub, basisRun) {
+  const bookId = String(basisRun && basisRun.book_id || '');
+  const asOf = vNextAdminDateOnly_(basisRun && basisRun.as_of);
+  const summary = vNextAdminParseJson_(basisRun && basisRun.evidence_json, {});
+  const ids = summary && summary.effectiveEvidenceIds && summary.effectiveEvidenceIds.ai;
+  if (!Array.isArray(ids) || !ids.length || ids.some(function (id) { return !String(id || '').trim(); }) ||
+      new Set(ids.map(String)).size !== ids.length) {
+    throw new Error('Basis run does not contain an exact AI evidence snapshot. Create a new draft run before rollback.');
+  }
+  const byId = new Map(vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').map(function (row) {
+    return [String(row.evidence_id || ''), row];
+  }));
+  return ids.map(function (id) {
+    const row = byId.get(String(id));
+    const type = String(row && row.evidence_type || '').toUpperCase();
+    if (!row || type.indexOf('AI') < 0 || type.indexOf('ROLLBACK') >= 0 ||
+        String(row.response_type || '').toUpperCase() !== 'CHANGE' ||
+        !vNextAdminAiEvidenceActiveAt_(row, bookId, asOf, new Set())) {
+      throw new Error('Snapshotted AI evidence is missing or invalid at the basis vintage: ' + String(id));
+    }
+    return row;
+  });
+}
+
+function vNextAdminBuildAiRollbackTombstone_(registry, basisRun, sourceEvidence, options) {
+  const opt = options || {};
+  const operationId = vNextAdminRequiredText_(opt.operationId, 'rollbackOperationId');
+  const sourceEvidenceId = vNextAdminRequiredText_(sourceEvidence && sourceEvidence.evidence_id, 'sourceEvidenceId');
+  const basisAsOf = vNextAdminDateOnly_(basisRun.as_of);
+  const sourceMetadata = vNextAdminParseJson_(sourceEvidence.evidence_text, {});
+  const evidenceId = 'AI-RB-' + vNextAdminSha256_(operationId + '|' + sourceEvidenceId).slice(0, 24).toUpperCase();
+  const metadata = {
+    rollbackOperationId: operationId,
+    sourceForecastRunId: String(basisRun.run_id || ''),
+    sourceInputDataHash: String(basisRun.input_data_hash || ''),
+    rolledBackEvidenceId: sourceEvidenceId,
+    sourceParentRequestId: String(sourceMetadata.parentRequestId || ''),
+    parentRequestId: String(opt.rollbackRequestId || ''),
+    effectiveAsOf: basisAsOf,
+    reason: String(opt.reason || ''),
+    requestedAt: String(opt.requestedAt || ''),
+    requestedBy: String(opt.requestedBy || '').toLowerCase()
+  };
+  return {
+    evidence_id: evidenceId,
+    book_id: registry.book_id,
+    client_id: registry.client_id,
+    fiscal_year: Number(registry.fiscal_year),
+    actor_email: String(opt.requestedBy || vNextAdminActor_()).toLowerCase(),
+    response_type: 'NO_CHANGE',
+    evidence_type: 'AI_ROLLBACK',
+    target: String(sourceEvidence.target || ''),
+    target_start_month: String(sourceEvidence.target_start_month || ''),
+    target_end_month: String(sourceEvidence.target_end_month || ''),
+    direction: '',
+    amount_mode: 'FIXED',
+    amount_low: 0,
+    amount_mid: 0,
+    amount_high: 0,
+    amount_band: '',
+    confidence_class: String(sourceEvidence.confidence_class || ''),
+    evidence_text: vNextAdminCanonicalJson_(metadata),
+    source_url: '',
+    source_date: basisAsOf,
+    expires_at: '',
+    status: 'ACTIVE',
+    supersedes_evidence_id: sourceEvidenceId,
+    created_at: String(opt.requestedAt || new Date().toISOString()),
+    evidence_quality: String(sourceEvidence.evidence_quality || ''),
+    ai_model: '',
+    prompt_version: '',
+    ai_schema_version: '',
+    rule_version: 'AI_ROLLBACK_V1',
+    applied_amount: 0,
+    cap_applied: 0
+  };
+}
+
+function vNextAdminAssertNoTrustedForecastPayload_(payload) {
+  const req = payload && typeof payload === 'object' ? payload : {};
+  const forbidden = [
+    'trustedReuseSeedFromRunId', 'trustedRollbackContext', 'trustedAllowedDelayedAiRequestIds',
+    'seed', 'previousRunId', 'parameters', 'actualRecords', 'actualFetcher', 'aiEvents',
+    'internalOperation', 'internalJobType', 'manageState', 'persist', 'spreadsheet'
+  ].filter(function (key) { return Object.prototype.hasOwnProperty.call(req, key); });
+  if (forbidden.length) throw new Error('Forecast job payload contains forbidden trusted fields: ' + forbidden.join(', '));
+  return true;
+}
+
+function vNextAdminAuthorizeAiRollbackJob_(hub, job, payload, registry, options) {
+  const req = payload && typeof payload === 'object' ? payload : {};
+  const opt = options && typeof options === 'object' ? options : {};
+  ['trustedReuseSeedFromRunId', 'trustedRollbackContext', 'trustedAllowedDelayedAiRequestIds',
+    'seed', 'previousRunId', 'internalOperation'].forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(req, key)) throw new Error('Rollback job contains a forbidden pre-trusted field: ' + key);
+  });
+  const operationId = vNextAdminRequiredText_(req.rollbackOperationId, 'rollbackOperationId');
+  const sourceRunId = vNextAdminRequiredText_(req.sourceForecastRunId, 'sourceForecastRunId');
+  const rollbackRequestId = vNextAdminRequiredText_(req.rollbackRequestId || req.requestId, 'rollbackRequestId');
+  if (String(job.target_book_id || '') !== String(registry.book_id || '') ||
+      String(req.bookId || '') !== String(registry.book_id || '')) {
+    throw new Error('AI rollback job book linkage mismatch.');
+  }
+  if (String(job.idempotency_key || '') !== 'AI_ROLLBACK_FORECAST|' + operationId ||
+      rollbackRequestId !== 'REQ-AI-RB-' + vNextAdminSha256_(operationId).slice(0, 20).toUpperCase()) {
+    throw new Error('AI rollback operation/request idempotency lineage is invalid.');
+  }
+  const authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state);
+  const persistedResume = opt.allowPersistedResume === true && authoritativeState === 'DRAFT_READY' &&
+    String(opt.persistedRunId || '');
+  if (authoritativeState !== 'RUNNING' && !persistedResume) {
+    throw new Error('AI rollback worker requires the Hub-authoritative RUNNING state.');
+  }
+  const runs = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '') && String(row.run_id || '') === sourceRunId;
+  });
+  const sourceRun = runs.length ? runs[runs.length - 1] : null;
+  if (!sourceRun || String(sourceRun.status || '').toUpperCase() !== 'SUCCESS' || Number(sourceRun.is_official || 0) === 1 ||
+      Number(sourceRun.fiscal_year) !== Number(registry.fiscal_year) ||
+      String(sourceRun.client_id || '') && String(sourceRun.client_id || '') !== String(registry.client_id || '')) {
+    throw new Error('AI rollback source run is missing or its book/client/FY/status linkage is invalid.');
+  }
+  if (persistedResume) {
+    const resumed = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+      return String(row.book_id || '') === String(registry.book_id || '') &&
+        String(row.run_id || '') === String(opt.persistedRunId || '') &&
+        String(row.status || '').toUpperCase() === 'SUCCESS';
+    });
+    const resumedRun = resumed.length ? resumed[resumed.length - 1] : null;
+    const resumedLenses = resumedRun ? vNextAdminParseJson_(resumedRun.lens_json, {}) : {};
+    const resumedIdentity = resumedLenses && resumedLenses.runIdentity || {};
+    if (!resumedRun || String(resumedRun.previous_run_id || '') !== sourceRunId ||
+        String(resumedIdentity.idempotencyKey || '') !== String(job.idempotency_key || '')) {
+      throw vNextAdminRunIdentityFailure_('Persisted AI rollback SUCCESS does not match its source run and job lineage.');
+    }
+  }
+  if (String(sourceRun.input_data_hash || '') !== String(req.sourceInputDataHash || '') ||
+      String(sourceRun.model_release_id || '') !== String(req.sourceModelReleaseId || '') ||
+      vNextAdminDateOnly_(sourceRun.as_of) !== vNextAdminDateOnly_(req.asOf) ||
+      vNextAdminDateOnly_(sourceRun.cutoff) !== vNextAdminDateOnly_(req.cutoff)) {
+    throw new Error('AI rollback source run immutable fields no longer match the queued lineage.');
+  }
+  const activeIds = vNextAdminStrictStringArray_(req.basisActiveAiEvidenceIds, 'basisActiveAiEvidenceIds');
+  const targetIds = vNextAdminStrictStringArray_(req.targetEvidenceIds, 'targetEvidenceIds');
+  const tombstoneIds = vNextAdminStrictStringArray_(req.tombstoneEvidenceIds, 'tombstoneEvidenceIds');
+  if (!activeIds.length || !targetIds.length || targetIds.length !== tombstoneIds.length ||
+      targetIds.some(function (id) { return activeIds.indexOf(id) < 0; })) {
+    throw new Error('AI rollback evidence lineage arrays are incomplete or inconsistent.');
+  }
+  const scope = vNextAdminNormalizeAiRollbackScope_(req.scope);
+  if (scope === 'ALL' && (targetIds.length !== activeIds.length ||
+      targetIds.some(function (id) { return activeIds.indexOf(id) < 0; }))) {
+    throw new Error('ALL rollback must tombstone every active AI evidence row from the basis run.');
+  }
+  const sourceEvidenceSummary = vNextAdminParseJson_(sourceRun.evidence_json, {});
+  const snapshottedAiIds = sourceEvidenceSummary && sourceEvidenceSummary.effectiveEvidenceIds &&
+    sourceEvidenceSummary.effectiveEvidenceIds.ai;
+  const nonAiComparableHash = String(sourceEvidenceSummary && sourceEvidenceSummary.nonAiComparableHash || '');
+  if (!Array.isArray(snapshottedAiIds) || !nonAiComparableHash ||
+      vNextAdminCanonicalJson_(snapshottedAiIds.map(String).sort()) !== vNextAdminCanonicalJson_(activeIds.slice().sort())) {
+    throw new Error('AI rollback job does not match the source run evidence/comparable-input snapshot.');
+  }
+  const evidenceRows = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT');
+  const byId = new Map(evidenceRows.map(function (row) { return [String(row.evidence_id || ''), row]; }));
+  const basisAsOf = vNextAdminDateOnly_(sourceRun.as_of);
+  const activeRows = activeIds.map(function (id) {
+    const row = byId.get(id);
+    const type = String(row && row.evidence_type || '').toUpperCase();
+    if (!row || type.indexOf('AI') < 0 || type.indexOf('ROLLBACK') >= 0 ||
+        String(row.response_type || '').toUpperCase() !== 'CHANGE' ||
+        !vNextAdminAiEvidenceActiveAt_(row, registry.book_id, basisAsOf, new Set())) {
+      throw new Error('Queued basis AI evidence is not valid at the source vintage: ' + id);
+    }
+    return row;
+  });
+  targetIds.forEach(function (targetId, index) {
+    const tombstone = byId.get(tombstoneIds[index]);
+    const metadata = tombstone ? vNextAdminParseJson_(tombstone.evidence_text, {}) : {};
+    const expectedTombstoneId = 'AI-RB-' + vNextAdminSha256_(operationId + '|' + targetId).slice(0, 24).toUpperCase();
+    if (!tombstone || String(tombstone.status || '').toUpperCase() !== 'ACTIVE' ||
+        String(tombstone.evidence_id || '') !== expectedTombstoneId ||
+        String(tombstone.response_type || '').toUpperCase() !== 'NO_CHANGE' ||
+        String(tombstone.evidence_type || '').toUpperCase() !== 'AI_ROLLBACK' ||
+        String(tombstone.supersedes_evidence_id || '') !== targetId ||
+        String(metadata.rollbackOperationId || '') !== operationId ||
+        String(metadata.sourceForecastRunId || '') !== sourceRunId ||
+        String(metadata.parentRequestId || '') !== rollbackRequestId ||
+        String(metadata.effectiveAsOf || '') !== basisAsOf ||
+        String(metadata.reason || '') !== String(req.reason || '') ||
+        !vNextAdminAiEvidenceActiveAt_(tombstone, registry.book_id, basisAsOf, new Set())) {
+      throw new Error('AI rollback tombstone linkage is invalid: ' + tombstoneIds[index]);
+    }
+  });
+  const parentIds = Array.from(new Set(activeRows.map(function (row) {
+    return String(vNextAdminParseJson_(row.evidence_text, {}).parentRequestId || '');
+  }).filter(Boolean))).sort();
+  const allowedDelayedRequestIds = Array.from(new Set(parentIds.concat([rollbackRequestId]))).sort();
+  return {
+    sourceRun: sourceRun,
+    rollbackRequestId: rollbackRequestId,
+    trustedReuseSeedFromRunId: sourceRunId,
+    trustedAllowedDelayedAiRequestIds: allowedDelayedRequestIds,
+    trustedRollbackContext: {
+      operationId: operationId,
+      jobId: String(job.job_id || ''),
+      sourceForecastRunId: sourceRunId,
+      sourceInputDataHash: String(sourceRun.input_data_hash || ''),
+      sourceModelReleaseId: String(sourceRun.model_release_id || ''),
+      nonAiComparableHash: nonAiComparableHash,
+      asOf: basisAsOf,
+      scope: scope,
+      activeEvidenceIds: activeIds,
+      targetEvidenceIds: targetIds,
+      tombstoneEvidenceIds: tombstoneIds,
+      reason: vNextAdminRequiredText_(req.reason, 'reason')
+    }
+  };
+}
+
+function vNextAdminStrictStringArray_(value, label) {
+  if (!Array.isArray(value) || value.some(function (item) { return typeof item !== 'string' || !item.trim(); })) {
+    throw new Error(String(label || 'value') + ' must be a non-empty string array.');
+  }
+  const normalized = value.map(function (item) { return item.trim(); });
+  if (new Set(normalized).size !== normalized.length) throw new Error(String(label || 'value') + ' contains duplicate IDs.');
+  return normalized;
+}
+
+function vNextAdminResolveCurrentOfficialBasis_(hub, bookId) {
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(bookId || '');
+  });
+  if (!registry || String(registry.mode || '') !== 'CLIENT' || String(registry.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('An ACTIVE CLIENT registry record is required for amendment.');
+  }
+  const currentOfficialId = vNextAdminRequiredText_(registry.current_official_id, 'currentOfficialId');
+  return vNextAdminResolveOfficialBasis_(hub, registry, currentOfficialId);
+}
+
+function vNextAdminResolveOfficialBasis_(hub, registry, officialId) {
+  const bookId = String(registry.book_id || '');
+  const targetOfficialId = vNextAdminRequiredText_(officialId, 'officialId');
+  const officialRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.filter(function (row) {
+    return String(row.book_id || '') === bookId && String(row.official_id || '') === targetOfficialId;
+  });
+  if (!officialRows.length) throw new Error('OFFICIAL_RUNS record was not found for amendment basis.');
+  const officialRow = officialRows[officialRows.length - 1];
+  const forecasts = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN');
+  const officialForecast = forecasts.find(function (row) {
+    return String(row.book_id || '') === bookId && String(row.run_id || '') === String(officialRow.forecast_run_id || '') &&
+      String(row.official_vintage_id || '') === targetOfficialId && Number(row.is_official || 0) === 1;
+  });
+  if (!officialForecast || String(officialForecast.status || '').toUpperCase() !== 'OFFICIAL_LOCKED') {
+    throw new Error('The frozen official FORECAST_RUN is missing or invalid.');
+  }
+  const sourceRunId = String(officialRow.source_forecast_run_id || officialForecast.previous_run_id || '');
+  const sourceForecast = forecasts.find(function (row) {
+    return String(row.book_id || '') === bookId && String(row.run_id || '') === sourceRunId &&
+      String(row.status || '').toUpperCase() === 'SUCCESS' && Number(row.is_official || 0) !== 1;
+  });
+  if (!sourceForecast || String(officialForecast.previous_run_id || '') !== sourceRunId) {
+    throw new Error('The current official source forecast lineage is missing or inconsistent.');
+  }
+  if (String(sourceForecast.client_id || '') && String(sourceForecast.client_id || '') !== String(registry.client_id || '')) {
+    throw new Error('Official source forecast client_id mismatch.');
+  }
+  if (Number(sourceForecast.fiscal_year) !== Number(registry.fiscal_year) ||
+      Number(officialForecast.fiscal_year) !== Number(registry.fiscal_year)) {
+    throw new Error('Official forecast fiscal year mismatch.');
+  }
+  const approvedPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === targetOfficialId &&
+      String(row.status || '').toUpperCase() === 'APPROVED';
+  });
+  if (!approvedPlans.length) throw new Error('The current official APPROVED PLAN_VERSION is missing.');
+  const approvedPlan = approvedPlans[approvedPlans.length - 1];
+  if (String(approvedPlan.run_id || '') !== sourceRunId) {
+    throw new Error('The current approved plan does not reference the official source forecast.');
+  }
+  const systems = [sourceForecast.system_recommended, officialForecast.system_recommended, approvedPlan.system_recommended].map(Number);
+  if (!systems.every(isFinite) || Math.abs(systems[0] - systems[1]) > 1 || Math.abs(systems[0] - systems[2]) > 1) {
+    throw new Error('System recommendation differs across source, frozen official, and approved plan.');
+  }
+  return {
+    registry: registry, officialId: targetOfficialId, officialRow: officialRow,
+    officialForecast: officialForecast, sourceForecast: sourceForecast, approvedPlan: approvedPlan
+  };
+}
+
+function vNextAdminAmendmentBasisHash_(basis) {
+  return vNextAdminSha256_(vNextAdminCanonicalJson_({
+    bookId: basis.registry.book_id, currentOfficialId: basis.officialId,
+    officialForecastRunId: basis.officialForecast.run_id,
+    sourceForecastRunId: basis.sourceForecast.run_id,
+    approvedPlanVersionId: basis.approvedPlan.plan_version_id,
+    systemRecommended: Number(basis.sourceForecast.system_recommended || 0),
+    adoptionDelta: Number(basis.approvedPlan.adoption_delta || 0),
+    salesUplift: Number(basis.approvedPlan.sales_uplift || 0),
+    finalBudget: Number(basis.approvedPlan.final_budget || 0),
+    upliftAllocationJson: String(basis.approvedPlan.uplift_allocation_json || '')
+  }));
+}
+
+function vNextAdminNormalizeAmendmentInput_(request, basis) {
+  const req = request || {};
+  if (!Object.prototype.hasOwnProperty.call(req, 'adoptionDelta')) throw new Error('adoptionDelta is required.');
+  if (!Object.prototype.hasOwnProperty.call(req, 'salesUplift')) throw new Error('salesUplift is required.');
+  const system = Number(basis.sourceForecast.system_recommended);
+  const adoptionDelta = Number(req.adoptionDelta);
+  const salesUplift = Number(req.salesUplift);
+  if (![system, adoptionDelta, salesUplift].every(isFinite) ||
+      Math.abs(adoptionDelta) > 1e15 || Math.abs(salesUplift) > 1e15) {
+    throw new Error('Amendment amounts must be finite and within the supported range.');
+  }
+  const adoptedForecast = system + adoptionDelta;
+  if (adoptedForecast < 0) throw new Error('adoptedForecast cannot be negative.');
+  if (salesUplift < 0) throw new Error('salesUplift cannot be negative.');
+  const adoptionReason = vNextAdminText_(req.adoptionReason);
+  const upliftReason = vNextAdminText_(req.upliftReason);
+  const upliftOwner = vNextAdminText_(req.upliftOwner);
+  const upliftAction = vNextAdminText_(req.upliftAction);
+  if (adoptionDelta !== 0 && !adoptionReason) throw new Error('adoptionReason is required for a non-zero adoptionDelta.');
+  let upliftDueDate = '';
+  if (req.upliftDueDate) {
+    const parsedDue = new Date(req.upliftDueDate);
+    if (isNaN(parsedDue.getTime())) throw new Error('upliftDueDate is invalid.');
+    upliftDueDate = typeof vNextFormatDateOnly_ === 'function'
+      ? vNextFormatDateOnly_(parsedDue)
+      : Utilities.formatDate(parsedDue, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  if (salesUplift !== 0 && (!upliftReason || !upliftOwner || !upliftAction || !upliftDueDate)) {
+    throw new Error('Non-zero sales uplift requires reason, owner, action, and due date.');
+  }
+  let allocationInput = req.upliftAllocation !== undefined ? req.upliftAllocation : req.monthAllocation;
+  if (typeof allocationInput === 'string') {
+    allocationInput = allocationInput.split(/[,、\s]+/).filter(Boolean).map(Number);
+  }
+  if (!Array.isArray(allocationInput)) allocationInput = [];
+  if (typeof vNextValidateUpliftAllocation_ !== 'function') throw new Error('Server uplift allocation validator is not installed.');
+  const upliftAllocation = vNextValidateUpliftAllocation_(allocationInput, salesUplift, Number(basis.registry.fiscal_year));
+  const finalBudget = adoptedForecast + salesUplift;
+  const previous = basis.approvedPlan;
+  const noChange = Math.abs(Number(previous.adoption_delta || 0) - adoptionDelta) <= 1 &&
+    Math.abs(Number(previous.sales_uplift || 0) - salesUplift) <= 1 &&
+    String(previous.adoption_reason || '') === adoptionReason &&
+    String(previous.uplift_reason || '') === upliftReason && String(previous.uplift_owner || '') === upliftOwner &&
+    String(previous.uplift_action || '') === upliftAction && vNextAdminDateOnlyText_(previous.uplift_due_date) === upliftDueDate &&
+    vNextAdminCanonicalJson_(vNextAdminParseJson_(previous.uplift_allocation_json, [])) === vNextAdminCanonicalJson_(upliftAllocation);
+  if (noChange) throw new Error('現在の正式計画と同一です。数値または計画内容を変更してください。');
+  return {
+    systemRecommended: system, adoptionDelta: adoptionDelta, adoptionReason: adoptionReason,
+    adoptedForecast: adoptedForecast, salesUplift: salesUplift, upliftReason: upliftReason,
+    upliftOwner: upliftOwner, upliftAction: upliftAction, upliftDueDate: upliftDueDate,
+    upliftAllocation: upliftAllocation, finalBudget: finalBudget
+  };
+}
+
+function vNextAdminDateOnlyText_(value) {
+  if (!value) return '';
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return String(value).slice(0, 10);
+}
+
+/** Detect a submitted local plan and create one immutable approval request per plan version. */
+function vNextAdminCreateApprovalFromSubmittedPlan_(hub, client, registry) {
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (String(routing.state || '').toUpperCase() !== 'SUBMITTED') return { created: false, reason: 'STATE_NOT_SUBMITTED' };
+  const plans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '') && String(row.status || '').toUpperCase() === 'SUBMITTED';
+  });
+  if (!plans.length) return { created: false, reason: 'PLAN_NOT_FOUND' };
+  const plan = plans[plans.length - 1];
+  const forecasts = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '') &&
+      String(row.run_id || '') === String(plan.run_id || '') && String(row.status || '').toUpperCase() === 'SUCCESS';
+  });
+  if (!forecasts.length) return { created: false, reason: 'FORECAST_NOT_FOUND' };
+  const forecast = forecasts[forecasts.length - 1];
+  vNextAdminValidateSubmittedPlan_(registry, forecast, plan);
+  const snapshot = vNextAdminBuildPlanApprovalSnapshot_(registry, forecast, plan);
+  const snapshotJson = vNextAdminCanonicalJson_(snapshot);
+  const snapshotHash = vNextAdminSha256_(snapshotJson);
+  const idempotencyKey = ['PUBLISH', registry.book_id, plan.plan_version_id, snapshotHash].join('|');
+  const existing = vNextAdminFindApproval_(hub, function (row) {
+    return String(row.idempotency_key || '') === idempotencyKey ||
+      (String(row.book_id || '') === String(registry.book_id || '') && String(row.plan_version_id || '') === String(plan.plan_version_id || ''));
+  });
+  if (existing) return { created: false, approvalRequestId: existing.approval_request_id, status: existing.status };
+  const now = new Date();
+  const approvalId = 'APR-' + Utilities.getUuid();
+  const row = {
+    approval_request_id: approvalId, request_type: 'PUBLISH', book_id: registry.book_id,
+    client_id: registry.client_id, client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+    forecast_run_id: forecast.run_id, plan_version_id: plan.plan_version_id,
+    supersedes_official_id: '', amendment_reason: '', snapshot_json: snapshotJson,
+    snapshot_hash: snapshotHash, status: 'PENDING', processing_attempts: 0, requested_at: plan.submitted_at || now,
+    requested_by: plan.submitted_by || '', decision_at: '', decision_by: '', decision_comment: '',
+    official_id: '', idempotency_key: idempotencyKey, updated_at: now
+  };
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.APPROVALS, row);
+  vNextAdminWriteAudit_(hub, 'AUTO_CREATE_APPROVAL', 'APPROVAL', approvalId, 'SUCCESS', {
+    bookId: registry.book_id, runId: forecast.run_id, planVersionId: plan.plan_version_id,
+    snapshotHash: snapshotHash
+  });
+  return { created: true, approvalRequestId: approvalId };
+}
+
+function vNextAdminBuildPlanApprovalSnapshot_(registry, forecast, plan, options) {
+  const opt = options || {};
+  const allocation = vNextAdminParseJson_(plan.uplift_allocation_json, []);
+  const snapshot = {
+    snapshotSchema: 'forecast-plan-approval-v1',
+    book: {
+      bookId: registry.book_id, clientId: registry.client_id, clientName: registry.client_name,
+      fiscalYear: Number(registry.fiscal_year)
+    },
+    forecast: {
+      runId: forecast.run_id, inputDataHash: forecast.input_data_hash,
+      modelReleaseId: forecast.model_release_id, asOf: forecast.as_of, cutoff: forecast.cutoff,
+      layers: {
+        historyBaseline: Number(forecast.history_baseline || 0),
+        objectiveForecast: Number(forecast.objective_forecast || 0),
+        humanDelta: Number(forecast.human_delta || 0), aiDelta: Number(forecast.ai_delta || 0),
+        systemRecommended: Number(forecast.system_recommended || 0)
+      },
+      annual: { p10: Number(forecast.p10 || 0), p50: Number(forecast.p50 || 0), p90: Number(forecast.p90 || 0) },
+      quarters: vNextAdminParseJson_(forecast.quarter_json, []),
+      months: vNextAdminParseJson_(forecast.month_json, []),
+      lenses: vNextAdminParseJson_(forecast.lens_json, {}),
+      evidenceSummary: vNextAdminParseJson_(forecast.evidence_json, {})
+    },
+    plan: {
+      planVersionId: plan.plan_version_id, status: plan.status,
+      systemRecommended: Number(plan.system_recommended || 0),
+      adoptionDelta: Number(plan.adoption_delta || 0), adoptionReason: String(plan.adoption_reason || ''),
+      adoptedForecast: Number(plan.adopted_forecast || 0), salesUplift: Number(plan.sales_uplift || 0),
+      upliftReason: String(plan.uplift_reason || ''), upliftOwner: String(plan.uplift_owner || ''),
+      upliftAction: String(plan.uplift_action || ''), upliftDueDate: String(plan.uplift_due_date || ''),
+      upliftAllocation: allocation, finalBudget: Number(plan.final_budget || 0),
+      submittedAt: String(plan.submitted_at || ''), submittedBy: String(plan.submitted_by || '')
+    }
+  };
+  if (String(opt.requestType || '').toUpperCase() === 'AMENDMENT') {
+    const basis = opt.officialBasis || {};
+    snapshot.plan.versionNo = Number(plan.version_no || 0);
+    snapshot.plan.amendsPlanVersionId = String(plan.amends_plan_version_id || '');
+    snapshot.amendment = {
+      supersedesOfficialId: String(opt.supersedesOfficialId || ''),
+      predecessorOfficialForecastRunId: String(basis.officialForecast && basis.officialForecast.run_id || ''),
+      predecessorApprovedPlanVersionId: String(basis.approvedPlan && basis.approvedPlan.plan_version_id || ''),
+      predecessorFinalBudget: Number(basis.approvedPlan && basis.approvedPlan.final_budget || 0),
+      amendmentReason: String(opt.amendmentReason || '')
+    };
+  }
+  return snapshot;
+}
+
+function vNextAdminValidateSubmittedPlan_(registry, forecast, plan, options) {
+  const opt = options || {};
+  const requestType = String(opt.requestType || 'PUBLISH').toUpperCase();
+  const isAmendment = requestType === 'AMENDMENT';
+  if (String(plan.book_id || '') !== String(registry.book_id || '') ||
+      String(plan.run_id || '') !== String(forecast.run_id || '') ||
+      String(plan.status || '').toUpperCase() !== 'SUBMITTED' ||
+      String(plan.official_vintage_id || '')) {
+    throw new Error('Submitted plan book/run/status linkage is invalid.');
+  }
+  if (String(forecast.book_id || '') !== String(registry.book_id || '') ||
+      String(forecast.status || '').toUpperCase() !== 'SUCCESS' || Number(forecast.is_official || 0) === 1 ||
+      Number(forecast.fiscal_year) !== Number(registry.fiscal_year)) {
+    throw new Error('Linked forecast is not a successful draft for this book and fiscal year.');
+  }
+  const ownerEmails = vNextAdminParseList_(registry.forecast_owner_emails).map(function (email) {
+    return String(email || '').toLowerCase();
+  });
+  const submittedBy = String(plan.submitted_by || '').toLowerCase();
+  const ownerSubmitted = ownerEmails.length === 1 && submittedBy === ownerEmails[0];
+  const authorizedAdminSubmitted = isAmendment && !!String(opt.allowedSubmitter || '') &&
+    submittedBy === String(opt.allowedSubmitter || '').toLowerCase();
+  if (!ownerSubmitted && !authorizedAdminSubmitted) {
+    throw new Error(isAmendment
+      ? 'Amendment submitted_by must be its authenticated Admin creator or the registered Forecast Owner.'
+      : 'submitted_by must be the single Forecast Owner registered for this book.');
+  }
+  if (isAmendment) {
+    const basis = opt.officialBasis || {};
+    if (!basis.officialId || String(opt.supersedesOfficialId || '') !== String(basis.officialId || '')) {
+      throw new Error('Amendment must supersede the current official vintage.');
+    }
+    if (!basis.approvedPlan || String(plan.amends_plan_version_id || '') !== String(basis.approvedPlan.plan_version_id || '')) {
+      throw new Error('Amendment plan must link to the current official APPROVED plan.');
+    }
+    if (!basis.sourceForecast || String(forecast.run_id || '') !== String(basis.sourceForecast.run_id || '')) {
+      throw new Error('Amendment plan must reference the current official source forecast run.');
+    }
+  }
+  const system = Number(plan.system_recommended);
+  const forecastSystem = Number(forecast.system_recommended);
+  const delta = Number(plan.adoption_delta || 0);
+  const adopted = Number(plan.adopted_forecast);
+  const uplift = Number(plan.sales_uplift || 0);
+  const finalBudget = Number(plan.final_budget);
+  if (![system, forecastSystem, delta, adopted, uplift, finalBudget].every(isFinite)) {
+    throw new Error('Submitted plan contains a non-finite amount.');
+  }
+  if (Math.abs(system - forecastSystem) > 1 || Math.abs(adopted - (system + delta)) > 1 || adopted < 0) {
+    throw new Error('Submitted plan system/adoption arithmetic is invalid.');
+  }
+  if (delta !== 0 && !vNextAdminText_(plan.adoption_reason)) {
+    throw new Error('A non-zero adoption delta requires an adoption reason.');
+  }
+  if (uplift < 0) throw new Error('Sales uplift cannot be negative.');
+  if (uplift !== 0 && (!vNextAdminText_(plan.uplift_reason) || !vNextAdminText_(plan.uplift_owner) ||
+      !vNextAdminText_(plan.uplift_action) || !vNextAdminText_(plan.uplift_due_date))) {
+    throw new Error('A non-zero sales uplift requires reason, owner, action, and due date.');
+  }
+  const allocation = vNextAdminParseJson_(plan.uplift_allocation_json, []);
+  if (typeof vNextValidateUpliftAllocation_ !== 'function') throw new Error('Server uplift allocation validator is not installed.');
+  vNextValidateUpliftAllocation_(allocation, uplift, Number(registry.fiscal_year));
+  if (Math.abs(finalBudget - (adopted + uplift)) > 1) {
+    throw new Error('Submitted plan final budget arithmetic is invalid.');
+  }
+  return true;
+}
+
+function vNextAdminExecuteMigrationSkeleton_(hub, job, payload) {
+  const migrationId = 'MIG-' + Utilities.getUuid();
+  const now = new Date();
+  const registry = vNextAdminFindRegistryRow_(hub, function (item) {
+    return String(item.book_id || '') === String(job.target_book_id || '') &&
+      String(item.mode || '') === 'CLIENT';
+  });
+  if (!registry || String(registry.spreadsheet_id || '') !== String(job.target_spreadsheet_id || '')) {
+    throw new Error('Migration target does not match BOOK_REGISTRY.');
+  }
+  const targetRelease = vNextAdminResolveRelease_(hub, payload.targetReleaseId);
+  const currentRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (release) {
+    return String(release.release_id || '') === String(registry.template_release_id || '');
+  });
+  if (!currentRelease) throw new Error('Current Client release record is missing.');
+  const changed = String(currentRelease.release_id || '') !== String(targetRelease.release_id || '');
+  const restrictedState = ['OFFICIAL_LOCKED', 'REVIEW_DUE', 'YEAR_CLOSED'].indexOf(String(registry.state || '').toUpperCase()) >= 0;
+  const plan = {
+    strategy: 'known-bound-script-and-visible-template-assets',
+    bookId: registry.book_id, spreadsheetId: registry.spreadsheet_id,
+    clientScriptIdPresent: Boolean(String(registry.client_script_id || '')),
+    fromReleaseId: currentRelease.release_id, targetReleaseId: targetRelease.release_id,
+    fromSchemaVersion: currentRelease.schema_version, targetSchemaVersion: targetRelease.schema_version,
+    state: String(registry.state || ''), restrictedState: restrictedState,
+    changed: changed, preservesOfficialAndCoreHistory: true
+  };
+  const row = {
+    migration_id: migrationId, book_id: job.target_book_id, spreadsheet_id: job.target_spreadsheet_id,
+    from_release_id: currentRelease.release_id, to_release_id: targetRelease.release_id,
+    status: 'PLANNED', dry_run: payload.dryRun === false ? 0 : 1,
+    plan_json: vNextAdminCanonicalJson_(plan),
+    result_json: '', started_at: now, finished_at: '', actor: vNextAdminActor_(), error: ''
+  };
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.MIGRATIONS, row);
+  try {
+    if (!String(registry.client_script_id || '')) {
+      throw new Error('This legacy-copied Client has no centrally recorded bound script ID; in-place migration is blocked.');
+    }
+    if (String(currentRelease.schema_version || '') !== String(targetRelease.schema_version || '') ||
+        String(targetRelease.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+      throw new Error('Generic migration supports only the same Client Core schema. A versioned schema hook is required.');
+    }
+    if (!String(targetRelease.client_runtime_sha256 || '') ||
+        !String(targetRelease.template_script_id || '') || !String(targetRelease.template_spreadsheet_id || '')) {
+      throw new Error('Target release runtime identity is incomplete.');
+    }
+    const targetTemplate = SpreadsheetApp.openById(String(targetRelease.template_spreadsheet_id));
+    if (vNextDetectBookMode_(targetTemplate) !== 'TEMPLATE' ||
+        vNextAdminTemplateContentHash_(targetTemplate) !== String(targetRelease.template_content_sha256 || '')) {
+      throw new Error('Target immutable Template identity/content check failed.');
+    }
+    if (typeof vNextClientRuntimeAssertBoundParent_ !== 'function') {
+      throw new Error('Client runtime parent verifier is not installed.');
+    }
+    vNextClientRuntimeAssertBoundParent_(String(targetRelease.template_script_id), String(targetRelease.template_spreadsheet_id));
+    vNextClientRuntimeAssertBoundParent_(String(registry.client_script_id), String(registry.spreadsheet_id));
+    if (payload.dryRun !== false) {
+      const dryResult = Object.assign({}, plan, { readyToApply: changed });
+      vNextAdminPatchLatestMigration_(hub, migrationId, {
+        status: 'DRY_RUN_READY', finished_at: new Date(), result_json: vNextAdminCanonicalJson_(dryResult)
+      });
+      return { migrationId: migrationId, status: 'DRY_RUN_READY', changed: changed, plan: dryResult };
+    }
+    if (!VN_ADMIN_MIGRATION_APPLY_ENABLED) {
+      throw new Error('Pilot期間はClient release移行のAPPLYをserver-sideで停止しています。');
+    }
+    const reason = vNextAdminRequiredText_(payload.reason, 'migration.reason');
+    if (restrictedState && payload.critical !== true) {
+      throw new Error('Official/review/closed books require critical=true and an explicit reason.');
+    }
+    if (!changed) {
+      vNextAdminPatchLatestMigration_(hub, migrationId, {
+        status: 'SUCCEEDED', finished_at: new Date(), result_json: vNextAdminCanonicalJson_({ changed: false })
+      });
+      return { migrationId: migrationId, status: 'SUCCEEDED', changed: false };
+    }
+    if (typeof vNextClientRuntimeCopyScriptContent_ !== 'function') {
+      throw new Error('Verified Client runtime copy helper is not installed.');
+    }
+    const copied = vNextClientRuntimeCopyScriptContent_(
+      String(targetRelease.template_script_id), String(registry.client_script_id),
+      String(targetRelease.client_runtime_sha256)
+    );
+    const client = SpreadsheetApp.openById(String(registry.spreadsheet_id));
+    vNextAdminCopyTemplateUiToClient_(targetTemplate, client);
+    vNextAdminEnsureUiShell_(client, { clientName: registry.client_name, fiscalYear: registry.fiscal_year });
+    vNextAdminWriteBookConfig_(client, {
+      version: targetRelease.release_id, template_release_id: targetRelease.release_id,
+      schema_version: targetRelease.schema_version,
+      client_runtime_version: targetRelease.client_runtime_version,
+      client_runtime_bundle_sha256: targetRelease.client_runtime_sha256,
+      updated_at: new Date(), updated_by: vNextAdminActor_()
+    });
+    const localSystem = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    vNextAdminReplaceSystemConfig_(client, Object.assign({}, localSystem, {
+      mode: 'CLIENT', book_id: registry.book_id,
+      active_release_id: targetRelease.release_id, schema_version: targetRelease.schema_version
+    }));
+
+    const metas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (meta) {
+      return String(meta.book_id || '') === String(registry.book_id || '');
+    });
+    if (!metas.length) throw new Error('Trusted BOOK_META is missing for migration.');
+    const predecessor = metas[metas.length - 1];
+    const migrationMetaId = 'MIGMETA-' + vNextAdminSha256_(
+      String(registry.book_id) + '|' + String(targetRelease.release_id)
+    ).slice(0, 24);
+    let migrationMeta = metas.find(function (meta) {
+      return String(meta.record_id || '') === migrationMetaId;
+    });
+    if (!migrationMeta) {
+      migrationMeta = Object.assign({}, predecessor, {
+        record_id: migrationMetaId, state: String(registry.state || predecessor.state || ''),
+        template_version: targetRelease.release_id, schema_version: targetRelease.schema_version,
+        event_type: 'MIGRATED', supersedes_record_id: predecessor.record_id,
+        recorded_at: new Date().toISOString(), recorded_by: vNextAdminActor_()
+      });
+      vNextAdminAppendCoreRowsNoLock_(hub, 'BOOK_META', [migrationMeta]);
+    }
+    vNextAdminAppendMissingCoreRows_(client, 'BOOK_META', 'record_id', [migrationMeta]);
+    vNextAdminPatchRegistryByBookId_(hub, registry.book_id, {
+      template_release_id: targetRelease.release_id,
+      schema_version: targetRelease.schema_version,
+      client_runtime_version: targetRelease.client_runtime_version,
+      client_runtime_sha256: targetRelease.client_runtime_sha256,
+      health_status: 'PENDING', health_code: 'MIGRATED', updated_at: new Date()
+    });
+    const result = {
+      changed: true, fromReleaseId: currentRelease.release_id,
+      targetReleaseId: targetRelease.release_id, copiedRuntimeSha256: copied.bundleSha256,
+      preservedState: registry.state, preservedOfficialId: registry.current_official_id || '', reason: reason
+    };
+    vNextAdminPatchLatestMigration_(hub, migrationId, {
+      status: 'SUCCEEDED', finished_at: new Date(), result_json: vNextAdminCanonicalJson_(result)
+    });
+    vNextAdminWriteAudit_(hub, 'MIGRATE_CLIENT_RELEASE', 'BOOK', registry.book_id, 'SUCCESS', result);
+    return { migrationId: migrationId, status: 'SUCCEEDED', result: result };
+  } catch (migrationError) {
+    const message = String(migrationError && migrationError.message || migrationError);
+    vNextAdminPatchLatestMigration_(hub, migrationId, {
+      status: 'BLOCKED', finished_at: new Date(), error: message
+    });
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'CLIENT_MIGRATION_BLOCKED', book_id: registry.book_id,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'Client release migration was blocked', detail: message,
+      recommended_action: 'MIGRATION_LOGの検証結果を確認し、修正後に新しいjobで再実行', source_ref: migrationId
+    });
+    throw migrationError;
+  }
+}
+
+// ---------------------------- Approval / official ----------------------------
+
+function vNextAdminResolveSnapshot_(request, registry, hubSpreadsheet) {
+  const req = request && typeof request === 'object' ? request : {};
+  const hub = hubSpreadsheet || SpreadsheetApp.getActiveSpreadsheet();
+  const bookId = String(registry.book_id || '');
+  const requestType = String(req.requestType || 'PUBLISH').toUpperCase();
+  const isAmendment = requestType === 'AMENDMENT';
+  const supersedesOfficialId = isAmendment
+    ? vNextAdminRequiredText_(req.supersedesOfficialId, 'supersedesOfficialId') : '';
+  const amendmentReason = isAmendment
+    ? vNextAdminRequiredText_(req.amendmentReason, 'amendmentReason') : '';
+  const officialBasis = isAmendment
+    ? vNextAdminResolveOfficialBasis_(hub, registry, supersedesOfficialId) : null;
+  const requestedPlanId = vNextAdminText_(req.planVersionId);
+  const requestedRunId = vNextAdminText_(req.forecastRunId);
+  const plans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === bookId &&
+      String(row.status || '').toUpperCase() === 'SUBMITTED' &&
+      (!requestedPlanId || String(row.plan_version_id || '') === requestedPlanId);
+  });
+  if (!plans.length) throw new Error('A SUBMITTED PLAN_VERSION for this book was not found.');
+  const plan = plans[plans.length - 1];
+  const planRunId = String(plan.run_id || '');
+  if (!planRunId) throw new Error('The submitted plan is not linked to a forecast run.');
+  if (requestedRunId && requestedRunId !== planRunId) {
+    throw new Error('forecastRunId does not match the submitted plan run_id.');
+  }
+  const forecasts = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === bookId && String(row.run_id || '') === planRunId &&
+      String(row.status || '').toUpperCase() === 'SUCCESS' && Number(row.is_official || 0) !== 1;
+  });
+  if (!forecasts.length) throw new Error('A successful draft FORECAST_RUN linked to the submitted plan was not found.');
+  const forecast = forecasts[forecasts.length - 1];
+  if (String(forecast.client_id || '') && String(forecast.client_id || '') !== String(registry.client_id || '')) {
+    throw new Error('Forecast client_id does not match BOOK_REGISTRY.');
+  }
+  if (Number(forecast.fiscal_year) !== Number(registry.fiscal_year)) {
+    throw new Error('Forecast fiscal_year does not match BOOK_REGISTRY.');
+  }
+  const validationOptions = {
+    requestType: requestType, allowedSubmitter: vNextAdminText_(req.allowedSubmitter),
+    supersedesOfficialId: supersedesOfficialId, officialBasis: officialBasis
+  };
+  vNextAdminValidateSubmittedPlan_(registry, forecast, plan, validationOptions);
+  return vNextAdminBuildPlanApprovalSnapshot_(registry, forecast, plan, {
+    requestType: requestType, supersedesOfficialId: supersedesOfficialId,
+    amendmentReason: amendmentReason, officialBasis: officialBasis
+  });
+}
+
+function vNextAdminIssueOfficial_(hub, approval, registry, decisionComment) {
+  const snapshotJson = String(approval.snapshot_json || '');
+  const recalculatedHash = vNextAdminSha256_(snapshotJson);
+  if (recalculatedHash !== String(approval.snapshot_hash || '')) throw new Error('Approval snapshot hash mismatch; official issue aborted.');
+  const requestType = String(approval.request_type || '').toUpperCase();
+  const officialId = 'OFF-' + vNextAdminSha256_('APPROVAL|' + String(approval.approval_request_id || '')).slice(0, 24).toUpperCase();
+  const canonicalSnapshot = vNextAdminResolveSnapshot_({
+    forecastRunId: approval.forecast_run_id,
+    planVersionId: approval.plan_version_id,
+    requestType: requestType,
+    supersedesOfficialId: approval.supersedes_official_id || '',
+    amendmentReason: approval.amendment_reason || '',
+    allowedSubmitter: approval.requested_by || ''
+  }, registry, hub);
+  const canonicalSnapshotJson = vNextAdminCanonicalJson_(canonicalSnapshot);
+  if (canonicalSnapshotJson !== snapshotJson || vNextAdminSha256_(canonicalSnapshotJson) !== String(approval.snapshot_hash || '')) {
+    throw new Error('Approval snapshot no longer matches the canonical Hub forecast and plan records.');
+  }
+  // Recovery path for a previous attempt that completed the central official
+  // issue but failed before client propagation or approval-row finalization.
+  const existingForApproval = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.find(function (item) {
+    return String(item.approval_request_id || '') === String(approval.approval_request_id || '');
+  });
+  if (existingForApproval) {
+    const storedSnapshot = vNextAdminParseJson_(existingForApproval.snapshot_json, {});
+    const frozenRows = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+      return String(row.book_id || '') === String(approval.book_id || '') &&
+        String(row.run_id || '') === String(existingForApproval.forecast_run_id || '') &&
+        String(row.official_vintage_id || '') === officialId && Number(row.is_official || 0) === 1 &&
+        String(row.previous_run_id || '') === String(approval.forecast_run_id || '');
+    });
+    const approvedPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+      return String(row.book_id || '') === String(approval.book_id || '') &&
+        String(row.official_vintage_id || '') === officialId && String(row.status || '').toUpperCase() === 'APPROVED' &&
+        String(row.amends_plan_version_id || '') === String(approval.plan_version_id || '');
+    });
+    if (String(existingForApproval.official_id || '') !== officialId ||
+        String(existingForApproval.book_id || '') !== String(approval.book_id || '') ||
+        String(existingForApproval.source_forecast_run_id || '') !== String(approval.forecast_run_id || '') ||
+        String(existingForApproval.snapshot_hash || '') !== String(approval.snapshot_hash || '') ||
+        String(existingForApproval.snapshot_json || '') !== snapshotJson ||
+        String(storedSnapshot.plan && storedSnapshot.plan.planVersionId || '') !== String(approval.plan_version_id || '') ||
+        !frozenRows.length || !approvedPlans.length) {
+      throw new Error('Existing deterministic official record is incomplete or inconsistent; recovery stopped.');
+    }
+    const registryCurrent = String(registry.current_official_id || '');
+    if (registryCurrent !== officialId) {
+      const safePredecessor = requestType === 'PUBLISH'
+        ? registryCurrent === ''
+        : registryCurrent === String(approval.supersedes_official_id || '');
+      if (!safePredecessor) {
+        throw new Error('Registry points to a different official vintage; deterministic recovery stopped.');
+      }
+      vNextAdminPatchRegistryByBookId_(hub, approval.book_id, {
+        current_official_id: officialId, state: 'OFFICIAL_LOCKED', updated_at: new Date(),
+        note: 'Registry official pointer repaired from approval=' + approval.approval_request_id
+      });
+      vNextAdminWriteAudit_(hub, 'REPAIR_OFFICIAL_POINTER', 'BOOK', approval.book_id, 'SUCCESS', {
+        fromOfficialId: registryCurrent, toOfficialId: officialId, approvalRequestId: approval.approval_request_id
+      });
+    }
+    vNextAdminCopyOfficialToClientBestEffort_(hub, registry, existingForApproval);
+    return {
+      officialId: officialId, officialForecastRunId: existingForApproval.forecast_run_id,
+      approvedPlanVersionId: approvedPlans[approvedPlans.length - 1].plan_version_id, reused: true
+    };
+  }
+  const currentOfficialId = String(registry.current_official_id || '');
+  if (requestType === 'AMENDMENT') {
+    if (!currentOfficialId || String(approval.supersedes_official_id || '') !== currentOfficialId) {
+      throw new Error('Amendment no longer supersedes the current official vintage. Create a new amendment request.');
+    }
+  } else if (currentOfficialId) {
+    throw new Error('A current official vintage already exists; PUBLISH cannot overwrite it.');
+  }
+  const now = new Date();
+  if (typeof vNextFreezeOfficialVintage_ !== 'function') throw new Error('Official vintage freeze API is not installed.');
+  const submittedPlanExists = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').some(function (row) {
+    return String(row.book_id || '') === String(approval.book_id || '') &&
+      String(row.plan_version_id || '') === String(approval.plan_version_id || '') &&
+      String(row.run_id || '') === String(approval.forecast_run_id || '') &&
+      String(row.status || '').toUpperCase() === 'SUBMITTED';
+  });
+  if (!submittedPlanExists) throw new Error('Submitted PLAN_VERSION not found for official issue.');
+  const existingFrozenRows = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === String(approval.book_id || '') &&
+      String(row.official_vintage_id || '') === officialId && Number(row.is_official || 0) === 1;
+  });
+  let frozen;
+  if (existingFrozenRows.length) {
+    const frozenRow = existingFrozenRows[existingFrozenRows.length - 1];
+    if (String(frozenRow.previous_run_id || '') !== String(approval.forecast_run_id || '')) {
+      throw new Error('Existing official vintage points to a different source run.');
+    }
+    frozen = { runId: frozenRow.run_id, officialVintageId: officialId, reused: true };
+  } else {
+    frozen = vNextFreezeOfficialVintage_({
+      bookId: approval.book_id, runId: approval.forecast_run_id,
+      officialVintageId: officialId, approvedBy: vNextAdminActor_(),
+      amendment: String(approval.request_type || '') === 'AMENDMENT',
+      amendmentReason: approval.amendment_reason || ''
+    }, { spreadsheet: hub });
+  }
+  const approvedPlan = vNextAdminAppendApprovedPlan_(hub, approval, officialId, now);
+  const immutablePayload = {
+    officialId: officialId, bookId: approval.book_id, clientId: approval.client_id,
+    fiscalYear: approval.fiscal_year, forecastRunId: frozen.runId,
+    sourceForecastRunId: approval.forecast_run_id,
+    recordType: approval.request_type, supersedesOfficialId: approval.supersedes_official_id || '',
+    amendmentReason: approval.amendment_reason || '', snapshotHash: approval.snapshot_hash,
+    issuedAt: now.toISOString()
+  };
+  const immutableHash = vNextAdminSha256_(vNextAdminCanonicalJson_(immutablePayload));
+  const snapshot = vNextAdminParseJson_(snapshotJson, {});
+  const row = {
+    official_id: officialId, book_id: approval.book_id, client_id: approval.client_id,
+    client_name: approval.client_name, fiscal_year: approval.fiscal_year,
+    forecast_run_id: frozen.runId, source_forecast_run_id: approval.forecast_run_id,
+    approval_request_id: approval.approval_request_id,
+    record_type: approval.request_type, supersedes_official_id: approval.supersedes_official_id || '',
+    amendment_reason: approval.amendment_reason || '', snapshot_json: snapshotJson,
+    snapshot_hash: approval.snapshot_hash, immutable_hash: immutableHash,
+    model_release_id: snapshot.modelReleaseId || snapshot.model_release_id ||
+      (snapshot.forecast && snapshot.forecast.modelReleaseId) || '',
+    issued_at: now, issued_by: vNextAdminActor_(), note: decisionComment || ''
+  };
+  // OFFICIAL_RUNS is append-only. A retry reuses the record keyed by approval_request_id.
+  const existingOfficial = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.find(function (item) {
+    return String(item.approval_request_id || '') === String(approval.approval_request_id || '');
+  });
+  if (existingOfficial) {
+    if (String(existingOfficial.official_id || '') !== officialId || String(existingOfficial.snapshot_hash || '') !== String(approval.snapshot_hash || '')) {
+      throw new Error('Existing OFFICIAL_RUNS record does not match this approval.');
+    }
+  } else {
+    vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.OFFICIAL, row);
+  }
+  const officialRow = existingOfficial || row;
+  vNextAdminPatchRegistryByBookId_(hub, approval.book_id, {
+    current_official_id: officialId, state: 'OFFICIAL_LOCKED', updated_at: now
+  });
+  vNextAdminCopyOfficialToClientBestEffort_(hub, registry, officialRow);
+  return {
+    officialId: officialId,
+    officialForecastRunId: frozen && frozen.runId || '',
+    approvedPlanVersionId: approvedPlan && approvedPlan.plan_version_id || ''
+  };
+}
+
+function vNextAdminCopyOfficialToClientBestEffort_(hub, registry, officialRow) {
+  try {
+    vNextAdminCopyOfficialToClient_(registry.spreadsheet_id, officialRow);
+    return true;
+  } catch (err) {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'OFFICIAL_COPY_FAILED', book_id: registry.book_id,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: '公式snapshotのclient book複製に失敗', detail: String(err && err.message || err),
+      recommended_action: '権限を確認し、Admin Sidebarの「正式計画をClientへ再同期」を実行', source_ref: officialRow.official_id
+    });
+    Logger.log('Official client copy failed official=%s error=%s', officialRow.official_id, String(err && err.stack || err));
+    return false;
+  }
+}
+
+function vNextAdminAppendApprovedPlan_(hub, approval, officialId, approvedAt) {
+  const existingApproved = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === String(approval.book_id || '') &&
+      String(row.official_vintage_id || '') === String(officialId) && String(row.status || '') === 'APPROVED';
+  });
+  if (existingApproved.length) return existingApproved[existingApproved.length - 1];
+  const plans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === String(approval.book_id || '') &&
+      String(row.plan_version_id || '') === String(approval.plan_version_id || '');
+  });
+  if (!plans.length) throw new Error('Submitted PLAN_VERSION not found for approval.');
+  const source = plans[plans.length - 1];
+  const approved = Object.assign({}, source, {
+    plan_version_id: typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid(),
+    official_vintage_id: officialId,
+    status: 'APPROVED',
+    amends_plan_version_id: source.plan_version_id,
+    approved_at: (approvedAt || new Date()).toISOString(),
+    approved_by: vNextAdminActor_().toLowerCase(),
+    created_at: new Date().toISOString()
+  });
+  vNextAdminAppendCoreRowsNoLock_(hub, 'PLAN_VERSION', [approved]);
+  return approved;
+}
+
+function vNextAdminCopyOfficialToClient_(spreadsheetId, officialRow) {
+  if (!spreadsheetId) throw new Error('Client spreadsheet ID is missing.');
+  const client = SpreadsheetApp.openById(spreadsheetId);
+  const headers = VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.OFFICIAL];
+  vNextAdminEnsureTable_(client, VN_ADMIN_OFFICIAL_COPY_SHEET, headers);
+  const table = vNextAdminReadTable_(client, VN_ADMIN_OFFICIAL_COPY_SHEET);
+  const existing = table.rows.find(function (row) { return String(row.official_id) === String(officialRow.official_id); });
+  if (!existing) vNextAdminAppendObject_(client, VN_ADMIN_OFFICIAL_COPY_SHEET, officialRow, headers);
+  vNextAdminProtectInternalSheets_(client, [], [VN_ADMIN_OFFICIAL_COPY_SHEET]);
+}
+
+function vNextAdminSetClientState_(spreadsheetId, state, options) {
+  if (!spreadsheetId) return;
+  if (VN_ADMIN_CLIENT_STATES.indexOf(String(state)) < 0) throw new Error('Invalid CLIENT state: ' + state);
+  const opt = Object.assign({
+    reason: 'Admin Hub decision', actorEmail: vNextAdminActor_(), actorRole: 'ADMIN'
+  }, options || {});
+  const hub = opt.hub || vNextAdminRequireHub_();
+  const client = SpreadsheetApp.openById(String(spreadsheetId));
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const bookId = vNextAdminRequiredText_(routing.book_id, 'client.book_id');
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === bookId && String(row.spreadsheet_id || '') === String(spreadsheetId);
+  });
+  if (!registry) throw new Error('BOOK_REGISTRY does not match the Client state target: ' + bookId);
+  const targetState = String(state || '').toUpperCase();
+  const clientRows = vNextAdminReadCoreRows_(client, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const hubRows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const fromState = String(opt.fromState ||
+    (hubRows.length && hubRows[hubRows.length - 1].to_state) ||
+    (clientRows.length && clientRows[clientRows.length - 1].to_state) || routing.state || registry.state || 'INPUT_OPEN').toUpperCase();
+  const actorRole = String(opt.actorRole || 'ADMIN').toUpperCase();
+  if (fromState !== targetState && typeof vNextValidateTransition_ === 'function') {
+    vNextValidateTransition_(fromState, targetState, actorRole);
+  }
+
+  let record = null;
+  if (fromState === targetState) {
+    record = hubRows.length ? hubRows[hubRows.length - 1] : null;
+    if (record && String(record.to_state || '').toUpperCase() !== targetState) record = null;
+  } else {
+    record = {
+      state_event_id: typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid(),
+      book_id: bookId,
+      from_state: fromState,
+      to_state: targetState,
+      reason: String(opt.reason || ''),
+      actor_email: String(opt.actorEmail || vNextAdminActor_()).toLowerCase(),
+      actor_role: actorRole,
+      related_run_id: String(opt.relatedRunId || ''),
+      related_plan_version_id: String(opt.relatedPlanVersionId || ''),
+      created_at: new Date().toISOString()
+    };
+  }
+
+  if (record) {
+    const hubIds = new Set(hubRows.map(function (row) {
+      return String(row.state_event_id || '');
+    }));
+    // Hub is authoritative: persist the Admin-created event centrally before
+    // attempting the Client copy. A Client write failure can then be retried.
+    if (!hubIds.has(String(record.state_event_id || ''))) {
+      vNextAdminAppendCoreRowsNoLock_(hub, 'STATE_EVENT', [record]);
+    }
+    const clientIds = new Set(clientRows.map(function (row) { return String(row.state_event_id || ''); }));
+    if (!clientIds.has(String(record.state_event_id || ''))) {
+      vNextAdminAppendCoreRowsNoLock_(client, 'STATE_EVENT', [record]);
+    }
+  }
+  vNextAdminMirrorClientState_(client, targetState);
+  vNextAdminPatchRegistryByBookId_(hub, bookId, { state: targetState, updated_at: new Date() });
+  return {
+    changed: fromState !== targetState,
+    stateEventId: record && record.state_event_id || '',
+    fromState: fromState,
+    toState: targetState
+  };
+}
+
+function vNextAdminAppendStateEvent_(ss, state, options) {
+  const opt = options || {};
+  const routing = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (!String(routing.book_id || '').trim()) throw new Error('Client routing book_id is missing.');
+  const stateRows = vNextAdminReadCoreRows_(ss, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === String(routing.book_id || '');
+  });
+  const fromState = String(opt.fromState || (stateRows.length && stateRows[stateRows.length - 1].to_state) || routing.state || 'INPUT_OPEN').toUpperCase();
+  const targetState = String(state || '').toUpperCase();
+  if (fromState === targetState) return { changed: false, fromState: fromState, toState: targetState };
+  const actorRole = String(opt.actorRole || 'ADMIN').toUpperCase();
+  if (typeof vNextValidateTransition_ === 'function') vNextValidateTransition_(fromState, targetState, actorRole);
+  const record = {
+    state_event_id: typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid(),
+    book_id: routing.book_id,
+    from_state: fromState,
+    to_state: targetState,
+    reason: String(opt.reason || ''),
+    actor_email: String(opt.actorEmail || vNextAdminActor_()).toLowerCase(),
+    actor_role: actorRole,
+    related_run_id: String(opt.relatedRunId || ''),
+    related_plan_version_id: String(opt.relatedPlanVersionId || ''),
+    created_at: new Date().toISOString()
+  };
+  vNextAdminAppendCoreRowsNoLock_(ss, 'STATE_EVENT', [record]);
+  return { changed: true, stateEventId: record.state_event_id, fromState: fromState, toState: targetState };
+}
+
+function vNextAdminMirrorClientState_(ss, state) {
+  vNextAdminWriteBookConfig_(ss, { state: String(state || '').toUpperCase() });
+  return state;
+}
+
+function vNextAdminLatestClientState_(ss, bookId, fallback) {
+  const rows = vNextAdminReadCoreRows_(ss, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === String(bookId || '');
+  });
+  return String(rows.length ? rows[rows.length - 1].to_state : fallback || '').toUpperCase();
+}
+
+/**
+ * Two-tier store sync. Employees work only in their client-local Core store;
+ * an Admin-owned operation harvests client-scoped append-only records into Hub.
+ */
+function vNextAdminSyncClientToHub_(hub, client, bookId) {
+  return vNextAdminWithDocumentLock_('sync-client-to-hub', function () {
+    vNextAdminValidateClientBookMetaMirror_(hub, client, bookId);
+    const specs = vNextAdminCoreSyncSpecs_('CLIENT_TO_HUB');
+    const result = {};
+    specs.forEach(function (spec) {
+      const allSourceRows = vNextAdminReadCoreRows_(client, spec.sheet);
+      const foreign = allSourceRows.find(function (row) {
+        return String(row.book_id || '') && String(row.book_id || '') !== String(bookId);
+      });
+      if (foreign) {
+        throw new Error('Client-local ' + spec.sheet + ' contains a foreign book_id.');
+      }
+      let sourceRows = allSourceRows.filter(function (row) {
+        return !row.book_id || String(row.book_id) === String(bookId);
+      });
+      if (spec.sheet === 'EVIDENCE_EVENT') {
+        vNextAdminValidateClientEvidenceRows_(hub, bookId, sourceRows);
+      }
+      if (spec.sheet === 'PLAN_VERSION') {
+        sourceRows = sourceRows.filter(function (row) {
+          return String(row.status || '').toUpperCase() === 'SUBMITTED';
+        });
+        vNextAdminValidateClientPlanRows_(hub, bookId, sourceRows);
+      }
+      if (spec.sheet === 'STATE_EVENT') {
+        sourceRows = vNextAdminValidateClientStateRows_(hub, client, bookId, sourceRows);
+      }
+      result[spec.sheet] = vNextAdminAppendMissingCoreRows_(hub, spec.sheet, spec.id, sourceRows);
+    });
+    vNextAdminWriteAudit_(hub, 'SYNC_CLIENT_TO_HUB', 'BOOK', bookId, 'SUCCESS', result);
+    return result;
+  });
+}
+
+/**
+ * Client BOOK_META is a mirror, never an ingest source. Every row must already
+ * exist byte-for-byte in the Hub and the latest trusted row must still match
+ * BOOK_REGISTRY. Missing trusted rows are repaired Hub -> Client.
+ */
+function vNextAdminValidateClientBookMetaMirror_(hub, client, bookId) {
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(bookId) && String(row.mode || '') === 'CLIENT';
+  });
+  if (!registry) throw new Error('BOOK_REGISTRY entry is required to validate Client BOOK_META.');
+  const hubRows = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  if (!hubRows.length) throw new Error('Trusted Hub BOOK_META is missing for ' + bookId + '.');
+  const clientRows = vNextAdminReadCoreRows_(client, 'BOOK_META');
+  const hubById = new Map();
+  hubRows.forEach(function (row) {
+    hubById.set(String(row.record_id || ''), vNextAdminSha256_(vNextAdminCanonicalJson_(row)));
+  });
+  try {
+    clientRows.forEach(function (row) {
+      const id = String(row.record_id || '');
+      if (!id || String(row.book_id || '') !== String(bookId)) {
+        throw new Error('Client BOOK_META contains a blank ID or foreign book.');
+      }
+      if (!hubById.has(id)) throw new Error('Client BOOK_META contains a non-Hub record: ' + id);
+      const hash = vNextAdminSha256_(vNextAdminCanonicalJson_(row));
+      if (hash !== hubById.get(id)) throw new Error('Client BOOK_META differs from the Hub record: ' + id);
+    });
+    const latest = hubRows[hubRows.length - 1];
+    const owners = vNextAdminParseList_(registry.forecast_owner_emails).map(function (email) {
+      return String(email || '').toLowerCase();
+    });
+    if (owners.length !== 1 || String(latest.forecast_owner_email || '').toLowerCase() !== owners[0]) {
+      throw new Error('Trusted BOOK_META Forecast Owner does not match BOOK_REGISTRY.');
+    }
+    if (String(latest.book_id || '') !== String(bookId) ||
+        String(latest.client_id || '') !== String(registry.client_id || '') ||
+        String(latest.client_name || '') !== String(registry.client_name || '') ||
+        Number(latest.fiscal_year) !== Number(registry.fiscal_year) ||
+        String(latest.client_book_id || '') !== String(registry.spreadsheet_id || '') ||
+        String(latest.template_version || '') !== String(registry.template_release_id || '') ||
+        String(latest.schema_version || '') !== String(registry.schema_version || '') ||
+        String(latest.source_spreadsheet_id || '').trim()) {
+      throw new Error('Trusted BOOK_META identity/version fields do not match BOOK_REGISTRY.');
+    }
+    const modelReleaseId = String(latest.model_release_id || '');
+    const modelExists = vNextAdminReadCoreRows_(hub, 'MODEL_RELEASE').some(function (row) {
+      return String(row.model_release_id || '') === modelReleaseId &&
+        String(row.status || '').toUpperCase() === 'ACTIVE' &&
+        String(row.template_version || '') === String(registry.template_release_id || '') &&
+        String(row.schema_version || '') === String(registry.schema_version || '');
+    });
+    if (!modelReleaseId || !modelExists) {
+      throw new Error('Trusted BOOK_META model release was never ACTIVE with the exact Template Release in the Hub.');
+    }
+    vNextAdminAppendMissingCoreRows_(client, 'BOOK_META', 'record_id', hubRows);
+    return true;
+  } catch (err) {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'CLIENT_BOOK_META_REJECTED', book_id: bookId,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'Client BOOK_METAの整合性検証に失敗', detail: String(err && err.message || err),
+      recommended_action: 'Client内部sheetの直接編集を確認し、Hub正本から再同期', source_ref: bookId
+    });
+    throw err;
+  }
+}
+
+function vNextAdminValidateClientEvidenceRows_(hub, bookId, rows) {
+  if (!rows || !rows.length) return true;
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) { return String(row.book_id || '') === String(bookId); });
+  if (!registry) throw new Error('BOOK_REGISTRY entry is required to validate client evidence.');
+  const hubEvidence = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  const existingById = new Map(hubEvidence.map(function (row) {
+    return [String(row.evidence_id || ''), row];
+  }));
+  const team = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM).rows.filter(function (row) {
+    return String(row.book_id || '') === String(bookId) && String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.role || '').toUpperCase() !== 'VIEWER';
+  });
+  const activeActors = new Set(team.map(function (row) { return String(row.email || '').toLowerCase(); }));
+  const allowedTypes = new Set(['COMMITMENT', 'HUMAN_CHANGE', 'CHECK_IN', 'REVIEW_LEARNING']);
+  const bookMetaRows = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  let inputRoundStartedAt = -Infinity;
+  bookMetaRows.forEach(function (row) {
+    if (String(row.event_type || '').toUpperCase() !== 'INPUT_REOPENED') return;
+    inputRoundStartedAt = Math.max(inputRoundStartedAt,
+      vNextAdminStrictTimestampMs_(row.recorded_at, 'INPUT_REOPENED recorded_at'));
+  });
+  const latestInputByActor = new Map();
+  const latestReviewByActor = new Map();
+  hubEvidence.forEach(function (row) {
+    const actor = String(row.actor_email || '').toLowerCase();
+    const type = String(row.evidence_type || '').toUpperCase();
+    let timestamp = -Infinity;
+    try { timestamp = vNextAdminStrictTimestampMs_(row.created_at, 'Hub evidence created_at'); }
+    catch (ignoredHistoricTimestamp) { timestamp = -Infinity; }
+    if (type === 'REVIEW_LEARNING') latestReviewByActor.set(actor, row);
+    else if (['COMMITMENT', 'HUMAN_CHANGE', 'CHECK_IN'].indexOf(type) >= 0 && timestamp >= inputRoundStartedAt) {
+      latestInputByActor.set(actor, row);
+    }
+  });
+  const seenIds = new Set();
+  let previousNewTimestamp = -Infinity;
+  try {
+    (rows || []).forEach(function (row) {
+      const evidenceId = String(row.evidence_id || '');
+      if (!evidenceId || evidenceId.length > 200 || seenIds.has(evidenceId)) {
+        throw new Error('Client evidence contains a blank, oversized or duplicate evidence_id.');
+      }
+      seenIds.add(evidenceId);
+      if (existingById.has(evidenceId)) {
+        if (vNextAdminCanonicalJson_(existingById.get(evidenceId)) !== vNextAdminCanonicalJson_(row)) {
+          throw new Error('Client evidence differs from the already accepted Hub record: ' + evidenceId);
+        }
+        return;
+      }
+      const type = String(row.evidence_type || '').toUpperCase();
+      if (!allowedTypes.has(type)) throw new Error('evidence_type is not client-allowlisted: ' + type);
+      if (String(row.book_id || '') !== String(bookId) || String(row.client_id || '') !== String(registry.client_id || '') ||
+          Number(row.fiscal_year) !== Number(registry.fiscal_year)) throw new Error('evidence book/client/FY mismatch');
+      if (!activeActors.has(String(row.actor_email || '').toLowerCase())) throw new Error('evidence actor is not an active input team member');
+      ['ai_model', 'prompt_version', 'ai_schema_version', 'rule_version', 'applied_amount', 'evidence_quality'].forEach(function (key) {
+        if (String(row[key] || '').trim()) throw new Error('client evidence contains forbidden AI metadata: ' + key);
+      });
+      if (Number(row.cap_applied || 0) !== 0) throw new Error('client evidence contains forbidden cap_applied');
+      if (String(row.source_url || '').trim() || String(row.source_date || '').trim() || String(row.expires_at || '').trim()) {
+        throw new Error('client evidence contains forbidden source/expiry metadata');
+      }
+      const createdAt = vNextAdminStrictTimestampMs_(row.created_at, 'Client evidence created_at');
+      if (createdAt > Date.now() + 5 * 60000 || createdAt < previousNewTimestamp) {
+        throw new Error('Client evidence timestamp is future-dated or not append ordered.');
+      }
+      previousNewTimestamp = createdAt;
+      const response = String(row.response_type || '').toUpperCase();
+      if (['CHANGE', 'NO_CHANGE', 'UNKNOWN'].indexOf(response) < 0) throw new Error('invalid evidence response_type');
+      const actor = String(row.actor_email || '').toLowerCase();
+      const isReview = type === 'REVIEW_LEARNING';
+      const isChange = type === 'COMMITMENT' || type === 'HUMAN_CHANGE';
+      if (isReview) {
+        if (response !== 'UNKNOWN' || String(row.status || '').toUpperCase() !== 'ACTIVE' ||
+            String(row.target || '') !== 'FY_REVIEW' || ['NEUTRAL', ''].indexOf(String(row.direction || '').toUpperCase()) < 0) {
+          throw new Error('REVIEW_LEARNING record shape is invalid.');
+        }
+        vNextAdminValidateClientReviewEvidence_(hub, registry, row);
+      } else if (isChange) {
+        if (response !== 'CHANGE' || String(row.status || '').toUpperCase() !== 'SUBMITTED' ||
+            !String(row.target || '').trim() || String(row.target || '').length > 200 ||
+            ['UP', 'DOWN'].indexOf(String(row.direction || '').toUpperCase()) < 0 ||
+            ['CONFIRMED_FACT', 'LIKELY', 'HYPOTHESIS'].indexOf(String(row.confidence_class || '').toUpperCase()) < 0 ||
+            !String(row.evidence_text || '').trim() || String(row.evidence_text || '').length > 2000) {
+          throw new Error('Change evidence target/direction/confidence/text/status is incomplete.');
+        }
+        vNextAdminValidateClientEvidenceAmount_(row);
+        if (createdAt < inputRoundStartedAt) throw new Error('Change evidence predates the current input round.');
+      } else {
+        if (type !== 'CHECK_IN' || ['NO_CHANGE', 'UNKNOWN'].indexOf(response) < 0 ||
+            String(row.status || '').toUpperCase() !== 'SUBMITTED' ||
+            String(row.target || '').trim() || String(row.target_start_month || '').trim() ||
+            String(row.target_end_month || '').trim() ||
+            ['NEUTRAL', ''].indexOf(String(row.direction || '').toUpperCase()) < 0 ||
+            String(row.confidence_class || '').trim() || String(row.amount_band || '').trim() ||
+            [row.amount_low, row.amount_mid, row.amount_high].some(function (value) { return String(value || '').trim(); })) {
+          throw new Error('CHECK_IN record shape is invalid.');
+        }
+        if (createdAt < inputRoundStartedAt) throw new Error('CHECK_IN predates the current input round.');
+      }
+      ['target_start_month', 'target_end_month'].forEach(function (key) {
+        if (row[key] && !/^\d{4}-\d{2}$/.test(String(row[key]))) throw new Error('invalid evidence month: ' + key);
+      });
+      if (isChange) vNextAdminValidateEvidencePeriodInFiscalYear_(row, Number(registry.fiscal_year));
+      const lineageMap = isReview ? latestReviewByActor : latestInputByActor;
+      const predecessor = lineageMap.get(actor);
+      const suppliedPredecessor = String(row.supersedes_evidence_id || '');
+      const expectedPredecessor = String(predecessor && predecessor.evidence_id || '');
+      if (suppliedPredecessor !== expectedPredecessor) {
+        throw new Error('Client evidence supersedes lineage is stale or branched: ' + evidenceId);
+      }
+      lineageMap.set(actor, row);
+      existingById.set(evidenceId, row);
+    });
+  } catch (err) {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'CLIENT_EVIDENCE_REJECTED', book_id: bookId,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'client入力の整合性検証に失敗', detail: String(err && err.message || err),
+      recommended_action: '対象bookの監査ログと直接編集の有無を確認', source_ref: bookId
+    });
+    throw err;
+  }
+}
+
+function vNextAdminValidateClientEvidenceAmount_(row) {
+  const mode = String(row.amount_mode || '').toUpperCase();
+  const band = String(row.amount_band || '').toUpperCase();
+  const values = [row.amount_low, row.amount_mid, row.amount_high].map(function (value) {
+    return value === '' || value === null || value === undefined ? null : Number(value);
+  });
+  values.forEach(function (value) {
+    if (value !== null && (!isFinite(value) || value < 0 || value > 1e15)) {
+      throw new Error('Client evidence amount is outside the accepted non-negative range.');
+    }
+  });
+  if (mode === 'EXACT') {
+    if (values[1] === null || band) throw new Error('EXACT evidence requires amount_mid and no amount_band.');
+  } else if (mode === 'BAND') {
+    if (['SMALL', 'MEDIUM', 'LARGE'].indexOf(band) < 0 || values[0] === null || values[2] === null ||
+        values[0] > values[2]) throw new Error('BAND evidence range is invalid.');
+  } else {
+    throw new Error('Client evidence amount_mode must be EXACT or BAND.');
+  }
+  return true;
+}
+
+function vNextAdminValidateEvidencePeriodInFiscalYear_(row, fiscalYear) {
+  const start = String(row.target_start_month || '');
+  const end = String(row.target_end_month || '');
+  if (!/^\d{4}-\d{2}$/.test(start) || !/^\d{4}-\d{2}$/.test(end) || start > end) {
+    throw new Error('Change evidence period is missing or reversed.');
+  }
+  const first = String(fiscalYear) + '-04';
+  const last = String(fiscalYear + 1) + '-03';
+  if (start < first || end > last) throw new Error('Change evidence period is outside the target fiscal year.');
+  return true;
+}
+
+function vNextAdminValidateClientReviewEvidence_(hub, registry, row) {
+  const state = vNextAdminLatestClientState_(hub, registry.book_id, registry.state);
+  if (state !== 'REVIEW_DUE') throw new Error('REVIEW_LEARNING is accepted only while REVIEW_DUE.');
+  const payload = vNextAdminParseJson_(row.evidence_text, null);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      String(payload.bookId || '') !== String(registry.book_id || '') ||
+      Number(payload.fiscalYear) !== Number(registry.fiscal_year) ||
+      String(payload.officialVintageId || '') !== String(registry.current_official_id || '')) {
+    throw new Error('REVIEW_LEARNING book/FY/current-official linkage is invalid.');
+  }
+  const evaluations = vNextAdminReadCoreRows_(hub, 'EVALUATION').filter(function (item) {
+    return String(item.book_id || '') === String(registry.book_id || '') &&
+      String(item.official_vintage_id || '') === String(registry.current_official_id || '');
+  });
+  const currentEvaluation = evaluations.length ? evaluations[evaluations.length - 1] : null;
+  if (!currentEvaluation || String(payload.evaluationId || '') !== String(currentEvaluation.evaluation_id || '')) {
+    throw new Error('REVIEW_LEARNING evaluation linkage is invalid.');
+  }
+  if (!Array.isArray(payload.causeCategories) || payload.causeCategories.length < 1 || payload.causeCategories.length > 3 ||
+      !Array.isArray(payload.nextInformation) || payload.nextInformation.length < 1 || payload.nextInformation.length > 3 ||
+      (!String(payload.confirmedCause || '').trim() && !String(payload.causeHypothesis || '').trim())) {
+    throw new Error('REVIEW_LEARNING structured content is incomplete.');
+  }
+  const allowedCauseKeys = typeof VNEXT_UX_REVIEW_CAUSES_ !== 'undefined'
+    ? new Set(VNEXT_UX_REVIEW_CAUSES_.map(function (item) { return String(item.key || ''); }))
+    : new Set(['BASE_LEVEL', 'UNKNOWN_SPOT', 'COMMITMENT_OUTCOME', 'AMOUNT', 'HUMAN_INFO',
+      'AI_INFO', 'DATA_QUALITY', 'SEASONALITY', 'TIMING', 'OTHER']);
+  if (payload.causeCategories.some(function (key) { return !allowedCauseKeys.has(String(key || '')); }) ||
+      payload.nextInformation.some(function (item) { return !String(item || '').trim() || String(item).length > 300; }) ||
+      String(payload.confirmedCause || '').length > 1000 || String(payload.causeHypothesis || '').length > 1000) {
+    throw new Error('REVIEW_LEARNING contains an unsupported category or oversized text.');
+  }
+  if (String(row.evidence_text || '').length > 6000) throw new Error('REVIEW_LEARNING content is too large.');
+  return true;
+}
+
+/**
+ * Client plans are untrusted staging records. Validate their complete lineage
+ * and arithmetic against the Hub-owned forecast before accepting a new row.
+ */
+function vNextAdminValidateClientPlanRows_(hub, bookId, rows) {
+  if (!rows || !rows.length) return true;
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(bookId) && String(row.mode || '') === 'CLIENT';
+  });
+  if (!registry) throw new Error('BOOK_REGISTRY entry is required to validate client plans.');
+  const hubPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  const hubIds = new Set(hubPlans.map(function (row) { return String(row.plan_version_id || ''); }));
+  const seenIds = new Set();
+  let latestPlan = hubPlans.length ? hubPlans[hubPlans.length - 1] : null;
+  try {
+    (rows || []).forEach(function (plan) {
+      const planId = String(plan.plan_version_id || '');
+      if (!planId || seenIds.has(planId)) throw new Error('Client PLAN_VERSION contains a blank or duplicate ID.');
+      seenIds.add(planId);
+      if (hubIds.has(planId)) return;
+      if (String(plan.book_id || '') !== String(bookId) ||
+          String(plan.status || '').toUpperCase() !== 'SUBMITTED' ||
+          String(plan.official_vintage_id || '') || String(plan.approved_at || '') || String(plan.approved_by || '')) {
+        throw new Error('Only an unapproved SUBMITTED plan for this book may be ingested.');
+      }
+      const expectedVersion = latestPlan ? Number(latestPlan.version_no || 0) + 1 : 1;
+      const predecessorId = latestPlan ? String(latestPlan.plan_version_id || '') : '';
+      if (Number(plan.version_no) !== expectedVersion ||
+          String(plan.amends_plan_version_id || '') !== predecessorId) {
+        throw new Error('Client plan version/lineage is not the next append-only version.');
+      }
+      const submittedMs = vNextAdminStrictTimestampMs_(plan.submitted_at, 'plan.submitted_at');
+      const createdMs = vNextAdminStrictTimestampMs_(plan.created_at, 'plan.created_at');
+      if (Math.abs(createdMs - submittedMs) > 5 * 60000 || createdMs > Date.now() + 5 * 60000) {
+        throw new Error('Client plan timestamps are inconsistent or in the future.');
+      }
+      const forecast = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+        return String(row.book_id || '') === String(bookId) &&
+          String(row.run_id || '') === String(plan.run_id || '');
+      }).slice(-1)[0];
+      if (!forecast) throw new Error('Client plan does not reference a Hub-owned forecast run.');
+      vNextAdminValidateSubmittedPlan_(registry, forecast, plan);
+      latestPlan = plan;
+    });
+    return true;
+  } catch (err) {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'CLIENT_PLAN_REJECTED', book_id: bookId,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'Client計画版の整合性検証に失敗', detail: String(err && err.message || err),
+      recommended_action: '直接編集の有無を確認し、Hub正本から再同期', source_ref: bookId
+    });
+    throw err;
+  }
+}
+
+function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
+  if (!rows || !rows.length) return true;
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === String(bookId) && String(row.mode || '') === 'CLIENT';
+  });
+  if (!registry) throw new Error('BOOK_REGISTRY entry is required to validate Client state.');
+  const owners = vNextAdminParseList_(registry.forecast_owner_emails).map(function (email) {
+    return String(email || '').toLowerCase();
+  });
+  if (owners.length !== 1) throw new Error('Client state validation requires exactly one Forecast Owner.');
+  const owner = owners[0];
+  const hubRows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  const existingIds = new Set(hubRows.map(function (row) { return String(row.state_event_id || ''); }));
+  const seenIds = new Set();
+  const latestMeta = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  }).slice(-1)[0];
+  let currentState = String(
+    hubRows.length ? hubRows[hubRows.length - 1].to_state :
+      latestMeta && latestMeta.state || registry.state || 'INPUT_OPEN'
+  ).toUpperCase();
+  let lastTimestamp = hubRows.length
+    ? vNextAdminStrictTimestampMs_(hubRows[hubRows.length - 1].created_at, 'Hub STATE_EVENT.created_at')
+    : 0;
+  const acceptedRows = [];
+  try {
+    (rows || []).forEach(function (event) {
+      const eventId = String(event.state_event_id || '');
+      if (!eventId || seenIds.has(eventId)) throw new Error('Client STATE_EVENT contains a blank or duplicate ID.');
+      seenIds.add(eventId);
+      if (existingIds.has(eventId)) {
+        acceptedRows.push(event);
+        return;
+      }
+      if (String(event.book_id || '') !== String(bookId)) throw new Error('Client STATE_EVENT book_id mismatch.');
+      const fromState = String(event.from_state || '').toUpperCase();
+      const toState = String(event.to_state || '').toUpperCase();
+      const edge = fromState + '>' + toState;
+      if (fromState !== currentState) {
+        throw new Error('Client state chain is discontinuous. Hub=' + currentState + '; event=' + edge);
+      }
+      const timestamp = vNextAdminStrictTimestampMs_(event.created_at, 'Client STATE_EVENT.created_at');
+      if (timestamp < lastTimestamp || timestamp > Date.now() + 5 * 60000) {
+        throw new Error('Client STATE_EVENT timestamp is out of order or in the future.');
+      }
+      if (vNextAdminIsTrustedRejectedStateMarker_(hub, registry, event, edge)) {
+        // A rejected request and its Admin-created local correction are kept in
+        // the Client audit trail, but neither becomes part of the Hub state
+        // chain. Advancing the virtual state lets us validate the pair.
+        currentState = toState;
+        lastTimestamp = timestamp;
+        return;
+      }
+      vNextAdminValidateClientStateEventSemantics_(hub, client, registry, event, edge, owner, timestamp);
+      acceptedRows.push(event);
+      currentState = toState;
+      lastTimestamp = timestamp;
+    });
+    const authoritativeState = String(
+      hubRows.length ? hubRows[hubRows.length - 1].to_state :
+        latestMeta && latestMeta.state || registry.state || 'INPUT_OPEN'
+    ).toUpperCase();
+    if (!acceptedRows.some(function (row) { return !existingIds.has(String(row.state_event_id || '')); }) &&
+        currentState !== authoritativeState) {
+      throw new Error('Rejected Client state markers do not return to the authoritative Hub state.');
+    }
+    return acceptedRows;
+  } catch (err) {
+    vNextAdminAppendException_(hub, {
+      severity: 'ERROR', exception_type: 'CLIENT_STATE_REJECTED', book_id: bookId,
+      client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+      title: 'Client由来の状態変更を拒否', detail: String(err && err.message || err),
+      recommended_action: 'STATE_EVENTの直接編集と関連計画・依頼を確認', source_ref: bookId
+    });
+    throw err;
+  }
+}
+
+function vNextAdminIsTrustedRejectedStateMarker_(hub, registry, event, edge) {
+  if (edge !== 'READY_TO_RUN>RUNNING' && edge !== 'RUNNING>READY_TO_RUN') return false;
+  const eventId = String(event.state_event_id || '');
+  const rejected = vNextAdminReadTable_(hub, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.filter(function (row) {
+    return String(row.book_id || '') === String(registry.book_id || '') &&
+      String(row.status || '').toUpperCase() === 'REJECTED';
+  }).some(function (row) {
+    const detail = vNextAdminParseJson_(row.detail_json, {});
+    if (edge === 'READY_TO_RUN>RUNNING') return String(detail.stateEventId || '') === eventId;
+    return String(detail.recoveryStateEventId || '') === eventId &&
+      String(event.actor_role || '').toUpperCase() === 'ADMIN' &&
+      String(event.reason || '') === 'rejected_request_recovery:' + String(row.request_id || '');
+  });
+  return rejected;
+}
+
+function vNextAdminValidateClientStateEventSemantics_(hub, client, registry, event, edge, owner, eventTimestamp) {
+  const role = String(event.actor_role || '').toUpperCase();
+  const actor = String(event.actor_email || '').toLowerCase();
+  const reason = String(event.reason || '');
+  if (edge === 'INPUT_OPEN>READY_TO_RUN') {
+    const readiness = vNextAdminClientInputReadiness_(hub, registry);
+    if (role === 'SYSTEM' && reason === 'input_readiness_met' && readiness.ready) return true;
+    const dueMs = readiness.dueDate ? vNextAdminDateOnlyMs_(readiness.dueDate, 'input_due_date') : NaN;
+    const todayMs = vNextAdminDateOnlyMs_(new Date(), 'today');
+    if (role === 'FORECAST_OWNER' && actor === owner && /^deadline_override:\s*\S/.test(reason) &&
+        isFinite(dueMs) && dueMs < todayMs) return true;
+    throw new Error('INPUT_OPEN>READY_TO_RUN does not satisfy all-answered or deadline override rules.');
+  }
+  if (edge === 'READY_TO_RUN>RUNNING') {
+    const requestReason = /^forecast_requested:(REQ-[A-Za-z0-9-]{8,200})$/.exec(reason);
+    if (role !== 'FORECAST_OWNER' || actor !== owner || !requestReason) {
+      throw new Error('READY_TO_RUN>RUNNING must be the registered Forecast Owner forecast request.');
+    }
+    const request = vNextAdminLatestValidPendingRequest_(client, registry, owner, eventTimestamp, requestReason[1]);
+    if (!request) throw new Error('A matching valid pending forecast request was not found.');
+    return true;
+  }
+  if (edge === 'DRAFT_READY>SUBMITTED' || edge === 'CHANGES_REQUESTED>SUBMITTED') {
+    const expectedReason = edge === 'DRAFT_READY>SUBMITTED' ? 'plan_submitted' : 'revised_plan_submitted';
+    if (role !== 'FORECAST_OWNER' || actor !== owner || reason !== expectedReason) {
+      throw new Error(edge + ' must be a registered Forecast Owner plan submission.');
+    }
+    const planId = String(event.related_plan_version_id || '');
+    const runId = String(event.related_run_id || '');
+    const plan = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+      return String(row.book_id || '') === String(registry.book_id || '') &&
+        String(row.plan_version_id || '') === planId;
+    }).slice(-1)[0];
+    if (!plan || String(plan.status || '').toUpperCase() !== 'SUBMITTED' ||
+        String(plan.submitted_by || '').toLowerCase() !== owner ||
+        String(plan.run_id || '') !== runId) {
+      throw new Error('State event is not linked to the accepted submitted plan and forecast run.');
+    }
+    return true;
+  }
+  throw new Error('Client-origin state transition is not allowlisted: ' + edge);
+}
+
+function vNextAdminClientInputReadiness_(hub, registry) {
+  const bookId = String(registry.book_id || '');
+  const metas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const latestMeta = metas.length ? metas[metas.length - 1] : null;
+  if (!latestMeta) throw new Error('Trusted BOOK_META is required for readiness validation.');
+  let roundStartedMs = 0;
+  metas.forEach(function (row) {
+    if (String(row.event_type || '').toUpperCase() !== 'INPUT_REOPENED') return;
+    roundStartedMs = Math.max(roundStartedMs, vNextAdminStrictTimestampMs_(row.recorded_at, 'INPUT_REOPENED.recorded_at'));
+  });
+  const team = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM).rows.filter(function (row) {
+    return String(row.book_id || '') === bookId && String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.role || '').toUpperCase() !== 'VIEWER';
+  }).map(function (row) { return String(row.email || '').toLowerCase(); }).filter(Boolean);
+  const memberSet = new Set(team);
+  const latestByActor = {};
+  vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').forEach(function (row) {
+    const actor = String(row.actor_email || '').toLowerCase();
+    const type = String(row.evidence_type || '').toUpperCase();
+    if (String(row.book_id || '') !== bookId || !memberSet.has(actor) ||
+        ['COMMITMENT', 'HUMAN_CHANGE', 'CHECK_IN'].indexOf(type) < 0 ||
+        ['ACTIVE', 'SUBMITTED'].indexOf(String(row.status || 'ACTIVE').toUpperCase()) < 0) return;
+    const createdMs = vNextAdminStrictTimestampMs_(row.created_at, 'EVIDENCE_EVENT.created_at');
+    if (createdMs < roundStartedMs) return;
+    latestByActor[actor] = row;
+  });
+  const answered = Object.keys(latestByActor).length;
+  return {
+    ready: team.length > 0 && answered >= team.length,
+    answeredCount: answered,
+    totalCount: team.length,
+    dueDate: String(latestMeta.input_due_date || '')
+  };
+}
+
+function vNextAdminLatestValidPendingRequest_(client, registry, owner, eventTimestamp, expectedRequestId) {
+  const sheet = client.getSheetByName(VN_ADMIN_CLIENT_REQUEST_SHEET);
+  if (!sheet) return null;
+  const latest = {};
+  vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.forEach(function (row) {
+    const requestId = String(row.request_id || '');
+    if (requestId) latest[requestId] = row;
+  });
+  const candidates = Object.keys(latest).map(function (requestId) {
+    return latest[requestId];
+  }).filter(function (row) {
+    return String(row.request_id || '') === String(expectedRequestId || '') &&
+      String(row.event_type || '').toUpperCase() === 'REQUESTED' &&
+      ['PENDING', 'QUEUED'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+  }).map(function (row) {
+    return vNextAdminValidateClientRequestRow_(row, registry, owner);
+  }).filter(function (item) {
+    return item.requestedAtMs <= eventTimestamp + 5 * 60000 &&
+      item.requestedAtMs >= eventTimestamp - 5 * 60000;
+  }).sort(function (a, b) { return b.requestedAtMs - a.requestedAtMs; });
+  return candidates.length ? candidates[0] : null;
+}
+
+function vNextAdminStrictTimestampMs_(value, label) {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(String(value || ''));
+  if (isNaN(date.getTime())) throw new Error((label || 'timestamp') + ' is invalid.');
+  return date.getTime();
+}
+
+function vNextAdminDateOnlyMs_(value, label) {
+  const text = value instanceof Date
+    ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error((label || 'date') + ' is invalid.');
+  const parts = text.split('-').map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (date.getFullYear() !== parts[0] || date.getMonth() !== parts[1] - 1 || date.getDate() !== parts[2]) {
+    throw new Error((label || 'date') + ' is invalid.');
+  }
+  return date.getTime();
+}
+
+function vNextAdminSyncHubToClient_(hub, client, bookId, sheetNames) {
+  return vNextAdminWithDocumentLock_('sync-hub-to-client', function () {
+    const allowed = new Set(sheetNames || []);
+    const result = {};
+    vNextAdminCoreSyncSpecs_('HUB_TO_CLIENT').forEach(function (spec) {
+      if (allowed.size && !allowed.has(spec.sheet)) return;
+      let sourceRows = vNextAdminReadCoreRows_(hub, spec.sheet).filter(function (row) {
+        return !row.book_id || String(row.book_id) === String(bookId);
+      });
+      if (spec.sheet === 'FORECAST_RUN') sourceRows = vNextAdminSanitizeForecastRowsForClient_(sourceRows);
+      result[spec.sheet] = vNextAdminAppendMissingCoreRows_(client, spec.sheet, spec.id, sourceRows);
+    });
+    return result;
+  });
+}
+
+function vNextAdminCoreSyncSpecs_(direction) {
+  if (direction === 'CLIENT_TO_HUB') {
+    return [
+      { sheet: 'EVIDENCE_EVENT', id: 'evidence_id' },
+      { sheet: 'PLAN_VERSION', id: 'plan_version_id' },
+      { sheet: 'STATE_EVENT', id: 'state_event_id' }
+    ];
+  }
+  return [
+    { sheet: 'BOOK_META', id: 'record_id' },
+    { sheet: 'FORECAST_RUN', id: 'run_id' },
+    { sheet: 'PLAN_VERSION', id: 'plan_version_id' },
+    { sheet: 'STATE_EVENT', id: 'state_event_id' },
+    { sheet: 'EVALUATION', id: 'evaluation_id' }
+  ];
+}
+
+function vNextAdminSanitizeForecastRowsForClient_(rows) {
+  return (rows || []).map(function (row) {
+    const copy = Object.assign({}, row);
+    const lenses = vNextAdminParseJson_(row.lens_json, {});
+    const evidence = vNextAdminParseJson_(row.evidence_json, {});
+    copy.lens_json = vNextAdminCanonicalJson_({
+      publicDrivers: Array.isArray(lenses.publicDrivers) ? lenses.publicDrivers.slice(0, 5) :
+        (Array.isArray(lenses.drivers) ? lenses.drivers.slice(0, 5) : []),
+      nextInformation: Array.isArray(lenses.nextInformation) ? lenses.nextInformation.slice(0, 5) : [],
+      changeReasons: Array.isArray(lenses.changeReasons) ? lenses.changeReasons.slice(0, 5) : [],
+      degradation: lenses.degradation && lenses.degradation.aiUnavailable === true ? {
+        aiUnavailable: true, reason: String(lenses.degradation.reason || 'AI_RESEARCH_UNAVAILABLE'),
+        policy: 'AI_ZERO_AND_WIDER_INTERVAL'
+      } : null
+    });
+    copy.evidence_json = vNextAdminCanonicalJson_({
+      topAiEvidence: Array.isArray(evidence.topAiEvidence) ? evidence.topAiEvidence.slice(0, 5) : [],
+      commitment: Number(evidence.commitment || 0), objective: Number(evidence.objective || 0),
+      human: Number(evidence.human || 0), ai: Number(evidence.ai || 0),
+      responseCounts: evidence.responseCounts && typeof evidence.responseCounts === 'object' ? evidence.responseCounts : {},
+      missingResponseRate: Number(evidence.missingResponseRate || 0),
+      informationGapRate: Number(evidence.informationGapRate || 0),
+      aiUnavailable: evidence.aiUnavailable === true,
+      aiUnavailableReason: evidence.aiUnavailable === true ? String(evidence.aiUnavailableReason || '') : '',
+      noChange: Number(evidence.noChange || 0), unknown: Number(evidence.unknown || 0)
+    });
+    return copy;
+  });
+}
+
+function vNextAdminReadCoreRows_(ss, sheetName) {
+  if (typeof vNextReadRecords_ !== 'function') throw new Error('VNext_Core read API is not installed.');
+  return vNextReadRecords_(sheetName, { spreadsheet: ss });
+}
+
+function vNextAdminAppendMissingCoreRows_(target, sheetName, idField, sourceRows) {
+  const targetRows = vNextAdminReadCoreRows_(target, sheetName);
+  const byId = new Map();
+  targetRows.forEach(function (row) {
+    const id = String(row[idField] || '');
+    if (id) byId.set(id, vNextAdminSha256_(vNextAdminCanonicalJson_(row)));
+  });
+  const missing = [];
+  (sourceRows || []).forEach(function (row) {
+    const id = String(row[idField] || '');
+    if (!id) return;
+    const hash = vNextAdminSha256_(vNextAdminCanonicalJson_(row));
+    if (byId.has(id)) {
+      if (byId.get(id) !== hash) throw new Error('Append-only integrity mismatch ' + sheetName + ' id=' + id);
+      return;
+    }
+    byId.set(id, hash);
+    missing.push(row);
+  });
+  if (missing.length) vNextAdminAppendCoreRowsNoLock_(target, sheetName, missing);
+  return { examined: (sourceRows || []).length, appended: missing.length };
+}
+
+// ---------------------------- Hub views ----------------------------
+
+function vNextAdminRefreshTodayExceptions_(hub) {
+  const headers = VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.EXCEPTIONS];
+  const sheet = vNextAdminEnsureTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS, headers);
+  // Health/job/approval exceptions are computed views and can be rebuilt. All
+  // other OPEN rows are persistent issue events (for example a failed official
+  // copy) and must survive a refresh until an explicit resolution flow exists.
+  const computedTypes = new Set(['BOOK_HEALTH', 'JOB_FAILED', 'APPROVAL_PENDING', 'JOB_QUEUE_STALE', 'SCHEDULER_STALE']);
+  const exceptions = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS).rows.filter(function (row) {
+    return String(row.status || 'OPEN').toUpperCase() === 'OPEN' &&
+      !computedTypes.has(String(row.exception_type || '').toUpperCase());
+  }).map(function (row) {
+    const copy = {};
+    headers.forEach(function (key) { copy[key] = row[key] === undefined ? '' : row[key]; });
+    return copy;
+  });
+  const registry = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
+  registry.forEach(function (row) {
+    const health = String(row.health_status || '');
+    if (health === 'ERROR' || health === 'WARN' || health === 'PENDING') {
+      exceptions.push(vNextAdminExceptionObject_({
+        severity: health === 'ERROR' ? 'ERROR' : 'WARN', exception_type: 'BOOK_HEALTH',
+        book_id: row.book_id, client_name: row.client_name, fiscal_year: row.fiscal_year,
+        title: 'Book health: ' + (row.health_code || health),
+        detail: 'health_status=' + health + ', code=' + String(row.health_code || ''),
+        recommended_action: health === 'PENDING' ? 'Job Queueのhealth scanを実行' : 'BOOK_REGISTRYと対象bookを確認',
+        source_ref: row.spreadsheet_url
+      }));
+    }
+  });
+  const jobs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows;
+  jobs.filter(function (row) { return String(row.status) === 'FAILED'; }).slice(-100).forEach(function (row) {
+    exceptions.push(vNextAdminExceptionObject_({
+      severity: 'ERROR', exception_type: 'JOB_FAILED', book_id: row.target_book_id,
+      title: 'Job failed: ' + row.job_type, detail: row.error,
+      recommended_action: '原因を確認し、新しいidempotency keyで再投入', source_ref: row.job_id
+    }));
+  });
+  const operations = vNextAdminOperationalMetrics_(hub, vNextAdminAutomationInstalled_());
+  if (operations.queueStale) {
+    exceptions.push(vNextAdminExceptionObject_({
+      severity: 'WARN', exception_type: 'JOB_QUEUE_STALE',
+      title: '処理待ちjobが15分以上滞留',
+      detail: '最長待機=' + operations.oldestQueuedAgeMinutes + '分 / 滞留=' + operations.staleQueued + '件',
+      recommended_action: '自動運用の最終成功時刻とJOB_QUEUEを確認', source_ref: 'JOB_QUEUE'
+    }));
+  }
+  if (operations.schedulerStale) {
+    exceptions.push(vNextAdminExceptionObject_({
+      severity: 'ERROR', exception_type: 'SCHEDULER_STALE',
+      title: '自動運用の成功記録が15分以上ありません',
+      detail: operations.lastSweepAgeMinutes === null ? '成功記録なし' : '最終成功から' + operations.lastSweepAgeMinutes + '分',
+      recommended_action: 'Apps Scriptのtrigger/実行ログを確認し、手動でhealth scanとjob処理を実行', source_ref: VN_ADMIN_SCHEDULED_HANDLER
+    }));
+  }
+  const approvals = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows;
+  approvals.filter(function (row) { return String(row.status) === 'PENDING'; }).forEach(function (row) {
+    exceptions.push(vNextAdminExceptionObject_({
+      severity: 'INFO', exception_type: 'APPROVAL_PENDING', book_id: row.book_id,
+      client_name: row.client_name, fiscal_year: row.fiscal_year,
+      title: '計画承認待ち', detail: row.request_type + ' / run=' + row.forecast_run_id,
+      recommended_action: 'PLAN_APPROVALSで承認・差戻し・却下', source_ref: row.approval_request_id
+    }));
+  });
+
+  const uniqueById = new Map();
+  exceptions.forEach(function (obj) { uniqueById.set(String(obj.exception_id || ''), obj); });
+  const unique = Array.from(uniqueById.values());
+  if (sheet.getMaxRows() > 1) sheet.getRange(2, 1, sheet.getMaxRows() - 1, headers.length).clearContent();
+  if (unique.length) {
+    const values = unique.map(function (obj) { return headers.map(function (key) { return obj[key] === undefined ? '' : obj[key]; }); });
+    if (sheet.getMaxRows() < values.length + 1) sheet.insertRowsAfter(sheet.getMaxRows(), values.length + 1 - sheet.getMaxRows());
+    sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+  }
+  return { openExceptions: unique.length };
+}
+
+function vNextAdminResolveOpenExceptions_(hub, bookId, types, sourceRef) {
+  const allowedTypes = new Set((types || []).map(function (value) { return String(value || '').toUpperCase(); }));
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS);
+  let resolved = 0;
+  table.rows.forEach(function (row) {
+    if (String(row.status || 'OPEN').toUpperCase() !== 'OPEN' ||
+        String(row.book_id || '') !== String(bookId || '') ||
+        (allowedTypes.size && !allowedTypes.has(String(row.exception_type || '').toUpperCase())) ||
+        (sourceRef && String(row.source_ref || '') && String(row.source_ref || '') !== String(sourceRef))) return;
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.EXCEPTIONS, row._rowNumber, { status: 'RESOLVED' });
+    resolved++;
+  });
+  return resolved;
+}
+
+function vNextAdminRefreshHome_(hub) {
+  const sheet = vNextAdminGetOrCreateSheet_(hub, VN_ADMIN_SHEETS.HOME);
+  sheet.clear();
+  const clientCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.REGISTRY, 'mode', 'CLIENT');
+  const exceptionCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.EXCEPTIONS, 'status', 'OPEN');
+  const queuedCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.JOBS, 'status', 'QUEUED');
+  const approvalCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.APPROVALS, 'status', 'PENDING');
+  const operations = vNextAdminOperationalMetrics_(hub, vNextAdminAutomationInstalled_());
+  const pilot = vNextAdminPilotStatus_(hub);
+  const rows = [
+    ['Forecast vNext Admin Hub', ''],
+    ['更新日時', new Date()],
+    ['登録client book', clientCount],
+    ['今日の例外', exceptionCount],
+    ['処理待ちjob', queuedCount],
+    ['承認待ちplan', approvalCount],
+    ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊（' + pilot.phase + '）'],
+    ['最長job待機', operations.oldestQueuedAgeMinutes + '分'],
+    ['自動運用最終成功', operations.lastSweepSucceededAt || '未実行'],
+    ['', ''],
+    ['通常運用', 'サイドバーまたはAdminメニューから、例外確認 → health scan → job処理 → plan承認を実行します。'],
+    ['不変条件', 'OFFICIAL_RUNSはappend-only。訂正はamendmentとして新しいofficial recordを発行します。']
+  ];
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#d9ead3');
+  sheet.getRange(2, 2).setNumberFormat('yyyy/MM/dd HH:mm');
+  sheet.setColumnWidth(1, 190);
+  sheet.setColumnWidth(2, 620);
+  sheet.setFrozenRows(1);
+}
+
+function vNextAdminAppendException_(hub, input) {
+  const obj = vNextAdminExceptionObject_(input || {});
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.EXCEPTIONS, obj);
+  return obj;
+}
+
+function vNextAdminExceptionObject_(input) {
+  const detected = input.detected_at || new Date();
+  const identity = [input.exception_type || '', input.book_id || '', input.source_ref || '', input.title || ''].join('|');
+  return {
+    exception_id: 'EX-' + vNextAdminSha256_(identity).slice(0, 16),
+    severity: input.severity || 'WARN', exception_type: input.exception_type || 'GENERAL',
+    book_id: input.book_id || '', client_name: input.client_name || '', fiscal_year: input.fiscal_year || '',
+    title: input.title || '', detail: input.detail || '', recommended_action: input.recommended_action || '',
+    status: 'OPEN', detected_at: detected, source_ref: input.source_ref || ''
+  };
+}
+
+// ---------------------------- Registry / release ----------------------------
+
+function vNextAdminRegisterBook_(hub, object) {
+  return vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.REGISTRY, 'book_id', object.book_id, object);
+}
+
+function vNextAdminClientSchemaVersion_() {
+  return typeof VNEXT_CORE !== 'undefined' ? String(VNEXT_CORE.SCHEMA_VERSION) : 'vnext-schema-2';
+}
+
+function vNextAdminRegisterTeam_(hub, bookId, clientId, fiscalYear, owners, editors, viewers, status) {
+  const now = new Date();
+  const actor = vNextAdminActor_();
+  const memberStatus = String(status || 'ACTIVE').toUpperCase();
+  const ownerSet = new Set(vNextAdminMergeEmails_(owners));
+  const editorSet = new Set(vNextAdminMergeEmails_(editors));
+  const viewerSet = new Set(vNextAdminMergeEmails_(viewers));
+  const all = vNextAdminMergeEmails_(owners, editors, viewers);
+  all.forEach(function (email) {
+    let role = 'VIEWER';
+    if (editorSet.has(email)) role = 'MEMBER';
+    if (ownerSet.has(email)) role = 'FORECAST_OWNER';
+    const key = String(bookId) + '|' + email;
+    vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.TEAM, 'team_key', key, {
+      team_key: key, book_id: bookId, client_id: clientId, fiscal_year: fiscalYear,
+      email: email, role: role, status: memberStatus, created_at: now, created_by: actor,
+      updated_at: now, note: viewerSet.has(email) && role !== 'VIEWER' ? 'viewer permission also present' : ''
+    });
+  });
+  return { members: all.length, forecastOwners: ownerSet.size };
+}
+
+function vNextAdminSetTeamStatus_(hub, bookId, status) {
+  const normalized = vNextAdminRequiredText_(status, 'teamStatus').toUpperCase();
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM);
+  let updated = 0;
+  table.rows.forEach(function (row) {
+    if (String(row.book_id || '') !== String(bookId || '')) return;
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.TEAM, row._rowNumber, {
+      status: normalized, updated_at: new Date()
+    });
+    updated++;
+  });
+  return updated;
+}
+
+function vNextAdminRegisterRelease_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const releaseId = vNextAdminRequiredText_(req.release_id || req.releaseId, 'releaseId');
+  const now = new Date();
+  const object = {
+    release_id: releaseId,
+    release_name: vNextAdminText_(req.release_name || req.releaseName) || releaseId,
+    status: String(req.status || 'DRAFT').toUpperCase(),
+    template_spreadsheet_id: vNextAdminText_(req.template_spreadsheet_id || req.templateSpreadsheetId),
+    schema_version: vNextAdminText_(req.schema_version || req.schemaVersion) || vNextAdminClientSchemaVersion_(),
+    engine_version: vNextAdminText_(req.engine_version || req.engineVersion),
+    ux_version: vNextAdminText_(req.ux_version || req.uxVersion),
+    admin_version: vNextAdminText_(req.admin_version || req.adminVersion) || VN_ADMIN_SCHEMA_VERSION,
+    client_runtime_version: vNextAdminText_(req.client_runtime_version || req.clientRuntimeVersion),
+    client_runtime_sha256: vNextAdminText_(req.client_runtime_sha256 || req.clientRuntimeSha256),
+    template_content_sha256: vNextAdminText_(req.template_content_sha256 || req.templateContentSha256),
+    template_manifest_schema: vNextAdminText_(req.template_manifest_schema || req.templateManifestSchema),
+    template_script_id: vNextAdminText_(req.template_script_id || req.templateScriptId),
+    created_at: req.created_at || now, created_by: req.created_by || vNextAdminActor_(),
+    activated_at: req.activated_at || (String(req.status || '').toUpperCase() === 'ACTIVE' ? now : ''),
+    note: vNextAdminText_(req.note)
+  };
+  const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+    return String(row.release_id || '') === releaseId;
+  });
+  if (existing) {
+    const immutableKeys = [
+      'release_name', 'template_spreadsheet_id', 'schema_version', 'engine_version',
+      'ux_version', 'admin_version', 'client_runtime_version',
+      'client_runtime_sha256', 'template_content_sha256', 'template_manifest_schema',
+      'template_script_id', 'created_by'
+    ];
+    const differs = immutableKeys.some(function (key) {
+      return String(existing[key] || '') !== String(object[key] || '');
+    });
+    if (differs) throw new Error('Release ID already exists with different immutable fields: ' + releaseId);
+    return existing;
+  }
+  return vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.RELEASES, object);
+}
+
+function vNextAdminResolveRelease_(hub, releaseId) {
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES);
+  const explicitId = String(releaseId || '').trim();
+  if (explicitId) {
+    const explicit = table.rows.find(function (item) { return String(item.release_id || '') === explicitId; });
+    if (!explicit) throw new Error('Requested release is not registered: ' + explicitId);
+    if (String(explicit.status || '').toUpperCase() !== 'ACTIVE') {
+      throw new Error('Requested release is not ACTIVE: ' + explicitId);
+    }
+    return explicit;
+  }
+  const canonicalPair = vNextAdminReadActiveReleasePair_(hub);
+  const pointer = canonicalPair.releaseId;
+  if (pointer) {
+    const pointed = table.rows.find(function (item) { return String(item.release_id || '') === pointer; });
+    if (!pointed || String(pointed.status || '').toUpperCase() !== 'ACTIVE') {
+      throw new Error('Active Template Release pointer is missing or not ACTIVE: ' + pointer);
+    }
+    if (String(pointed.template_spreadsheet_id || '') !== canonicalPair.templateSpreadsheetId) {
+      throw new Error('Canonical active Template spreadsheet does not match RELEASES: ' + pointer);
+    }
+    return pointed;
+  }
+  const active = table.rows.filter(function (item) {
+    return String(item.status || '').toUpperCase() === 'ACTIVE';
+  });
+  if (active.length !== 1) {
+    throw new Error('Exactly one ACTIVE template release is required; found ' + active.length + '.');
+  }
+  return active[0];
+}
+
+function vNextAdminReadActiveReleasePair_(hub) {
+  const row = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.filter(function (item) {
+    return String(item.setting_key || '') === 'ACTIVE_RELEASE_PAIR_JSON';
+  }).slice(-1)[0];
+  if (!row) throw new Error('Canonical ACTIVE_RELEASE_PAIR_JSON is missing. Re-run the guarded release activation.');
+  const raw = String(row.setting_value || '');
+  const pair = vNextAdminParseJson_(raw, null);
+  if (!pair || Array.isArray(pair) || raw !== vNextAdminCanonicalJson_(pair) ||
+      !vNextAdminText_(pair.releaseId) || !vNextAdminText_(pair.modelReleaseId) ||
+      !vNextAdminText_(pair.templateSpreadsheetId)) {
+    throw new Error('Canonical ACTIVE_RELEASE_PAIR_JSON is malformed or non-canonical.');
+  }
+  return { releaseId: String(pair.releaseId), modelReleaseId: String(pair.modelReleaseId),
+    templateSpreadsheetId: String(pair.templateSpreadsheetId) };
+}
+
+function vNextAdminActiveReleasePairJson_(releaseId, modelReleaseId, templateSpreadsheetId) {
+  return vNextAdminCanonicalJson_({ releaseId: vNextAdminRequiredText_(releaseId, 'releaseId'),
+    modelReleaseId: vNextAdminRequiredText_(modelReleaseId, 'modelReleaseId'),
+    templateSpreadsheetId: vNextAdminRequiredText_(templateSpreadsheetId, 'templateSpreadsheetId') });
+}
+
+function vNextAdminWriteCanonicalReleasePair_(hub, releaseId, modelReleaseId, templateSpreadsheetId) {
+  const value = vNextAdminActiveReleasePairJson_(releaseId, modelReleaseId, templateSpreadsheetId);
+  vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'ACTIVE_RELEASE_PAIR_JSON', {
+    setting_key: 'ACTIVE_RELEASE_PAIR_JSON', setting_value: value, value_type: 'JSON', scope: 'GLOBAL',
+    effective_from: new Date(), updated_at: new Date(), updated_by: vNextAdminActor_(),
+    note: 'Canonical one-cell active Template/Model pair; all other pointers are caches'
+  });
+  const reread = vNextAdminReadActiveReleasePair_(hub);
+  if (vNextAdminActiveReleasePairJson_(reread.releaseId, reread.modelReleaseId, reread.templateSpreadsheetId) !== value) {
+    throw new Error('Canonical ACTIVE_RELEASE_PAIR_JSON reread verification failed.');
+  }
+  return reread;
+}
+
+function vNextAdminReadActiveReleasePairMirrors_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const settings = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows;
+  function setting(key) {
+    const row = settings.filter(function (item) { return String(item.setting_key || '') === key; }).slice(-1)[0];
+    return vNextAdminText_(row && row.setting_value);
+  }
+  const props = PropertiesService.getScriptProperties();
+  return {
+    settingReleaseId: setting('ACTIVE_TEMPLATE_RELEASE_ID'), settingModelReleaseId: setting('ACTIVE_MODEL_RELEASE_ID'),
+    configReleaseId: vNextAdminText_(config.active_release_id), configModelReleaseId: vNextAdminText_(config.active_model_release_id),
+    configTemplateSpreadsheetId: vNextAdminText_(config.template_spreadsheet_id),
+    propertyReleaseId: vNextAdminText_(props.getProperty('VNEXT_ACTIVE_RELEASE_ID')),
+    propertyModelReleaseId: vNextAdminText_(props.getProperty('VNEXT_ACTIVE_MODEL_RELEASE_ID')),
+    propertyTemplateSpreadsheetId: vNextAdminText_(props.getProperty('VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID'))
+  };
+}
+
+function vNextAdminActiveReleasePairMirrorsExact_(hub, release, model) {
+  const mirror = vNextAdminReadActiveReleasePairMirrors_(hub);
+  const releaseId = String(release.release_id || '');
+  const modelId = String(model.model_release_id || '');
+  const templateId = String(release.template_spreadsheet_id || '');
+  return mirror.settingReleaseId === releaseId && mirror.settingModelReleaseId === modelId &&
+    mirror.configReleaseId === releaseId && mirror.configModelReleaseId === modelId &&
+    mirror.configTemplateSpreadsheetId === templateId && mirror.propertyReleaseId === releaseId &&
+    mirror.propertyModelReleaseId === modelId && mirror.propertyTemplateSpreadsheetId === templateId;
+}
+
+function vNextAdminWriteActiveReleasePairCaches_(hub, release, model) {
+  const now = new Date();
+  vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'ACTIVE_TEMPLATE_RELEASE_ID', {
+    setting_key: 'ACTIVE_TEMPLATE_RELEASE_ID', setting_value: release.release_id, value_type: 'STRING', scope: 'GLOBAL',
+    effective_from: now, updated_at: now, updated_by: vNextAdminActor_(), note: 'Cache of ACTIVE_RELEASE_PAIR_JSON'
+  });
+  vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'ACTIVE_MODEL_RELEASE_ID', {
+    setting_key: 'ACTIVE_MODEL_RELEASE_ID', setting_value: model.model_release_id, value_type: 'STRING', scope: 'GLOBAL',
+    effective_from: now, updated_at: now, updated_by: vNextAdminActor_(), note: 'Cache of ACTIVE_RELEASE_PAIR_JSON'
+  });
+  vNextAdminWriteSystemConfig_(hub, { active_release_id: release.release_id,
+    active_model_release_id: model.model_release_id, template_spreadsheet_id: release.template_spreadsheet_id,
+    client_runtime_version: release.client_runtime_version, client_runtime_sha256: release.client_runtime_sha256,
+    template_script_id: release.template_script_id });
+  PropertiesService.getScriptProperties().setProperties({ VNEXT_ACTIVE_RELEASE_ID: String(release.release_id || ''),
+    VNEXT_ACTIVE_MODEL_RELEASE_ID: String(model.model_release_id || ''),
+    VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID: String(release.template_spreadsheet_id || '') }, false);
+  if (!vNextAdminActiveReleasePairMirrorsExact_(hub, release, model)) {
+    throw new Error('Active release pair cache reread verification failed.');
+  }
+  return true;
+}
+
+function vNextAdminClassifyActiveReleasePairCas_(current, target, expected, mirrorsExact) {
+  const targetExact = String(current.releaseId || '') === String(target.releaseId || '') &&
+    String(current.modelReleaseId || '') === String(target.modelReleaseId || '') &&
+    String(current.templateSpreadsheetId || '') === String(target.templateSpreadsheetId || '');
+  if (targetExact) return mirrorsExact === true ? 'REUSE' : 'REPAIR_CACHES';
+  if (String(current.releaseId || '') === String(expected.releaseId || '') &&
+      String(current.modelReleaseId || '') === String(expected.modelReleaseId || '')) return 'CAS';
+  return 'CONFLICT';
+}
+
+function vNextAdminWriteActiveReleasePairPointers_(hub, targetRelease, targetModel, expectedPair) {
+  const targetReleaseId = vNextAdminRequiredText_(targetRelease && targetRelease.release_id, 'targetRelease.release_id');
+  const targetModelId = vNextAdminRequiredText_(targetModel && targetModel.model_release_id, 'targetModel.model_release_id');
+  const targetTemplateId = vNextAdminRequiredText_(targetRelease && targetRelease.template_spreadsheet_id,
+    'targetRelease.template_spreadsheet_id');
+  let current;
+  try { current = vNextAdminReadActiveReleasePair_(hub); }
+  catch (missingCanonical) {
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    current = vNextAdminWriteCanonicalReleasePair_(hub, expectedPair.releaseId, expectedPair.modelReleaseId,
+      vNextAdminRequiredText_(config.template_spreadsheet_id, 'expected templateSpreadsheetId'));
+  }
+  const action = vNextAdminClassifyActiveReleasePairCas_(current, {
+    releaseId: targetReleaseId, modelReleaseId: targetModelId, templateSpreadsheetId: targetTemplateId
+  }, expectedPair, vNextAdminActiveReleasePairMirrorsExact_(hub, targetRelease, targetModel));
+  if (action === 'REUSE') {
+    return { reused: true, before: current };
+  }
+  if (action === 'CONFLICT') {
+    throw new Error('Release pair CAS failed. expected=' + expectedPair.releaseId + '/' +
+      expectedPair.modelReleaseId + '; actual=' + current.releaseId + '/' + current.modelReleaseId);
+  }
+  if (action === 'CAS') vNextAdminWriteCanonicalReleasePair_(hub, targetReleaseId, targetModelId, targetTemplateId);
+  vNextAdminWriteActiveReleasePairCaches_(hub, targetRelease, targetModel);
+  const verified = vNextAdminReadActiveReleasePair_(hub);
+  if (verified.releaseId !== targetReleaseId || verified.modelReleaseId !== targetModelId ||
+      verified.templateSpreadsheetId !== targetTemplateId ||
+      !vNextAdminActiveReleasePairMirrorsExact_(hub, targetRelease, targetModel)) {
+    throw new Error('Active release pair canonical/cache verification failed.');
+  }
+  return { reused: false, before: current };
+}
+
+function vNextAdminCacheActiveReleasePair_(hub, release, model) {
+  return vNextAdminWriteActiveReleasePairCaches_(hub, release, model);
+}
+
+function vNextAdminActivateReleasePairInternal_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const releaseId = vNextAdminRequiredText_(req.releaseId, 'releaseId');
+  const modelReleaseId = vNextAdminRequiredText_(req.modelReleaseId, 'modelReleaseId');
+  const reason = vNextAdminRequiredText_(req.reason, 'reason');
+  const releaseTable = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES);
+  const release = releaseTable.rows.find(function (row) { return String(row.release_id || '') === releaseId; });
+  if (!release || ['STAGED', 'ACTIVE'].indexOf(String(release.status || '').toUpperCase()) < 0) {
+    throw new Error('Template Release must be STAGED (or ACTIVE during recovery): ' + releaseId);
+  }
+  const template = SpreadsheetApp.openById(vNextAdminRequiredText_(release.template_spreadsheet_id,
+    'release.template_spreadsheet_id'));
+  vNextAdminAssertReleaseTemplateManifest_(release, template);
+  vNextAdminAssertPrivateAdminFile_(DriveApp.getFileById(template.getId()),
+    vNextAdminMergeEmails_(vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).admin_emails,
+      vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS, vNextAdminActor_()));
+  if (typeof vNextClientRuntimeAssertBoundParent_ !== 'function') {
+    throw new Error('Client runtime parent verifier is not installed.');
+  }
+  vNextClientRuntimeAssertBoundParent_(vNextAdminRequiredText_(release.template_script_id,
+    'release.template_script_id'), template.getId());
+  const modelSource = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+  if (!modelSource || ['DRAFT', 'ACTIVE'].indexOf(String(modelSource.status || '').toUpperCase()) < 0) {
+    throw new Error('Pair activation requires a DRAFT model candidate: ' + modelReleaseId);
+  }
+  vNextAdminAssertModelReleaseChecksPassed_(modelSource);
+  vNextAdminAssertModelTemplateCompatibility_(hub, modelSource, release);
+
+  let currentPair;
+  try { currentPair = vNextAdminReadActiveReleasePair_(hub); }
+  catch (missingCanonical) {
+    const legacyConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const legacyRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+      return String(row.release_id || '') === String(legacyConfig.active_release_id || '') &&
+        String(row.status || '').toUpperCase() === 'ACTIVE';
+    });
+    const legacyModel = vNextAdminLatestModelRelease_(hub, legacyConfig.active_model_release_id || '');
+    if (!legacyRelease || !legacyModel || String(legacyModel.status || '').toUpperCase() !== 'ACTIVE' ||
+        String(legacyRelease.template_spreadsheet_id || '') !== String(legacyConfig.template_spreadsheet_id || '')) {
+      throw missingCanonical;
+    }
+    vNextAdminAssertModelTemplateCompatibility_(hub, legacyModel, legacyRelease);
+    currentPair = vNextAdminWriteCanonicalReleasePair_(hub, legacyRelease.release_id,
+      legacyModel.model_release_id, legacyRelease.template_spreadsheet_id);
+    vNextAdminWriteActiveReleasePairCaches_(hub, legacyRelease, legacyModel);
+  }
+  const recoveryJournal = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEMPLATE_JOURNAL).rows.filter(function (row) {
+    return String(row.release_id || '') === releaseId && String(row.model_release_id || '') === modelReleaseId &&
+      String(row.phase || '') === 'PAIR_VALIDATED';
+  }).slice(-1)[0];
+  const expectedPair = {
+    releaseId: vNextAdminText_(req.expectedActiveReleaseId) ||
+      (recoveryJournal && String(recoveryJournal.previous_release_id || '')) || currentPair.releaseId,
+    modelReleaseId: vNextAdminText_(req.expectedActiveModelReleaseId) ||
+      (recoveryJournal && String(recoveryJournal.previous_model_release_id || '')) || currentPair.modelReleaseId
+  };
+  const operationId = vNextAdminText_(req.operationId) ||
+    (recoveryJournal && String(recoveryJournal.operation_id || '')) || ('PAIR-ACT-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+    releaseId: releaseId, modelReleaseId: modelReleaseId,
+    previousReleaseId: expectedPair.releaseId, previousModelReleaseId: expectedPair.modelReleaseId,
+    reason: reason
+  })).slice(0, 24).toUpperCase());
+  const operationBase = {
+    operationId: operationId, releaseId: releaseId, modelReleaseId: modelReleaseId,
+    previousReleaseId: expectedPair.releaseId, previousModelReleaseId: expectedPair.modelReleaseId,
+    templateSpreadsheetId: template.getId()
+  };
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'PAIR_VALIDATED', status: 'SUCCEEDED', detail: {
+      reason: reason, templateManifestSha256: release.template_content_sha256,
+      modelCandidateHash: vNextAdminModelCandidateHash_({ modelVersion: modelSource.model_version,
+        schemaVersion: modelSource.schema_version, templateVersion: modelSource.template_version,
+        parameters: vNextAdminParseJson_(modelSource.parameters_json, {}) })
+    }
+  }));
+
+  if (String(release.status || '').toUpperCase() !== 'ACTIVE') {
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.RELEASES, release._rowNumber, {
+      status: 'ACTIVE', activated_at: new Date(), note: reason
+    });
+    release.status = 'ACTIVE';
+    release.activated_at = new Date();
+  }
+  let activeModel = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+  if (String(activeModel.status || '').toUpperCase() === 'DRAFT') {
+    const activated = Object.assign({}, activeModel, {
+      status: 'ACTIVE', approved_at: new Date().toISOString(), approved_by: vNextAdminActor_().toLowerCase(),
+      rollback_release_id: '', created_at: new Date().toISOString(), created_by: vNextAdminActor_().toLowerCase(),
+      note: vNextAdminCanonicalJson_({ action: 'ACTIVATE_PAIR', operationId: operationId, reason: reason,
+        templateReleaseId: releaseId })
+    });
+    delete activated._rowNumber;
+    vNextAdminAppendCoreRowsNoLock_(hub, 'MODEL_RELEASE', [activated]);
+    activeModel = activated;
+  } else {
+    const activeNote = vNextAdminParseJson_(activeModel.note, {});
+    const alreadyPointed = currentPair.releaseId === releaseId && currentPair.modelReleaseId === modelReleaseId;
+    if (!alreadyPointed && (String(activeNote.action || '') !== 'ACTIVATE_PAIR' ||
+        String(activeNote.operationId || '') !== operationId)) {
+      throw new Error('The model candidate is already ACTIVE under a different operation.');
+    }
+  }
+  const templateRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.mode || '') === 'TEMPLATE' && String(row.spreadsheet_id || '') === String(template.getId());
+  });
+  if (!templateRegistry) throw new Error('STAGED Template BOOK_REGISTRY row is missing.');
+  vNextAdminPatchRegistryByBookId_(hub, templateRegistry.book_id, {
+    template_release_id: releaseId, schema_version: vNextAdminClientSchemaVersion_(),
+    state: 'TEMPLATE_READY', status: 'ACTIVE', health_status: 'OK', health_code: 'PAIR_ACTIVE',
+    updated_at: new Date()
+  });
+  vNextAdminWriteBookConfig_(template, { state: 'TEMPLATE_READY', template_kind: 'IMMUTABLE_ACTIVE',
+    updated_at: new Date(), updated_by: vNextAdminActor_() });
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'NEW_PAIR_ACTIVE', status: 'SUCCEEDED', detail: { reason: reason }
+  }));
+
+  vNextAdminWriteActiveReleasePairPointers_(hub, release, activeModel, expectedPair);
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'POINTER_CAS_COMMITTED', status: 'SUCCEEDED', detail: { expectedPair: expectedPair }
+  }));
+
+  vNextAdminCacheActiveReleasePair_(hub, release, activeModel);
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'PROPERTY_CACHE_UPDATED', status: 'SUCCEEDED', detail: {}
+  }));
+
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.forEach(function (row) {
+    if (String(row.release_id || '') === releaseId ||
+        String(row.release_id || '') !== String(expectedPair.releaseId || '') ||
+        String(row.status || '').toUpperCase() !== 'ACTIVE') return;
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.RELEASES, row._rowNumber, {
+      status: 'RETIRED', note: String(row.note || '')
+    });
+  });
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.forEach(function (row) {
+    if (String(row.mode || '') !== 'TEMPLATE' || String(row.book_id || '') === String(templateRegistry.book_id || '') ||
+        String(row.template_release_id || '') !== String(expectedPair.releaseId || '') ||
+        String(row.status || '').toUpperCase() !== 'ACTIVE') return;
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.REGISTRY, row._rowNumber, {
+      status: 'RETIRED', updated_at: new Date()
+    });
+  });
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'PREVIOUS_TEMPLATE_RETIRED', status: 'SUCCEEDED', detail: {}
+  }));
+  vNextAdminAppendTemplateJournal_(hub, Object.assign({}, operationBase, {
+    phase: 'COMPLETED', status: 'SUCCEEDED', detail: { reason: reason }
+  }));
+  vNextAdminWriteAudit_(hub, 'ACTIVATE_RELEASE_PAIR', 'RELEASE_PAIR', operationId, 'SUCCESS', {
+    releaseId: releaseId, modelReleaseId: modelReleaseId,
+    previousReleaseId: expectedPair.releaseId, previousModelReleaseId: expectedPair.modelReleaseId,
+    order: ['NEW_PAIR_ACTIVE', 'POINTER_CAS_COMMITTED', 'PROPERTY_CACHE_UPDATED', 'PREVIOUS_TEMPLATE_RETIRED'],
+    reason: reason
+  });
+  return { reused: currentPair.releaseId === releaseId && currentPair.modelReleaseId === modelReleaseId,
+    operationId: operationId, activeReleaseId: releaseId, activeModelReleaseId: modelReleaseId,
+    previousReleaseId: expectedPair.releaseId, previousModelReleaseId: expectedPair.modelReleaseId };
+}
+
+function vNextAdminAppendTemplateJournal_(hub, options) {
+  const opt = options || {};
+  const journalSheet = vNextAdminEnsureTable_(hub, VN_ADMIN_SHEETS.TEMPLATE_JOURNAL,
+    VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEMPLATE_JOURNAL]);
+  if (!journalSheet.isSheetHidden()) journalSheet.hideSheet();
+  const operationId = vNextAdminRequiredText_(opt.operationId, 'operationId');
+  const phase = vNextAdminRequiredText_(opt.phase, 'phase').toUpperCase();
+  const journalId = 'TPJ-' + vNextAdminSha256_(operationId + '|' + phase).slice(0, 28).toUpperCase();
+  const detailJson = vNextAdminCanonicalJson_(opt.detail || {});
+  const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEMPLATE_JOURNAL).rows.find(function (row) {
+    return String(row.journal_id || '') === journalId;
+  });
+  if (existing) {
+    if (String(existing.operation_id || '') !== operationId || String(existing.phase || '') !== phase ||
+        String(existing.release_id || '') !== String(opt.releaseId || '') ||
+        String(existing.model_release_id || '') !== String(opt.modelReleaseId || '') ||
+        String(existing.detail_json || '') !== detailJson) {
+      throw new Error('Template release journal idempotency conflict: ' + journalId);
+    }
+    return existing;
+  }
+  return vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.TEMPLATE_JOURNAL, {
+    journal_id: journalId, operation_id: operationId, release_id: opt.releaseId || '',
+    model_release_id: opt.modelReleaseId || '', previous_release_id: opt.previousReleaseId || '',
+    previous_model_release_id: opt.previousModelReleaseId || '',
+    template_spreadsheet_id: opt.templateSpreadsheetId || '', phase: phase,
+    status: String(opt.status || 'SUCCEEDED').toUpperCase(), detail_json: detailJson,
+    occurred_at: new Date(), actor: vNextAdminActor_()
+  });
+}
+
+function vNextAdminEnsureInitialModelRelease_(hub, options) {
+  const opt = options || {};
+  const modelReleaseId = vNextAdminRequiredText_(opt.modelReleaseId, 'modelReleaseId');
+  vNextAdminAssertModelReleaseIdSeparated_(hub, modelReleaseId);
+  const existing = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+  if (existing) {
+    if (String(existing.status || '').toUpperCase() !== 'ACTIVE') {
+      throw new Error('Initial modelReleaseId already exists but is not ACTIVE: ' + modelReleaseId);
+    }
+    vNextAdminSetActiveModelRelease_(hub, modelReleaseId);
+    return existing;
+  }
+  const schemaVersion = vNextAdminClientSchemaVersion_();
+  const modelVersion = vNextAdminRequiredText_(opt.modelVersion || (typeof VNEXT_ENGINE !== 'undefined' && VNEXT_ENGINE.VERSION), 'modelVersion');
+  if (typeof VNEXT_ENGINE === 'undefined' || modelVersion !== String(VNEXT_ENGINE.VERSION || '')) {
+    throw new Error('Initial MODEL_RELEASE must bind to the deployed Forecast Engine version.');
+  }
+  const parameters = vNextAdminNormalizeModelParameters_(opt.parameters || {});
+  const candidateHash = vNextAdminModelCandidateHash_({
+    modelVersion: modelVersion, schemaVersion: schemaVersion,
+    templateVersion: opt.templateVersion || '', parameters: parameters
+  });
+  const record = vNextAdminBuildModelReleaseRecord_({
+    modelReleaseId: modelReleaseId,
+    status: 'ACTIVE',
+    modelVersion: modelVersion,
+    schemaVersion: schemaVersion,
+    templateVersion: opt.templateVersion || '',
+    parameters: parameters,
+    backtest: { status: 'PASS', basis: 'INITIAL_BOOTSTRAP_BASELINE', candidateHash: candidateHash },
+    canary: { status: 'PASS', basis: 'INITIAL_BOOTSTRAP_BASELINE', candidateHash: candidateHash },
+    approvedAt: opt.now || new Date(),
+    approvedBy: opt.actor || vNextAdminActor_(),
+    note: 'Initial bootstrap model release. Future changes require DRAFT, backtest PASS, and canary PASS.',
+    actor: opt.actor || vNextAdminActor_(),
+    now: opt.now || new Date()
+  });
+  vNextAdminAppendCoreRowsNoLock_(hub, 'MODEL_RELEASE', [record]);
+  vNextAdminSetActiveModelRelease_(hub, modelReleaseId);
+  vNextAdminWriteAudit_(hub, 'BOOTSTRAP_MODEL_RELEASE', 'MODEL_RELEASE', modelReleaseId, 'SUCCESS', {
+    status: 'ACTIVE', modelVersion: record.model_version, templateVersion: record.template_version
+  });
+  return record;
+}
+
+function vNextAdminBuildModelReleaseRecord_(options) {
+  const opt = options || {};
+  const now = opt.now instanceof Date ? opt.now.toISOString() : String(opt.now || new Date().toISOString());
+  const actor = String(opt.actor || vNextAdminActor_()).toLowerCase();
+  return {
+    model_release_id: vNextAdminRequiredText_(opt.modelReleaseId, 'modelReleaseId'),
+    status: String(opt.status || 'DRAFT').toUpperCase(),
+    model_version: vNextAdminRequiredText_(opt.modelVersion, 'modelVersion'),
+    schema_version: vNextAdminText_(opt.schemaVersion) ||
+      (typeof VNEXT_CORE !== 'undefined' ? VNEXT_CORE.SCHEMA_VERSION : VN_ADMIN_SCHEMA_VERSION),
+    template_version: vNextAdminText_(opt.templateVersion),
+    parameters_json: vNextAdminCanonicalJson_(opt.parameters || {}),
+    backtest_json: vNextAdminCanonicalJson_(opt.backtest || {}),
+    canary_json: vNextAdminCanonicalJson_(opt.canary || {}),
+    approved_at: opt.approvedAt instanceof Date ? opt.approvedAt.toISOString() : vNextAdminText_(opt.approvedAt),
+    approved_by: String(opt.approvedBy || '').toLowerCase(),
+    rollback_release_id: vNextAdminText_(opt.rollbackReleaseId),
+    created_at: now,
+    created_by: actor,
+    note: vNextAdminText_(opt.note)
+  };
+}
+
+function vNextAdminModelReleaseRows_(hub, modelReleaseId) {
+  return vNextAdminReadCoreRows_(hub, 'MODEL_RELEASE').filter(function (row) {
+    return String(row.model_release_id || '') === String(modelReleaseId || '');
+  });
+}
+
+function vNextAdminLatestModelRelease_(hub, modelReleaseId) {
+  const rows = vNextAdminModelReleaseRows_(hub, modelReleaseId);
+  return rows.length ? rows[rows.length - 1] : null;
+}
+
+function vNextAdminLatestModelReleaseSummaries_(hub) {
+  const latest = {};
+  vNextAdminReadCoreRows_(hub, 'MODEL_RELEASE').forEach(function (row) {
+    if (row.model_release_id) latest[String(row.model_release_id)] = row;
+  });
+  return Object.keys(latest).sort().map(function (id) {
+    const row = latest[id];
+    return {
+      modelReleaseId: id, status: String(row.status || ''), modelVersion: String(row.model_version || ''),
+      templateVersion: String(row.template_version || ''), backtestPassed: vNextAdminModelCheckPassed_(row.backtest_json),
+      canaryPassed: vNextAdminModelCheckPassed_(row.canary_json), createdAt: row.created_at || '', note: String(row.note || '')
+    };
+  });
+}
+
+function vNextAdminTryResolveActiveModelRelease_(hub) {
+  try { return vNextAdminResolveActiveModelRelease_(hub); }
+  catch (error) { return null; }
+}
+
+function vNextAdminResolveActiveModelRelease_(hub, requestedId) {
+  const canonicalPair = vNextAdminReadActiveReleasePair_(hub);
+  const pointer = canonicalPair.modelReleaseId;
+  const requested = vNextAdminText_(requestedId);
+  if (requested && pointer && requested !== pointer) {
+    throw new Error('Provisioning may use only the active MODEL_RELEASE. active=' + pointer);
+  }
+  const id = requested || pointer;
+  if (!id) throw new Error('No active MODEL_RELEASE is configured.');
+  const row = vNextAdminLatestModelRelease_(hub, id);
+  if (!row || String(row.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('Active MODEL_RELEASE pointer is missing or not ACTIVE: ' + id);
+  }
+  vNextAdminAssertModelReleaseChecksPassed_(row);
+  vNextAdminAssertModelTemplateCompatibility_(hub, row);
+  return row;
+}
+
+function vNextAdminAssertModelTemplateCompatibility_(hub, modelRelease, templateRelease) {
+  const model = modelRelease || {};
+  let template = templateRelease;
+  if (!template) {
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    template = vNextAdminResolveRelease_(hub, config.active_release_id || '');
+  }
+  if (!String(template.release_id || '') ||
+      String(model.template_version || '') !== String(template.release_id || '') ||
+      String(model.schema_version || '') !== String(template.schema_version || '') ||
+      String(model.model_version || '') !== String(template.engine_version || '') ||
+      String(model.model_version || '') !== String(typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '')) {
+    throw new Error('MODEL_RELEASE.template_version must exactly equal Template release_id and match the deployed Engine/Core.');
+  }
+  return true;
+}
+
+function vNextAdminSetActiveModelRelease_(hub, modelReleaseId) {
+  const id = vNextAdminRequiredText_(modelReleaseId, 'modelReleaseId');
+  const model = vNextAdminLatestModelRelease_(hub, id);
+  if (!model || String(model.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('Active MODEL_RELEASE row is required before pointer update: ' + id);
+  }
+  const release = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+    return String(row.release_id || '') === String(model.template_version || '') &&
+      String(row.status || '').toUpperCase() === 'ACTIVE';
+  });
+  if (!release) throw new Error('MODEL_RELEASE has no matching ACTIVE Template Release: ' + id);
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  let current;
+  try { current = vNextAdminReadActiveReleasePair_(hub); }
+  catch (error) { current = { releaseId: String(config.active_release_id || release.release_id),
+    modelReleaseId: String(config.active_model_release_id || id) }; }
+  vNextAdminWriteActiveReleasePairPointers_(hub, release, model, current);
+  return id;
+}
+
+function vNextAdminAssertModelReleaseIdSeparated_(hub, modelReleaseId) {
+  const collision = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.some(function (row) {
+    return String(row.release_id || '') === String(modelReleaseId || '');
+  });
+  if (collision) throw new Error('Model Release ID must be different from every Template Release ID.');
+}
+
+function vNextAdminModelCheckPassed_(value) {
+  const parsed = vNextAdminParseJson_(value, value && typeof value === 'object' ? value : {});
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const result = String(parsed.status || parsed.result || parsed.outcome || '').trim().toUpperCase();
+  return result === 'PASS' || result === 'PASSED';
+}
+
+function vNextAdminAssertModelReleaseChecksPassed_(row) {
+  if (!row) throw new Error('MODEL_RELEASE is required.');
+  if (typeof VNEXT_ENGINE === 'undefined' || String(row.model_version || '') !== String(VNEXT_ENGINE.VERSION || '')) {
+    throw new Error('MODEL_RELEASE model_version does not match the deployed Forecast Engine.');
+  }
+  if (String(row.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+    throw new Error('MODEL_RELEASE schema_version does not match the deployed Core.');
+  }
+  const parameters = vNextAdminNormalizeModelParameters_(vNextAdminParseJson_(row.parameters_json, {}));
+  if (vNextAdminCanonicalJson_(parameters) !== String(row.parameters_json || '')) {
+    throw new Error('MODEL_RELEASE parameters_json is not canonical or contains unsupported parameters.');
+  }
+  const candidateHash = vNextAdminModelCandidateHash_({
+    modelVersion: row.model_version, schemaVersion: row.schema_version,
+    templateVersion: row.template_version, parameters: parameters
+  });
+  const backtest = vNextAdminParseJson_(row.backtest_json, {});
+  const canary = vNextAdminParseJson_(row.canary_json, {});
+  if (!vNextAdminModelCheckPassed_(row && row.backtest_json)) throw new Error('MODEL_RELEASE backtest result must be PASS.');
+  if (!vNextAdminModelCheckPassed_(row && row.canary_json)) throw new Error('MODEL_RELEASE canary result must be PASS.');
+  if (String(backtest.candidateHash || '') !== candidateHash || String(canary.candidateHash || '') !== candidateHash) {
+    throw new Error('MODEL_RELEASE backtest/canary artifacts are not bound to this candidate hash.');
+  }
+  return true;
+}
+
+function vNextAdminNormalizeModelParameters_(input) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const allowed = new Set(['simulationCount', 'referencePrior']);
+  const unknown = Object.keys(source).filter(function (key) { return !allowed.has(key); });
+  if (unknown.length) throw new Error('Unsupported MODEL_RELEASE parameters: ' + unknown.join(', '));
+  const output = {};
+  if (Object.prototype.hasOwnProperty.call(source, 'simulationCount')) {
+    const count = Number(source.simulationCount);
+    const min = typeof VNEXT_ENGINE !== 'undefined' ? Number(VNEXT_ENGINE.MIN_SIMULATIONS) : 200;
+    const max = typeof VNEXT_ENGINE !== 'undefined' ? Number(VNEXT_ENGINE.MAX_SIMULATIONS) : 10000;
+    if (!isFinite(count) || Math.floor(count) !== count || count < min || count > max) {
+      throw new Error('simulationCount must be an integer within the deployed Engine range.');
+    }
+    output.simulationCount = count;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'referencePrior')) {
+    const prior = source.referencePrior;
+    if (!prior || typeof prior !== 'object' || Array.isArray(prior)) throw new Error('referencePrior must be an object.');
+    const priorAllowed = new Set(['mode', 'reason', 'growthMean', 'growthStd', 'strength']);
+    const priorUnknown = Object.keys(prior).filter(function (key) { return !priorAllowed.has(key); });
+    if (priorUnknown.length) throw new Error('Unsupported referencePrior keys: ' + priorUnknown.join(', '));
+    if (String(prior.mode || '').toUpperCase() === 'DISABLED') {
+      output.referencePrior = {
+        mode: 'DISABLED', reason: vNextAdminText_(prior.reason) || 'DISABLED_BY_RELEASE', strength: 0
+      };
+    } else {
+      const growthMean = Number(prior.growthMean);
+      const growthStd = Number(prior.growthStd);
+      const strength = Number(prior.strength);
+      const minGrowth = typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.REFERENCE_MIN_GROWTH : -1;
+      const maxGrowth = typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.REFERENCE_MAX_GROWTH : 3;
+      const maxStd = typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.REFERENCE_MAX_GROWTH_STD : 2;
+      const maxStrength = typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.REFERENCE_MAX_STRENGTH : 0.35;
+      if (![growthMean, growthStd, strength].every(isFinite) || growthMean < minGrowth || growthMean > maxGrowth ||
+          growthStd < 0 || growthStd > maxStd || strength < 0 || strength > maxStrength) {
+        throw new Error('referencePrior growthMean/growthStd/strength is outside the deployed Engine range.');
+      }
+      output.referencePrior = { growthMean: growthMean, growthStd: growthStd, strength: strength };
+    }
+  }
+  return output;
+}
+
+function vNextAdminModelCandidateHash_(input) {
+  const value = input || {};
+  return vNextAdminSha256_(vNextAdminCanonicalJson_({
+    modelVersion: String(value.modelVersion || ''),
+    schemaVersion: String(value.schemaVersion || ''),
+    templateVersion: String(value.templateVersion || ''),
+    parameters: value.parameters || {}
+  }));
+}
+
+function vNextAdminBindModelCheck_(input, candidateHash, label) {
+  const check = Object.assign({}, input || {});
+  if (check.candidateHash && String(check.candidateHash) !== String(candidateHash)) {
+    throw new Error(String(label || 'model check') + ' candidateHash does not match the registered candidate.');
+  }
+  check.candidateHash = String(candidateHash);
+  return check;
+}
+
+function vNextAdminParseObjectPayload_(value, label) {
+  if (value === undefined || value === null || value === '') return {};
+  const parsed = typeof value === 'string' ? vNextAdminParseJson_(value, null) : value;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(String(label || 'value') + ' must be a JSON object.');
+  }
+  return parsed;
+}
+
+function vNextAdminFindRegistryRow_(hub, predicate) {
+  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.find(predicate) || null;
+}
+
+function vNextAdminPatchRegistryByBookId_(hub, bookId, patch) {
+  const row = vNextAdminFindRegistryRow_(hub, function (item) { return String(item.book_id) === String(bookId); });
+  if (!row) return false;
+  vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.REGISTRY, row._rowNumber, patch);
+  return true;
+}
+
+function vNextAdminFindApproval_(hub, predicate) {
+  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.find(predicate) || null;
+}
+
+function vNextAdminListPendingApprovals_(hub) {
+  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows
+    .filter(function (row) { return String(row.status) === 'PENDING'; })
+    .map(function (row) {
+      const snapshot = vNextAdminParseJson_(row.snapshot_json, {});
+      const forecast = snapshot.forecast || {};
+      const plan = snapshot.plan || {};
+      const amendment = snapshot.amendment || {};
+      return {
+        approvalRequestId: row.approval_request_id, requestType: row.request_type,
+        bookId: row.book_id, clientName: row.client_name, fiscalYear: row.fiscal_year,
+        forecastRunId: row.forecast_run_id, planVersionId: row.plan_version_id,
+        requestedAt: row.requested_at, requestedBy: row.requested_by,
+        amendmentReason: row.amendment_reason,
+        supersedesOfficialId: row.supersedes_official_id,
+        previousFinalBudget: Number(amendment.predecessorFinalBudget || 0),
+        systemRecommended: Number(plan.systemRecommended || (forecast.layers && forecast.layers.systemRecommended) || 0),
+        p10: Number(forecast.annual && forecast.annual.p10 || 0),
+        p90: Number(forecast.annual && forecast.annual.p90 || 0),
+        adoptedForecast: Number(plan.adoptedForecast || 0), salesUplift: Number(plan.salesUplift || 0),
+        finalBudget: Number(plan.finalBudget || 0), adoptionReason: String(plan.adoptionReason || ''),
+        upliftReason: String(plan.upliftReason || ''), upliftOwner: String(plan.upliftOwner || ''),
+        upliftAction: String(plan.upliftAction || ''), upliftDueDate: String(plan.upliftDueDate || '')
+      };
+    });
+}
+
+// ---------------------------- Sheet / metadata helpers ----------------------------
+
+function vNextAdminWriteBookConfig_(ss, values) {
+  const sheet = vNextAdminEnsureTable_(ss, VN_ADMIN_BOOK_CONFIG_SHEET, ['key', 'value', 'updated_at', 'updated_by', 'note']);
+  const now = new Date();
+  const actor = vNextAdminActor_();
+  Object.keys(values || {}).forEach(function (key) {
+    vNextAdminUpsertObject_(ss, VN_ADMIN_BOOK_CONFIG_SHEET, 'key', key, {
+      key: key, value: values[key], updated_at: now, updated_by: actor, note: ''
+    }, ['key', 'value', 'updated_at', 'updated_by', 'note']);
+  });
+  sheet.hideSheet();
+}
+
+function vNextAdminReplaceBookConfig_(ss, values) {
+  const existing = ss.getSheetByName(VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (existing) existing.clear();
+  return vNextAdminWriteBookConfig_(ss, values || {});
+}
+
+function vNextAdminEnsureCoreStore_(ss) {
+  if (typeof vNextEnsureAuditStore_ === 'function') return vNextEnsureAuditStore_(ss);
+  throw new Error('VNext_Core.js is required before Admin Hub initialization.');
+}
+
+function vNextAdminCreateClientCoreMeta_(ss, opt) {
+  const rows = typeof vNextReadRecords_ === 'function'
+    ? vNextReadRecords_('BOOK_META', { spreadsheet: ss })
+    : [];
+  const exists = rows.some(function (row) { return String(row.book_id || '') === String(opt.bookId); });
+  if (exists) return rows.filter(function (row) { return String(row.book_id || '') === String(opt.bookId); }).slice(-1)[0];
+  const owner = (opt.forecastOwnerEmails || [])[0] || '';
+  const team = vNextAdminMergeEmails_(opt.forecastOwnerEmails, opt.editors);
+  const record = {
+    record_id: typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid(),
+    book_id: opt.bookId,
+    client_id: opt.clientId,
+    client_name: opt.clientName,
+    fiscal_year: opt.fiscalYear,
+    forecast_owner_email: owner,
+    team_member_emails_json: typeof vNextCanonicalJson_ === 'function' ? vNextCanonicalJson_(team) : JSON.stringify(team),
+    state: 'INPUT_OPEN',
+    as_of: opt.asOf,
+    cutoff: opt.cutoff,
+    template_version: opt.releaseId,
+    schema_version: typeof VNEXT_CORE !== 'undefined' ? VNEXT_CORE.SCHEMA_VERSION : VN_ADMIN_SCHEMA_VERSION,
+    model_release_id: vNextAdminRequiredText_(opt.modelReleaseId, 'modelReleaseId'),
+    source_spreadsheet_id: '',
+    client_book_id: ss.getId(),
+    input_due_date: opt.inputDueDate || '',
+    event_type: 'CREATED',
+    supersedes_record_id: '',
+    recorded_at: new Date().toISOString(),
+    recorded_by: String(opt.actor || '').toLowerCase()
+  };
+  vNextAdminAppendCoreRowsNoLock_(ss, 'BOOK_META', [record]);
+  return record;
+}
+
+function vNextAdminAppendCoreRowsNoLock_(ss, sheetName, records) {
+  if (!records || !records.length) return { appended: 0 };
+  if (typeof VNEXT_CORE === 'undefined' || !VNEXT_CORE.INTERNAL_SHEETS[sheetName]) {
+    throw new Error('Unknown VNext_Core sheet: ' + sheetName);
+  }
+  const headers = VNEXT_CORE.INTERNAL_SHEETS[sheetName];
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Core store is not initialized: ' + sheetName);
+  if (typeof vNextEnsureAppendOnlyHeader_ === 'function') vNextEnsureAppendOnlyHeader_(sheet, headers);
+  const values = records.map(function (record) {
+    return headers.map(function (key) {
+      const value = record[key];
+      if (value === null || value === undefined) return '';
+      if (value instanceof Date) return value.toISOString();
+      if (typeof value === 'object') return typeof vNextCanonicalJson_ === 'function' ? vNextCanonicalJson_(value) : JSON.stringify(value);
+      return value;
+    });
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  return { appended: values.length };
+}
+
+function vNextAdminWriteSystemConfig_(ss, values) {
+  const sheet = vNextAdminEnsureTable_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET, ['key', 'value', 'updated_at']);
+  Object.keys(values || {}).forEach(function (key) {
+    vNextAdminUpsertObject_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET, 'key', key, {
+      key: key, value: values[key], updated_at: new Date()
+    }, ['key', 'value', 'updated_at']);
+  });
+  sheet.hideSheet();
+}
+
+function vNextAdminReplaceSystemConfig_(ss, values) {
+  const existing = ss.getSheetByName(VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  if (existing) existing.clear();
+  return vNextAdminWriteSystemConfig_(ss, values || {});
+}
+
+function vNextAdminReadKeyValueSheet_(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  const values = sheet.getDataRange().getValues();
+  const header = values[0].map(function (v) { return String(v || '').trim(); });
+  const keyIdx = header.indexOf('key');
+  const valueIdx = header.indexOf('value');
+  if (keyIdx < 0 || valueIdx < 0) return {};
+  const out = {};
+  values.slice(1).forEach(function (row) {
+    const key = String(row[keyIdx] || '').trim();
+    if (key) out[key] = row[valueIdx];
+  });
+  return out;
+}
+
+function vNextAdminEnsureTable_(ss, name, headers) {
+  const sheet = vNextAdminGetOrCreateSheet_(ss, name);
+  const required = headers || [];
+  if (sheet.getMaxColumns() < required.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), required.length - sheet.getMaxColumns());
+  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1 || !String(sheet.getRange(1, 1).getValue() || '').trim()) {
+    sheet.getRange(1, 1, 1, required.length).setValues([required]);
+  } else {
+    const existing = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0].map(function (v) { return String(v || '').trim(); });
+    const missing = required.filter(function (key) { return existing.indexOf(key) < 0; });
+    if (missing.length) {
+      const start = existing.length + 1;
+      if (sheet.getMaxColumns() < start + missing.length - 1) sheet.insertColumnsAfter(sheet.getMaxColumns(), start + missing.length - 1 - sheet.getMaxColumns());
+      sheet.getRange(1, start, 1, missing.length).setValues([missing]);
+    }
+  }
+  sheet.getRange(1, 1, 1, Math.max(required.length, sheet.getLastColumn())).setFontWeight('bold').setBackground('#eeeeee');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function vNextAdminReadTable_(ss, name) {
+  const sheet = ss.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() < 1) return { headers: [], rows: [], sheet: sheet };
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map(function (value) { return String(value || '').trim(); });
+  const rows = values.slice(1).map(function (valuesRow, index) {
+    const obj = { _rowNumber: index + 2 };
+    headers.forEach(function (key, col) { if (key) obj[key] = valuesRow[col]; });
+    return obj;
+  }).filter(function (obj) {
+    return headers.some(function (key) { return key && obj[key] !== '' && obj[key] !== null && obj[key] !== undefined; });
+  });
+  return { headers: headers, rows: rows, sheet: sheet };
+}
+
+function vNextAdminAppendObject_(ss, name, object, explicitHeaders) {
+  const headers = explicitHeaders || VN_ADMIN_HEADERS[name] || Object.keys(object || {});
+  const sheet = vNextAdminEnsureTable_(ss, name, headers);
+  const actualHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function (v) { return String(v || '').trim(); });
+  const row = actualHeaders.map(function (key) { return key && object[key] !== undefined ? object[key] : ''; });
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  return object;
+}
+
+function vNextAdminUpsertObject_(ss, name, keyField, keyValue, object, explicitHeaders) {
+  const headers = explicitHeaders || VN_ADMIN_HEADERS[name] || Object.keys(object || {});
+  vNextAdminEnsureTable_(ss, name, headers);
+  const table = vNextAdminReadTable_(ss, name);
+  const existing = table.rows.find(function (row) { return String(row[keyField]) === String(keyValue); });
+  if (!existing) return vNextAdminAppendObject_(ss, name, object, headers);
+  vNextAdminUpdateTableRow_(ss, name, existing._rowNumber, object);
+  return Object.assign({}, existing, object);
+}
+
+function vNextAdminUpdateTableRow_(ss, name, rowNumber, patch) {
+  const table = vNextAdminReadTable_(ss, name);
+  if (!table.sheet || rowNumber < 2) throw new Error('Invalid table row update: ' + name + ' row=' + rowNumber);
+  const range = table.sheet.getRange(rowNumber, 1, 1, table.headers.length);
+  const values = range.getValues()[0];
+  table.headers.forEach(function (key, col) {
+    if (key && Object.prototype.hasOwnProperty.call(patch, key)) values[col] = patch[key];
+  });
+  range.setValues([values]);
+}
+
+function vNextAdminGetOrCreateSheet_(ss, name) {
+  return ss.getSheetByName(name) || ss.insertSheet(name);
+}
+
+function vNextAdminCountRowsBy_(ss, sheetName, key, expected) {
+  return vNextAdminReadTable_(ss, sheetName).rows.filter(function (row) { return String(row[key]) === String(expected); }).length;
+}
+
+function vNextAdminPatchLatestMigration_(hub, migrationId, patch) {
+  const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS);
+  const row = table.rows.find(function (item) { return String(item.migration_id) === String(migrationId); });
+  if (row) vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.MIGRATIONS, row._rowNumber, patch);
+}
+
+// ---------------------------- ACL / visibility ----------------------------
+
+function vNextAdminApplyFileAcl_(file, editors, viewers, commenters) {
+  const editorList = vNextAdminMergeEmails_(editors);
+  const viewerList = vNextAdminMergeEmails_(viewers);
+  const commenterList = vNextAdminMergeEmails_(commenters);
+  if (editorList.length) file.addEditors(editorList);
+  if (viewerList.length) file.addViewers(viewerList);
+  if (commenterList.length && typeof file.addCommenters === 'function') file.addCommenters(commenterList);
+}
+
+function vNextAdminProtectInternalSheets_(ss, allowedEmails, names) {
+  const file = DriveApp.getFileById(ss.getId());
+  const ownerEmail = file.getOwner() ? file.getOwner().getEmail() : '';
+  const allowed = vNextAdminMergeEmails_(allowedEmails, ownerEmail, vNextAdminActor_());
+  (names || []).forEach(function (name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    const description = 'VNEXT_ADMIN:' + name;
+    let protection = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET).find(function (item) {
+      return String(item.getDescription() || '') === description;
+    });
+    if (!protection) protection = sheet.protect().setDescription(description);
+    protection.setWarningOnly(false);
+    const removable = protection.getEditors().filter(function (user) {
+      return allowed.indexOf(String(user.getEmail() || '').toLowerCase()) < 0;
+    });
+    if (removable.length) protection.removeEditors(removable);
+    if (allowed.length) protection.addEditors(allowed);
+    if (protection.canDomainEdit()) protection.setDomainEdit(false);
+  });
+}
+
+function vNextAdminProtectClientInternalSheets_(ss, names) {
+  (names || []).forEach(function (name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    const description = 'VNEXT_CLIENT_APPEND_ONLY:' + name;
+    const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    const protection = protections.length ? protections[0] : sheet.protect();
+    protection.setDescription(description).setWarningOnly(true);
+    protections.slice(1).forEach(function (item) { try { item.remove(); } catch (err) { Logger.log('Duplicate client protection removal skipped: %s', String(err)); } });
+  });
+}
+
+function vNextAdminApplyVisibility_(ss, visibleNames) {
+  const visible = new Set((visibleNames || []).map(String));
+  let firstVisible = null;
+  ss.getSheets().forEach(function (sheet) {
+    if (visible.has(sheet.getName())) {
+      sheet.showSheet();
+      if (!firstVisible) firstVisible = sheet;
+    }
+  });
+  if (!firstVisible) {
+    firstVisible = ss.getSheets()[0];
+    firstVisible.showSheet();
+  }
+  ss.setActiveSheet(firstVisible);
+  ss.getSheets().forEach(function (sheet) {
+    if (sheet.getSheetId() === firstVisible.getSheetId()) return;
+    if (visible.has(sheet.getName())) sheet.showSheet();
+    else sheet.hideSheet();
+  });
+}
+
+// ---------------------------- Audit / generic helpers ----------------------------
+
+function vNextAdminWriteAudit_(hub, action, entityType, entityId, status, detail, beforeHash, afterHash) {
+  try {
+    vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.AUDIT, {
+      audit_id: 'AUD-' + Utilities.getUuid(), occurred_at: new Date(), actor: vNextAdminActor_(),
+      action: action || '', entity_type: entityType || '', entity_id: entityId || '',
+      status: status || '', detail_json: JSON.stringify(detail || {}),
+      before_hash: beforeHash || '', after_hash: afterHash || ''
+    });
+  } catch (err) {
+    Logger.log('Audit write failed: %s', String(err && err.message || err));
+  }
+}
+
+function vNextAdminGuard_(name, fn) {
+  try {
+    const result = fn();
+    Logger.log('%s success', name);
+    return result;
+  } catch (err) {
+    Logger.log('%s error: %s', name, String(err && err.stack || err));
+    throw err;
+  }
+}
+
+function vNextAdminWithScriptLock_(label, fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another vNext admin operation is running: ' + label);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function vNextAdminWithDocumentLock_(label, fn) {
+  const lock = LockService.getDocumentLock();
+  if (!lock || !lock.tryLock(30000)) throw new Error('Another workbook operation is running: ' + label);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function vNextAdminWithUserLock_(label, fn) {
+  const lock = LockService.getUserLock();
+  if (!lock.tryLock(30000)) throw new Error('Another user operation is running: ' + label);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function vNextAdminResolveSpreadsheet_(input) {
+  if (!input) return SpreadsheetApp.getActiveSpreadsheet();
+  if (typeof input === 'string') return SpreadsheetApp.openById(input);
+  if (typeof input.getId === 'function' && typeof input.getSheets === 'function') return input;
+  if (input.spreadsheetId) return SpreadsheetApp.openById(String(input.spreadsheetId));
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function vNextAdminHydrateLocalRuntime_(ss, routing) {
+  try {
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (!active || active.getId() !== ss.getId()) return;
+    const cfg = routing || {};
+    const bookId = String(cfg.book_id || '').trim();
+    const hubId = String(cfg.admin_hub_spreadsheet_id || '').trim();
+    const mode = String(cfg.mode || '').trim().toUpperCase();
+    const doc = PropertiesService.getDocumentProperties();
+    const script = PropertiesService.getScriptProperties();
+    if (bookId) {
+      doc.setProperty('VNEXT_BOOK_ID', bookId);
+      script.setProperty('VNEXT_BOOK_ID', bookId);
+    }
+    // CLIENT books deliberately do not hydrate the Hub property: Core must use the
+    // local client-only store under employee credentials. Hub synchronization is Admin-owned.
+    if (hubId && mode !== 'CLIENT') {
+      doc.setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hubId);
+      script.setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hubId);
+    }
+    if (mode === 'CLIENT') {
+      doc.deleteProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID');
+      script.deleteProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID');
+    }
+    if (mode === 'ADMIN') {
+      const sourceId = String(cfg.source_spreadsheet_id || '').trim();
+      const templateId = String(cfg.template_spreadsheet_id || '').trim();
+      const releaseId = String(cfg.active_release_id || cfg.version || '').trim();
+      const modelReleaseId = String(cfg.active_model_release_id || '').trim();
+      const adminEmails = String(cfg.admin_emails || cfg.forecast_owner_emails || '').trim();
+      if (sourceId) script.setProperties({
+        FORECAST_SOURCE_SPREADSHEET_ID: sourceId,
+        VNEXT_ZAC_SOURCE_SPREADSHEET_ID: sourceId
+      }, false);
+      if (templateId) script.setProperty('VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID', templateId);
+      if (releaseId) script.setProperty('VNEXT_ACTIVE_RELEASE_ID', releaseId);
+      if (modelReleaseId) script.setProperty('VNEXT_ACTIVE_MODEL_RELEASE_ID', modelReleaseId);
+      if (adminEmails) {
+        script.setProperty('VNEXT_ADMIN_EMAILS', adminEmails);
+        doc.setProperty('VNEXT_ADMIN_EMAILS', adminEmails);
+      }
+      [
+        'VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL',
+        'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG'
+      ].forEach(function (key) {
+        const value = String(cfg[key] || '').trim();
+        if (value) script.setProperty(key, value);
+      });
+    }
+    if (mode === 'CLIENT' || mode === 'TEMPLATE') {
+      [
+        'FORECAST_SOURCE_SPREADSHEET_ID', 'VNEXT_ZAC_SOURCE_SPREADSHEET_ID',
+        'VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL',
+        'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG',
+        'VNEXT_ADMIN_EMAILS', 'VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID', 'VNEXT_ACTIVE_RELEASE_ID',
+        'VNEXT_ACTIVE_MODEL_RELEASE_ID'
+      ].forEach(function (key) { script.deleteProperty(key); });
+    }
+    if (mode) doc.setProperty('VNEXT_BOOK_MODE', mode);
+  } catch (err) {
+    Logger.log('Local runtime hydration skipped: %s', String(err && err.message || err));
+  }
+}
+
+function vNextAdminHydrateHubRuntime_(hub) {
+  const routing = Object.assign(
+    {},
+    vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET),
+    vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_BOOK_CONFIG_SHEET)
+  );
+  vNextAdminHydrateLocalRuntime_(hub, routing);
+  // A scheduled trigger may open the Hub by ID rather than as the active container.
+  const script = PropertiesService.getScriptProperties();
+  const sourceId = String(routing.source_spreadsheet_id || '').trim();
+  if (sourceId) script.setProperties({
+    FORECAST_SOURCE_SPREADSHEET_ID: sourceId,
+    VNEXT_ZAC_SOURCE_SPREADSHEET_ID: sourceId
+  }, false);
+  if (routing.admin_emails || routing.forecast_owner_emails) {
+    script.setProperty('VNEXT_ADMIN_EMAILS', String(routing.admin_emails || routing.forecast_owner_emails));
+  }
+  if (routing.active_model_release_id) {
+    script.setProperty('VNEXT_ACTIVE_MODEL_RELEASE_ID', String(routing.active_model_release_id));
+  }
+  [
+    'VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL',
+    'VERTEX_DATASTORE_ID', 'VERTEX_SEARCH_LOCATION', 'VERTEX_SERVING_CONFIG'
+  ].forEach(function (key) {
+    const value = String(routing[key] || '').trim();
+    if (value) script.setProperty(key, value);
+  });
+  script.setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hub.getId());
+  return routing;
+}
+
+function vNextAdminRequireHub_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) {
+    throw new Error('This operation is available only in the registered Admin Hub.');
+  }
+  vNextAdminAssertHubAdmin_(ss, false);
+  vNextAdminHydrateHubRuntime_(ss);
+  Object.keys(VN_ADMIN_HEADERS).forEach(function (name) { vNextAdminEnsureTable_(ss, name, VN_ADMIN_HEADERS[name]); });
+  return ss;
+}
+
+function vNextAdminResolveHubForAutomation_() {
+  const id = PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID');
+  const hub = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!hub || vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
+    throw new Error('Admin Hub cannot be resolved for scheduled sweep.');
+  }
+  vNextAdminAssertHubAdmin_(hub, true);
+  vNextAdminHydrateHubRuntime_(hub);
+  return hub;
+}
+
+function vNextAdminAutomationInstalled_() {
+  try {
+    return ScriptApp.getProjectTriggers().some(function (trigger) {
+      return trigger.getHandlerFunction() === VN_ADMIN_SCHEDULED_HANDLER;
+    });
+  } catch (err) {
+    Logger.log('Automation status unavailable: %s', String(err && err.message || err));
+    return false;
+  }
+}
+
+function vNextAdminAssertRuntimeConfigurator_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Active spreadsheet is required.');
+  const actor = vNextAdminActor_().toLowerCase();
+  const owner = String(DriveApp.getFileById(ss.getId()).getOwner().getEmail() || '').toLowerCase();
+  const admins = vNextAdminMergeEmails_(PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'));
+  if (actor !== owner && admins.indexOf(actor) < 0) throw new Error('この設定を変更できるのはファイル所有者または管理者だけです。');
+  return true;
+}
+
+function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {
+  const actor = String(allowEffectiveUser
+    ? (Session.getEffectiveUser().getEmail() || vNextAdminActor_())
+    : vNextAdminActor_()).toLowerCase();
+  const routing = Object.assign(
+    {},
+    vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET),
+    vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_BOOK_CONFIG_SHEET)
+  );
+  const owner = String(DriveApp.getFileById(hub.getId()).getOwner().getEmail() || '').toLowerCase();
+  const admins = vNextAdminMergeEmails_(routing.admin_emails,
+    PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'), owner);
+  if (!actor || admins.indexOf(actor) < 0) throw new Error('Admin Hubの操作権限がありません。');
+  return true;
+}
+
+function vNextAdminSpreadsheetAccessible_(id) {
+  if (!id) return false;
+  try { SpreadsheetApp.openById(String(id)).getName(); return true; } catch (err) { return false; }
+}
+
+function vNextAdminResolveDestinationFolder_(folderId, sourceFile) {
+  if (folderId) return DriveApp.getFolderById(String(folderId));
+  const parents = sourceFile.getParents();
+  if (parents.hasNext()) return parents.next();
+  return DriveApp.getRootFolder();
+}
+
+function vNextAdminPrepareClientDestinationFolder_(hub, requestedFolderId, label, adminEmails) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const rootId = String(config.private_root_folder_id || '').trim();
+  if (!rootId) throw new Error('Admin-private root folderがHubに記録されていないためClient生成を停止しました。clean bootstrapを確認してください。');
+  const root = vNextAdminPreparePrivateBootstrapFolder_(rootId, 'Forecast vNext Private', adminEmails);
+  let base = root;
+  const requested = String(requestedFolderId || '').trim();
+  if (requested) {
+    base = DriveApp.getFolderById(requested);
+    if (!vNextAdminFolderWithinRoot_(base, rootId)) {
+      throw new Error('指定folderはAdmin-private root配下ではないため使用できません。');
+    }
+    base = vNextAdminPreparePrivateBootstrapFolder_(base.getId(), base.getName(), adminEmails);
+  }
+  const safe = String(label || 'Client-FY').replace(/[^A-Za-z0-9_.-]+/g, '-').slice(0, 80);
+  const child = base.createFolder('Client-' + safe);
+  return vNextAdminPreparePrivateBootstrapFolder_(child.getId(), child.getName(), adminEmails);
+}
+
+function vNextAdminFolderWithinRoot_(folder, rootId) {
+  const target = String(rootId || '');
+  const seen = new Set();
+  let current = [folder];
+  for (let depth = 0; depth < 25 && current.length; depth++) {
+    const next = [];
+    for (let i = 0; i < current.length; i++) {
+      const item = current[i];
+      const id = String(item.getId() || '');
+      if (id === target) return true;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const parents = item.getParents();
+      while (parents.hasNext()) next.push(parents.next());
+    }
+    current = next;
+  }
+  return false;
+}
+
+function vNextAdminAssertClientFileAcl_(file, editors, viewers) {
+  if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+    throw new Error('Client fileがdomain/anyone共有になっているため生成を停止しました。');
+  }
+  const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
+  const expectedEditors = vNextAdminMergeEmails_(editors);
+  const expectedViewers = vNextAdminMergeEmails_(viewers);
+  const allowed = new Set(vNextAdminMergeEmails_(owner, expectedEditors, expectedViewers));
+  const actualEditors = file.getEditors().map(function (user) { return String(user.getEmail() || '').toLowerCase(); });
+  const actualViewers = file.getViewers().map(function (user) { return String(user.getEmail() || '').toLowerCase(); });
+  const actual = actualEditors.concat(actualViewers);
+  const missing = expectedEditors.concat(expectedViewers).filter(function (email) { return actual.indexOf(email) < 0; });
+  const unexpected = actual.filter(function (email) { return email && !allowed.has(email); });
+  if (missing.length || unexpected.length) {
+    throw new Error('Client file ACLの最終検証に失敗しました。missing=' + missing.join(',') + '; unexpected=' + unexpected.join(','));
+  }
+  return true;
+}
+
+function vNextAdminPreparePrivateBootstrapFolder_(folderId, name, adminEmails) {
+  const folder = folderId
+    ? DriveApp.getFolderById(String(folderId))
+    : DriveApp.createFolder(String(name || ('Forecast vNext Private ' + new Date().getTime())));
+  const allowed = new Set(vNextAdminMergeEmails_(adminEmails, vNextAdminActor_()));
+  try {
+    if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+      if (folderId) throw new Error('指定folderはdomain/anyone共有のため使用できません。private専用folderを指定してください。');
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
+    }
+    const outsiders = folder.getEditors().concat(folder.getViewers()).filter(function (user) {
+      return !allowed.has(String(user.getEmail() || '').toLowerCase());
+    });
+    if (outsiders.length) throw new Error('指定folderにAdmin以外の直接共有先があります。private専用folderを指定してください。');
+    const admins = Array.from(allowed).filter(Boolean);
+    if (admins.length) folder.addEditors(admins);
+    if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) throw new Error('Bootstrap folder could not be verified as PRIVATE.');
+    return folder;
+  } catch (err) {
+    throw new Error('Bootstrap保存先の共有境界を確認できません: ' + String(err && err.message || err));
+  }
+}
+
+function vNextAdminEnforcePrivateFileAcl_(file, adminEmails) {
+  const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
+  const allowed = new Set(vNextAdminMergeEmails_(adminEmails, owner, vNextAdminActor_()));
+  file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
+  file.getEditors().forEach(function (user) {
+    const email = String(user.getEmail() || '').toLowerCase();
+    if (email && !allowed.has(email)) file.removeEditor(email);
+  });
+  file.getViewers().forEach(function (user) {
+    const email = String(user.getEmail() || '').toLowerCase();
+    if (email && !allowed.has(email)) file.removeViewer(email);
+  });
+  const admins = Array.from(allowed).filter(function (email) { return email && email !== owner; });
+  if (admins.length) file.addEditors(admins);
+  if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) throw new Error('Generated Admin file is not PRIVATE: ' + file.getId());
+  const unexpected = file.getEditors().concat(file.getViewers()).filter(function (user) {
+    return !allowed.has(String(user.getEmail() || '').toLowerCase());
+  });
+  if (unexpected.length) throw new Error('Generated Admin file has an unexpected collaborator: ' + file.getId());
+  return true;
+}
+
+function vNextAdminActor_() {
+  return String(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || 'unknown').trim();
+}
+
+function vNextAdminText_(value) {
+  return value === null || value === undefined ? '' : String(value).trim();
+}
+
+function vNextAdminDateOnly_(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) throw new Error('Invalid date value: ' + String(value));
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function vNextAdminRequiredText_(value, label) {
+  const text = vNextAdminText_(value);
+  if (!text) throw new Error(label + ' is required.');
+  return text;
+}
+
+function vNextAdminNormalizeFiscalYear_(value) {
+  const text = vNextAdminRequiredText_(value, 'fiscalYear').replace(/^FY/i, '');
+  const year = Number(text);
+  if (!Number.isInteger(year) || year < 2000 || year > 2200) throw new Error('Invalid fiscalYear: ' + value);
+  return year;
+}
+
+function vNextAdminCutoffFromAsOf_(asOf) {
+  if (typeof vNextCutoffFromAsOf_ === 'function') {
+    const cutoff = vNextCutoffFromAsOf_(asOf);
+    return typeof vNextFormatDateOnly_ === 'function'
+      ? vNextFormatDateOnly_(cutoff)
+      : Utilities.formatDate(new Date(cutoff), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  const date = new Date(asOf);
+  if (isNaN(date.getTime())) throw new Error('Invalid asOf date: ' + asOf);
+  const cutoff = new Date(date.getFullYear(), date.getMonth(), 0);
+  return Utilities.formatDate(cutoff, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function vNextAdminDeriveClientId_(clientName) {
+  const normalized = String(clientName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) throw new Error('clientName is required.');
+  return 'C-' + vNextAdminSha256_(normalized).slice(0, 12).toUpperCase();
+}
+
+function vNextAdminBool_(value) {
+  return value === true || value === 1 || String(value).toLowerCase() === 'true' || String(value) === '1';
+}
+
+function vNextAdminParseList_(value) {
+  if (Array.isArray(value)) return value.map(vNextAdminText_).filter(Boolean);
+  return vNextAdminText_(value).split(/[\n,;]+/).map(function (item) { return item.trim(); }).filter(Boolean);
+}
+
+function vNextAdminMergeEmails_() {
+  const seen = new Set();
+  const out = [];
+  Array.prototype.slice.call(arguments).forEach(function (value) {
+    vNextAdminParseList_(value).forEach(function (email) {
+      const normalized = String(email || '').trim().toLowerCase();
+      if (!normalized || normalized.indexOf('@') < 1 || seen.has(normalized)) return;
+      seen.add(normalized);
+      out.push(normalized);
+    });
+  });
+  return out;
+}
+
+function vNextAdminParseJson_(value, fallback) {
+  if (value && typeof value === 'object') return value;
+  try { return JSON.parse(String(value || '')); } catch (err) { return fallback; }
+}
+
+function vNextAdminAssertClientRequestPayload_(payload, requestJson, expectedRequestId) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      Object.getPrototypeOf(payload) !== Object.prototype) {
+    throw new Error('Client request payload must be a plain JSON object.');
+  }
+  const keys = Object.keys(payload).sort();
+  const expectedKeys = VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS.slice().sort();
+  if (keys.length !== expectedKeys.length || keys.some(function (key, index) { return key !== expectedKeys[index]; })) {
+    const unknown = keys.filter(function (key) { return expectedKeys.indexOf(key) < 0; });
+    const missing = expectedKeys.filter(function (key) { return keys.indexOf(key) < 0; });
+    throw new Error('Client request payload keys are not exact. unknown=' + unknown.join(',') + '; missing=' + missing.join(','));
+  }
+  if (requestJson !== undefined && String(requestJson) !== vNextAdminCanonicalJson_(payload)) {
+    throw new Error('Client request JSON must be canonical and contain no ambiguous duplicate ordering.');
+  }
+  if (String(payload.requestId || '') !== String(expectedRequestId || '')) {
+    throw new Error('Client requestId does not match the request event row.');
+  }
+  VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS.forEach(function (key) {
+    if (key === 'fiscalYear') {
+      if (typeof payload[key] !== 'number' || !isFinite(payload[key])) throw new Error('Client request fiscalYear must be a finite number.');
+      return;
+    }
+    if (typeof payload[key] !== 'string') throw new Error('Client request ' + key + ' must be a string.');
+  });
+  return true;
+}
+
+function vNextAdminCanonicalJson_(value) {
+  function normalize(item) {
+    if (item instanceof Date) return item.toISOString();
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === 'object') {
+      const out = {};
+      Object.keys(item).sort().forEach(function (key) { out[key] = normalize(item[key]); });
+      return out;
+    }
+    if (typeof item === 'number' && !isFinite(item)) return null;
+    return item;
+  }
+  return JSON.stringify(normalize(value));
+}
+
+function vNextAdminSha256_(value) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''), Utilities.Charset.UTF_8);
+  return bytes.map(function (byte) { const n = byte < 0 ? byte + 256 : byte; return ('0' + n.toString(16)).slice(-2); }).join('');
+}
+
+function vNextAdminJsonSafe_(value) {
+  return JSON.parse(JSON.stringify(value, function (key, item) {
+    return item instanceof Date ? item.toISOString() : item;
+  }));
+}
+
+function vNextAdminMenuAction_(message, fn) {
+  return vNextAdminGuard_('vNextAdminMenuAction', function () {
+    const result = fn();
+    SpreadsheetApp.getActiveSpreadsheet().toast(message, VN_ADMIN_MENU_NAME, 5);
+    return result;
+  });
+}
+
+function vNextAdminOpenHubSheet_(name) {
+  return vNextAdminGuard_('vNextAdminOpenHubSheet', function () {
+    const hub = vNextAdminRequireHub_();
+    const sheet = hub.getSheetByName(name);
+    if (!sheet) throw new Error('Hub sheet not found: ' + name);
+    sheet.showSheet();
+    hub.setActiveSheet(sheet);
+    return true;
+  });
+}

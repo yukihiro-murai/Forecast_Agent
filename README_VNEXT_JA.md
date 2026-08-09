@@ -1,0 +1,109 @@
+# Forecast vNext — 年度売上予測・計画システム
+
+## 目的
+
+Forecast vNext は、未来の売上を一点で「当てる」ものではなく、情報締切時点で利用できた確定実績・案件・明示的な前提から、クライアント別FY売上の条件付き分布を作るシステムです。
+
+従業員向けの操作と管理者向けの設定を分離し、次の数値を別々のレコードとして保持します。
+
+1. 履歴基準値
+2. 客観情報差分
+3. 現場情報差分
+4. AI調査差分
+5. システム推奨予測
+6. 採用判断差分・採用予測
+7. 営業上積み・最終予算
+
+採用判断差分、営業上積み、最終予算はモデル学習へ戻しません。
+
+## 物理構成
+
+- **Legacy book**: 現行運用を維持する参照元。vNext初期化では変更しません。
+- **Admin Hub**: registry、job、承認、公式run、release、例外を管理する管理者専用book。Legacyのcopyではなく、空Spreadsheetへ中央Admin runtimeだけをbindingします。
+- **Master Template**: 実クライアントデータを持たないimmutableなClient FY Book生成release。Client専用runtimeと表示3シートだけを持ちます。
+- **Client FY Book**: 1 client × 1 FY。従業員入力、予測・計画、振り返りだけを表示。
+- **Admin Audit Folder**: AI raw JSON、公式凍結時のbackup、監査exportを保存。
+
+管理情報を単に隠すのではなく、Client FY Bookへ置かないことが基本方針です。Client FY Bookの非表示シートは、同一クライアント内の誤編集と認知負荷を抑えるためだけに使います。
+
+Admin HubとMaster Templateはいずれもlegacy bookのコピーではありません。bootstrap元の中央projectが空のSpreadsheetを作り、Apps Script APIでAdmin用の完全runtimeまたは[`client_runtime`](./client_runtime/README.md)の最小runtimeだけをbindingします。生成Hubにはsource/target script IDとcanonical runtime SHA-256を管理者専用設定として記録し、以後はAdmin Sidebarの1操作で中央clasp配備版へ更新できます。したがってClient FY BookのApps Script projectには、Admin処理、ZAC source ID、Vertex設定、AI raw、prompt、予測エンジンを含めません。Client側のOAuth scopeも、現在のブック、UI、利用者メールだけに限定します。
+
+公開済みMaster Templateは手編集するworking sheetではなく、immutable release artifactです。社員画面、MEMO、書式をシート上で改訂する場合は、Admin Hubから管理者限定の`TEMPLATE_DRAFT`を作り、その表示3シートだけを編集します。公開操作はdraft（code-only更新時は現ACTIVEの表示3シート）を新しいclean Templateへコピーし、Client runtime・表示内容・版の組を検証してからpointerを切り替えます。表示3シートのvalues/formulas/notes/format/validation等はcanonical hashへ結び付けられ、公開後の直接編集を検出した場合は新規Client生成を停止します。既存Clientはreleaseに固定されます。
+
+Client側に残る追記型イベントは、初期版では**未信頼のステージング**です。Admin所有の定期workerがbook/client/FY、担当者、許可イベント種別、状態遷移、金額恒等式、時刻とhashを再検証し、受理した記録だけをAdmin Hubの横断監査正本へ追記します。違反は取り込まず、永続例外として管理者へ表示します。社員向けに戻すAI情報は上位3件の公開要約・URL・出典日・適用額だけで、raw responseやprompt metadataはAdmin Audit Folderから出しません。
+
+この境界は、通常の誤操作と直接編集を検出・拒否するための初期実装であり、暗号学的な署名境界ではありません。より高い保証が必要になった時点で、管理者権限で実行するWeb Appを唯一の書込口とし、OAuthで呼出者を確認してHubへ直接appendする構成へ移行します。Client側のlocal fallbackは設けず、通信失敗時はfail-closedとします。
+
+## Client FY Bookの利用フロー
+
+通常表示は `1_ホーム` と `2_予測と計画` だけです。実績評価が始まると `3_振り返り` を表示します。
+
+1. 従業員が「変化あり／確認したが変化なし／わからない」を回答する。
+2. Forecast Ownerが回答状況を確認し、予測を依頼する。
+3. vNextがドラフトを作り、履歴・客観・現場・AIの差分を表示する。
+4. Forecast Ownerが採用判断と営業上積みを別々に入力して提出する。
+5. 管理者がAdmin Hubから承認または差戻しする。
+6. 承認runを公式vintageとして凍結する。
+7. 実績確定後は公式runだけを評価し、次年度の情報収集とモデルreleaseへ反映する。
+
+ホームには状態に応じた主操作を1つだけ表示し、同じ「次の作業を始める」ボタンが現在状態に対応する画面を開きます。ボタンが利用できない環境でも、上部の「年度計画」メニュー4項目から同じ操作を行えます。
+
+AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した場合は、失敗をAdmin例外とrun監査へ残し、AI差分を0として継続性・案件・現場情報で予測を完了し、情報不足分だけ通常の振れ幅を広げます。AI取消の比較runは、元runが保存した有効evidence ID集合、非AI入力hash、model/version、as-of、seed、simulation数を再検証します。非AI入力が変わっていればAIだけの反実仮想とは呼ばず、通常の新runを要求します。
+
+## 実績データ契約
+
+- 実績ソースIDは `FORECAST_SOURCE_SPREADSHEET_ID` で管理します。
+- クライアント列: AO
+- サービスカテゴリ列: AT
+- 製品列: AX
+- 実績日列: BE
+- 金額列: BN
+- BDの売上予定日は実績日fallbackとして使用しません。
+- `as_of`の前月末を超える行は読み込みません。
+- 対象履歴は利用可能な5〜8年度です。
+
+## 版と監査
+
+公式runは、少なくとも次を保存します。
+
+- `run_id`, `issued_at`, `as_of`, `data_cutoff`, `seed`
+- `template_version`, `schema_version`, `model_version`, `prompt_version`
+- 正規化済み実績・前提・AI event・有効設定のSHA-256
+- FY、Q、月次のP10/P50/P90と各差分レイヤー
+- 提出者、承認者、状態遷移、変更理由
+
+公式runは上書きしません。訂正はamendmentとして新しい版を追加します。
+
+## Admin Hubの日常運用
+
+- 通常時は「今日、人が判断する必要がある例外」だけを確認します。
+- 予測依頼、AI調査、予測計算、Clientへの結果返却は5分triggerで非同期処理します。
+- timeoutしたjobにはlease期限と再試行上限を設け、失敗確定時はClientを操作可能な状態へ戻します。
+- 承認時はHubにあるSUCCESS runとSUBMITTED planからsnapshotを再構築し、組合せを検証してから公式vintageを凍結します。
+- 正式計画の訂正は、現在の公式vintageを参照するamendmentとしてだけ発行します。
+- 実績評価は、対象FYの確定実績と現在の公式vintageを検証してから生成します。
+- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、15ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
+- Client runtime/UI改修は現行Templateを上書きしません。管理者限定Draft（code-only更新は現ACTIVE UI）から新しいprivate `STAGED` Templateを作り、そのrelease IDへ厳密に結び付いたPASS済みModel candidateとの組だけを有効化します。canonical pair pointerをCASで切り替え、property cache更新後にだけ旧TemplateをRETIREDへ移します。各phaseは追記型journalへ残るため、中断後も同じoperation IDから再開できます。
+- Client FY BookはAdmin管理のprivate root配下へだけ生成します。任意の共有folderや、共有境界を証明できない保存先はfail-closedで拒否します。
+
+## 初期releaseの適応範囲と展開ゲート
+
+- 自動更新するのは不確実性、案件確率・月ずれ、季節配分、誤差校正などの状態です。モデル構造や係数releaseはbacktest/canaryのcandidate hashが一致し、管理者が有効化したものだけを使います。
+- 参照クラスpriorは、比較可能なcohortと十分な完了年度がそろうまで`DISABLED`です。全Clientへ同じ絶対金額priorを流用することは拒否します。初期pilotでは、継続性・案件・明示的な客観/現場変化の三者を意味の異なる根拠として保持し、参照クラスはデータ蓄積後のreleaseで有効化します。
+- 最初は2～3 Clientを現行運用と並行runし、操作完了率、所要時間、入力形骸化、区間校正、job所要時間を測定します。管理者がcanary開始を明示承認した場合だけ4～5冊へ進め、6冊目は負荷試験releaseまでserver-sideで拒否します。30冊展開には、30 Client×AI＋forecast、quota、timeout、lease crashを含む負荷試験とSLO承認が必要です。
+- pilot releaseでは既存Clientへのmigrationはdry-runだけを許可し、APPLYはserver-sideで停止します。既存年度bookを変えるより、新FYを新releaseから作ることを優先します。transactional rollbackとmaintenance gateの受入試験が通るまで、公式・振り返り中・終了済みbookのin-place更新は行いません。
+- 初期MODEL_RELEASEのbacktest/canary PASSは管理者attestationです。自動評価済みと称しません。本番releaseではdataset snapshot、candidate/code hash、metric、threshold、実行者・時刻を持つsystem生成artifactへ置き換えます。
+- Sheets内のClient stagingは署名境界ではありません。30冊本番または監査保証を強める段階では、Admin所有Web Appを唯一のwrite endpointにする移行をrelease gateとします。
+
+## 開発・反映
+
+このリポジトリはclasp管理です。変更後はリポジトリ規約に従い、GitHubへpushしてから次の順でGASへ反映します。
+
+```text
+clasp status
+clasp push
+```
+
+新年度のClient FY Bookは、最新ACTIVEのimmutable Master Template ReleaseからAdmin Hubのプロビジョニング機能で生成します。選択Templateとactive Model ReleaseのEngine/Core/schema互換性が一致しなければfail-closedです。従業員にApps Script Editor操作や初期セットアップを要求しません。
+
+初回bootstrap前に、Admin projectでApps Script APIを有効化し、`FORECAST_SOURCE_SPREADSHEET_ID`、管理者メール、必要なVertex設定をScript Propertiesへ保存します。Admin側manifestはTemplate生成のため`script.projects`を持ちますが、Client runtimeにはこのscopeを配布しません。

@@ -1,0 +1,433 @@
+#!/usr/bin/env node
+
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const rootFiles = (await readdir(root)).filter(name => /^VNext_.*\.js$/.test(name)).sort();
+let engineSandbox;
+
+await checkJavaScriptSyntax();
+await checkHtmlScripts();
+await checkGlobalFunctionNames();
+await runCoreAndEngineTests();
+await checkClientSchemaCompatibility();
+await checkClientBundleBoundary();
+await checkAdminRecoveryContracts();
+await checkAdminCoverageContracts();
+checkSourceContract();
+
+process.stdout.write('PASS vNext integration contract tests\n');
+
+async function checkJavaScriptSyntax() {
+  for (const name of ['Forecast_Agent.js', ...rootFiles]) {
+    new vm.Script(await readFile(path.join(root, name), 'utf8'), { filename: name });
+  }
+}
+
+async function checkHtmlScripts() {
+  const roots = [root, path.join(root, 'client_runtime', 'src')];
+  for (const dir of roots) {
+    const names = (await readdir(dir)).filter(name => name.endsWith('.html'));
+    for (const name of names) {
+      const source = await readFile(path.join(dir, name), 'utf8');
+      for (const match of source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)) {
+        new vm.Script(match[1], { filename: path.join(path.basename(dir), name) });
+      }
+    }
+  }
+}
+
+async function checkGlobalFunctionNames() {
+  const definitions = new Map();
+  for (const name of rootFiles) {
+    const source = await readFile(path.join(root, name), 'utf8');
+    for (const match of source.matchAll(/^function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) {
+      const files = definitions.get(match[1]) || [];
+      files.push(name);
+      definitions.set(match[1], files);
+    }
+  }
+  const duplicates = [...definitions].filter(([, files]) => files.length > 1);
+  assert.deepEqual(duplicates, [], `duplicate GAS globals: ${JSON.stringify(duplicates)}`);
+}
+
+function gasSandbox() {
+  return {
+    console,
+    Logger: { log() {} },
+    Utilities: {
+      Charset: { UTF_8: 'UTF_8' },
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      computeDigest(_algorithm, value) {
+        return [...createHash('sha256').update(String(value), 'utf8').digest()];
+      },
+      getUuid() { return 'test-uuid'; }
+    }
+  };
+}
+
+async function runCoreAndEngineTests() {
+  const sandbox = gasSandbox();
+  vm.createContext(sandbox);
+  for (const name of ['VNext_Core.js', 'VNext_Engine.js', 'VNext_AI.js', 'VNext_Tests.js']) {
+    vm.runInContext(await readFile(path.join(root, name), 'utf8'), sandbox, { filename: name });
+  }
+  const result = sandbox.runAllVNextTests();
+  assert.equal(result.passed, 25);
+  assert.equal(result.failed, 0);
+  assert.equal(sandbox.testVNextAiDeterministicMapping(), true);
+  engineSandbox = sandbox;
+}
+
+async function checkClientSchemaCompatibility() {
+  const rootSandbox = gasSandbox();
+  const clientSandbox = gasSandbox();
+  vm.createContext(rootSandbox);
+  vm.createContext(clientSandbox);
+  vm.runInContext(await readFile(path.join(root, 'VNext_Core.js'), 'utf8'), rootSandbox);
+  vm.runInContext(await readFile(path.join(root, 'client_runtime', 'src', 'Client_Core.js'), 'utf8'), clientSandbox);
+  const rootSchemas = JSON.parse(JSON.stringify(rootSandbox.VNEXT_CORE.INTERNAL_SHEETS));
+  const clientSchemas = JSON.parse(JSON.stringify(clientSandbox.VNEXT_CLIENT_CORE.INTERNAL_SHEETS));
+  assert.deepEqual(clientSchemas, rootSchemas, 'Client/Core append-only schemas must have identical headers and order');
+}
+
+async function checkClientBundleBoundary() {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(await readFile(path.join(root, 'VNext_ClientRuntimeBundle.js'), 'utf8'), sandbox);
+  const bundle = sandbox.VNEXT_CLIENT_RUNTIME_BUNDLE_;
+  const clientSourceDir = path.join(root, 'client_runtime', 'src');
+  const generatedFiles = [];
+  for (const name of (await readdir(clientSourceDir)).filter(name => /\.(?:js|html|json)$/.test(name)).sort()) {
+    const extension = path.extname(name);
+    generatedFiles.push({
+      name: path.basename(name, extension),
+      type: extension === '.html' ? 'HTML' : extension === '.json' ? 'JSON' : 'SERVER_JS',
+      source: await readFile(path.join(clientSourceDir, name), 'utf8')
+    });
+  }
+  const generatedBundle = {
+    version: 'vnext-client-1.0.0',
+    sha256: createHash('sha256').update(
+      generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
+    ).digest('hex'),
+    files: generatedFiles
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(bundle)),
+    generatedBundle,
+    'The GAS provisioning bundle must exactly match the verified client runtime build'
+  );
+  assert.equal(bundle.files.length, 9);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
+    ['Client_Bridge', 'Client_Core', 'Client_Entry', 'VNext_HelpSidebar', 'VNext_InputSidebar', 'VNext_PlanSidebar', 'VNext_ReviewSidebar', 'VNext_UX', 'appsscript'].sort()
+  );
+  const joined = bundle.files.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0');
+  assert.equal(createHash('sha256').update(joined).digest('hex'), bundle.sha256);
+  const source = bundle.files.map(file => file.source).join('\n');
+  assert.match(source, /reason:\s*'forecast_requested:'\s*\+\s*requestId/,
+    'The deployed client runtime must bind READY_TO_RUN>RUNNING to the exact requestId');
+  for (const forbidden of [
+    /Forecast_Agent/, /vNextAdminBootstrap/, /vNextRunForecast_/, /VERTEX_[A-Z_]+/,
+    /FORECAST_SOURCE_SPREADSHEET_ID/, /VNEXT_ZAC_SOURCE_SPREADSHEET_ID/,
+    /DriveApp/, /UrlFetchApp/, /SpreadsheetApp\.openById/, /PropertiesService/
+  ]) {
+    assert.equal(forbidden.test(source), false, `Client bundle contains forbidden capability: ${forbidden}`);
+  }
+  const manifest = JSON.parse(bundle.files.find(file => file.name === 'appsscript').source);
+  assert.deepEqual(manifest.oauthScopes, [
+    'https://www.googleapis.com/auth/script.container.ui',
+    'https://www.googleapis.com/auth/spreadsheets.currentonly',
+    'https://www.googleapis.com/auth/userinfo.email'
+  ]);
+}
+
+async function checkAdminRecoveryContracts() {
+  const source = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  const evidenceStart = source.indexOf('function vNextAdminValidateClientEvidenceRows_');
+  const evidenceEnd = source.indexOf('function vNextAdminValidateClientStateRows_', evidenceStart);
+  const evidenceFunction = source.slice(evidenceStart, evidenceEnd);
+  assert.ok(evidenceFunction.indexOf('if (!rows || !rows.length) return true;') >= 0,
+    'Empty first-sync evidence must not require a pre-existing registry row');
+
+  const stateStart = source.indexOf('function vNextAdminSetClientState_');
+  const stateEnd = source.indexOf('function vNextAdminAppendStateEvent_', stateStart);
+  const stateFunction = source.slice(stateStart, stateEnd);
+  const hubWrite = stateFunction.indexOf("vNextAdminAppendCoreRowsNoLock_(hub, 'STATE_EVENT'");
+  const clientWrite = stateFunction.indexOf("vNextAdminAppendCoreRowsNoLock_(client, 'STATE_EVENT'");
+  assert.ok(hubWrite >= 0 && clientWrite > hubWrite,
+    'Admin state events must be persisted to the Hub before the Client copy');
+  assert.ok(source.includes('function vNextAdminRetryOfficialClientSync('),
+    'Official Client propagation must have an explicit recovery API');
+  assert.ok(source.includes("status: 'FAILED', failedAt:"),
+    'A failed review start must release its duplicate-prevention claim');
+  const bootstrapStart = source.indexOf('function vNextAdminBootstrapFromCurrent(');
+  const bootstrapEnd = source.indexOf('/** Re-run the idempotent Hub initialization', bootstrapStart);
+  const bootstrap = source.slice(bootstrapStart, bootstrapEnd);
+  assert.ok(bootstrap.includes('vNextAdminRuntimeCreateBoundSpreadsheet_(') &&
+    bootstrap.includes('vNextClientRuntimeCreateBoundSpreadsheet_('),
+    'Bootstrap must create clean, known-script Admin and Client runtime containers');
+  assert.equal(bootstrap.includes('.makeCopy('), false,
+    'Bootstrap must never copy the legacy bound script into the Admin Hub or Template');
+  assert.ok(source.includes('function vNextAdminUpdateHubRuntimeFromSource('),
+    'Generated Admin Hubs need a centrally managed runtime update path');
+  assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&
+    source.includes("exception_type: 'AI_RESEARCH_UNAVAILABLE'"),
+    'Terminal AI research failures must degrade explicitly rather than block the forecast');
+  const executeStart = source.indexOf('function vNextAdminExecuteJob_');
+  const executeEnd = source.indexOf('function vNextAdminFinishJob_', executeStart);
+  const executeJob = source.slice(executeStart, executeEnd);
+  assert.ok(executeJob.includes('vNextEngineBuildAdminRunIdentity_(') &&
+    executeJob.includes('vNextEngineLookupRunForResume_(') &&
+    executeJob.includes('vNextAdminEnsurePersistedForecastDraftState_(') &&
+    executeJob.includes("'RUN_PERSISTED'") && executeJob.includes("'CLIENT_SYNCED'"),
+    'Forecast jobs must use deterministic run identity and resume Client synchronization after durable SUCCESS');
+  assert.ok(executeJob.includes('engineError.vNextRunIdentityFailure === true') &&
+    executeJob.includes("exception_type: 'FORECAST_RUN_IDENTITY_CONFLICT'"),
+    'Run identity conflicts must stop without the generic READY_TO_RUN recovery');
+  const queueStart = source.indexOf('function vNextQueueClientForecastRequest(');
+  const queueEnd = source.indexOf('/** Enqueue a forecast request', queueStart);
+  assert.ok(source.slice(queueStart, queueEnd).includes("reason: 'forecast_requested:' + requestId"),
+    'Client request state must carry the exact immutable request ID');
+  const stateSemanticStart = source.indexOf('function vNextAdminValidateClientStateEventSemantics_');
+  const stateSemanticEnd = source.indexOf('function vNextAdminClientInputReadiness_', stateSemanticStart);
+  const stateSemantic = source.slice(stateSemanticStart, stateSemanticEnd);
+  assert.ok(stateSemantic.includes('/^forecast_requested:(REQ-') &&
+    stateSemantic.includes('requestReason[1]'),
+    'Hub state validation must link READY_TO_RUN>RUNNING to the exact request ID');
+  const persistedStateStart = source.indexOf('function vNextAdminEnsurePersistedForecastDraftState_');
+  const persistedStateEnd = source.indexOf('function vNextAdminRunIdentityFailure_', persistedStateStart);
+  const persistedState = source.slice(persistedStateStart, persistedStateEnd);
+  assert.ok(persistedState.includes("state === 'RUNNING'") &&
+    persistedState.includes("state === 'DRAFT_READY'") &&
+    persistedState.includes("String(latest.related_run_id || '') !== runId"),
+    'Durable SUCCESS resume must append or verify the exact Hub DRAFT_READY state event before Client sync');
+  assert.ok(executeJob.indexOf('vNextEngineLookupRunForResume_(') <
+    executeJob.lastIndexOf('vNextAdminAuthorizeAiRollbackJob_('),
+    'AI rollback must inspect a persisted deterministic SUCCESS before applying the RUNNING-only authorization path');
+}
+
+async function checkAdminCoverageContracts() {
+  const source = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  const sidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
+  const sandbox = gasSandbox();
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox, { filename: 'VNext_Admin.js' });
+
+  const payload = vm.runInContext(`({
+    requestId:'REQ-1', bookId:'BOOK-1', clientId:'CLIENT-1', clientName:'Client',
+    fiscalYear:2027, asOf:'2026-08-10', cutoff:'2026-07-31',
+    bookConfiguredAsOf:'2026-08-01', requestedAt:'2026-08-10T00:00:00.000Z',
+    requestedBy:'owner@example.com'
+  })`, sandbox);
+  const canonical = sandbox.vNextAdminCanonicalJson_(payload);
+  assert.equal(sandbox.vNextAdminAssertClientRequestPayload_(payload, canonical, 'REQ-1'), true);
+  for (const forbidden of [
+    'seed', 'parameters', 'actualRecords', 'previousRunId', 'internalOperation',
+    'persist', 'manageState', 'aiResearchJobId', 'trustedReuseSeedFromRunId',
+    'trustedRollbackContext', 'trustedAllowedDelayedAiRequestIds', '__proto__'
+  ]) {
+    const mutated = vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify(payload))})`, sandbox);
+    Object.defineProperty(mutated, forbidden, { value: forbidden === '__proto__' ? {} : 'forbidden', enumerable: true, configurable: true });
+    assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(
+      mutated, sandbox.vNextAdminCanonicalJson_(mutated), 'REQ-1'
+    ), /keys are not exact/);
+  }
+  const missing = vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify(payload))})`, sandbox);
+  delete missing.cutoff;
+  assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(
+    missing, sandbox.vNextAdminCanonicalJson_(missing), 'REQ-1'
+  ), /keys are not exact/);
+  assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(payload, canonical, 'REQ-X'), /requestId/);
+  assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(payload, JSON.stringify(payload), 'REQ-1'), /canonical/);
+
+  assert.equal(sandbox.vNextAdminNormalizeAiRollbackScope_('all'), 'ALL');
+  assert.equal(sandbox.vNextAdminNormalizeAiRollbackScope_('selected'), 'SELECTED');
+  assert.throws(() => sandbox.vNextAdminNormalizeAiRollbackScope_('partial'), /ALL or SELECTED/);
+  assert.equal(sandbox.vNextAdminReturnedPlanTargetState_('PLAN_ONLY'), 'CHANGES_REQUESTED');
+  assert.equal(sandbox.vNextAdminReturnedPlanTargetState_('REOPEN_INPUT'), 'INPUT_OPEN');
+  assert.equal(sandbox.vNextAdminReturnedPlanTargetState_('RERUN_SAME_INPUT'), 'READY_TO_RUN');
+  assert.equal(sandbox.vNextAdminModelCheckPassed_('{"status":"PASS"}'), true);
+  assert.equal(sandbox.vNextAdminModelCheckPassed_('{"status":"FAIL"}'), false);
+  assert.equal(sandbox.vNextAdminValidateClientEvidenceAmount_({
+    amount_mode:'EXACT', amount_low:100, amount_mid:100, amount_high:100, amount_band:''
+  }), true);
+  assert.equal(sandbox.vNextAdminValidateClientEvidenceAmount_({
+    amount_mode:'BAND', amount_low:100, amount_mid:'', amount_high:200, amount_band:'SMALL'
+  }), true);
+  assert.throws(() => sandbox.vNextAdminValidateClientEvidenceAmount_({
+    amount_mode:'EXACT', amount_mid:-1, amount_band:''
+  }), /non-negative range/);
+  assert.equal(sandbox.vNextAdminValidateEvidencePeriodInFiscalYear_(
+    {target_start_month:'2027-04', target_end_month:'2028-03'}, 2027
+  ), true);
+  assert.throws(() => sandbox.vNextAdminValidateEvidencePeriodInFiscalYear_(
+    {target_start_month:'2027-03', target_end_month:'2028-03'}, 2027
+  ), /outside/);
+  assert.equal(sandbox.vNextAdminAssertNoTrustedForecastPayload_({ requestId:'REQ-1' }), true);
+  assert.throws(() => sandbox.vNextAdminAssertNoTrustedForecastPayload_({ trustedReuseSeedFromRunId:'RUN-1' }), /forbidden trusted fields/);
+  const oldPair = {releaseId:'TPL-OLD', modelReleaseId:'MODEL-OLD', templateSpreadsheetId:'SHEET-OLD'};
+  const newPair = {releaseId:'TPL-NEW', modelReleaseId:'MODEL-NEW', templateSpreadsheetId:'SHEET-NEW'};
+  assert.equal(sandbox.vNextAdminClassifyActiveReleasePairCas_(newPair, newPair, oldPair, true), 'REUSE');
+  assert.equal(sandbox.vNextAdminClassifyActiveReleasePairCas_(newPair, newPair, oldPair, false), 'REPAIR_CACHES');
+  assert.equal(sandbox.vNextAdminClassifyActiveReleasePairCas_(oldPair, newPair, oldPair, false), 'CAS');
+  assert.equal(sandbox.vNextAdminClassifyActiveReleasePairCas_(
+    {releaseId:'THIRD', modelReleaseId:'MODEL-OLD', templateSpreadsheetId:'X'}, newPair, oldPair, false
+  ), 'CONFLICT');
+  const queueMetrics = sandbox.vNextAdminQueueAgeMetrics_([
+    {status:'QUEUED', created_at:'2026-08-10T00:00:00.000Z'},
+    {status:'RUNNING', created_at:'2026-08-10T00:10:00.000Z'}
+  ], Date.parse('2026-08-10T00:20:00.000Z'));
+  assert.equal(queueMetrics.queued, 1);
+  assert.equal(queueMetrics.running, 1);
+  assert.equal(queueMetrics.oldestQueuedAgeMinutes, 20);
+  assert.equal(queueMetrics.staleQueued, 1);
+
+  for (const contract of [
+    'function vNextAdminRollbackAiEvidence(', "case 'AI_ROLLBACK_FORECAST'",
+    "evidence_type: 'AI_ROLLBACK'", "response_type: 'NO_CHANGE'",
+    'trustedReuseSeedFromRunId', 'trustedRollbackContext', 'trustedAllowedDelayedAiRequestIds',
+    'function vNextAdminRegisterModelRelease(', 'function vNextAdminActivateModelRelease(',
+    'function vNextAdminRollbackModelRelease(', 'active_model_release_id',
+    "event_type: 'INPUT_REOPENED'", 'function vNextAdminRouteReturnedPlan(',
+    'effectiveEvidenceIds', 'nonAiComparableHash',
+    'function vNextAdminUpdateHubRuntimeFromSource(',
+    'function vNextAdminCreateTemplateDraft(', 'function vNextAdminActivateReleasePair(',
+    "TEMPLATE_JOURNAL: 'TEMPLATE_RELEASE_JOURNAL'", 'VNEXT_TEMPLATE_UI_V2',
+    'function vNextAdminCopyAndVerifyTemplateUi_(', 'function vNextAdminAssertPrivateAdminFile_(',
+    'function vNextAdminApprovePilotCanary(', 'function vNextAdminPrepareClientDestinationFolder_('
+  ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
+  assert.ok(source.includes("['FORECAST_REQUEST', 'AI_ROLLBACK_FORECAST']"),
+    'Lease exhaustion recovery must include AI rollback forecast jobs');
+  const harvestStart = source.indexOf('function vNextAdminHarvestClientRequests_');
+  const requestValidation = source.indexOf('vNextAdminValidateClientRequestRow_(row, registry, ownerEmails[0])', harvestStart);
+  const forecastEnqueue = source.indexOf("jobType: 'FORECAST_REQUEST'", harvestStart);
+  assert.ok(requestValidation >= harvestStart && forecastEnqueue > requestValidation,
+    'Client request exact-key validation must run before forecast enqueue');
+  const rowValidatorStart = source.indexOf('function vNextAdminValidateClientRequestRow_');
+  const rowValidatorEnd = source.indexOf('\nfunction ', rowValidatorStart + 1);
+  const rowValidator = source.slice(rowValidatorStart, rowValidatorEnd);
+  assert.ok(rowValidator.includes('vNextAdminAssertClientRequestPayload_('),
+    'Client request row validation must enforce the exact canonical payload contract');
+  assert.ok(rowValidator.includes("event_type || '').toUpperCase() !== 'REQUESTED'") &&
+    rowValidator.includes("status || '').toUpperCase() !== 'PENDING'"),
+    'Client request row validation must accept only the immutable REQUESTED/PENDING event');
+  const rejectStart = source.indexOf('function vNextAdminRejectClientRequest_');
+  const rejectEnd = source.indexOf('function vNextAdminAppendClientRequestEvent_', rejectStart);
+  const reject = source.slice(rejectStart, rejectEnd);
+  assert.ok(reject.includes("String(event.reason || '') !== 'forecast_requested:' + requestId") &&
+    reject.includes("'CLIENT_REQUEST|' + requestId + '|' + String(row.request_hash || '')") &&
+    reject.includes("String(jobPayload.requestId || '') === requestId"),
+    'Rejected-request recovery must consume only the exact state and active job lineage for that request ID/hash');
+  assert.ok(source.includes('vNextAdminEnsureInitialModelRelease_(hub') &&
+    source.includes("model_release_id: vNextAdminRequiredText_(opt.modelReleaseId"),
+    'Bootstrap and Client BOOK_META must bind a distinct MODEL_RELEASE');
+  const rollbackApiStart = source.indexOf('function vNextAdminRollbackAiEvidence(');
+  const rollbackApiEnd = source.indexOf('function vNextAdminEnqueueAiResearch(', rollbackApiStart);
+  const rollbackApi = source.slice(rollbackApiStart, rollbackApiEnd);
+  assert.equal(/trustedReuseSeedFromRunId\s*:/.test(rollbackApi), false,
+    'Public rollback API must not persist a pre-trusted seed field in the job payload');
+  assert.ok(sidebar.includes('vNextAdminRollbackAiEvidence') && sidebar.includes('vNextAdminActivateModelRelease') &&
+    sidebar.includes('vNextAdminRouteReturnedPlan') && sidebar.includes('vNextAdminUpdateHubRuntimeFromSource') &&
+    sidebar.includes('vNextAdminCreateTemplateDraft') && sidebar.includes('vNextAdminActivateReleasePair') &&
+    sidebar.includes('管理者attestation'),
+    'Admin Sidebar must expose the guarded coverage controls');
+
+  const pairStart = source.indexOf('function vNextAdminActivateReleasePairInternal_');
+  const pairEnd = source.indexOf('function vNextAdminAppendTemplateJournal_', pairStart);
+  const pair = source.slice(pairStart, pairEnd);
+  const newActive = pair.indexOf("phase: 'NEW_PAIR_ACTIVE'");
+  const cas = pair.indexOf("phase: 'POINTER_CAS_COMMITTED'");
+  const cache = pair.indexOf("phase: 'PROPERTY_CACHE_UPDATED'");
+  const retired = pair.indexOf("phase: 'PREVIOUS_TEMPLATE_RETIRED'");
+  assert.ok(newActive >= 0 && cas > newActive && cache > cas && retired > cache,
+    'Template pair publish must journal new ACTIVE -> CAS pointer -> property cache -> old RETIRED');
+  assert.ok(pair.includes('vNextAdminAssertModelTemplateCompatibility_(hub, modelSource, release)') &&
+    source.includes("String(model.template_version || '') !== String(template.release_id || '')"),
+    'MODEL_RELEASE.template_version must exactly match the paired Template release_id');
+  const publishStart = source.indexOf('function vNextAdminPublishTemplateRelease(');
+  const publishEnd = source.indexOf('/** Activate a STAGED Template', publishStart);
+  const publish = source.slice(publishStart, publishEnd);
+  assert.ok(publish.includes("status: 'STAGED'") &&
+    publish.includes('vNextAdminResolveTemplateUiSource_(hub, req.templateDraftSpreadsheetId') &&
+    publish.includes('vNextAdminCopyAndVerifyTemplateUi_('),
+    'Publishing must inherit ACTIVE/draft UI into a clean STAGED template');
+  assert.equal(publish.indexOf("status: 'RETIRED'"), -1,
+    'Staging must not retire the current ACTIVE Template');
+  for (const manifestContract of [
+    'getNotes()', 'getRichTextValues()', 'getDataValidations()', 'getConditionalFormatRules()',
+    'getMergedRanges()', 'getNumberFormats()', 'getBackgrounds()', 'getFontFamilies()',
+    'Named ranges are forbidden', 'forbidden external-data formula'
+  ]) assert.ok(source.includes(manifestContract), `missing Template manifest/forbidden contract: ${manifestContract}`);
+  assert.ok(source.includes("String(pinnedModel.template_version || '') !== String(expectedRelease.release_id || '')") &&
+    source.includes("String(row.template_version || '') === String(registry.template_release_id || '')"),
+    'Provision/health metadata must preserve the exact Template/Model pair');
+  assert.ok(source.includes("setting_key: 'ACTIVE_RELEASE_PAIR_JSON'") &&
+    source.includes('Canonical one-cell active Template/Model pair') &&
+    source.includes('vNextAdminActiveReleasePairMirrorsExact_'),
+    'A canonical one-cell release pair must govern all pointer mirrors');
+  const pointerStart = source.indexOf('function vNextAdminWriteActiveReleasePairPointers_');
+  const pointerEnd = source.indexOf('function vNextAdminCacheActiveReleasePair_', pointerStart);
+  const pointerWriter = source.slice(pointerStart, pointerEnd);
+  assert.ok(pointerWriter.includes("action === 'REPAIR_CACHES'") ||
+    (pointerWriter.includes("action === 'REUSE'") && pointerWriter.includes('vNextAdminWriteActiveReleasePairCaches_')),
+    'Canonical target with stale caches must not early-return before cache repair');
+  assert.ok(pointerWriter.includes('vNextAdminReadActiveReleasePair_(hub)') &&
+    pointerWriter.includes('vNextAdminActiveReleasePairMirrorsExact_'),
+    'Canonical CAS and every mirror must be reread before publication continues');
+  const scanStart = source.indexOf('function vNextAdminScanOneBook_');
+  const scanEnd = source.indexOf('function vNextAdminHarvestClientRequests_', scanStart);
+  const scan = source.slice(scanStart, scanEnd);
+  assert.ok(scan.indexOf('vNextAdminAssertClientPinnedReleasePair_') >= 0 &&
+    scan.indexOf('vNextAdminAssertClientPinnedReleasePair_') < scan.indexOf('vNextAdminHarvestClientRequests_'),
+    'Health must validate the exact pinned pair before harvesting requests');
+  const workerStart = source.indexOf('function vNextAdminExecuteJob_');
+  const workerEnd = source.indexOf('function vNextAdminFinishJob_', workerStart);
+  const worker = source.slice(workerStart, workerEnd);
+  assert.ok(worker.lastIndexOf('vNextAdminAssertClientPinnedReleasePair_') < worker.indexOf('vNextRunForecast_(engineRequest)') &&
+    worker.lastIndexOf('vNextAdminAssertClientPinnedReleasePair_') >= 0,
+    'Worker must revalidate the exact pinned pair immediately before Engine entry');
+  const migrationApiStart = source.indexOf('function vNextAdminEnqueueMigration(');
+  const migrationApiEnd = source.indexOf('\nfunction ', migrationApiStart + 1);
+  assert.ok(source.slice(migrationApiStart, migrationApiEnd).includes('VN_ADMIN_MIGRATION_APPLY_ENABLED'),
+    'Migration APPLY must fail closed in the public enqueue API during pilot');
+  const migrationWorkerStart = source.indexOf('function vNextAdminExecuteMigrationSkeleton_');
+  const migrationWorkerEnd = source.indexOf('\nfunction ', migrationWorkerStart + 1);
+  assert.ok(source.slice(migrationWorkerStart, migrationWorkerEnd).includes('VN_ADMIN_MIGRATION_APPLY_ENABLED'),
+    'Already queued migration APPLY jobs must fail closed in the worker');
+  assert.equal(sidebar.includes('migrationBookId'), false,
+    'Migration controls must not be displayed in the pilot Admin Sidebar');
+  assert.ok(source.includes('private_root_folder_id: folder.getId()') &&
+    source.includes('vNextAdminFolderWithinRoot_') && source.includes('vNextAdminAssertClientFileAcl_'),
+    'Client provisioning must stay inside the recorded Admin-private root and verify final file ACL');
+  assert.ok(source.includes('VN_ADMIN_PILOT_INITIAL_LIMIT = 3') &&
+    source.includes('VN_ADMIN_PILOT_CANARY_LIMIT = 5'),
+    'Pilot provisioning must gate at three and hard-stop after five Clients');
+  assert.ok(source.includes('vNextAdminScanRegistryBatch_(hub, 10)') &&
+    source.includes('vNextAdminProcessJobsForHub_(hub, 4'),
+    'Scheduled sweep pilot batches must scan 10 books and process 4 jobs');
+}
+
+function checkSourceContract() {
+  const expected = {
+    client: ['AO', 41, 'クライアント名'],
+    serviceCategory: ['AT', 46, 'サービスカテゴリ'],
+    product: ['AX', 50, '売上区分'],
+    actualDate: ['BE', 57, '売上日'],
+    amount: ['BN', 66, '金額']
+  };
+  const columns = engineSandbox.VNEXT_ENGINE.SOURCE_COLUMNS;
+  const headers = engineSandbox.VNEXT_ENGINE.SOURCE_HEADERS;
+  for (const [key, [, index, header]] of Object.entries(expected)) {
+    assert.equal(columns[key], index, `${key} source column changed`);
+    assert.equal(headers[key], header, `${key} source header changed`);
+  }
+  assert.equal(expected.actualDate[0], 'BE');
+  assert.notEqual(expected.actualDate[0], 'BD');
+}

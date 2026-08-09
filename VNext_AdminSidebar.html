@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      :root { --green:#188038; --blue:#1a73e8; --red:#b3261e; --amber:#b06000; --line:#dadce0; --soft:#f8f9fa; }
+      body { font: 13px/1.45 Arial, sans-serif; color:#202124; margin:0; padding:14px; }
+      h1 { font-size:18px; margin:0 0 4px; }
+      h2 { font-size:14px; margin:18px 0 8px; }
+      .muted { color:#5f6368; }
+      .badge { display:inline-block; padding:2px 8px; border-radius:12px; background:#e8f0fe; color:#174ea6; font-weight:700; }
+      .card { border:1px solid var(--line); border-radius:8px; padding:10px; margin:10px 0; background:white; }
+      .metrics { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+      .metric { background:var(--soft); border-radius:6px; padding:8px; }
+      .metric b { display:block; font-size:18px; }
+      label { display:block; font-weight:700; margin-top:8px; }
+      input, textarea, select { box-sizing:border-box; width:100%; margin-top:3px; padding:7px; border:1px solid var(--line); border-radius:4px; font:inherit; }
+      textarea { min-height:58px; resize:vertical; }
+      button { border:0; border-radius:4px; padding:8px 10px; margin:8px 4px 0 0; background:var(--blue); color:white; font-weight:700; cursor:pointer; }
+      button.secondary { background:#5f6368; }
+      button.good { background:var(--green); }
+      button.warn { background:var(--amber); }
+      button.danger { background:var(--red); }
+      button:disabled { opacity:.55; cursor:default; }
+      .hidden { display:none !important; }
+      .status { white-space:pre-wrap; padding:8px; border-radius:5px; margin-top:10px; background:var(--soft); max-height:180px; overflow:auto; }
+      .status.error { color:var(--red); background:#fce8e6; }
+      .approval { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
+      .exception { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
+      details { margin-top:10px; }
+      summary { cursor:pointer; color:#3c4043; font-weight:700; }
+      .money { font-variant-numeric:tabular-nums; }
+      a { color:var(--blue); }
+    </style>
+  </head>
+  <body>
+    <h1>Forecast vNext Admin</h1>
+    <div><span id="mode" class="badge">loading</span></div>
+    <div id="book" class="muted"></div>
+
+    <div id="legacyPanel" class="hidden">
+      <div class="card">
+        <h2>Admin Hub / Master Templateを作成</h2>
+        <p class="muted">現在のbookは変更しません。Admin専用Hubと、顧客データを含まないclean Templateをprivate保存先へ作ります。</p>
+        <label>ZAC実績データのSpreadsheet ID（初回のみ・必須）<input id="forecastSourceId" placeholder="1Abc..."></label>
+        <details>
+          <summary>名前・保存先などの詳細設定</summary>
+          <label>Admin Hub名<input id="hubName" placeholder="Forecast vNext Admin Hub"></label>
+          <label>Master Template名<input id="templateName" placeholder="Forecast vNext Master Template"></label>
+          <label>Release ID<input id="releaseId" placeholder="vnext-2026-01"></label>
+          <label>保存先folder ID（任意）<input id="bootstrapFolderId"></label>
+          <label>Admin emails（カンマ区切り）<textarea id="adminEmails"></textarea></label>
+        </details>
+        <button onclick="bootstrapBooks()">2冊を作成</button>
+      </div>
+    </div>
+
+    <div id="adminPanel" class="hidden">
+      <div class="card metrics">
+        <div class="metric">例外<b id="exceptionCount">0</b></div>
+        <div class="metric">待機job<b id="jobCount">0</b></div>
+        <div class="metric">承認待ち<b id="approvalCount">0</b></div>
+        <div class="metric">Client books<b id="clientCount">0</b></div>
+      </div>
+
+      <div class="card">
+        <h2>Pilot展開状況</h2>
+        <div id="pilotStatus" class="status">確認中…</div>
+        <div id="pilotCanaryApproval" class="hidden">
+          <label>3冊の確認結果・Canaryへ進む理由<textarea id="pilotCanaryReason"></textarea></label>
+          <button class="warn" onclick="approvePilotCanary()">4〜5冊目のCanaryを承認</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>自動運用</h2>
+        <div id="automationStatus" class="muted"></div>
+        <div id="operationsStatus" class="status">運用メトリクスを確認中…</div>
+        <button id="installAutomation" class="good" onclick="callSimple('vNextAdminInstallAutomation')">自動運用を有効化</button>
+        <details>
+          <summary>手動で更新する</summary>
+          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全bookの状態を確認</button>
+          <button class="secondary" onclick="callSimple('vNextAdminProcessJobQueue', 5)">待機中の処理を実行</button>
+          <button class="secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認事項を更新</button>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>いま確認が必要なこと</h2>
+        <div id="exceptions" class="muted">ありません</div>
+        <button class="secondary" onclick="callSimple('vNextAdminMenuOpenExceptions')">要確認一覧を開く</button>
+      </div>
+
+      <div class="card">
+        <h2>クライアント年度bookを作成</h2>
+        <label>クライアント名<input id="clientName"></label>
+        <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
+        <label>Forecast Owner（1名のメール）<input id="ownerEmails" type="email"></label>
+        <details>
+          <summary>詳細設定</summary>
+          <label>Client ID（空欄は自動採番）<input id="clientId"></label>
+          <label>追加編集メンバー（カンマ区切り）<textarea id="editorEmails"></textarea></label>
+          <label>閲覧者（カンマ区切り）<textarea id="viewerEmails"></textarea></label>
+          <label>入力期限（任意・空欄は7日後）<input id="inputDueDate" placeholder="2026/03/15"></label>
+          <label>Release ID（空欄は現行版）<input id="clientReleaseId"></label>
+          <label>保存先folder ID（任意）<input id="clientFolderId"></label>
+        </details>
+        <button onclick="provisionClient()">年度bookを作成</button>
+      </div>
+
+      <div class="card">
+        <h2>確認・承認待ち</h2>
+        <div id="approvals" class="muted">ありません</div>
+      </div>
+
+      <details class="card">
+        <summary>保守・高度な操作</summary>
+        <h2>Admin Hub本体を中央配備版へ更新</h2>
+        <p class="muted">中央のclasp配備projectから、検証済みの全AdminコードだけをこのHubへ反映します。book・履歴・設定は変更しません。</p>
+        <div id="adminRuntimeStatus" class="status">Admin runtimeを確認中…</div>
+        <label>更新理由（必須）<input id="adminRuntimeReason" placeholder="不具合修正・監査強化など"></label>
+        <button id="updateAdminRuntimeButton" class="warn" onclick="updateAdminRuntime()">中央配備版へ更新</button>
+        <h2>Vertex AI接続設定（管理者のみ）</h2>
+        <p class="muted">入力した項目だけをHubのScript Propertiesへ保存します。値は画面へ再表示しません。</p>
+        <label>Project ID<input id="vertexProjectId"></label>
+        <label>Location<input id="vertexLocation" placeholder="asia-northeast1"></label>
+        <label>Gemini model<input id="vertexModel"></label>
+        <label>Datastore ID<input id="vertexDatastore"></label>
+        <label>Search location<input id="vertexSearchLocation"></label>
+        <label>Serving config<input id="vertexServingConfig"></label>
+        <button class="secondary" onclick="saveRuntimeConfig()">入力した接続設定を保存</button>
+        <h2>社員bookのTemplate UIを編集</h2>
+        <p class="muted">現行UIまたは既存Draftの3画面だけを、Admin専用の編集用bookへ複製します。既存Clientには影響しません。</p>
+        <div id="activeTemplateRelease" class="status">現行Template Releaseを確認中…</div>
+        <label>複製元Draft Spreadsheet ID（空欄は現行ACTIVE）<input id="templateDraftSourceId"></label>
+        <label>新しいDraft名<input id="templateDraftName" placeholder="FY2027 UI改善案"></label>
+        <label>Draft作成理由（必須）<input id="templateDraftReason"></label>
+        <button class="secondary" onclick="createTemplateDraft()">Admin専用Draftを作成</button>
+        <h2>Template ReleaseをSTAGEDへ登録</h2>
+        <p class="muted">新しいclean known-bound Templateへ、許可された3画面だけをcopyToし、MEMO・format・validation・条件付き書式・結合・rich textをmanifestで照合します。Draft未指定なら現行ACTIVEのUIを継承します。</p>
+        <label>Release ID<input id="templateReleaseId" placeholder="vnext-client-2026-09"></label>
+        <label>UI Draft Spreadsheet ID（空欄は現行UI）<input id="templateReleaseDraftId"></label>
+        <label>STAGED作成理由（必須）<input id="templateReleaseReason" placeholder="操作性改善・監査強化など"></label>
+        <button class="secondary" onclick="publishTemplateRelease()">clean STAGED版を作成</button>
+        <h2>Template＋Modelを有効化</h2>
+        <p class="muted">下のModel DRAFTが対象Template Releaseと厳密一致し、Backtest/Canaryの管理者attestationがPASSの場合だけ、pairを有効化します。</p>
+        <label>STAGED Template Release ID<input id="pairTemplateReleaseId"></label>
+        <label>PASS済Model Release ID<input id="pairModelReleaseId"></label>
+        <label>Pair有効化理由（必須）<input id="pairActivationReason"></label>
+        <button class="good" onclick="activateReleasePair()">Template＋Modelを安全に有効化</button>
+        <h2>AI調査を依頼</h2>
+        <label>Book ID<input id="aiBookId"></label>
+        <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="顧客・市場・規制など、確認したい外部変化"></textarea></label>
+        <button class="secondary" onclick="enqueueAiResearch()">AI調査を処理待ちへ追加</button>
+        <h2>AI反映を取り消して再予測</h2>
+        <p class="muted">元のrunとAI証拠は削除せず、取消記録を追加して同じ乱数seedで比較可能な新runを作ります。</p>
+        <label>Book ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
+        <button class="secondary" onclick="loadAiRollbackBasis()">最新runのAI反映を確認</button>
+        <div id="aiRollbackBasisSummary" class="status">Book IDを入力して対象を確認してください。</div>
+        <div id="aiRollbackEvidenceList"></div>
+        <label>取消範囲<select id="aiRollbackScope" onchange="updateAiRollbackSelection()"><option value="ALL">今回のAI反映をすべて取り消す</option><option value="SELECTED">選んだAI反映だけ取り消す</option></select></label>
+        <label>取消理由（必須）<textarea id="aiRollbackReason" placeholder="情報の誤り、期限切れ、適用判断の訂正など"></textarea></label>
+        <button class="warn" onclick="rollbackAiEvidence()">取消記録を追加して再予測</button>
+        <h2>モデル版の管理</h2>
+        <div id="activeModelRelease" class="status">現行モデル版を確認中…</div>
+        <details>
+          <summary>新しいモデル版（DRAFT）を登録</summary>
+          <label>Model Release ID<input id="modelReleaseId" placeholder="model-vnext-2026-02"></label>
+          <label>Model version<input id="modelVersion" placeholder="vnext-engine-0.3"></label>
+          <label>Template Release ID<input id="modelTemplateVersion" placeholder="STAGED Template Release ID"></label>
+          <label>Parameters JSON<textarea id="modelParameters" placeholder="{}"></textarea></label>
+          <label>Backtest JSON（管理者attestation）<textarea id="modelBacktest" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+          <label>Canary JSON（管理者attestation）<textarea id="modelCanary" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+          <label style="font-weight:400"><input id="modelAttestation" type="checkbox" style="width:auto;margin-right:6px">根拠を確認し、上記PASSが管理者attestationであることを確認した</label>
+          <label>登録理由・メモ<input id="modelDraftNote"></label>
+          <button class="secondary" onclick="registerModelRelease()">DRAFTを登録</button>
+        </details>
+        <label>有効化するModel Release ID<input id="activateModelReleaseId"></label>
+        <label>有効化理由<input id="activateModelReason"></label>
+        <button class="good" onclick="activateModelRelease()">PASS確認後に有効化</button>
+        <label>戻すModel Release ID<input id="rollbackModelReleaseId"></label>
+        <label>ロールバック理由<input id="rollbackModelReason"></label>
+        <button class="warn" onclick="rollbackModelRelease()">以前のモデル版へ戻す</button>
+        <h2>管理者から予測処理を再投入</h2>
+        <label>Book ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
+        <button onclick="requestForecast()">処理待ちへ追加</button>
+        <h2>正式計画を訂正</h2>
+        <p class="muted">現在のofficialは削除・上書きせず、新しい計画案を承認待ちへ追加します。</p>
+        <label>Book ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
+        <button class="secondary" onclick="loadAmendmentBasis()">現在の正式計画を読み込む</button>
+        <div id="amendmentBasisSummary" class="status">Book IDを入力して現在値を読み込んでください。</div>
+        <label>訂正理由（必須）<textarea id="amendmentReason" placeholder="なぜ正式計画を訂正するのか"></textarea></label>
+        <label>採用判断差分<input id="amendmentAdoptionDelta" type="number" step="1"></label>
+        <label>採用判断の理由<input id="amendmentAdoptionReason"></label>
+        <label>営業上積み<input id="amendmentSalesUplift" type="number" min="0" step="1"></label>
+        <label>上積み理由<input id="amendmentUpliftReason"></label>
+        <label>責任者<input id="amendmentUpliftOwner"></label>
+        <label>実行内容<input id="amendmentUpliftAction"></label>
+        <label>期限<input id="amendmentUpliftDueDate" placeholder="2027-03-31"></label>
+        <label>月次配分（4月～翌3月、12数値をカンマ区切り）<textarea id="amendmentAllocation" placeholder="0,0,0,0,0,0,0,0,0,0,0,0"></textarea></label>
+        <button class="warn" onclick="createAmendmentApproval()">訂正案を承認待ちへ追加</button>
+        <h2>差戻し後の進め方</h2>
+        <p class="muted">承認カードで選べなかった場合に、理由を残して次の状態へ進めます。</p>
+        <label>Book ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
+        <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
+        <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">計画だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
+        <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
+        <button class="secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button>
+        <button class="warn" onclick="enqueueMigration(false)">検証済み改修版を適用</button>
+        <h2>年度の振り返り・終了</h2>
+        <label>Book ID<input id="reviewBookId"></label>
+        <label>実績確認日（年度末翌月以降）<input id="reviewAsOf" placeholder="2027/04/01"></label>
+        <label style="font-weight:400"><input id="reviewAllowIncomplete" type="checkbox" style="width:auto;margin-right:6px">実績の欠損警告を確認したうえで例外的に開始する</label>
+        <label>例外開始の理由（上を選んだ場合は必須）<textarea id="reviewOverrideReason" placeholder="欠損月と確認方法、開始を認める理由"></textarea></label>
+        <button class="secondary" onclick="startReview()">確定実績で振り返りを開始</button>
+        <label>年度終了理由<input id="closeReason" placeholder="振り返り入力と確認が完了"></label>
+        <button class="warn" onclick="closeYear()">年度を終了</button>
+      </details>
+    </div>
+
+    <div id="nonAdminPanel" class="hidden card">
+      <b>このbookはAdmin Hubではありません。</b>
+      <p class="muted">Admin操作はHubで行います。Client/Template bookには管理メニューを表示しません。</p>
+    </div>
+
+    <div id="status" class="status">初期化中…</div>
+
+    <script>
+      let sidebarModel = null;
+      let amendmentBasis = null;
+      let aiRollbackBasis = null;
+      const $ = id => document.getElementById(id);
+      const value = id => $(id).value.trim();
+
+      function setBusy(busy) {
+        document.querySelectorAll('button').forEach(b => b.disabled = busy);
+      }
+      function showStatus(message, isError) {
+        $('status').textContent = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
+        $('status').classList.toggle('error', !!isError);
+      }
+      function onFailure(error) {
+        setBusy(false);
+        showStatus((error && error.message) || String(error), true);
+      }
+      function load() {
+        google.script.run.withSuccessHandler(render).withFailureHandler(onFailure).vNextAdminGetSidebarModel();
+      }
+      function render(model) {
+        setBusy(false);
+        sidebarModel = model;
+        $('mode').textContent = model.mode;
+        $('book').textContent = model.spreadsheetName;
+        $('legacyPanel').classList.toggle('hidden', model.mode !== 'LEGACY');
+        $('adminPanel').classList.toggle('hidden', model.mode !== 'ADMIN');
+        $('nonAdminPanel').classList.toggle('hidden', model.mode === 'LEGACY' || model.mode === 'ADMIN');
+        if (model.mode === 'ADMIN') {
+          $('exceptionCount').textContent = model.counts.exceptions || 0;
+          $('jobCount').textContent = model.counts.queuedJobs || 0;
+          $('approvalCount').textContent = model.counts.pendingApprovals || 0;
+          $('clientCount').textContent = model.counts.clients || 0;
+          $('automationStatus').textContent = model.automationInstalled ? '有効です（5分ごとに確認）' : '未設定です。最初に1回だけ有効化してください。';
+          const operations = model.operations || {};
+          $('operationsStatus').textContent =
+            `最長job待機：${operations.oldestQueuedAgeMinutes || 0}分（待機 ${operations.queued || 0}件 / 実行中 ${operations.running || 0}件）\n` +
+            `自動運用最終成功：${operations.lastSweepSucceededAt || '未実行'}`;
+          $('operationsStatus').classList.toggle('error', !!(operations.schedulerStale || operations.queueStale));
+          const pilot = model.pilot || {};
+          $('pilotStatus').textContent =
+            `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
+            (pilot.blockedReason || '現在の範囲で次のbookを生成できます。');
+          $('pilotStatus').classList.toggle('error', !!pilot.blocked);
+          $('pilotCanaryApproval').classList.toggle('hidden',
+            !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
+          $('installAutomation').classList.toggle('hidden', !!model.automationInstalled);
+          renderExceptions(model.topExceptions || []);
+          renderApprovals(model.pendingApprovals || []);
+          const drafts = (model.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
+          const staged = (model.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
+          $('activeTemplateRelease').textContent =
+            `現行：${model.activeTemplateReleaseId || '未設定'}\n社員用runtime：${model.templateRuntimeVersion || '未設定'}\n` +
+            `編集用Draft：${drafts || 'なし'}\nSTAGED：${staged || 'なし'}`;
+          $('adminRuntimeStatus').textContent = model.adminRuntimeUpdatable
+            ? `中央更新経路：有効\n現在SHA-256：${model.adminRuntimeSha256 || '未記録'}`
+            : '中央更新経路が未登録です。clean bootstrapで生成したHubを使用してください。';
+          $('updateAdminRuntimeButton').classList.toggle('hidden', !model.adminRuntimeUpdatable);
+          renderModelReleases(model);
+        }
+        showStatus('準備完了');
+      }
+      function renderModelReleases(model) {
+        const active = model.activeModelReleaseId || '未設定';
+        const rows = model.modelReleases || [];
+        const lines = [`現行モデル版：${active}`];
+        rows.slice().reverse().slice(0, 8).forEach(row => {
+          lines.push(`${row.modelReleaseId}｜${row.status}｜backtest ${row.backtestPassed ? 'PASS' : '未PASS'}｜canary ${row.canaryPassed ? 'PASS' : '未PASS'}`);
+        });
+        $('activeModelRelease').textContent = lines.join('\n');
+      }
+      function renderExceptions(rows) {
+        const root = $('exceptions');
+        root.innerHTML = '';
+        if (!rows.length) { root.textContent = 'ありません'; return; }
+        rows.forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'exception';
+          const title = document.createElement('b');
+          title.textContent = `${row.severity || 'WARN'}｜${row.clientName || row.bookId || '共通'}${row.fiscalYear ? ` / FY${row.fiscalYear}` : ''}`;
+          div.appendChild(title);
+          const category = document.createElement('div');
+          category.textContent = `分類：${row.category || 'GENERAL'} / Book：${row.bookId || '-'}`;
+          div.appendChild(category);
+          const message = document.createElement('div');
+          message.textContent = row.message || row.detail || '';
+          div.appendChild(message);
+          const action = document.createElement('div');
+          action.className = 'muted';
+          action.textContent = `対処：${row.actionGuidance || '要確認一覧で詳細を確認してください。'}`;
+          div.appendChild(action);
+          if (['OFFICIAL_CLIENT_SYNC_FAILED','OFFICIAL_COPY_FAILED'].includes(String(row.category || '').toUpperCase()) && row.bookId) {
+            const retry = document.createElement('button');
+            retry.className = 'warn';
+            retry.textContent = '正式計画をClientへ再同期';
+            retry.onclick = () => retryOfficialSync(row.bookId);
+            div.appendChild(retry);
+          }
+          root.appendChild(div);
+        });
+      }
+      function renderApprovals(rows) {
+        const root = $('approvals');
+        root.innerHTML = '';
+        if (!rows.length) { root.textContent = 'ありません'; return; }
+        rows.forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'approval';
+          const title = document.createElement('b');
+          title.textContent = `${row.clientName || row.bookId} / FY${row.fiscalYear} / ${row.requestType}`;
+          div.appendChild(title);
+          const detail = document.createElement('div');
+          detail.className = 'muted';
+          const amendmentDetail = String(row.requestType || '').toUpperCase() === 'AMENDMENT'
+            ? `<div><b>訂正理由：</b>${escapeHtml(row.amendmentReason || '')}</div>` +
+              `<div>訂正元：${escapeHtml(row.supersedesOfficialId || '')}</div>` +
+              `<div class="money">前回正式予算 ${formatMoney(row.previousFinalBudget)} → 訂正案 ${formatMoney(row.finalBudget)}</div>`
+            : '';
+          detail.innerHTML = amendmentDetail +
+            `<div class="money">システム推奨 ${formatMoney(row.systemRecommended)}（P10 ${formatMoney(row.p10)} ～ P90 ${formatMoney(row.p90)}）</div>` +
+            `<div class="money">採用予測 ${formatMoney(row.adoptedForecast)} ＋ 営業上積み ${formatMoney(row.salesUplift)} ＝ 最終予算 ${formatMoney(row.finalBudget)}</div>` +
+            `<div>採用理由：${escapeHtml(row.adoptionReason || '差分なし')}</div>` +
+            `<div>上積み理由：${escapeHtml(row.upliftReason || '上積みなし')}</div>`;
+          div.appendChild(detail);
+          const comment = document.createElement('input');
+          comment.placeholder = '差戻し・却下時のコメント';
+          div.appendChild(comment);
+          let returnRoute = null;
+          if (String(row.requestType || '').toUpperCase() !== 'AMENDMENT') {
+            const routeLabel = document.createElement('label');
+            routeLabel.textContent = '差戻し後の進め方';
+            returnRoute = document.createElement('select');
+            [['PLAN_ONLY','計画だけ修正'], ['REOPEN_INPUT','入力を再開'], ['RERUN_SAME_INPUT','同じ入力で再予測']].forEach(option => {
+              const element = document.createElement('option');
+              element.value = option[0]; element.textContent = option[1];
+              returnRoute.appendChild(element);
+            });
+            routeLabel.appendChild(returnRoute);
+            div.appendChild(routeLabel);
+          }
+          [['承認','APPROVE','good'], ['差戻し','RETURN','warn']].forEach(spec => {
+            const button = document.createElement('button');
+            button.textContent = spec[0]; button.className = spec[2];
+            button.onclick = () => decideApproval(
+              row.approvalRequestId, spec[1], comment.value, row.bookId,
+              returnRoute ? returnRoute.value : ''
+            );
+            div.appendChild(button);
+          });
+          const reject = document.createElement('details');
+          reject.innerHTML = '<summary>却下などの詳細操作</summary>';
+          const rejectButton = document.createElement('button');
+          rejectButton.textContent = '却下'; rejectButton.className = 'danger';
+          rejectButton.onclick = () => decideApproval(row.approvalRequestId, 'REJECT', comment.value);
+          reject.appendChild(rejectButton); div.appendChild(reject);
+          root.appendChild(div);
+        });
+      }
+      function bootstrapBooks() {
+        setBusy(true); showStatus('copyを作成しています…');
+        const req = {
+          forecastSourceSpreadsheetId:value('forecastSourceId'),
+          hubName:value('hubName'), templateName:value('templateName'), releaseId:value('releaseId'),
+          folderId:value('bootstrapFolderId'), adminEmails:value('adminEmails')
+        };
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
+          .withFailureHandler(onFailure).vNextAdminBootstrapFromCurrent(req);
+      }
+      function provisionClient() {
+        setBusy(true); showStatus('Client bookを生成しています…');
+        const req = {
+          clientId:value('clientId'), clientName:value('clientName'), fiscalYear:value('fiscalYear'),
+          forecastOwnerEmails:value('ownerEmails'), editorEmails:value('editorEmails'), viewerEmails:value('viewerEmails'),
+          inputDueDate:value('inputDueDate'), releaseId:value('clientReleaseId'), folderId:value('clientFolderId')
+        };
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminProvisionClient(req);
+      }
+      function publishTemplateRelease() {
+        const reason = value('templateReleaseReason');
+        if (!reason) { showStatus('公開理由を入力してください。', true); return; }
+        setBusy(true); showStatus('clean known-bound TemplateへUIを複製し、STAGED manifestを検証しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); $('templateReleaseReason').value = ''; load();
+        }).withFailureHandler(onFailure).vNextAdminPublishTemplateRelease({
+          reason, releaseId:value('templateReleaseId'),
+          templateDraftSpreadsheetId:value('templateReleaseDraftId'), stageOnly:true,
+          expectedActiveReleaseId: sidebarModel && sidebarModel.activeTemplateReleaseId || ''
+        });
+      }
+      function createTemplateDraft() {
+        const reason = value('templateDraftReason');
+        if (!reason) { showStatus('Draft作成理由を入力してください。', true); return; }
+        setBusy(true); showStatus('Admin専用の編集用Template Draftを作成しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminCreateTemplateDraft({
+            templateDraftSpreadsheetId:value('templateDraftSourceId'),
+            draftName:value('templateDraftName'), reason
+          });
+      }
+      function activateReleasePair() {
+        const reason = value('pairActivationReason');
+        if (!reason) { showStatus('Pair有効化理由を入力してください。', true); return; }
+        setBusy(true); showStatus('新pairを有効化し、CASで現行pointerを切り替えています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminActivateReleasePair({
+            releaseId:value('pairTemplateReleaseId'), modelReleaseId:value('pairModelReleaseId'), reason,
+            expectedActiveReleaseId:sidebarModel && sidebarModel.activeTemplateReleaseId || '',
+            expectedActiveModelReleaseId:sidebarModel && sidebarModel.activeModelReleaseId || ''
+          });
+      }
+      function updateAdminRuntime() {
+        const reason = value('adminRuntimeReason');
+        if (!reason) { showStatus('Admin runtimeの更新理由を入力してください。', true); return; }
+        setBusy(true); showStatus('Admin Hub runtimeを検証し、中央配備版へ更新しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); $('adminRuntimeReason').value = ''; load();
+        }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({reason});
+      }
+      function requestForecast() {
+        setBusy(true);
+        const req = { bookId:value('forecastBookId') };
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRequestForecast(req);
+      }
+      function loadAmendmentBasis() {
+        const bookId = value('amendmentBookId');
+        if (!bookId) { showStatus('訂正対象のBook IDを入力してください。', true); return; }
+        setBusy(true); showStatus('現在の正式計画を確認しています…');
+        google.script.run.withSuccessHandler(basis => {
+          setBusy(false); amendmentBasis = basis;
+          $('amendmentAdoptionDelta').value = Number(basis.adoptionDelta || 0);
+          $('amendmentAdoptionReason').value = basis.adoptionReason || '';
+          $('amendmentSalesUplift').value = Number(basis.salesUplift || 0);
+          $('amendmentUpliftReason').value = basis.upliftReason || '';
+          $('amendmentUpliftOwner').value = basis.upliftOwner || '';
+          $('amendmentUpliftAction').value = basis.upliftAction || '';
+          $('amendmentUpliftDueDate').value = basis.upliftDueDate || '';
+          $('amendmentAllocation').value = (basis.upliftAllocation || []).map(row => Number(row && row.amount !== undefined ? row.amount : row || 0)).join(',');
+          $('amendmentBasisSummary').textContent =
+            `${basis.clientName} / FY${basis.fiscalYear}\n` +
+            `現在official: ${basis.currentOfficialId}\n` +
+            `システム推奨 ${formatMoney(basis.systemRecommended)} / 現在の正式予算 ${formatMoney(basis.finalBudget)}\n` +
+            'この正式計画は残したまま、新しい訂正案を作成します。';
+          showStatus('現在値を読み込みました。変更内容と訂正理由を入力してください。');
+        }).withFailureHandler(onFailure).vNextAdminGetAmendmentBasis({bookId});
+      }
+      function createAmendmentApproval() {
+        const bookId = value('amendmentBookId');
+        if (!amendmentBasis || amendmentBasis.bookId !== bookId) {
+          showStatus('先に対象Bookの現在の正式計画を読み込んでください。', true); return;
+        }
+        const rawAllocation = value('amendmentAllocation');
+        const allocation = rawAllocation
+          ? rawAllocation.split(/[,、\s]+/).filter(Boolean).map(Number)
+          : [];
+        if (allocation.length !== 12 || allocation.some(number => !Number.isFinite(number))) {
+          showStatus('月次配分は4月～翌3月の12数値で入力してください。', true); return;
+        }
+        const req = {
+          bookId,
+          expectedCurrentOfficialId:amendmentBasis.currentOfficialId,
+          expectedCurrentApprovedPlanId:amendmentBasis.approvedPlanVersionId,
+          expectedBasisHash:amendmentBasis.basisHash,
+          amendmentReason:value('amendmentReason'),
+          adoptionDelta:Number(value('amendmentAdoptionDelta')),
+          adoptionReason:value('amendmentAdoptionReason'),
+          salesUplift:Number(value('amendmentSalesUplift')),
+          upliftReason:value('amendmentUpliftReason'),
+          upliftOwner:value('amendmentUpliftOwner'),
+          upliftAction:value('amendmentUpliftAction'),
+          upliftDueDate:value('amendmentUpliftDueDate'),
+          upliftAllocation:allocation
+        };
+        if (!req.amendmentReason) { showStatus('訂正理由は必須です。', true); return; }
+        setBusy(true); showStatus('上書きせず、新しい訂正案を作成しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); amendmentBasis = null;
+          $('amendmentBasisSummary').textContent = '訂正案を承認待ちへ追加しました。再訂正時は現在値を再読込してください。';
+          showStatus(result); load();
+        }).withFailureHandler(onFailure).vNextAdminCreateAmendmentApproval(req);
+      }
+      function decideApproval(id, decision, comment, bookId, returnRoute) {
+        if ((decision === 'RETURN' || decision === 'REJECT') && !String(comment || '').trim()) {
+          showStatus('差戻し・却下の理由を入力してください。', true); return;
+        }
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => {
+          if (decision === 'RETURN' && bookId && returnRoute) {
+            google.script.run.withSuccessHandler(routeResult => {
+              setBusy(false); showStatus({decision:result, route:routeResult}); load();
+            }).withFailureHandler(error => {
+              setBusy(false);
+              showStatus(`差戻しは記録されましたが、次の進め方を反映できませんでした。\n${(error && error.message) || error}\n高度な操作から再実行してください。`, true);
+              load();
+            }).vNextAdminRouteReturnedPlan({
+              approvalRequestId:id, bookId, route:returnRoute,
+              reason:String(comment || '').trim()
+            });
+            return;
+          }
+          setBusy(false); showStatus(result); load();
+        })
+          .withFailureHandler(onFailure).vNextAdminDecideApproval({approvalRequestId:id, decision, comment});
+      }
+      function approvePilotCanary() {
+        const reason = value('pilotCanaryReason');
+        if (!reason) { showStatus('Canary承認の理由を入力してください。', true); return; }
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminApprovePilotCanary({reason});
+      }
+      function saveRuntimeConfig() {
+        const pairs = [
+          ['VERTEX_PROJECT_ID','vertexProjectId'], ['VERTEX_LOCATION','vertexLocation'],
+          ['VERTEX_GEMINI_MODEL','vertexModel'], ['VERTEX_DATASTORE_ID','vertexDatastore'],
+          ['VERTEX_SEARCH_LOCATION','vertexSearchLocation'], ['VERTEX_SERVING_CONFIG','vertexServingConfig']
+        ];
+        const config = {};
+        pairs.forEach(pair => { const v = value(pair[1]); if (v) config[pair[0]] = v; });
+        if (!Object.keys(config).length) { showStatus('保存する項目を入力してください。', true); return; }
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextConfigureRuntime(config);
+      }
+      function startReview() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminStartReview({
+            bookId:value('reviewBookId'), asOf:value('reviewAsOf'),
+            allowIncompleteActuals:$('reviewAllowIncomplete').checked,
+            actualCompletenessOverrideReason:value('reviewOverrideReason')
+          });
+      }
+      function retryOfficialSync(bookId) {
+        setBusy(true); showStatus('正式計画をClientへ再同期しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRetryOfficialClientSync({bookId});
+      }
+      function enqueueAiResearch() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminEnqueueAiResearch({bookId:value('aiBookId'), researchQuestion:value('aiResearchQuestion')});
+      }
+      function loadAiRollbackBasis() {
+        const bookId = value('aiRollbackBookId');
+        if (!bookId) { showStatus('AI反映を確認するBook IDを入力してください。', true); return; }
+        setBusy(true); showStatus('最新runのAI反映を確認しています…');
+        google.script.run.withSuccessHandler(basis => {
+          setBusy(false); aiRollbackBasis = basis;
+          $('aiRollbackBasisSummary').textContent =
+            `${basis.clientName} / FY${basis.fiscalYear}\n` +
+            `元run: ${basis.sourceForecastRunId} / 情報締切 ${basis.asOf}\n` +
+            `AI差分 ${formatMoney(basis.aiDelta)} / システム推奨 ${formatMoney(basis.systemRecommended)}\n` +
+            `有効なAI反映 ${basis.evidence.length}件`;
+          renderAiRollbackEvidence(basis.evidence || []);
+          showStatus('取消対象と理由を確認してください。');
+        }).withFailureHandler(onFailure).vNextAdminGetAiRollbackBasis({bookId});
+      }
+      function renderAiRollbackEvidence(rows) {
+        const root = $('aiRollbackEvidenceList');
+        root.innerHTML = '';
+        rows.forEach(row => {
+          const label = document.createElement('label');
+          label.style.fontWeight = '400';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox'; checkbox.className = 'aiRollbackEvidence';
+          checkbox.value = row.evidenceId; checkbox.style.width = 'auto'; checkbox.style.marginRight = '6px';
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(
+            `${row.summary || row.target || row.evidenceId}｜${row.direction || '中立'} ${formatMoney(row.appliedAmount)}｜${row.sourceDate || '日付なし'}｜品質 ${row.evidenceQuality || '-'}`
+          ));
+          root.appendChild(label);
+        });
+        updateAiRollbackSelection();
+      }
+      function updateAiRollbackSelection() {
+        const selectedOnly = value('aiRollbackScope') === 'SELECTED';
+        document.querySelectorAll('.aiRollbackEvidence').forEach(input => {
+          input.disabled = !selectedOnly;
+          if (!selectedOnly) input.checked = false;
+        });
+      }
+      function rollbackAiEvidence() {
+        const bookId = value('aiRollbackBookId');
+        if (!aiRollbackBasis || aiRollbackBasis.bookId !== bookId) {
+          showStatus('先に対象Bookの最新runを読み込んでください。', true); return;
+        }
+        const scope = value('aiRollbackScope');
+        const evidenceIds = [...document.querySelectorAll('.aiRollbackEvidence:checked')].map(input => input.value);
+        if (scope === 'SELECTED' && !evidenceIds.length) {
+          showStatus('取り消すAI反映を1件以上選んでください。', true); return;
+        }
+        const reason = value('aiRollbackReason');
+        if (!reason) { showStatus('取消理由を入力してください。', true); return; }
+        setBusy(true); showStatus('取消記録を追加し、同じseedで再予測を処理待ちへ追加しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); aiRollbackBasis = null;
+          $('aiRollbackBasisSummary').textContent = '取消と再予測を受け付けました。完了後に新runを確認してください。';
+          $('aiRollbackEvidenceList').innerHTML = '';
+          showStatus(result); load();
+        }).withFailureHandler(onFailure).vNextAdminRollbackAiEvidence({
+          bookId, sourceForecastRunId:aiRollbackBasis.sourceForecastRunId,
+          scope, evidenceIds, reason
+        });
+      }
+      function jsonObjectValue(id, label) {
+        const raw = value(id);
+        if (!raw) return {};
+        let parsed;
+        try { parsed = JSON.parse(raw); }
+        catch (error) { throw new Error(`${label}は正しいJSONで入力してください。`); }
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error(`${label}はJSON objectで入力してください。`);
+        return parsed;
+      }
+      function registerModelRelease() {
+        let req;
+        try {
+          req = {
+            modelReleaseId:value('modelReleaseId'), modelVersion:value('modelVersion'),
+            templateVersion:value('modelTemplateVersion'),
+            parameters:jsonObjectValue('modelParameters','Parameters'),
+            backtest:jsonObjectValue('modelBacktest','Backtest'),
+            canary:jsonObjectValue('modelCanary','Canary'), note:value('modelDraftNote'),
+            attestationConfirmed:$('modelAttestation').checked
+          };
+        } catch (error) { showStatus(error.message, true); return; }
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRegisterModelRelease(req);
+      }
+      function activateModelRelease() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminActivateModelRelease({
+            modelReleaseId:value('activateModelReleaseId'), reason:value('activateModelReason')
+          });
+      }
+      function rollbackModelRelease() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRollbackModelRelease({
+            targetModelReleaseId:value('rollbackModelReleaseId'), reason:value('rollbackModelReason')
+          });
+      }
+      function routeReturnedPlan() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRouteReturnedPlan({
+            bookId:value('returnedBookId'), approvalRequestId:value('returnedApprovalId'),
+            route:value('returnedRoute'), reason:value('returnedRouteReason')
+          });
+      }
+      function closeYear() {
+        setBusy(true);
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminCloseYear({bookId:value('reviewBookId'), reason:value('closeReason')});
+      }
+      function callSimple(name, arg) {
+        setBusy(true); showStatus('処理中…');
+        let runner = google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); }).withFailureHandler(onFailure);
+        if (arg === undefined) runner[name](); else runner[name](arg);
+      }
+      function formatMoney(value) {
+        return new Intl.NumberFormat('ja-JP', {style:'currency', currency:'JPY', maximumFractionDigits:0}).format(Number(value || 0));
+      }
+      function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+      }
+      load();
+    </script>
+  </body>
+</html>

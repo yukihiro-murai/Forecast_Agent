@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    :root { --blue:#174ea6; --green:#188038; --red:#b3261e; --text:#202124; --muted:#5f6368; --line:#dadce0; --soft:#f8f9fa; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:16px; color:var(--text); font:14px/1.55 Arial,"Noto Sans JP",sans-serif; }
+    h1 { margin:0 0 4px; font-size:20px; }
+    h2 { margin:22px 0 8px; font-size:15px; }
+    .meta,.hint { color:var(--muted); font-size:12px; }
+    .status { margin:12px 0; padding:10px 12px; border-radius:8px; background:#e8f0fe; color:var(--blue); font-weight:700; }
+    .choices { display:grid; gap:8px; margin-top:10px; }
+    .choice { position:relative; display:block; padding:13px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+    .choice:hover { background:var(--soft); }
+    .choice.selected { border:2px solid var(--blue); background:#e8f0fe; padding:12px; }
+    .choice input { position:static; opacity:1; width:auto; margin:2px 9px 0 0; accent-color:var(--blue); float:left; }
+    .choice strong { display:block; margin-left:25px; }
+    .choice span { display:block; color:var(--muted); font-size:12px; margin:2px 0 0 25px; }
+    .choice.selected strong::after { content:'✓ 選択中'; display:inline-block; margin-left:8px; color:var(--blue); font-size:11px; }
+    label.field { display:block; margin-top:13px; font-weight:700; }
+    input,select,textarea { width:100%; margin-top:5px; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--text); font:inherit; }
+    textarea { min-height:88px; resize:vertical; }
+    input:focus,select:focus,textarea:focus { outline:2px solid #aecbfa; border-color:var(--blue); }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .hidden { display:none !important; }
+    .band-help { margin-top:7px; padding:9px; border-radius:6px; background:var(--soft); font-size:12px; }
+    .preview { margin-top:14px; padding:12px; border-left:4px solid var(--blue); background:#e8f0fe; border-radius:4px; }
+    .preview strong { display:block; margin-bottom:4px; }
+    .warning { color:#8a4f00; margin-top:5px; }
+    .error { margin:10px 0; padding:10px; border-radius:6px; color:var(--red); background:#fce8e6; }
+    .success { margin:10px 0; padding:12px; border-radius:6px; color:#137333; background:#e6f4ea; font-weight:700; }
+    .actions { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:18px -16px -16px; padding:12px 16px 16px; background:#fff; border-top:1px solid var(--line); }
+    button { border:0; border-radius:6px; padding:10px 12px; font-weight:700; cursor:pointer; }
+    button.primary { color:#fff; background:var(--blue); }
+    button.secondary { color:var(--blue); background:#fff; border:1px solid var(--blue); }
+    button:disabled { cursor:not-allowed; opacity:.45; }
+    .override { margin-top:20px; padding:12px; border:1px solid #f9ab00; border-radius:8px; background:#fef7e0; }
+    .spinner { display:inline-block; width:14px; height:14px; border:2px solid #ccc; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:5px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading"><span class="spinner"></span>入力画面を準備しています…</div>
+  <main id="app" class="hidden">
+    <h1>自分の情報を入力</h1>
+    <div id="bookMeta" class="meta"></div>
+    <div id="state" class="status"></div>
+
+    <form id="evidenceForm" novalidate>
+      <h2>過去実績だけでは表せない、来年度の売上変化を知っていますか？</h2>
+      <div class="choices" id="responseChoices">
+        <label class="choice"><input type="radio" name="responseType" value="change"><strong>変化あり</strong><span>増減につながる具体的な情報があります</span></label>
+        <label class="choice"><input type="radio" name="responseType" value="no_change"><strong>確認したが変化なし</strong><span>確認した範囲では、特に変化はありません</span></label>
+        <label class="choice"><input type="radio" name="responseType" value="unknown"><strong>わからない・情報不足</strong><span>まだ判断できる情報がありません</span></label>
+      </div>
+
+      <section id="changeFields" class="hidden">
+        <label class="field">何が変わりますか？<input id="target" maxlength="120" placeholder="例：主要契約の更新、製品Aの追加導入"></label>
+        <label class="field">情報の種類
+          <select id="changeKind"><option value="">選択してください</option><option value="contract">契約・発注・確認済み案件</option><option value="other">その他の変化</option></select>
+        </label>
+        <div class="row">
+          <label class="field">いつ頃ですか？
+            <select id="period"><option value="">選択してください</option><option>FY通年</option><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option><option>4～6月</option><option>7～9月</option><option>10～12月</option><option>1～3月</option></select>
+          </label>
+          <label class="field">売上への方向
+            <select id="direction"><option value="">選択してください</option><option value="increase">増える</option><option value="decrease">減る</option></select>
+          </label>
+        </div>
+        <label class="field">金額の伝え方
+          <select id="amountMode"><option value="">選択してください</option><option value="exact">金額がわかる</option><option value="band">大・中・小で答える</option></select>
+        </label>
+        <label id="exactWrap" class="field hidden">影響額（円）<input id="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="例：30000000"></label>
+        <label id="bandWrap" class="field hidden">影響の大きさ
+          <select id="amountBand"><option value="">選択してください</option><option value="small">小</option><option value="medium">中</option><option value="large">大</option></select>
+          <div id="bandHelp" class="band-help"></div>
+        </label>
+        <label class="field">根拠<input id="evidenceChange" maxlength="1000" placeholder="例：8月5日の定例会で顧客担当者が更新方針を確認"></label>
+        <label class="field">情報確度
+          <select id="confidence"><option value="">選択してください</option><option value="confirmed">確認済み事実</option><option value="likely">有力情報</option><option value="hypothesis">仮説</option></select>
+        </label>
+      </section>
+
+      <section id="noteFields" class="hidden">
+        <label class="field">補足（任意）<textarea id="evidenceNote" maxlength="1000" placeholder="確認した相手や、わからない点を残せます"></textarea></label>
+      </section>
+
+      <div id="message"></div>
+      <div id="preview" class="preview hidden"><strong>保存される内容</strong><div id="previewSummary"></div><div id="previewImpact"></div><div id="previewWarning" class="warning"></div></div>
+    </form>
+
+    <section id="override" class="override hidden">
+      <strong>Forecast Owner向け</strong>
+      <p>回答期限を過ぎています。未回答者がいても、理由を記録して予測へ進めます。</p>
+      <textarea id="overrideReason" maxlength="500" placeholder="例：期限までに3名中2名が回答。未回答者は長期休暇中のため進行"></textarea>
+      <button id="overrideButton" type="button" class="secondary">入力を締め切って進む</button>
+    </section>
+
+    <div class="actions">
+      <button id="previewButton" type="button" class="secondary">内容を確認</button>
+      <button id="saveButton" type="button" class="primary" disabled>この内容で保存</button>
+    </div>
+  </main>
+
+  <script>
+    let model = null;
+    let previewHash = '';
+    const $ = id => document.getElementById(id);
+    const money = value => `${Number(value) < 0 ? '-' : ''}¥${Math.abs(Math.round(Number(value) || 0)).toLocaleString('ja-JP')}`;
+
+    function setBusy(isBusy, label) {
+      $('previewButton').disabled = isBusy;
+      $('saveButton').disabled = isBusy || !previewHash;
+      if (label) $('previewButton').textContent = label;
+      else $('previewButton').textContent = '内容を確認';
+    }
+    function showError(error) {
+      setBusy(false);
+      const text = error && error.message ? error.message : String(error || '不明なエラー');
+      $('message').innerHTML = `<div class="error">${escapeHtml(text)}</div>`;
+    }
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    }
+    function invalidatePreview() {
+      previewHash = '';
+      $('preview').classList.add('hidden');
+      $('saveButton').disabled = true;
+      $('message').innerHTML = '';
+    }
+    function selectedType() {
+      const selected = document.querySelector('input[name="responseType"]:checked');
+      return selected ? selected.value : '';
+    }
+    function payload() {
+      const type = selectedType();
+      return {
+        responseType: type,
+        target: $('target').value,
+        changeKind: $('changeKind').value,
+        period: $('period').value,
+        direction: $('direction').value,
+        amountMode: $('amountMode').value,
+        amount: $('amount').value,
+        amountBand: $('amountBand').value,
+        evidence: type === 'change' ? $('evidenceChange').value : $('evidenceNote').value,
+        confidence: $('confidence').value,
+        previewHash
+      };
+    }
+    function updateConditionalFields() {
+      const type = selectedType();
+      $('changeFields').classList.toggle('hidden', type !== 'change');
+      $('noteFields').classList.toggle('hidden', !type || type === 'change');
+      document.querySelectorAll('.choice').forEach(card => card.classList.toggle('selected', card.querySelector('input').checked));
+      const mode = $('amountMode').value;
+      $('exactWrap').classList.toggle('hidden', mode !== 'exact');
+      $('bandWrap').classList.toggle('hidden', mode !== 'band');
+      invalidatePreview();
+    }
+    function render(data) {
+      model = data;
+      $('loading').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      $('bookMeta').textContent = `${data.clientName}｜FY${data.fiscalYear}｜実績基準日 ${data.cutoff || '未設定'}`;
+      $('state').textContent = `${data.stateLabel}　／　${data.roleLabel}`;
+      $('bandHelp').innerHTML = (data.amountBands || []).map(b => `<div><strong>${escapeHtml(b.label)}</strong>：${money(b.low)} ～ ${money(b.high)}</div>`).join('');
+      $('override').classList.toggle('hidden', !data.canOverrideInput);
+      const previous = data.latestOwnEvidence;
+      if (previous && previous.responseType) {
+        const radio = document.querySelector(`input[name="responseType"][value="${previous.responseType}"]`);
+        if (radio) radio.checked = true;
+        ['target','changeKind','period','direction','amountMode','amount','amountBand','confidence'].forEach(key => { if ($(key) && previous[key] != null) $(key).value = previous[key]; });
+        if (previous.responseType === 'change') $('evidenceChange').value = previous.evidence || '';
+        else $('evidenceNote').value = previous.evidence || '';
+      }
+      updateConditionalFields();
+    }
+    function preview() {
+      invalidatePreview();
+      setBusy(true, '確認しています…');
+      google.script.run.withSuccessHandler(result => {
+        previewHash = result.previewHash;
+        $('previewSummary').textContent = result.summary;
+        $('previewImpact').textContent = `概算影響：${result.impactText}`;
+        $('previewWarning').textContent = result.warning || '';
+        $('preview').classList.remove('hidden');
+        $('saveButton').disabled = false;
+        setBusy(false);
+      }).withFailureHandler(showError).vNextPreviewEvidence(payload());
+    }
+    function save() {
+      setBusy(true, '確認済み');
+      $('saveButton').textContent = '保存しています…';
+      google.script.run.withSuccessHandler(result => {
+        $('message').innerHTML = `<div class="success">${escapeHtml(result.message)}</div>`;
+        $('saveButton').textContent = '保存しました';
+        $('saveButton').disabled = true;
+        setTimeout(() => google.script.host.close(), 1200);
+      }).withFailureHandler(error => {
+        $('saveButton').textContent = 'この内容で保存';
+        showError(error);
+      }).vNextSaveEvidence(payload());
+    }
+    function overrideInput() {
+      const reason = $('overrideReason').value.trim();
+      if (!reason) { showError(new Error('進める理由を入力してください。')); return; }
+      $('overrideButton').disabled = true;
+      google.script.run.withSuccessHandler(result => {
+        $('message').innerHTML = `<div class="success">${escapeHtml(result.message)}</div>`;
+        setTimeout(() => google.script.host.close(), 1200);
+      }).withFailureHandler(error => { $('overrideButton').disabled = false; showError(error); }).vNextCloseInputAndProceed(reason);
+    }
+
+    document.querySelectorAll('input,select,textarea').forEach(input => input.addEventListener('input', () => { updateConditionalFields(); }));
+    document.querySelectorAll('input[name="responseType"]').forEach(input => input.addEventListener('change', updateConditionalFields));
+    $('previewButton').addEventListener('click', preview);
+    $('saveButton').addEventListener('click', save);
+    $('overrideButton').addEventListener('click', overrideInput);
+    google.script.run.withSuccessHandler(render).withFailureHandler(error => {
+      $('loading').innerHTML = `<div class="error">${escapeHtml(error && error.message ? error.message : error)}</div>`;
+    }).vNextGetClientViewModel();
+  </script>
+</body>
+</html>
