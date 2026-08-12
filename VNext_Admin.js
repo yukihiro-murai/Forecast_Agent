@@ -962,9 +962,42 @@ function vNextAdminResolveBootstrapVertexConfig_(runtime) {
 /** Provision one client x fiscal-year workbook from the active release template. */
 function vNextAdminProvisionClient(request) {
   return vNextAdminGuard_('vNextAdminProvisionClient', function () {
-    const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
-    return vNextAdminWithScriptLock_('provision-client', function () {
+    return vNextAdminProvisionClientInHub_(hub, request);
+  });
+}
+
+/**
+ * Pilot-only fallback: provision through the central source project when a
+ * freshly generated Hub is still waiting for its own Cloud-project linkage.
+ */
+function vNextAdminProvisionPilotClientFromSource(request) {
+  return vNextAdminGuard_('vNextAdminProvisionPilotClientFromSource', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const source = SpreadsheetApp.getActiveSpreadsheet();
+    const sourceMode = vNextDetectBookMode_(source);
+    if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
+      throw new Error('Pilot source provisioning is allowed only from the registered source workbook.');
+    }
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    if (String(config.mode || '').toUpperCase() !== 'ADMIN' ||
+        String(config.admin_hub_spreadsheet_id || '') !== hubId ||
+        String(config.admin_source_script_id || '') !== ScriptApp.getScriptId() ||
+        !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not registered to this central source project.');
+    }
+    vNextAdminAssertHubAdmin_(hub, false);
+    vNextAdminHydrateHubRuntime_(hub);
+    return vNextAdminProvisionClientInHub_(hub, req);
+  });
+}
+
+function vNextAdminProvisionClientInHub_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  return vNextAdminWithScriptLock_('provision-client', function () {
       const runtime = vNextGetRuntimeConfig_();
       const clientName = vNextAdminRequiredText_(req.clientName, 'clientName');
       const clientId = vNextAdminText_(req.clientId) || vNextAdminDeriveClientId_(clientName);
@@ -1161,6 +1194,45 @@ function vNextAdminProvisionClient(request) {
         releaseId: release.release_id, modelReleaseId: modelRelease.model_release_id,
         state: 'INPUT_OPEN'
       };
+    });
+}
+
+/** Install the five-minute Pilot worker in the central source project. */
+function vNextAdminInstallPilotAutomationFromSource(request) {
+  return vNextAdminGuard_('vNextAdminInstallPilotAutomationFromSource', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const sourceMode = vNextDetectBookMode_(SpreadsheetApp.getActiveSpreadsheet());
+    if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
+      throw new Error('Pilot source automation is allowed only from the registered source workbook.');
+    }
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    if (String(config.mode || '').toUpperCase() !== 'ADMIN' ||
+        String(config.admin_hub_spreadsheet_id || '') !== hubId ||
+        String(config.admin_source_script_id || '') !== ScriptApp.getScriptId() ||
+        !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not registered to this central source project.');
+    }
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('install-pilot-source-automation', function () {
+      const existing = ScriptApp.getProjectTriggers().filter(function (trigger) {
+        return trigger.getHandlerFunction() === VN_ADMIN_SCHEDULED_HANDLER;
+      });
+      if (!existing.length) {
+        ScriptApp.newTrigger(VN_ADMIN_SCHEDULED_HANDLER).timeBased().everyMinutes(5).create();
+      }
+      PropertiesService.getScriptProperties().setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hubId);
+      vNextAdminWriteSystemConfig_(hub, {
+        pilot_worker_script_id: ScriptApp.getScriptId(), pilot_worker_mode: 'CENTRAL_SOURCE_FALLBACK',
+        pilot_worker_installed_at: new Date().toISOString(), pilot_worker_installed_by: vNextAdminActor_()
+      });
+      vNextAdminWriteAudit_(hub, 'INSTALL_PILOT_SOURCE_AUTOMATION', 'TRIGGER', VN_ADMIN_SCHEDULED_HANDLER, 'SUCCESS', {
+        reused: existing.length > 0, intervalMinutes: 5, workerScriptId: ScriptApp.getScriptId()
+      });
+      return { installed: true, reused: existing.length > 0, intervalMinutes: 5,
+        workerMode: 'CENTRAL_SOURCE_FALLBACK' };
     });
   });
 }

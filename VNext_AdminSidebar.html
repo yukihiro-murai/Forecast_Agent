@@ -65,6 +65,14 @@
         <label>Admin Hub Spreadsheet ID<input id="apiRecoveryHubId"></label>
         <label>Hub Cloud project番号<input id="apiRecoveryProjectNumber" inputmode="numeric"></label>
         <button class="warn" onclick="enableGeneratedHubApi()">生成HubのApps Script APIを有効化</button>
+        <h2>Pilot用Clientを中央から生成</h2>
+        <p class="muted">生成HubのCloud設定が未完了でも、中央の承認済みprojectからテスト用Clientを1冊だけ安全に生成できます。</p>
+        <label>Admin Hub Spreadsheet ID<input id="pilotSourceHubId"></label>
+        <label>クライアント名（ZACと完全一致）<input id="pilotSourceClientName"></label>
+        <label>年度（FY）<input id="pilotSourceFiscalYear" placeholder="2026"></label>
+        <label>Forecast Owner<input id="pilotSourceOwner" type="email"></label>
+        <button class="good" onclick="provisionPilotFromSource()">テスト用年度bookを生成</button>
+        <button class="warn" onclick="installPilotSourceAutomation()">中央projectでPilot自動運用を有効化</button>
       </details>
     </div>
 
@@ -428,6 +436,29 @@
         setBusy(true); showStatus('中央プロジェクトから生成HubのApps Script APIだけを有効化しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminEnableGeneratedHubAppsScriptApi({hubSpreadsheetId, cloudProjectNumber});
+      }
+      function provisionPilotFromSource() {
+        const hubSpreadsheetId = value('pilotSourceHubId');
+        const clientName = value('pilotSourceClientName');
+        const fiscalYear = value('pilotSourceFiscalYear');
+        const forecastOwnerEmails = value('pilotSourceOwner');
+        if (!hubSpreadsheetId || !clientName || !fiscalYear || !forecastOwnerEmails) {
+          showStatus('Hub ID、ZACと一致するクライアント名、FY、Forecast Ownerを入力してください。', true);
+          return;
+        }
+        setBusy(true); showStatus('中央projectからclean Client runtimeと年度bookを生成しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
+          .withFailureHandler(onFailure).vNextAdminProvisionPilotClientFromSource({
+            hubSpreadsheetId, clientName, fiscalYear, forecastOwnerEmails,
+            bookName:'【PILOT TEST】Forecast ' + clientName + ' FY' + fiscalYear
+          });
+      }
+      function installPilotSourceAutomation() {
+        const hubSpreadsheetId = value('pilotSourceHubId');
+        if (!hubSpreadsheetId) { showStatus('Admin Hub Spreadsheet IDを入力してください。', true); return; }
+        setBusy(true); showStatus('中央projectに5分間隔のPilot workerを設定しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
+          .withFailureHandler(onFailure).vNextAdminInstallPilotAutomationFromSource({hubSpreadsheetId});
       }
       function provisionClient() {
         setBusy(true); showStatus('Client bookを生成しています…');

@@ -219,6 +219,11 @@ async function checkAdminRecoveryContracts() {
     'Legacy Admin UI must expose the explicit-ID incomplete bootstrap recovery path');
   assert.ok(source.includes('function vNextAdminUpdateHubRuntimeFromSource('),
     'Generated Admin Hubs need a centrally managed runtime update path');
+  assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
+    source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
+    source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
+    source.includes("workerMode: 'CENTRAL_SOURCE_FALLBACK'"),
+    'Pilot recovery must support central-source Client provisioning and scheduled processing without duplicating business logic');
   const manifestStart = source.indexOf('function vNextAdminTemplateSheetManifest_(');
   const manifestEnd = source.indexOf('function vNextAdminSerializeValidation_', manifestStart);
   const manifestFunction = source.slice(manifestStart, manifestEnd);
