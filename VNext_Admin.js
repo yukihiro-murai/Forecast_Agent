@@ -44,7 +44,8 @@ const VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS = Object.freeze([
   'requestId', 'bookId', 'clientId', 'clientName', 'fiscalYear', 'asOf',
   'cutoff', 'bookConfiguredAsOf', 'requestedAt', 'requestedBy'
 ]);
-const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V2';
+const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V3';
+const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 = 'VNEXT_TEMPLATE_UI_V2';
 const VN_ADMIN_TEMPLATE_FORBIDDEN_FORMULA = /\b(?:IMPORTRANGE|IMPORTDATA|IMPORTHTML|IMPORTXML|GOOGLEFINANCE)\s*\(/i;
 const VN_ADMIN_AI_ROLLBACK_SCOPES = Object.freeze(['ALL', 'SELECTED']);
 const VN_ADMIN_RETURN_ROUTES = Object.freeze({
@@ -777,26 +778,40 @@ function vNextAdminRecoverIncompleteBootstrap(request) {
         created_at: templateRouting.created_at || now, created_by: templateRouting.created_by || actor,
         updated_at: now, note: 'Master Template; incomplete bootstrap recovered'
       });
-      const templateHash = vNextAdminTemplateUiManifestHash_(template);
-      vNextAdminRegisterRelease_(hub, {
-        release_id: releaseId, release_name: releaseId, status: 'ACTIVE',
-        template_spreadsheet_id: templateId, schema_version: vNextAdminClientSchemaVersion_(),
-        engine_version: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '',
-        admin_version: VN_ADMIN_SCHEMA_VERSION, client_runtime_version: clientRuntimeVersion,
-        client_runtime_sha256: clientRuntimeSha256, template_content_sha256: templateHash,
-        template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, template_script_id: templateScriptId,
-        created_at: templateRouting.created_at || now, created_by: templateRouting.created_by || actor,
-        activated_at: now, note: 'Initial bootstrap release; recovered after execution limit'
+      let initialTemplateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+        return String(row.release_id || '') === releaseId;
       });
+      if (initialTemplateRelease) {
+        if (String(initialTemplateRelease.status || '').toUpperCase() !== 'ACTIVE' ||
+            String(initialTemplateRelease.template_spreadsheet_id || '') !== templateId ||
+            String(initialTemplateRelease.client_runtime_version || '') !== clientRuntimeVersion ||
+            String(initialTemplateRelease.client_runtime_sha256 || '') !== clientRuntimeSha256 ||
+            String(initialTemplateRelease.template_script_id || '') !== templateScriptId ||
+            !String(initialTemplateRelease.template_content_sha256 || '')) {
+          throw new Error('Existing bootstrap release is incomplete or conflicts with the supplied Template.');
+        }
+      } else {
+        const templateHash = vNextAdminTemplateUiManifestHash_(template);
+        vNextAdminRegisterRelease_(hub, {
+          release_id: releaseId, release_name: releaseId, status: 'ACTIVE',
+          template_spreadsheet_id: templateId, schema_version: vNextAdminClientSchemaVersion_(),
+          engine_version: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '',
+          admin_version: VN_ADMIN_SCHEMA_VERSION, client_runtime_version: clientRuntimeVersion,
+          client_runtime_sha256: clientRuntimeSha256, template_content_sha256: templateHash,
+          template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, template_script_id: templateScriptId,
+          created_at: templateRouting.created_at || now, created_by: templateRouting.created_by || actor,
+          activated_at: now, note: 'Initial bootstrap release; recovered after execution limit'
+        });
+        initialTemplateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+          return String(row.release_id || '') === releaseId;
+        });
+      }
       const initialModelRelease = vNextAdminEnsureInitialModelRelease_(hub, {
         modelReleaseId: modelReleaseId,
         modelVersion: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : 'vnext-initial',
         templateVersion: releaseId, parameters: {}, actor: actor, now: now
       });
       vNextAdminWriteCanonicalReleasePair_(hub, releaseId, modelReleaseId, templateId);
-      const initialTemplateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
-        return String(row.release_id || '') === releaseId;
-      });
       vNextAdminWriteActiveReleasePairCaches_(hub, initialTemplateRelease, initialModelRelease);
       PropertiesService.getScriptProperties().setProperties({
         FORECAST_SOURCE_SPREADSHEET_ID: actualSourceId,
@@ -3238,7 +3253,9 @@ function vNextAdminAssertReleaseTemplateManifest_(release, template) {
   const schema = String(release && release.template_manifest_schema || 'LEGACY_V1');
   const actual = schema === VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA
     ? vNextAdminTemplateUiManifestHash_(template)
-    : vNextAdminTemplateContentHash_(template);
+    : schema === VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2
+      ? vNextAdminTemplateUiManifestHashV2_(template)
+      : vNextAdminTemplateContentHash_(template);
   if (expected !== actual) {
     throw new Error('Master Template visible content differs from the immutable RELEASES manifest.');
   }
@@ -3249,12 +3266,22 @@ function vNextAdminTemplateUiManifestHash_(template) {
   return vNextAdminSha256_(vNextAdminCanonicalJson_(vNextAdminTemplateUiManifest_(template)));
 }
 
+function vNextAdminTemplateUiManifestHashV2_(template) {
+  return vNextAdminSha256_(vNextAdminCanonicalJson_(
+    vNextAdminTemplateUiManifest_(template, VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2)
+  ));
+}
+
 /**
  * V2 UI manifest. Every copied attribute that Apps Script can inspect is
  * hashed. Objects that Sheet.copyTo cannot safely isolate are rejected before
  * publication instead of being silently dropped.
  */
-function vNextAdminTemplateUiManifest_(template) {
+function vNextAdminTemplateUiManifest_(template, manifestSchema) {
+  const schema = String(manifestSchema || VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA);
+  if (schema !== VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA && schema !== VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2) {
+    throw new Error('Unsupported Template manifest schema: ' + schema);
+  }
   const allowed = new Set(VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE);
   const unexpectedVisible = template.getSheets().filter(function (sheet) {
     return !sheet.isSheetHidden() && !allowed.has(sheet.getName());
@@ -3266,13 +3293,13 @@ function vNextAdminTemplateUiManifest_(template) {
     throw new Error('Named ranges are forbidden in Template UI; use direct ranges inside the three allowlisted sheets.');
   }
   return {
-    schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA,
+    schema: schema,
     allowedSheets: VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.slice(),
     sheets: VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE.map(function (name) {
       const sheet = template.getSheetByName(name);
       if (!sheet) throw new Error('Template manifest cannot find sheet: ' + name);
       vNextAdminAssertTemplateSheetHasNoForbiddenAssets_(template, sheet);
-      return vNextAdminTemplateSheetManifest_(template, sheet);
+      return vNextAdminTemplateSheetManifest_(template, sheet, { fullGrid: schema === VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 });
     })
   };
 }
@@ -3315,11 +3342,12 @@ function vNextAdminAssertTemplateSheetHasNoForbiddenAssets_(template, sheet) {
   return true;
 }
 
-function vNextAdminTemplateSheetManifest_(template, sheet) {
+function vNextAdminTemplateSheetManifest_(template, sheet, options) {
+  const fullGrid = Boolean(options && options.fullGrid);
   const maxRows = sheet.getMaxRows();
   const maxColumns = sheet.getMaxColumns();
-  const rows = Math.max(1, sheet.getLastRow());
-  const columns = Math.max(1, sheet.getLastColumn());
+  const rows = fullGrid ? maxRows : Math.max(1, sheet.getLastRow());
+  const columns = fullGrid ? maxColumns : Math.max(1, sheet.getLastColumn());
   if (rows * columns > 200000) {
     throw new Error(sheet.getName() + ' exceeds the 200,000-cell Template UI manifest limit.');
   }
@@ -3366,7 +3394,7 @@ function vNextAdminTemplateSheetManifest_(template, sheet) {
   }
   return {
     name: sheet.getName(), maxRows: maxRows, maxColumns: maxColumns,
-    usedRows: rows, usedColumns: columns,
+    usedRows: fullGrid ? undefined : rows, usedColumns: fullGrid ? undefined : columns,
     frozenRows: sheet.getFrozenRows(), frozenColumns: sheet.getFrozenColumns(),
     hiddenGridlines: typeof sheet.hasHiddenGridlines === 'function' ? sheet.hasHiddenGridlines() : false,
     rightToLeft: typeof sheet.isRightToLeft === 'function' ? sheet.isRightToLeft() : false,

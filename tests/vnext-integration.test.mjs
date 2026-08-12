@@ -211,10 +211,14 @@ async function checkAdminRecoveryContracts() {
   const manifestEnd = source.indexOf('function vNextAdminSerializeValidation_', manifestStart);
   const manifestFunction = source.slice(manifestStart, manifestEnd);
   assert.ok(manifestFunction.includes('const maxRows = sheet.getMaxRows();') &&
-    manifestFunction.includes('const rows = Math.max(1, sheet.getLastRow());') &&
-    manifestFunction.includes('usedRows: rows') &&
+    manifestFunction.includes('const rows = fullGrid ? maxRows : Math.max(1, sheet.getLastRow());') &&
+    manifestFunction.includes('usedRows: fullGrid ? undefined : rows') &&
     !manifestFunction.includes('const rows = sheet.getMaxRows();'),
     'Template UI manifests must hash the used envelope while retaining full grid dimensions to stay within GAS limits');
+  assert.ok(source.includes("const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V3'") &&
+    source.includes("const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 = 'VNEXT_TEMPLATE_UI_V2'") &&
+    source.includes('vNextAdminTemplateUiManifestHashV2_(template)'),
+    'The faster manifest must be versioned while existing V2 releases remain verifiable');
   assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&
     source.includes("exception_type: 'AI_RESEARCH_UNAVAILABLE'"),
     'Terminal AI research failures must degrade explicitly rather than block the forecast');
