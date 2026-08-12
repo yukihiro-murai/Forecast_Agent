@@ -542,8 +542,14 @@ async function checkAdminCoverageContracts() {
     }
   };
   const fakeDefinitionSheet = {
-    getName: () => '*defclients', getLastRow: () => 2,
-    getRange: () => ({getDisplayValues: () => [['ｱｽﾄﾗｾﾞﾈｶ(株)'], ['新規製薬(株)']]})
+    getName: () => '*defclients', getLastRow: () => 7,
+    getRange: (row,column,rowCount,columnCount) => {
+      assert.deepEqual([row,column,rowCount,columnCount],[1,1,7,2]);
+      return {getDisplayValues: () => [
+        ['年','2026'],['カテゴリ','-'],['クライアント','売上'],['全体','100'],
+        ['ｱｽﾄﾗｾﾞﾈｶ(株)','80'],['仮登録','10'],['新規製薬(株)','10']
+      ]};
+    }
   };
   const extractedCatalog = sandbox.vNextAdminExtractZacClientCatalog_({
     getSheets: () => [fakeActualSheet, fakeDefinitionSheet]
@@ -553,6 +559,10 @@ async function checkAdminCoverageContracts() {
     'The AstraZeneca catalog selection must retain the exact half-width ZAC name for history matching');
   assert.equal(extractedCatalog.clients.some(item => item.clientName === '新規製薬(株)'), true,
     '*defclients-only clients must also be available in the employee picker');
+  ['年','カテゴリ','クライアント','全体','仮登録'].forEach(label => {
+    assert.equal(extractedCatalog.clients.some(item => item.clientName === label), false,
+      `*defclients report label ${label} must never become an employee client option`);
+  });
 
   const catalogHeaders = vm.runInContext('VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.slice()', sandbox);
   const existingCatalogRows = [

@@ -5126,10 +5126,16 @@ function vNextAdminExtractZacClientCatalog_(source) {
   });
   defclients.forEach(function (sheet) {
     if (sheet.getLastRow() < 1) return;
-    const values = sheet.getRange(1, 1, sheet.getLastRow(), 1).getDisplayValues();
-    values.forEach(function (row, index) {
+    const values = sheet.getRange(1, 1, sheet.getLastRow(), 2).getDisplayValues();
+    const headerIndex = values.findIndex(function (row) {
+      return String(row[0] || '').trim() === 'クライアント' && String(row[1] || '').trim() === '売上';
+    });
+    if (headerIndex < 0) throw new Error(sheet.getName() + ' のクライアント/売上headerを確認できません。');
+    values.slice(headerIndex + 1).forEach(function (row) {
       const name = String(row[0] || '').trim();
-      if (!name || (index === 0 && /クライアント|顧客|取引先|メーカー/.test(name))) return;
+      // *defclients begins with report controls and includes aggregate buckets;
+      // neither represents a selectable ZAC client.
+      if (!name || name === '全体' || name === '仮登録') return;
       vNextAdminMergeZacCatalogCandidate_(byName, name, '', 0, true);
     });
   });
