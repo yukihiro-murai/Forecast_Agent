@@ -66,8 +66,13 @@ function gasSandbox() {
       computeDigest(_algorithm, value) {
         return [...createHash('sha256').update(String(value), 'utf8').digest()];
       },
-      getUuid() { return 'test-uuid'; }
-    }
+      getUuid() { return 'test-uuid'; },
+      formatDate(value) {
+        const date = new Date(value);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+      }
+    },
+    Session: { getScriptTimeZone: () => 'Asia/Tokyo' }
   };
 }
 
@@ -254,9 +259,14 @@ async function checkAdminRecoveryContracts() {
   assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&
     source.includes("exception_type: 'AI_RESEARCH_UNAVAILABLE'"),
     'Terminal AI research failures must degrade explicitly rather than block the forecast');
+  const aiSource = await readFile(path.join(root, 'VNext_AI.js'), 'utf8');
+  assert.ok(aiSource.includes("String(req.internalOperation || '') === 'ADMIN_JOB' && req.spreadsheet"),
+    'Central-source Pilot AI must accept only the trusted worker Hub handle');
   const executeStart = source.indexOf('function vNextAdminExecuteJob_');
   const executeEnd = source.indexOf('function vNextAdminFinishJob_', executeStart);
   const executeJob = source.slice(executeStart, executeEnd);
+  assert.ok(executeJob.includes("internalOperation: 'ADMIN_JOB'") && executeJob.includes('spreadsheet: hub'),
+    'Admin jobs must pass the explicit registered Hub to providers and Engine calls');
   assert.ok(executeJob.includes('vNextEngineBuildAdminRunIdentity_(') &&
     executeJob.includes('vNextEngineLookupRunForResume_(') &&
     executeJob.includes('vNextAdminEnsurePersistedForecastDraftState_(') &&
@@ -297,7 +307,7 @@ async function checkAdminCoverageContracts() {
   const payload = vm.runInContext(`({
     requestId:'REQ-1', bookId:'BOOK-1', clientId:'CLIENT-1', clientName:'Client',
     fiscalYear:2027, asOf:'2026-08-10', cutoff:'2026-07-31',
-    bookConfiguredAsOf:'2026-08-01', requestedAt:'2026-08-10T00:00:00.000Z',
+    bookConfiguredAsOf:'2026-08-01', requestedAt:'2026-08-10T12:00:00.000Z',
     requestedBy:'owner@example.com'
   })`, sandbox);
   const canonical = sandbox.vNextAdminCanonicalJson_(payload);
@@ -320,6 +330,33 @@ async function checkAdminCoverageContracts() {
   ), /keys are not exact/);
   assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(payload, canonical, 'REQ-X'), /requestId/);
   assert.throws(() => sandbox.vNextAdminAssertClientRequestPayload_(payload, JSON.stringify(payload), 'REQ-1'), /canonical/);
+  const originalReadTable = sandbox.vNextAdminReadTable_;
+  const originalValidateClientRequestRow = sandbox.vNextAdminValidateClientRequestRow_;
+  const requestRow = {
+    request_event_id:'REQEV-1', request_id:'REQ-1', book_id:'BOOK-1',
+    event_type:'REQUESTED', status:'PENDING', request_hash:sandbox.vNextAdminSha256_(canonical),
+    request_json:canonical, requested_at:payload.requestedAt, requested_by:'owner@example.com'
+  };
+  sandbox.vNextAdminReadTable_ = () => ({ rows: [requestRow, {
+    request_event_id:'REQEV-2', request_id:'REQ-1', book_id:'BOOK-1',
+    event_type:'HARVESTED', status:'QUEUED', request_hash:requestRow.request_hash,
+    request_json:canonical, requested_at:payload.requestedAt, requested_by:'owner@example.com'
+  }] });
+  sandbox.vNextAdminValidateClientRequestRow_ = row => ({
+    requestId: row.request_id, requestedAtMs: Date.parse(row.requested_at)
+  });
+  try {
+    const stateRequest = sandbox.vNextAdminLatestValidPendingRequest_(
+      { getSheetByName: () => ({}) },
+      { book_id:'BOOK-1', client_id:'CLIENT-1', client_name:'Client', fiscal_year:2027 },
+      'owner@example.com', Date.parse(payload.requestedAt), 'REQ-1'
+    );
+    assert.equal(stateRequest.requestId, 'REQ-1',
+      'A HARVESTED/QUEUED latest event must retain its immutable REQUESTED row for first state sync');
+  } finally {
+    sandbox.vNextAdminReadTable_ = originalReadTable;
+    sandbox.vNextAdminValidateClientRequestRow_ = originalValidateClientRequestRow;
+  }
 
   assert.equal(sandbox.vNextAdminNormalizeAiRollbackScope_('all'), 'ALL');
   assert.equal(sandbox.vNextAdminNormalizeAiRollbackScope_('selected'), 'SELECTED');
@@ -486,6 +523,11 @@ async function checkAdminCoverageContracts() {
   assert.ok(source.includes('vNextAdminScanRegistryBatch_(hub, 10)') &&
     source.includes('vNextAdminProcessJobsForHub_(hub, 4'),
     'Scheduled sweep pilot batches must scan 10 books and process 4 jobs');
+  assert.ok(source.includes('pilotRetries: vNextAdminRequeueKnownPilotFailures_(hub)') &&
+    source.includes("String(job.error || '') !== 'A matching valid pending forecast request was not found.'"),
+    'The scheduler must narrowly recover only the known pre-fix Pilot request-validation failure');
+  assert.ok(worker.includes("actorRole: 'ADMIN', hub: hub"),
+    'Central-source forecast recovery must use the explicit Hub instead of UI focus');
 }
 
 function checkSourceContract() {

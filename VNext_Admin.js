@@ -1781,6 +1781,7 @@ function vNextAdminScheduledSweep() {
     const maintenance = vNextAdminWithScriptLock_('scheduled-maintenance', function () {
       return {
         leases: vNextAdminRecoverStaleLeases_(hub, 20),
+        pilotRetries: vNextAdminRequeueKnownPilotFailures_(hub),
         scan: vNextAdminScanRegistryBatch_(hub, 10)
       };
     });
@@ -3972,6 +3973,40 @@ function vNextAdminRecoverStaleLeases_(hub, staleMinutes) {
   };
 }
 
+/**
+ * Requeue only the exact Pilot failure caused by the pre-fix request-state
+ * validator. This is deliberately not a generic automatic retry policy:
+ * unknown data/model failures stay FAILED for Admin review.
+ */
+function vNextAdminRequeueKnownPilotFailures_(hub) {
+  let requeued = 0;
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.forEach(function (job) {
+    if (String(job.job_type || '') !== 'FORECAST_REQUEST' ||
+        String(job.status || '').toUpperCase() !== 'FAILED' ||
+        Number(job.attempts || 0) >= 3 ||
+        String(job.error || '') !== 'A matching valid pending forecast request was not found.') return;
+    const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+      return String(row.book_id || '') === String(job.target_book_id || '') &&
+        String(row.mode || '') === 'CLIENT';
+    });
+    if (!registry) return;
+    const authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || '');
+    if (authoritativeState !== 'RUNNING') return;
+    vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
+      status: 'QUEUED', not_before: '', locked_at: '', locked_by: '', started_at: '', finished_at: '',
+      result_json: '', error: '', updated_at: new Date()
+    });
+    vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOB_LOG, {
+      log_id: 'JLOG-' + Utilities.getUuid(), job_id: job.job_id, logged_at: new Date(),
+      status: 'QUEUED', message: 'Known Pilot request-validation failure requeued after runtime fix',
+      detail_json: vNextAdminCanonicalJson_({ previousError: 'A matching valid pending forecast request was not found.' }),
+      actor: vNextAdminActor_()
+    });
+    requeued++;
+  });
+  return { requeuedJobs: requeued };
+}
+
 function vNextAdminRecoverExhaustedForecastJob_(hub, job) {
   const registry = vNextAdminFindRegistryRow_(hub, function (row) {
     return String(row.book_id || '') === String(job.target_book_id || '');
@@ -3983,7 +4018,7 @@ function vNextAdminRecoverExhaustedForecastJob_(hub, job) {
   const authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || routing.state);
   if (authoritativeState === 'RUNNING') {
     vNextAdminSetClientState_(registry.spreadsheet_id, 'READY_TO_RUN', {
-      reason: 'forecast_job_lease_exhausted_after_3_attempts', actorRole: 'ADMIN'
+      reason: 'forecast_job_lease_exhausted_after_3_attempts', actorRole: 'ADMIN', hub: hub
     });
   }
   if (payload.requestId && String(job.job_type || '') === 'FORECAST_REQUEST') {
@@ -4219,9 +4254,8 @@ function vNextAdminExecuteJob_(hub, job) {
           if (hubState === 'RUNNING') {
             vNextAdminSetClientState_(registry.spreadsheet_id, 'READY_TO_RUN', {
               reason: 'admin_forecast_job_failed: ' + String(engineError && engineError.message || engineError).slice(0, 500),
-              actorRole: 'ADMIN'
+              actorRole: 'ADMIN', hub: hub
             });
-            vNextAdminSyncClientToHub_(hub, client, registry.book_id);
             recoveryState = 'READY_TO_RUN';
           }
           vNextAdminSyncHubToClient_(hub, client, registry.book_id, ['FORECAST_RUN', 'STATE_EVENT']);
@@ -4280,7 +4314,8 @@ function vNextAdminExecuteJob_(hub, job) {
       }
       const findings = provider(Object.assign({}, payload, {
         bookId: registry.book_id, clientName: registry.client_name,
-        fiscalYear: Number(registry.fiscal_year)
+        fiscalYear: Number(registry.fiscal_year), spreadsheet: hub,
+        internalOperation: 'ADMIN_JOB'
       })) || [];
       const list = Array.isArray(findings) ? findings : (findings.findings || []);
       if (!list.length) return { findings: 0, appended: 0 };
@@ -6516,17 +6551,25 @@ function vNextAdminClientInputReadiness_(hub, registry) {
 function vNextAdminLatestValidPendingRequest_(client, registry, owner, eventTimestamp, expectedRequestId) {
   const sheet = client.getSheetByName(VN_ADMIN_CLIENT_REQUEST_SHEET);
   if (!sheet) return null;
+  const rows = vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows;
   const latest = {};
-  vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.forEach(function (row) {
+  rows.forEach(function (row) {
     const requestId = String(row.request_id || '');
     if (requestId) latest[requestId] = row;
   });
-  const candidates = Object.keys(latest).map(function (requestId) {
-    return latest[requestId];
-  }).filter(function (row) {
+  const latestForRequest = latest[String(expectedRequestId || '')];
+  if (!latestForRequest ||
+      ['PENDING', 'QUEUED'].indexOf(String(latestForRequest.status || '').toUpperCase()) < 0 ||
+      ['REQUESTED', 'HARVESTED'].indexOf(String(latestForRequest.event_type || '').toUpperCase()) < 0) {
+    return null;
+  }
+  // HARVESTED is appended before the first Client STATE_EVENT sync. Validate
+  // the original immutable REQUESTED/PENDING row, while using the latest row
+  // only to ensure the request has not been rejected or completed.
+  const candidates = rows.filter(function (row) {
     return String(row.request_id || '') === String(expectedRequestId || '') &&
       String(row.event_type || '').toUpperCase() === 'REQUESTED' &&
-      ['PENDING', 'QUEUED'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+      String(row.status || '').toUpperCase() === 'PENDING';
   }).map(function (row) {
     return vNextAdminValidateClientRequestRow_(row, registry, owner);
   }).filter(function (item) {

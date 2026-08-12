@@ -15,10 +15,24 @@ var VNEXT_AI = Object.freeze({
 /** Admin job provider hook consumed by VNext_Admin.js. */
 function vNextVertexAiResearch_(request) {
   var req = request && typeof request === 'object' ? request : {};
-  if (typeof vNextDetectBookMode_ === 'function' && vNextDetectBookMode_() !== 'ADMIN') {
-    throw new Error('Vertex AI research can run only in the Admin Hub.');
+  // The production Hub runtime uses the active bound spreadsheet. During the
+  // guarded pilot, the Admin-owned central source trigger opens the registered
+  // Hub by ID, so there is intentionally no active Hub container. Only accept
+  // the explicit in-memory Hub handle supplied by the trusted ADMIN_JOB worker.
+  var trustedWorker = String(req.internalOperation || '') === 'ADMIN_JOB' && req.spreadsheet;
+  if (trustedWorker) {
+    if (typeof vNextDetectBookMode_ !== 'function' || vNextDetectBookMode_(req.spreadsheet) !== 'ADMIN' ||
+        (typeof vNextAdminIsRegisteredHub_ === 'function' && !vNextAdminIsRegisteredHub_(req.spreadsheet))) {
+      throw new Error('Vertex AI research requires the registered Admin Hub.');
+    }
+    if (typeof vNextAdminAssertHubAdmin_ === 'function') vNextAdminAssertHubAdmin_(req.spreadsheet, true);
+    if (typeof vNextAdminHydrateHubRuntime_ === 'function') vNextAdminHydrateHubRuntime_(req.spreadsheet);
+  } else {
+    if (typeof vNextDetectBookMode_ === 'function' && vNextDetectBookMode_() !== 'ADMIN') {
+      throw new Error('Vertex AI research can run only in the Admin Hub.');
+    }
+    if (typeof vNextAdminRequireHub_ === 'function') vNextAdminRequireHub_();
   }
-  if (typeof vNextAdminRequireHub_ === 'function') vNextAdminRequireHub_();
   var config = vNextAiRuntimeConfig_();
   var clientName = String(req.clientName || '').trim();
   var bookId = String(req.bookId || '').trim();
