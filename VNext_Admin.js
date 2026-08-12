@@ -298,7 +298,7 @@ function vNextBuildAdminMenu_() {
       .addItem('全bookの状態を確認', 'vNextAdminMenuRunHealthScan')
       .addItem('待機中の処理を実行', 'vNextAdminMenuProcessJobs')
       .addSeparator()
-      .addItem('社員ポータルPilotを準備', 'vNextAdminPrepareEmployeePortalPilotForManualTest')
+      .addItem('社員ポータルPilotを1段階進める', 'vNextAdminContinueEmployeePortalPilotRecoveryForManualTest')
       .addSeparator()
       .addItem('Book一覧を開く', 'vNextAdminMenuOpenRegistry')
       .addItem('承認一覧を開く', 'vNextAdminMenuOpenApprovals')

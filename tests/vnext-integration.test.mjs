@@ -195,7 +195,7 @@ async function checkPortalRuntimeBoundary() {
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   assert.match(adminSidebar, /社員ポータルを準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
-  assert.match(adminSidebar, /vNextAdminPrepareEmployeePortalPilot/);
+  assert.match(adminSidebar, /vNextAdminContinueEmployeePortalPilotRecovery/);
   const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
   const pilotStart = adminSource.indexOf('function vNextAdminPrepareEmployeePortalPilot(request)');
   const pilotEnd = adminSource.indexOf('/**\n * Spreadsheet macro entry', pilotStart);
@@ -217,9 +217,15 @@ async function checkPortalRuntimeBoundary() {
   'The manual Sheet-macro entry must require explicit Admin attestation and record the tested runtime identities');
   const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
-  assert.ok(adminSource.slice(adminMenuStart, adminMenuEnd).includes(
-    ".addItem('社員ポータルPilotを準備', 'vNextAdminPrepareEmployeePortalPilotForManualTest')"
-  ), 'The Admin menu must expose a Spreadsheet-context Portal pilot recovery action');
+  const adminMenu = adminSource.slice(adminMenuStart, adminMenuEnd);
+  assert.ok(adminMenu.includes(
+    ".addItem('社員ポータルPilotを1段階進める', 'vNextAdminContinueEmployeePortalPilotRecoveryForManualTest')"
+  ), 'The Admin menu must expose the resumable Spreadsheet-context Portal pilot action');
+  assert.ok(!adminMenu.includes("'vNextAdminPrepareEmployeePortalPilotForManualTest'"),
+    'The long-running legacy one-shot Portal pilot action must not remain in the Admin menu');
+  const recoverySource = await readFile(path.join(root, 'VNext_PortalPilotRecovery.js'), 'utf8');
+  assert.match(recoverySource,
+    /function vNextAdminContinueEmployeePortalPilotRecoveryForManualTest\(\)/);
 }
 
 async function checkAdminRecoveryContracts() {

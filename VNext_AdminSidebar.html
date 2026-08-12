@@ -120,9 +120,9 @@
         <button class="good" onclick="provisionSharedPortal()">社員ポータルを準備する</button>
         <details>
           <summary>初回Pilotを一括準備する</summary>
-          <p class="muted">現在の予測Engine・parameterを変更せず、新しいClient runtime用のTemplate／Model版を発行してから社員ポータルを準備します。処理が停止した場合は、要確認一覧を確認してから再実行してください。</p>
+          <p class="muted">現在の予測Engine・parameterを変更せず、新しいClient runtime用のTemplate／Model版を発行してから社員ポータルを準備します。1回に1段階だけ進むため、「完了」と表示されるまで同じボタンを繰り返してください。</p>
           <label><input id="portalPilotAttestation" type="checkbox"> 上記のClient runtime 12件、Portal runtime 7件、統合契約test PASSを管理者として確認した</label>
-          <button class="warn" onclick="prepareEmployeePortalPilot()">Template・Model・Portalを一括準備</button>
+          <button class="warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button>
         </details>
       </div>
 
@@ -497,13 +497,16 @@
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }
-        setBusy(true); showStatus('Template・Model・社員ポータルを順番に準備しています。数分かかることがあります…');
+        setBusy(true); showStatus('社員ポータル準備を1段階進めています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
-          const url = result && result.portal && result.portal.spreadsheetUrl;
-          showStatus(url ? `社員ポータルPilotを準備しました。\n${url}` : result);
+          const url = result && result.portalSpreadsheetUrl;
+          const message = result && result.completed
+            ? `社員ポータルPilotを準備しました。\n${url || ''}`
+            : `この段階は完了しました。\n現在: ${result && result.phaseLabel || ''}\n同じボタンをもう1回押してください。`;
+          showStatus(message);
           load();
-        }).withFailureHandler(onFailure).vNextAdminPrepareEmployeePortalPilot({
+        }).withFailureHandler(onFailure).vNextAdminContinueEmployeePortalPilotRecovery({
           attestationConfirmed:true,
           evidenceArtifact:'git:5a93273 + local-suite:2026-08-12/client12/portal7/integration-pass'
         });
