@@ -8,7 +8,7 @@
 - `FYyyyy`: 1行を「1クライアント × 1年度」とする年度別一覧
 - メニュー（3項目のみ）: `ホームに戻る` / `新しい年度計画を作る` / `使い方・困ったとき`
 
-専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。Forecast Ownerは権限ではなく作業分担です。
+専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。作成担当（Forecast Owner）は入力させず、送信時のログインユーザーを自動設定します。
 
 ## Request API
 
@@ -24,17 +24,17 @@
 `vNextPortalPreviewCreation`は次のexact keysだけを受け入れます。
 
 ```text
-clientId, clientName, fiscalYear, forecastOwnerEmail, relatedMembersText
+clientKey, fiscalYear, relatedMemberNames
 ```
 
 `vNextPortalSubmitCreationRequest`は次のexact keysだけを受け入れます。
 
 ```text
-clientId, clientName, confirmSimilarDuplicates, duplicateCheckHash,
-fiscalYear, forecastOwnerEmail, relatedMembersText
+clientKey, confirmSimilarDuplicates, duplicateCheckHash,
+fiscalYear, relatedMemberNames
 ```
 
-候補確認hashは、同じFYの`PORTAL_DIRECTORY`と処理中のローカル依頼を再読込して生成します。送信時にロック内で再計算し、候補が増減していれば再確認を要求します。同一IDまたは正規化名の完全一致は送信を止め、類似名は社員の明示確認を必須にします。
+`clientKey`は管理側がZACから事前同期した`VN_PORTAL_CLIENT_CATALOG`の選択値です。社員によるクライアント名・IDの自由入力は受け付けません。関与メンバーは氏名を1〜5名入力します。候補確認hashは、同じFYの`PORTAL_DIRECTORY`と処理中のローカル依頼を再読込して生成します。送信時にロック内で再計算し、候補が増減していれば再確認を要求します。同一IDまたは正規化名の完全一致は送信を止め、類似名は社員の明示確認を必須にします。
 
 ## `VN_PORTAL_REQUEST` contract
 
@@ -44,20 +44,23 @@ fiscalYear, forecastOwnerEmail, relatedMembersText
 request_event_id, request_id, event_type, status, request_hash, request_json,
 fiscal_year, client_id, client_name, forecast_owner_email,
 related_member_emails_json, requested_at, requested_by, related_book_id,
-related_book_url, detail_code, detail_message, created_at, created_by
+related_book_url, detail_code, detail_message, created_at, created_by,
+catalog_key, related_member_names_json
 ```
 
 runtimeは`REQUESTED / PENDING`だけをappendします。`request_json`は次のexact payloadをcanonical JSON化したもの、`request_hash`はそのUTF-8 SHA-256です。
 
 ```text
-clientId, clientName, fiscalYear, forecastOwnerEmail, relatedMemberEmails,
+catalogKey, clientName, fiscalYear, relatedMemberNames,
 requestId, requestType, requestedAt, requestedBy, schemaVersion
 ```
 
 固定値:
 
 - `requestType = CREATE_CLIENT_FY_BOOK`
-- `schemaVersion = vnext-portal-request-1`
+- `schemaVersion = vnext-portal-request-2`
+
+既存の`vnext-portal-request-1`行は読み取り・状態更新の後方互換を維持します。
 
 非同期処理側は同じ`request_id`と`request_hash`を使い、同じテーブルへ状態イベントをappendします。推奨ペア:
 
@@ -80,7 +83,7 @@ requestId, requestType, requestedAt, requestedBy, schemaVersion
 directory_event_id, directory_key, fiscal_year, client_id, client_name,
 forecast_owner_email, related_member_emails_json, state, center_forecast,
 adopted_forecast, final_budget, next_action, client_book_url, request_id,
-updated_at, updated_by
+updated_at, updated_by, related_member_names_json
 ```
 
 同じ`directory_key`の最終行を現在値として表示するappend projectionです。URLはGoogle SpreadsheetのHTTPS URLだけをリンク化します。

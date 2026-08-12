@@ -159,7 +159,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.0.0');
+  assert.equal(bundle.version, 'vnext-portal-1.1.0');
   assert.equal(bundle.files.length, 4);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -192,11 +192,50 @@ async function checkPortalRuntimeBoundary() {
   vm.runInContext(await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8'), portalSandbox);
   assert.equal(portalSandbox.vNextPortalNormalizeClientName_('株式会社 テスト'), 'テスト');
   assert.equal(portalSandbox.vNextPortalSafeBookUrl_('https://example.com/bad'), '');
+  assert.equal(portalSandbox.VNEXT_PORTAL.REQUEST_SCHEMA_VERSION, 'vnext-portal-request-2');
+  assert.deepEqual(JSON.parse(JSON.stringify(portalSandbox.VNEXT_PORTAL.PREVIEW_INPUT_KEYS)),
+    ['clientKey', 'fiscalYear', 'relatedMemberNames']);
+  assert.equal(portalSandbox.vNextPortalNormalizeCreationFiscalYear_(2029, new Date('2026-08-12')), 2029,
+    'Future fiscal years beyond FY2028 must be accepted by the employee UI contract');
+  assert.equal(portalSandbox.vNextPortalNormalizeCreationFiscalYear_(2036, new Date('2026-08-12')), 2036);
+  assert.throws(() => portalSandbox.vNextPortalNormalizeCreationFiscalYear_(2037, new Date('2026-08-12')), /一覧から/);
+  assert.deepEqual(JSON.parse(JSON.stringify(portalSandbox.vNextPortalNormalizeMemberNames_(['山田 太郎'], true))),
+    ['山田 太郎']);
+  assert.throws(() => portalSandbox.vNextPortalNormalizeMemberNames_([], true), /1名以上/);
+  assert.throws(() => portalSandbox.vNextPortalNormalizeMemberNames_(['山田太郎', '山田 太郎'], true), /同じ関与メンバー/);
+  const portalHtml = await readFile(path.join(sourceDir, 'Portal_CreateSidebar.html'), 'utf8');
+  assert.equal(/id=["']clientName["']|id=["']clientId["']|id=["']forecastOwnerEmail["']/.test(portalHtml), false,
+    'Client name/ID and Forecast Owner must not be employee input fields');
+  for (let memberIndex = 1; memberIndex <= 5; memberIndex++) {
+    assert.match(portalHtml, new RegExp(`id=["']memberName${memberIndex}["']`));
+  }
+  assert.match(portalHtml, /<select id="clientKey"/);
+  const legacyPortalPayload = {
+    clientId:'', clientName:'Legacy Client', fiscalYear:2027,
+    forecastOwnerEmail:'owner@example.com', relatedMemberEmails:[],
+    requestId:'PORTAL-REQ-LEGACY01', requestType:'CREATE_CLIENT_FY_BOOK',
+    requestedAt:'2026-08-12T00:00:00.000Z', requestedBy:'owner@example.com',
+    schemaVersion:'vnext-portal-request-1'
+  };
+  assert.equal(portalSandbox.vNextPortalValidateRequestPayload_(legacyPortalPayload), legacyPortalPayload);
+  assert.equal(portalSandbox.vNextPortalAssertRequestRowProjection_({
+    fiscal_year:2027, client_id:'', client_name:'Legacy Client',
+    forecast_owner_email:'owner@example.com', related_member_emails_json:'[]',
+    requested_at:legacyPortalPayload.requestedAt, requested_by:'owner@example.com',
+    catalog_key:'', related_member_names_json:''
+  }, legacyPortalPayload), true, 'Legacy v1 rows must remain readable after the v2 table migration');
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   assert.match(adminSidebar, /社員ポータルを準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
   assert.match(adminSidebar, /vNextAdminContinueEmployeePortalPilotRecovery/);
   const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  assert.match(adminSource, /VN_ADMIN_PORTAL_REQUEST_SCHEMA\s*=\s*'vnext-portal-request-2'/);
+  assert.match(adminSource, /function vNextAdminRefreshZacClientCatalog\(/);
+  assert.match(adminSource, /function vNextAdminUpdateSharedPortalRuntime\(/);
+  assert.match(adminSource, /VN_ADMIN_ZAC_CLIENT_CODE_COLUMN\s*=\s*40/);
+  assert.match(adminSource, /VN_ADMIN_ZAC_CLIENT_NAME_COLUMN\s*=\s*41/);
+  assert.match(adminSource, /forecastOwnerEmail:\s*requestedBy/,
+    'v2 Portal requests must derive Forecast Owner from the authenticated requester');
   const pilotStart = adminSource.indexOf('function vNextAdminPrepareEmployeePortalPilot(request)');
   const pilotEnd = adminSource.indexOf('/**\n * Spreadsheet macro entry', pilotStart);
   const pilot = adminSource.slice(pilotStart, pilotEnd);
@@ -489,6 +528,73 @@ async function checkAdminCoverageContracts() {
     sandbox.vNextAdminPortalCanonicalClientKey_({client_id:'CLIENT-B', client_name:'B'}),
     'BOOK_REGISTRY snake_case rows must produce distinct Portal directory keys');
   assert.equal(sandbox.vNextAdminNormalizeDomain_('@Example.COM'), 'example.com');
+  assert.equal(sandbox.vNextAdminSafeCatalogText_('ｱｽﾄﾗｾﾞﾈｶ(株)', 120, 'clientName'), 'ｱｽﾄﾗｾﾞﾈｶ(株)',
+    'The ZAC display/client name must preserve the exact AO source text used by the forecast engine');
+  const fakeActualSheet = {
+    getName: () => '*2026_actual_value', getLastRow: () => 2, getMaxColumns: () => 66,
+    getRange(row, column, rowCount, columnCount) {
+      if (row === 1 && column === 40) return {getValue: () => 'クライアントコード'};
+      if (row === 1 && column === 41) return {getValue: () => 'クライアント名'};
+      if (row === 2 && column === 40 && rowCount === 1 && columnCount === 2) {
+        return {getDisplayValues: () => [['AZ-001', 'ｱｽﾄﾗｾﾞﾈｶ(株)']]};
+      }
+      throw new Error(`unexpected actual range ${row},${column},${rowCount},${columnCount}`);
+    }
+  };
+  const fakeDefinitionSheet = {
+    getName: () => '*defclients', getLastRow: () => 2,
+    getRange: () => ({getDisplayValues: () => [['ｱｽﾄﾗｾﾞﾈｶ(株)'], ['新規製薬(株)']]})
+  };
+  const extractedCatalog = sandbox.vNextAdminExtractZacClientCatalog_({
+    getSheets: () => [fakeActualSheet, fakeDefinitionSheet]
+  });
+  const astraCatalog = extractedCatalog.clients.find(item => item.clientCode === 'AZ-001');
+  assert.equal(astraCatalog.clientName, 'ｱｽﾄﾗｾﾞﾈｶ(株)',
+    'The AstraZeneca catalog selection must retain the exact half-width ZAC name for history matching');
+  assert.equal(extractedCatalog.clients.some(item => item.clientName === '新規製薬(株)'), true,
+    '*defclients-only clients must also be available in the employee picker');
+
+  const originalPortalConfigRead = sandbox.vNextAdminReadKeyValueSheet_;
+  const originalPortalAppend = sandbox.vNextAdminAppendObject_;
+  const originalPortalActor = sandbox.vNextAdminActor_;
+  let legacyStatusRecord = null;
+  sandbox.vNextAdminReadKeyValueSheet_ = () => ({runtime_version:'vnext-portal-1.1.0'});
+  sandbox.vNextAdminAppendObject_ = (_portal, _sheet, record) => { legacyStatusRecord = record; return record; };
+  sandbox.vNextAdminActor_ = () => 'admin@example.com';
+  try {
+    const legacyPayload = {
+      clientId:'', clientName:'Legacy Client', fiscalYear:2027,
+      forecastOwnerEmail:'owner@example.com', relatedMemberEmails:[],
+      requestId:'PORTAL-REQ-LEGACY01', requestType:'CREATE_CLIENT_FY_BOOK',
+      requestedAt:'2026-08-12T00:00:00.000Z', requestedBy:'owner@example.com',
+      schemaVersion:'vnext-portal-request-1'
+    };
+    sandbox.vNextAdminAppendPortalRequestEvent_({}, {
+      payload:legacyPayload, requestHash:'a'.repeat(64), clientId:'C-DERIVED',
+      forecastOwnerEmail:'owner@example.com', relatedMemberEmails:[], relatedMemberNames:[]
+    }, 'VALIDATION_STARTED', 'VALIDATING', {});
+    assert.equal(legacyStatusRecord.client_id, '',
+      'Legacy v1 status rows must preserve an originally blank clientId projection');
+    assert.equal(legacyStatusRecord.catalog_key, '');
+    assert.equal(legacyStatusRecord.related_member_names_json, '',
+      'Legacy v1 status rows must leave v2-only projection columns blank');
+  } finally {
+    sandbox.vNextAdminReadKeyValueSheet_ = originalPortalConfigRead;
+    sandbox.vNextAdminAppendObject_ = originalPortalAppend;
+    sandbox.vNextAdminActor_ = originalPortalActor;
+  }
+
+  const portalMigrationStart = source.indexOf('function vNextAdminUpdateSharedPortalRuntime(');
+  const portalMigrationEnd = source.indexOf('function vNextAdminWritePortalConfigValues_', portalMigrationStart);
+  const portalMigration = source.slice(portalMigrationStart, portalMigrationEnd);
+  assert.ok(portalMigration.indexOf('tablesExpanded = true') <
+    portalMigration.indexOf('vNextAdminExpandPortalTableHeadersForV2_('),
+  'Portal migration must arm the v1 header rollback before its first multi-call table mutation');
+  assert.ok(portalMigration.indexOf('contentUpdateAttempted = true') <
+    portalMigration.indexOf('vNextClientRuntimePutContent_(portal.scriptId, target)'),
+  'Portal migration must arm runtime rollback before the remote content PUT can partially succeed');
+  assert.ok(portalMigration.includes('if (contentUpdateAttempted) {'),
+    'Portal migration catch path must restore the previous runtime after every attempted PUT');
 
   const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
   const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;

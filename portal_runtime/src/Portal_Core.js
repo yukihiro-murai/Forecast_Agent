@@ -4,35 +4,46 @@
  */
 
 var VNEXT_PORTAL = Object.freeze({
-  RUNTIME_VERSION: 'vnext-portal-1.0.0',
-  REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
+  RUNTIME_VERSION: 'vnext-portal-1.1.0',
+  REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
+  LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
   HOME_SHEET: 'ホーム',
   DIRECTORY_SHEET: 'PORTAL_DIRECTORY',
   REQUEST_SHEET: 'VN_PORTAL_REQUEST',
+  CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG',
+  CLIENT_CATALOG_CACHE_KEY: 'vnext-portal-client-catalog-v1',
+  CLIENT_CATALOG_CACHE_SECONDS: 300,
   MENU_NAME: '年度計画ポータル',
   PAYLOAD_KEYS: Object.freeze([
+    'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
+    'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
+  ]),
+  LEGACY_PAYLOAD_KEYS: Object.freeze([
     'clientId', 'clientName', 'fiscalYear', 'forecastOwnerEmail', 'relatedMemberEmails',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
   ]),
   PREVIEW_INPUT_KEYS: Object.freeze([
-    'clientId', 'clientName', 'fiscalYear', 'forecastOwnerEmail', 'relatedMembersText'
+    'clientKey', 'fiscalYear', 'relatedMemberNames'
   ]),
   SUBMIT_INPUT_KEYS: Object.freeze([
-    'clientId', 'clientName', 'confirmSimilarDuplicates', 'duplicateCheckHash',
-    'fiscalYear', 'forecastOwnerEmail', 'relatedMembersText'
+    'clientKey', 'confirmSimilarDuplicates', 'duplicateCheckHash', 'fiscalYear', 'relatedMemberNames'
   ]),
   REQUEST_HEADERS: Object.freeze([
     'request_event_id', 'request_id', 'event_type', 'status', 'request_hash', 'request_json',
     'fiscal_year', 'client_id', 'client_name', 'forecast_owner_email',
     'related_member_emails_json', 'requested_at', 'requested_by', 'related_book_id',
-    'related_book_url', 'detail_code', 'detail_message', 'created_at', 'created_by'
+    'related_book_url', 'detail_code', 'detail_message', 'created_at', 'created_by',
+    'catalog_key', 'related_member_names_json'
   ]),
   DIRECTORY_HEADERS: Object.freeze([
     'directory_event_id', 'directory_key', 'fiscal_year', 'client_id', 'client_name',
     'forecast_owner_email', 'related_member_emails_json', 'state', 'center_forecast',
     'adopted_forecast', 'final_budget', 'next_action', 'client_book_url', 'request_id',
-    'updated_at', 'updated_by'
+    'updated_at', 'updated_by', 'related_member_names_json'
+  ]),
+  CLIENT_CATALOG_HEADERS: Object.freeze([
+    'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
   ]),
   ACTIVE_REQUEST_STATUSES: Object.freeze(['PENDING', 'VALIDATING', 'CREATING', 'COMPLETED']),
   REQUEST_STATUS_LABELS: Object.freeze({
@@ -66,24 +77,30 @@ function vNextPortalInitialize() {
   }
 }
 
-/** Returns defaults for the creation sidebar. It does not restrict who may submit. */
+/** Returns a read-only, cached model for the creation sidebar. */
 function vNextPortalGetCreateModel() {
   try {
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    vNextPortalEnsureStructure_(spreadsheet);
     var fiscalYear = vNextPortalCurrentFiscalYear_(new Date());
     var actor = vNextPortalActiveUserEmail_();
+    if (!actor) throw new Error('ログイン中のGoogleアカウントを確認できません。社内アカウントで開き直してください。');
+    var catalog = vNextPortalReadClientCatalog_(spreadsheet, true);
+    var fiscalYears = [];
+    for (var year = fiscalYear; year <= fiscalYear + 10; year++) fiscalYears.push(year);
     return {
       ok: true,
       runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
       defaultFiscalYear: fiscalYear + 1,
-      fiscalYears: [fiscalYear - 1, fiscalYear, fiscalYear + 1, fiscalYear + 2],
-      defaultForecastOwnerEmail: actor,
-      instructions: '既存の計画がないか確認してから、作成を依頼します。受付後はホームで進み具合を確認できます。'
+      fiscalYears: fiscalYears,
+      requesterEmail: actor,
+      clients: catalog.clients,
+      catalogVersion: catalog.version,
+      catalogSyncedAt: catalog.syncedAt,
+      instructions: 'ZACのクライアントから選び、関与メンバーを入力してください。作成担当はログイン中のあなたに自動設定されます。'
     };
   } catch (error) {
     vNextPortalLog_('vNextPortalGetCreateModel failed', error);
-    throw new Error('作成画面を準備できませんでした。ポータルを再読み込みしてください。');
+    throw new Error(error && error.message ? error.message : '作成画面を準備できませんでした。');
   }
 }
 
@@ -92,17 +109,19 @@ function vNextPortalPreviewCreation(input) {
   try {
     vNextPortalAssertExactKeys_(input, VNEXT_PORTAL.PREVIEW_INPUT_KEYS, '入力内容');
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    vNextPortalEnsureStructure_(spreadsheet);
-    var normalized = vNextPortalNormalizeCreationInput_(input);
+    var actor = vNextPortalActiveUserEmail_();
+    if (!actor) throw new Error('ログイン中のGoogleアカウントを確認できません。社内アカウントで開き直してください。');
+    // Preview is a deliberate action, so use the current protected catalog.
+    // Only the initial sidebar model uses the short-lived cache.
+    var normalized = vNextPortalResolveCreationInput_(input, spreadsheet, actor, false);
     var check = vNextPortalBuildDuplicateCheck_(spreadsheet, normalized);
     return {
       ok: true,
       normalized: {
         fiscalYear: normalized.fiscalYear,
         clientName: normalized.clientName,
-        clientId: normalized.clientId,
-        forecastOwnerEmail: normalized.forecastOwnerEmail,
-        relatedMemberEmails: normalized.relatedMemberEmails
+        catalogKey: normalized.catalogKey,
+        relatedMemberNames: normalized.relatedMemberNames
       },
       candidates: check.candidates,
       hasExact: check.hasExact,
@@ -132,16 +151,13 @@ function vNextPortalSubmitCreationRequest(input) {
     if (!/^[a-f0-9]{64}$/.test(duplicateCheckHash)) {
       throw new Error('先に「重複候補を確認」を押してください。');
     }
-    var normalized = vNextPortalNormalizeCreationInput_({
-      fiscalYear: input.fiscalYear,
-      clientName: input.clientName,
-      clientId: input.clientId,
-      forecastOwnerEmail: input.forecastOwnerEmail,
-      relatedMembersText: input.relatedMembersText
-    });
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    vNextPortalEnsureStructure_(spreadsheet);
     return vNextPortalWithDocumentLock_(function () {
+      var actor = vNextPortalActiveUserEmail_();
+      if (!actor) throw new Error('ログイン中のGoogleアカウントを確認できません。社内アカウントで開き直してください。');
+      // Submission always bypasses the short-lived catalog cache so a stale or
+      // browser-modified selection cannot be persisted.
+      var normalized = vNextPortalResolveCreationInput_(input, spreadsheet, actor, false);
       var check = vNextPortalBuildDuplicateCheck_(spreadsheet, normalized);
       if (check.hash !== duplicateCheckHash) {
         throw new Error('候補一覧が更新されました。もう一度「重複候補を確認」を押してください。');
@@ -152,17 +168,13 @@ function vNextPortalSubmitCreationRequest(input) {
       if (check.hasSimilar && input.confirmSimilarDuplicates !== true) {
         throw new Error('似た名前の候補を確認し、「別のクライアントです」にチェックしてください。');
       }
-
-      var actor = vNextPortalActiveUserEmail_();
-      if (!actor) throw new Error('ログイン中のGoogleアカウントを確認できません。社内アカウントで開き直してください。');
       var now = new Date().toISOString();
       var requestId = 'PORTAL-REQ-' + Utilities.getUuid();
       var payload = {
-        clientId: normalized.clientId,
+        catalogKey: normalized.catalogKey,
         clientName: normalized.clientName,
         fiscalYear: normalized.fiscalYear,
-        forecastOwnerEmail: normalized.forecastOwnerEmail,
-        relatedMemberEmails: normalized.relatedMemberEmails,
+        relatedMemberNames: normalized.relatedMemberNames,
         requestId: requestId,
         requestType: VNEXT_PORTAL.REQUEST_TYPE,
         requestedAt: now,
@@ -180,10 +192,10 @@ function vNextPortalSubmitCreationRequest(input) {
         request_hash: requestHash,
         request_json: requestJson,
         fiscal_year: normalized.fiscalYear,
-        client_id: normalized.clientId,
+        client_id: normalized.catalogKey,
         client_name: normalized.clientName,
-        forecast_owner_email: normalized.forecastOwnerEmail,
-        related_member_emails_json: vNextPortalCanonicalJson_(normalized.relatedMemberEmails),
+        forecast_owner_email: actor,
+        related_member_emails_json: '[]',
         requested_at: now,
         requested_by: actor,
         related_book_id: '',
@@ -191,7 +203,9 @@ function vNextPortalSubmitCreationRequest(input) {
         detail_code: '',
         detail_message: '作成依頼を受け付けました。',
         created_at: now,
-        created_by: actor
+        created_by: actor,
+        catalog_key: normalized.catalogKey,
+        related_member_names_json: vNextPortalCanonicalJson_(normalized.relatedMemberNames)
       });
       return {
         ok: true,
@@ -210,7 +224,6 @@ function vNextPortalSubmitCreationRequest(input) {
 
 function vNextPortalGetLocalViewData_(spreadsheet) {
   spreadsheet = spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
-  vNextPortalEnsureStructure_(spreadsheet);
   var directory = vNextPortalReadDirectory_(spreadsheet);
   var requests = vNextPortalReadRequestModels_(spreadsheet);
   var fiscalYear = vNextPortalCurrentFiscalYear_(new Date());
@@ -233,8 +246,10 @@ function vNextPortalEnsureStructure_(spreadsheet) {
   vNextPortalEnsureFiscalYearSheet_(ss, currentFiscalYear + 1);
   var directory = vNextPortalEnsureTable_(ss, VNEXT_PORTAL.DIRECTORY_SHEET, VNEXT_PORTAL.DIRECTORY_HEADERS);
   var requests = vNextPortalEnsureTable_(ss, VNEXT_PORTAL.REQUEST_SHEET, VNEXT_PORTAL.REQUEST_HEADERS);
+  var catalog = vNextPortalEnsureTable_(ss, VNEXT_PORTAL.CLIENT_CATALOG_SHEET, VNEXT_PORTAL.CLIENT_CATALOG_HEADERS);
   vNextPortalHideInternalSheet_(directory);
   vNextPortalHideInternalSheet_(requests);
+  vNextPortalHideInternalSheet_(catalog);
   vNextPortalHideBlankDefaultSheets_(ss);
   return { home: home, directory: directory, requests: requests };
 }
@@ -276,7 +291,7 @@ function vNextPortalEnsureTable_(spreadsheet, sheetName, headers) {
 
 function vNextPortalAppendRow_(spreadsheet, sheetName, headers, record) {
   vNextPortalAssertExactKeys_(record, headers, sheetName + 'レコード');
-  var sheet = vNextPortalEnsureTable_(spreadsheet, sheetName, headers);
+  var sheet = vNextPortalRequireTable_(spreadsheet, sheetName, headers);
   var values = headers.map(function (header) {
     var value = record[header];
     return value === undefined || value === null ? '' : value;
@@ -287,7 +302,7 @@ function vNextPortalAppendRow_(spreadsheet, sheetName, headers, record) {
 }
 
 function vNextPortalReadTable_(spreadsheet, sheetName, headers) {
-  var sheet = vNextPortalEnsureTable_(spreadsheet, sheetName, headers);
+  var sheet = vNextPortalRequireTable_(spreadsheet, sheetName, headers);
   if (sheet.getLastRow() < 2) return [];
   var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
   return values.filter(function (row) {
@@ -297,6 +312,155 @@ function vNextPortalReadTable_(spreadsheet, sheetName, headers) {
     headers.forEach(function (header, index) { record[header] = row[index]; });
     return record;
   });
+}
+
+/** Read-path table assertion. It never creates, formats, protects, or hides a sheet. */
+function vNextPortalRequireTable_(spreadsheet, sheetName, headers) {
+  var sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) throw new Error(sheetName + 'が準備されていません。管理担当者へ連絡してください。');
+  var actual = sheet.getRange(1, 1, 1, headers.length).getValues()[0].map(function (value) {
+    return String(value || '');
+  });
+  if (vNextPortalCanonicalJson_(actual) !== vNextPortalCanonicalJson_(headers.slice())) {
+    throw new Error(sheetName + 'の列構成が正しくありません。管理担当者へ連絡してください。');
+  }
+  return sheet;
+}
+
+/** Reads the Admin-synchronized ZAC client catalog, with a short read-only cache. */
+function vNextPortalReadClientCatalog_(spreadsheet, allowCache) {
+  var cache = null;
+  if (allowCache && typeof CacheService !== 'undefined') {
+    try {
+      cache = CacheService.getDocumentCache();
+      var cached = cache && cache.get(VNEXT_PORTAL.CLIENT_CATALOG_CACHE_KEY);
+      if (cached) return vNextPortalValidateCatalogModel_(JSON.parse(cached));
+    } catch (cacheReadError) {
+      vNextPortalLog_('client catalog cache read skipped', cacheReadError);
+    }
+  }
+
+  var rows = vNextPortalReadTable_(
+    spreadsheet, VNEXT_PORTAL.CLIENT_CATALOG_SHEET, VNEXT_PORTAL.CLIENT_CATALOG_HEADERS
+  );
+  var version = '';
+  var syncedAt = '';
+  var seenKeys = {};
+  var clients = [];
+  rows.forEach(function (row) {
+    var rowVersion = vNextPortalPlainText_(row.catalog_version, 100, true, 'クライアント一覧の版');
+    if (!version) version = rowVersion;
+    if (version !== rowVersion) throw new Error('クライアント一覧の版が混在しています。管理担当者へ連絡してください。');
+    var rowSyncedAt = vNextPortalIsoText_(row.synced_at);
+    if (!rowSyncedAt || isNaN(new Date(rowSyncedAt).getTime())) {
+      throw new Error('クライアント一覧の更新日時が不正です。管理担当者へ連絡してください。');
+    }
+    if (!syncedAt || rowSyncedAt > syncedAt) syncedAt = rowSyncedAt;
+    var key = vNextPortalPlainText_(row.catalog_key, 100, true, 'クライアント識別子');
+    if (seenKeys[key]) throw new Error('クライアント一覧に重複があります。管理担当者へ連絡してください。');
+    seenKeys[key] = true;
+    var name = vNextPortalPlainText_(row.client_name, 120, true, 'クライアント名');
+    if (vNextPortalCatalogActive_(row.is_active)) clients.push({ key: key, name: name });
+  });
+  if (!version || !clients.length) {
+    throw new Error('ZACのクライアント一覧がまだ準備されていません。管理担当者へ連絡してください。');
+  }
+  clients.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'ja'); });
+  var model = vNextPortalValidateCatalogModel_({ version: version, syncedAt: syncedAt, clients: clients });
+  if (allowCache && cache) {
+    try {
+      cache.put(VNEXT_PORTAL.CLIENT_CATALOG_CACHE_KEY, JSON.stringify(model), VNEXT_PORTAL.CLIENT_CATALOG_CACHE_SECONDS);
+    } catch (cacheWriteError) {
+      vNextPortalLog_('client catalog cache write skipped', cacheWriteError);
+    }
+  }
+  return model;
+}
+
+function vNextPortalValidateCatalogModel_(model) {
+  if (!model || Object.prototype.toString.call(model) !== '[object Object]') throw new Error('クライアント一覧が不正です。');
+  var version = vNextPortalPlainText_(model.version, 100, true, 'クライアント一覧の版');
+  var syncedAt = vNextPortalIsoText_(model.syncedAt);
+  if (!syncedAt || isNaN(new Date(syncedAt).getTime())) throw new Error('クライアント一覧の更新日時が不正です。');
+  if (!Array.isArray(model.clients) || !model.clients.length) throw new Error('ZACのクライアント一覧が空です。');
+  var seen = {};
+  var clients = model.clients.map(function (client) {
+    vNextPortalAssertExactKeys_(client, ['key', 'name'], 'クライアント候補');
+    var key = vNextPortalPlainText_(client.key, 100, true, 'クライアント識別子');
+    var name = vNextPortalPlainText_(client.name, 120, true, 'クライアント名');
+    if (seen[key]) throw new Error('クライアント一覧に重複があります。');
+    seen[key] = true;
+    return { key: key, name: name };
+  });
+  return { version: version, syncedAt: syncedAt, clients: clients };
+}
+
+function vNextPortalCatalogActive_(value) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  var normalized = String(value === undefined || value === null ? '' : value).trim().toUpperCase();
+  if (['TRUE', '1', 'ACTIVE', 'YES'].indexOf(normalized) >= 0) return true;
+  if (['FALSE', '0', 'INACTIVE', 'NO'].indexOf(normalized) >= 0) return false;
+  throw new Error('クライアント一覧の有効フラグが不正です。管理担当者へ連絡してください。');
+}
+
+function vNextPortalResolveCreationInput_(input, spreadsheet, actor, allowCatalogCache) {
+  var fiscalYear = vNextPortalNormalizeCreationFiscalYear_(input.fiscalYear, new Date());
+  var clientKey = vNextPortalPlainText_(input.clientKey, 100, true, 'クライアント');
+  var relatedMemberNames = vNextPortalNormalizeMemberNames_(input.relatedMemberNames, true);
+  var catalog = vNextPortalReadClientCatalog_(spreadsheet, allowCatalogCache === true);
+  var selected = null;
+  catalog.clients.some(function (client) {
+    if (client.key !== clientKey) return false;
+    selected = client;
+    return true;
+  });
+  if (!selected) throw new Error('選択したクライアントは現在のZAC一覧にありません。一覧を開き直してください。');
+  return {
+    catalogKey: selected.key,
+    clientId: selected.key,
+    clientName: selected.name,
+    fiscalYear: fiscalYear,
+    relatedMemberNames: relatedMemberNames,
+    requestedBy: vNextPortalNormalizeEmail_(actor, true, '作成担当')
+  };
+}
+
+function vNextPortalNormalizeCreationFiscalYear_(value, now) {
+  var fiscalYear = Number(value);
+  var current = vNextPortalCurrentFiscalYear_(now);
+  if (!isFinite(fiscalYear) || Math.floor(fiscalYear) !== fiscalYear || fiscalYear < current || fiscalYear > current + 10) {
+    throw new Error('対象年度を一覧から正しく選択してください。');
+  }
+  return fiscalYear;
+}
+
+function vNextPortalNormalizeStoredFiscalYear_(value) {
+  var fiscalYear = Number(value);
+  if (!isFinite(fiscalYear) || Math.floor(fiscalYear) !== fiscalYear || fiscalYear < 2000 || fiscalYear > 2200) {
+    throw new Error('対象年度が不正です。');
+  }
+  return fiscalYear;
+}
+
+function vNextPortalNormalizeMemberNames_(value, required) {
+  if (!Array.isArray(value)) throw new Error('関与メンバーの入力形式が不正です。');
+  if (value.length > 5) throw new Error('関与メンバーは5名以内で入力してください。');
+  var seen = {};
+  var names = [];
+  value.forEach(function (item) {
+    var name = vNextPortalPlainText_(item, 80, false, '関与メンバー');
+    if (!name) return;
+    var key = name;
+    try { key = key.normalize('NFKC'); } catch (ignoredNormalize) {}
+    key = key.toLowerCase().replace(/[\s\u3000]+/g, '');
+    if (seen[key]) throw new Error('同じ関与メンバーが複数の欄に入力されています。');
+    seen[key] = true;
+    names.push(name);
+  });
+  if (required && !names.length) throw new Error('関与メンバーを1名以上入力してください。');
+  if (names.length > 5) throw new Error('関与メンバーは5名以内で入力してください。');
+  return names;
 }
 
 function vNextPortalReadDirectory_(spreadsheet) {
@@ -318,6 +482,7 @@ function vNextPortalReadDirectory_(spreadsheet) {
       clientName: String(row.client_name || '').trim(),
       forecastOwnerEmail: String(row.forecast_owner_email || '').trim().toLowerCase(),
       relatedMemberEmails: vNextPortalParseEmailArray_(row.related_member_emails_json),
+      relatedMemberNames: vNextPortalParseMemberNames_(row.related_member_names_json),
       state: String(row.state || '').trim().toUpperCase(),
       centerForecast: vNextPortalOptionalNumber_(row.center_forecast),
       adoptedForecast: vNextPortalOptionalNumber_(row.adopted_forecast),
@@ -350,7 +515,8 @@ function vNextPortalReadRequestModels_(spreadsheet) {
         if (vNextPortalSha256Hex_(vNextPortalCanonicalJson_(payload)) !== String(entry.row.request_hash || '').toLowerCase()) {
           throw new Error('request hash mismatch');
         }
-        requested = { row: entry.row, payload: payload };
+        vNextPortalAssertRequestRowProjection_(entry.row, payload);
+        requested = { row: entry.row, payload: payload, model: vNextPortalRequestPayloadToModel_(payload) };
         return true;
       } catch (error) {
         vNextPortalLog_('invalid local request ignored: ' + requestId, error);
@@ -360,18 +526,22 @@ function vNextPortalReadRequestModels_(spreadsheet) {
     if (!requested) return null;
     var latest = requested.row;
     events.forEach(function (entry) {
-      if (vNextPortalIsValidStatusEvent_(entry.row, requestId, requested.row.request_hash)) latest = entry.row;
+      if (vNextPortalIsValidStatusEvent_(
+        entry.row, requestId, requested.row.request_hash, requested.payload
+      )) latest = entry.row;
     });
     var status = String(latest.status || requested.row.status || 'PENDING').trim().toUpperCase();
     return {
       source: 'REQUEST',
       requestId: requestId,
       requestHash: String(requested.row.request_hash || '').toLowerCase(),
-      fiscalYear: Number(requested.payload.fiscalYear),
-      clientId: requested.payload.clientId,
-      clientName: requested.payload.clientName,
-      forecastOwnerEmail: requested.payload.forecastOwnerEmail,
-      relatedMemberEmails: requested.payload.relatedMemberEmails,
+      fiscalYear: requested.model.fiscalYear,
+      clientId: requested.model.clientId,
+      catalogKey: requested.model.catalogKey,
+      clientName: requested.model.clientName,
+      forecastOwnerEmail: requested.model.forecastOwnerEmail,
+      relatedMemberEmails: requested.model.relatedMemberEmails,
+      relatedMemberNames: requested.model.relatedMemberNames,
       requestedAt: requested.payload.requestedAt,
       requestedBy: requested.payload.requestedBy,
       status: status,
@@ -394,7 +564,7 @@ function vNextPortalBuildDuplicateCheck_(spreadsheet, normalized) {
   directory.forEach(function (item) { if (item.requestId) directoryRequestIds[item.requestId] = true; });
   var sources = directory.concat(requests.filter(function (item) { return !directoryRequestIds[item.requestId]; }));
   var normalizedName = vNextPortalNormalizeClientName_(normalized.clientName);
-  var normalizedId = vNextPortalNormalizeClientId_(normalized.clientId);
+  var normalizedId = vNextPortalNormalizeClientId_(normalized.catalogKey || normalized.clientId);
   var candidates = [];
   sources.forEach(function (item) {
     if (Number(item.fiscalYear) !== normalized.fiscalYear) return;
@@ -449,11 +619,11 @@ function vNextPortalBuildDuplicateCheck_(spreadsheet, normalized) {
   });
   var hashInput = {
     candidates: fingerprint,
-    clientId: normalizedId,
+    catalogKey: normalized.catalogKey,
     clientName: normalizedName,
     fiscalYear: normalized.fiscalYear,
-    forecastOwnerEmail: normalized.forecastOwnerEmail,
-    relatedMemberEmails: normalized.relatedMemberEmails,
+    relatedMemberNames: normalized.relatedMemberNames,
+    requestedBy: normalized.requestedBy,
     schemaVersion: VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
   };
   return {
@@ -464,44 +634,24 @@ function vNextPortalBuildDuplicateCheck_(spreadsheet, normalized) {
   };
 }
 
-function vNextPortalNormalizeCreationInput_(input) {
-  var fiscalYear = Number(input.fiscalYear);
-  if (!isFinite(fiscalYear) || Math.floor(fiscalYear) !== fiscalYear || fiscalYear < 2000 || fiscalYear > 2100) {
-    throw new Error('対象年度を正しく選択してください。');
-  }
-  var clientName = vNextPortalPlainText_(input.clientName, 120, true, 'クライアント名');
-  var clientId = vNextPortalPlainText_(input.clientId, 100, false, 'クライアントID');
-  var forecastOwnerEmail = vNextPortalNormalizeEmail_(input.forecastOwnerEmail, true, 'Forecast Owner');
-  var relatedMemberEmails = vNextPortalNormalizeEmailList_(input.relatedMembersText, forecastOwnerEmail);
-  return {
-    fiscalYear: fiscalYear,
-    clientName: clientName,
-    clientId: clientId,
-    forecastOwnerEmail: forecastOwnerEmail,
-    relatedMemberEmails: relatedMemberEmails
-  };
-}
-
 function vNextPortalValidateRequestPayload_(payload) {
+  var schemaVersion = String(payload && payload.schemaVersion || '');
+  if (schemaVersion === VNEXT_PORTAL.LEGACY_REQUEST_SCHEMA_VERSION) {
+    return vNextPortalValidateLegacyRequestPayload_(payload);
+  }
+  if (schemaVersion !== VNEXT_PORTAL.REQUEST_SCHEMA_VERSION) throw new Error('request schemaVersionが不正です。');
   vNextPortalAssertExactKeys_(payload, VNEXT_PORTAL.PAYLOAD_KEYS, 'request payload');
-  if (payload.schemaVersion !== VNEXT_PORTAL.REQUEST_SCHEMA_VERSION) throw new Error('request schemaVersionが不正です。');
   if (payload.requestType !== VNEXT_PORTAL.REQUEST_TYPE) throw new Error('requestTypeが不正です。');
   if (!/^PORTAL-REQ-[A-Za-z0-9_-]{8,}$/.test(String(payload.requestId || ''))) throw new Error('requestIdが不正です。');
   if (!/^\d{4}-\d{2}-\d{2}T/.test(String(payload.requestedAt || '')) || isNaN(new Date(payload.requestedAt).getTime())) {
     throw new Error('requestedAtが不正です。');
   }
-  var normalized = vNextPortalNormalizeCreationInput_({
-    fiscalYear: payload.fiscalYear,
-    clientName: payload.clientName,
-    clientId: payload.clientId,
-    forecastOwnerEmail: payload.forecastOwnerEmail,
-    relatedMembersText: Array.isArray(payload.relatedMemberEmails) ? payload.relatedMemberEmails.join(',') : payload.relatedMemberEmails
-  });
-  if (vNextPortalCanonicalJson_(normalized.relatedMemberEmails) !== vNextPortalCanonicalJson_(payload.relatedMemberEmails)) {
-    throw new Error('relatedMemberEmailsが正規化されていません。');
-  }
-  if (normalized.clientName !== payload.clientName || normalized.clientId !== payload.clientId ||
-      normalized.forecastOwnerEmail !== payload.forecastOwnerEmail || normalized.fiscalYear !== payload.fiscalYear) {
+  var catalogKey = vNextPortalPlainText_(payload.catalogKey, 100, true, 'クライアント識別子');
+  var clientName = vNextPortalPlainText_(payload.clientName, 120, true, 'クライアント名');
+  var fiscalYear = vNextPortalNormalizeStoredFiscalYear_(payload.fiscalYear);
+  var memberNames = vNextPortalNormalizeMemberNames_(payload.relatedMemberNames, true);
+  if (vNextPortalCanonicalJson_(memberNames) !== vNextPortalCanonicalJson_(payload.relatedMemberNames) ||
+      catalogKey !== payload.catalogKey || clientName !== payload.clientName || fiscalYear !== payload.fiscalYear) {
     throw new Error('request payloadが正規化されていません。');
   }
   if (vNextPortalNormalizeEmail_(payload.requestedBy, true, 'requestedBy') !== payload.requestedBy) {
@@ -510,7 +660,70 @@ function vNextPortalValidateRequestPayload_(payload) {
   return payload;
 }
 
-function vNextPortalIsValidStatusEvent_(row, requestId, requestHash) {
+function vNextPortalValidateLegacyRequestPayload_(payload) {
+  vNextPortalAssertExactKeys_(payload, VNEXT_PORTAL.LEGACY_PAYLOAD_KEYS, 'legacy request payload');
+  if (payload.requestType !== VNEXT_PORTAL.REQUEST_TYPE) throw new Error('requestTypeが不正です。');
+  if (!/^PORTAL-REQ-[A-Za-z0-9_-]{8,}$/.test(String(payload.requestId || ''))) throw new Error('requestIdが不正です。');
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(String(payload.requestedAt || '')) || isNaN(new Date(payload.requestedAt).getTime())) {
+    throw new Error('requestedAtが不正です。');
+  }
+  var fiscalYear = vNextPortalNormalizeStoredFiscalYear_(payload.fiscalYear);
+  var clientName = vNextPortalPlainText_(payload.clientName, 120, true, 'クライアント名');
+  var clientId = vNextPortalPlainText_(payload.clientId, 100, false, 'クライアントID');
+  var owner = vNextPortalNormalizeEmail_(payload.forecastOwnerEmail, true, 'Forecast Owner');
+  var members = vNextPortalNormalizeEmailList_(payload.relatedMemberEmails, owner);
+  if (vNextPortalCanonicalJson_(members) !== vNextPortalCanonicalJson_(payload.relatedMemberEmails) ||
+      fiscalYear !== payload.fiscalYear || clientName !== payload.clientName || clientId !== payload.clientId ||
+      owner !== payload.forecastOwnerEmail) {
+    throw new Error('legacy request payloadが正規化されていません。');
+  }
+  if (vNextPortalNormalizeEmail_(payload.requestedBy, true, 'requestedBy') !== payload.requestedBy) {
+    throw new Error('requestedByが正規化されていません。');
+  }
+  return payload;
+}
+
+function vNextPortalRequestPayloadToModel_(payload) {
+  if (payload.schemaVersion === VNEXT_PORTAL.LEGACY_REQUEST_SCHEMA_VERSION) {
+    return {
+      fiscalYear: Number(payload.fiscalYear), clientId: String(payload.clientId || ''), catalogKey: '',
+      clientName: String(payload.clientName || ''), forecastOwnerEmail: String(payload.forecastOwnerEmail || ''),
+      relatedMemberEmails: payload.relatedMemberEmails.slice(), relatedMemberNames: []
+    };
+  }
+  return {
+    fiscalYear: Number(payload.fiscalYear), clientId: String(payload.catalogKey || ''),
+    catalogKey: String(payload.catalogKey || ''), clientName: String(payload.clientName || ''),
+    forecastOwnerEmail: String(payload.requestedBy || ''), relatedMemberEmails: [],
+    relatedMemberNames: payload.relatedMemberNames.slice()
+  };
+}
+
+function vNextPortalAssertRequestRowProjection_(row, payload) {
+  var expectedClientId = payload.schemaVersion === VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
+    ? String(payload.catalogKey || '') : String(payload.clientId || '');
+  var expectedOwner = payload.schemaVersion === VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
+    ? String(payload.requestedBy || '') : String(payload.forecastOwnerEmail || '');
+  var expectedEmails = payload.schemaVersion === VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
+    ? '[]' : vNextPortalCanonicalJson_(payload.relatedMemberEmails || []);
+  var expectedCatalogKey = payload.schemaVersion === VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
+    ? String(payload.catalogKey || '') : '';
+  var expectedNames = payload.schemaVersion === VNEXT_PORTAL.REQUEST_SCHEMA_VERSION
+    ? vNextPortalCanonicalJson_(payload.relatedMemberNames || []) : '';
+  if (Number(row.fiscal_year) !== Number(payload.fiscalYear) ||
+      String(row.client_id || '') !== expectedClientId || String(row.client_name || '') !== String(payload.clientName || '') ||
+      String(row.forecast_owner_email || '') !== expectedOwner ||
+      String(row.related_member_emails_json || '') !== expectedEmails ||
+      String(row.requested_at || '') !== String(payload.requestedAt || '') ||
+      String(row.requested_by || '') !== String(payload.requestedBy || '') ||
+      String(row.catalog_key || '') !== expectedCatalogKey ||
+      String(row.related_member_names_json || '') !== expectedNames) {
+    throw new Error('request row projection mismatch');
+  }
+  return true;
+}
+
+function vNextPortalIsValidStatusEvent_(row, requestId, requestHash, payload) {
   var eventType = String(row && row.event_type || '').trim().toUpperCase();
   var status = String(row && row.status || '').trim().toUpperCase();
   if (!Object.prototype.hasOwnProperty.call(VNEXT_PORTAL.STATUS_EVENT_PAIRS, eventType)) return false;
@@ -520,6 +733,10 @@ function vNextPortalIsValidStatusEvent_(row, requestId, requestHash) {
   if (eventType !== 'REQUESTED' && String(row.request_json || '').trim() !== '') return false;
   var rawUrl = String(row.related_book_url || '').trim();
   if (rawUrl && !vNextPortalSafeBookUrl_(rawUrl)) return false;
+  if (payload && eventType !== 'REQUESTED') {
+    try { vNextPortalAssertRequestRowProjection_(row, payload); }
+    catch (projectionError) { return false; }
+  }
   return true;
 }
 
@@ -635,9 +852,6 @@ function vNextPortalWithDocumentLock_(operation) {
 function vNextPortalActiveUserEmail_() {
   var active = '';
   try { active = Session.getActiveUser().getEmail(); } catch (error) { active = ''; }
-  if (!active) {
-    try { active = Session.getEffectiveUser().getEmail(); } catch (error2) { active = ''; }
-  }
   return active ? String(active).trim().toLowerCase() : '';
 }
 
@@ -679,6 +893,17 @@ function vNextPortalParseEmailArray_(value) {
     return Array.isArray(parsed) ? vNextPortalNormalizeEmailList_(parsed, '') : [];
   } catch (error) {
     vNextPortalLog_('invalid directory member list ignored', error);
+    return [];
+  }
+}
+
+function vNextPortalParseMemberNames_(value) {
+  try {
+    if (!value) return [];
+    var parsed = Array.isArray(value) ? value : JSON.parse(String(value));
+    return Array.isArray(parsed) ? vNextPortalNormalizeMemberNames_(parsed, false) : [];
+  } catch (error) {
+    vNextPortalLog_('invalid directory member names ignored', error);
     return [];
   }
 }

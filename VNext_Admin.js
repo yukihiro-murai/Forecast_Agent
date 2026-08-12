@@ -13,6 +13,8 @@ const VN_ADMIN_CLIENT_REQUEST_SHEET = 'VN_CLIENT_REQUEST';
 const VN_ADMIN_PORTAL_REQUEST_SHEET = 'VN_PORTAL_REQUEST';
 const VN_ADMIN_PORTAL_DIRECTORY_SHEET = 'PORTAL_DIRECTORY';
 const VN_ADMIN_PORTAL_CONFIG_SHEET = 'VN_PORTAL_CONFIG';
+const VN_ADMIN_ZAC_CLIENT_CATALOG_SHEET = 'ZAC_CLIENT_CATALOG';
+const VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET = 'VN_PORTAL_CLIENT_CATALOG';
 const VN_ADMIN_SCHEDULED_HANDLER = 'vNextAdminScheduledSweep';
 const VN_ADMIN_PILOT_INITIAL_LIMIT = 3;
 const VN_ADMIN_PILOT_CANARY_LIMIT = 5;
@@ -49,24 +51,47 @@ const VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS = Object.freeze([
   'requestId', 'bookId', 'clientId', 'clientName', 'fiscalYear', 'asOf',
   'cutoff', 'bookConfiguredAsOf', 'requestedAt', 'requestedBy'
 ]);
-const VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS = Object.freeze([
+const VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS_V1 = Object.freeze([
   'clientId', 'clientName', 'fiscalYear', 'forecastOwnerEmail', 'relatedMemberEmails',
   'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
 ]);
-const VN_ADMIN_PORTAL_REQUEST_HEADERS = Object.freeze([
+const VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS_V2 = Object.freeze([
+  'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
+  'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
+]);
+const VN_ADMIN_PORTAL_REQUEST_HEADERS_V1 = Object.freeze([
   'request_event_id', 'request_id', 'event_type', 'status', 'request_hash', 'request_json',
   'fiscal_year', 'client_id', 'client_name', 'forecast_owner_email',
   'related_member_emails_json', 'requested_at', 'requested_by', 'related_book_id',
   'related_book_url', 'detail_code', 'detail_message', 'created_at', 'created_by'
 ]);
-const VN_ADMIN_PORTAL_DIRECTORY_HEADERS = Object.freeze([
+const VN_ADMIN_PORTAL_REQUEST_HEADERS = Object.freeze(
+  VN_ADMIN_PORTAL_REQUEST_HEADERS_V1.concat(['catalog_key', 'related_member_names_json'])
+);
+const VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1 = Object.freeze([
   'directory_event_id', 'directory_key', 'fiscal_year', 'client_id', 'client_name',
   'forecast_owner_email', 'related_member_emails_json', 'state', 'center_forecast',
   'adopted_forecast', 'final_budget', 'next_action', 'client_book_url', 'request_id',
   'updated_at', 'updated_by'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.0.0';
-const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-1';
+const VN_ADMIN_PORTAL_DIRECTORY_HEADERS = Object.freeze(
+  VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1.concat(['related_member_names_json'])
+);
+const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
+  'catalog_key', 'client_id', 'client_code', 'client_name', 'normalized_name',
+  'is_active', 'source_years_json', 'first_seen_at', 'last_seen_at',
+  'catalog_version', 'refreshed_at', 'source_spreadsheet_id'
+]);
+const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
+  'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
+]);
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.1.0';
+const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze(['vnext-portal-1.0.0']);
+const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-2';
+const VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1 = 'vnext-portal-request-1';
+const VN_ADMIN_ZAC_CLIENT_CODE_COLUMN = 40; // AN
+const VN_ADMIN_ZAC_CLIENT_NAME_COLUMN = 41; // AO
+const VN_ADMIN_ZAC_CATALOG_STALE_MS = 6 * 60 * 60 * 1000;
 const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V3';
 const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 = 'VNEXT_TEMPLATE_UI_V2';
 const VN_ADMIN_TEMPLATE_FORBIDDEN_FORMULA = /\b(?:IMPORTRANGE|IMPORTDATA|IMPORTHTML|IMPORTXML|GOOGLEFINANCE)\s*\(/i;
@@ -88,6 +113,7 @@ const VN_ADMIN_SHEETS = {
   APPROVALS: 'PLAN_APPROVALS',
   RELEASES: 'RELEASES',
   TEMPLATE_JOURNAL: 'TEMPLATE_RELEASE_JOURNAL',
+  CATALOG: VN_ADMIN_ZAC_CLIENT_CATALOG_SHEET,
   SETTINGS: 'MODEL_SETTINGS',
   MIGRATIONS: 'MIGRATION_LOG',
   AUDIT: 'ADMIN_AUDIT_LOG'
@@ -105,7 +131,7 @@ VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.REGISTRY] = [
   'template_release_id', 'schema_version', 'state', 'status', 'health_status', 'health_code',
   'last_health_at', 'last_forecast_at', 'current_official_id', 'forecast_owner_emails',
   'editor_emails', 'viewer_emails', 'created_at', 'created_by', 'updated_at', 'note'
-  , 'access_policy', 'internal_domain'
+  , 'access_policy', 'internal_domain', 'related_member_names_json'
 ];
 VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEAM] = [
   'team_key', 'book_id', 'client_id', 'fiscal_year', 'email', 'role', 'status',
@@ -149,6 +175,7 @@ VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEMPLATE_JOURNAL] = [
   'previous_model_release_id', 'template_spreadsheet_id', 'phase', 'status',
   'detail_json', 'occurred_at', 'actor'
 ];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.CATALOG] = VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.slice();
 VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.SETTINGS] = [
   'setting_key', 'setting_value', 'value_type', 'scope', 'effective_from', 'updated_at',
   'updated_by', 'note'
@@ -299,6 +326,8 @@ function vNextBuildAdminMenu_() {
       .addItem('待機中の処理を実行', 'vNextAdminMenuProcessJobs')
       .addSeparator()
       .addItem('社員ポータルPilotを1段階進める', 'vNextAdminContinueEmployeePortalPilotRecoveryForManualTest')
+      .addItem('ZACクライアント候補を更新', 'vNextAdminMenuRefreshZacClientCatalog')
+      .addItem('社員ポータルを最新版へ更新', 'vNextAdminMenuUpdatePortalRuntime')
       .addSeparator()
       .addItem('Book一覧を開く', 'vNextAdminMenuOpenRegistry')
       .addItem('承認一覧を開く', 'vNextAdminMenuOpenApprovals')
@@ -466,6 +495,13 @@ function vNextAdminGetSidebarModel() {
       templateRuntimeVersion: '',
       adminRuntimeSha256: '',
       adminRuntimeUpdatable: false,
+      portalRuntimeVersion: '',
+      portalRuntimeSha256: '',
+      portalRuntimeUpdatable: false,
+      clientCatalogActiveCount: 0,
+      clientCatalogVersion: '',
+      clientCatalogRefreshedAt: '',
+      clientCatalogStale: true,
       activeModelReleaseId: '',
       modelReleases: [],
       templateDrafts: [],
@@ -511,6 +547,23 @@ function vNextAdminGetSidebarModel() {
         String(hubConfig.admin_source_script_id || '') && String(hubConfig.admin_hub_script_id || '') &&
         String(hubConfig.admin_hub_script_id || '') === String(ScriptApp.getScriptId())
       );
+      model.portalRuntimeVersion = String(hubConfig.portal_runtime_version || '');
+      model.portalRuntimeSha256 = String(hubConfig.portal_runtime_sha256 || '');
+      model.portalRuntimeUpdatable = Boolean(
+        String(hubConfig.portal_spreadsheet_id || '') && String(hubConfig.portal_script_id || '') &&
+        [VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
+          .indexOf(model.portalRuntimeVersion) >= 0
+      );
+      const catalogRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.CATALOG).rows;
+      model.clientCatalogActiveCount = catalogRows.filter(function (row) {
+        return vNextAdminBool_(row.is_active) &&
+          String(row.catalog_version || '') === String(hubConfig.zac_client_catalog_version || '');
+      }).length;
+      model.clientCatalogVersion = String(hubConfig.zac_client_catalog_version || '');
+      model.clientCatalogRefreshedAt = String(hubConfig.zac_client_catalog_refreshed_at || '');
+      const catalogRefreshedMs = new Date(model.clientCatalogRefreshedAt || 0).getTime();
+      model.clientCatalogStale = !isFinite(catalogRefreshedMs) ||
+        Date.now() - catalogRefreshedMs >= VN_ADMIN_ZAC_CATALOG_STALE_MS;
       const activeModel = vNextAdminTryResolveActiveModelRelease_(ss);
       model.activeModelReleaseId = activeModel && activeModel.model_release_id || '';
       model.modelReleases = vNextAdminLatestModelReleaseSummaries_(ss);
@@ -1025,7 +1078,11 @@ function vNextAdminProvisionPilotClientFromSource(request) {
 function vNextAdminProvisionSharedPortal(request) {
   return vNextAdminGuard_('vNextAdminProvisionSharedPortal', function () {
     const hub = vNextAdminRequireHub_();
-    return vNextAdminProvisionSharedPortalInHub_(hub, request);
+    const result = vNextAdminProvisionSharedPortalInHub_(hub, request);
+    // Provisioning holds the short global lock. The comparatively expensive
+    // ZAC read/projection is deliberately performed only after that lock ends.
+    result.clientCatalog = vNextAdminRefreshZacClientCatalogSafely_(hub, true);
+    return result;
   });
 }
 
@@ -1192,7 +1249,9 @@ function vNextAdminProvisionSharedPortalFromSource(request) {
     }
     vNextAdminAssertHubAdmin_(hub, false);
     vNextAdminHydrateHubRuntime_(hub);
-    return vNextAdminProvisionSharedPortalInHub_(hub, req);
+    const result = vNextAdminProvisionSharedPortalInHub_(hub, req);
+    result.clientCatalog = vNextAdminRefreshZacClientCatalogSafely_(hub, true);
+    return result;
   });
 }
 
@@ -1350,6 +1409,8 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       const stagingFolder = folder;
       const forecastOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
       if (forecastOwners.length !== 1) throw new Error('Forecast Ownerを1名だけ指定してください。');
+      const relatedMemberNames = req.relatedMemberNames === undefined || req.relatedMemberNames === null
+        ? [] : vNextAdminNormalizeRelatedMemberNames_(req.relatedMemberNames);
       const editors = vNextAdminMergeEmails_(forecastOwners, req.editorEmails, runtime.VNEXT_DEFAULT_EDITORS);
       const viewers = vNextAdminMergeEmails_(req.viewerEmails, runtime.VNEXT_DEFAULT_VIEWERS);
       const accessPolicy = String(req.accessPolicy || 'PRIVATE').trim().toUpperCase();
@@ -1400,7 +1461,8 @@ function vNextAdminProvisionClientInHub_(hub, request) {
         created_at: now, created_by: actor, updated_at: now,
         note: 'idempotency=' + idempotencyKey + '; runtime=' + clientRuntimeVersion +
           '; runtime_sha256=' + clientRuntimeSha256 + '; model_release=' + modelRelease.model_release_id,
-        access_policy: accessPolicy, internal_domain: internalDomain
+        access_policy: accessPolicy, internal_domain: internalDomain,
+        related_member_names_json: vNextAdminCanonicalJson_(relatedMemberNames)
       };
       let registryCreated = false;
       let teamCreated = false;
@@ -1537,6 +1599,13 @@ function vNextAdminResumeProvisioningClient_(hub, registry, request, release, mo
   if (requestedOwners.length && vNextAdminCanonicalJson_(requestedOwners.slice().sort()) !==
       vNextAdminCanonicalJson_(expectedOwners.slice().sort())) {
     throw new Error('生成再開時にForecast Ownerを変更することはできません。');
+  }
+  if (req.relatedMemberNames !== undefined && req.relatedMemberNames !== null) {
+    const requestedNames = vNextAdminNormalizeRelatedMemberNames_(req.relatedMemberNames);
+    const expectedNames = vNextAdminParseJson_(registry.related_member_names_json, []);
+    if (vNextAdminCanonicalJson_(requestedNames) !== vNextAdminCanonicalJson_(expectedNames)) {
+      throw new Error('生成再開時に関与メンバー氏名を変更することはできません。');
+    }
   }
   if (String(config.mode || '').toUpperCase() !== 'CLIENT' ||
       String(config.book_id || '') !== bookId ||
@@ -2100,6 +2169,9 @@ function vNextAdminScheduledSweep() {
     const startedAt = Date.now();
     const props = PropertiesService.getScriptProperties();
     props.setProperty('VNEXT_LAST_SWEEP_STARTED_AT', new Date(startedAt).toISOString());
+    // The external ZAC read is intentionally outside the global maintenance
+    // lock. A stale catalog must not block request harvest or unrelated jobs.
+    const catalog = vNextAdminRefreshZacClientCatalogSafely_(hub, false);
     const maintenance = vNextAdminWithScriptLock_('scheduled-maintenance', function () {
       return {
         leases: vNextAdminRecoverStaleLeases_(hub, 20),
@@ -2118,7 +2190,7 @@ function vNextAdminScheduledSweep() {
     }, false);
     vNextAdminRefreshTodayExceptions_(hub);
     vNextAdminRefreshHome_(hub);
-    return { maintenance: maintenance, jobs: jobs, elapsedMs: finishedAt - startedAt };
+    return { catalog: catalog, maintenance: maintenance, jobs: jobs, elapsedMs: finishedAt - startedAt };
   });
 }
 
@@ -3041,6 +3113,219 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
 }
 
 /**
+ * Updates the one registered employee Portal in place. The request log and
+ * directory data stay in the Spreadsheet; only the verified four-file bound
+ * runtime and its pinned identity are replaced.
+ */
+function vNextAdminUpdateSharedPortalRuntime(request) {
+  return vNextAdminGuard_('vNextAdminUpdateSharedPortalRuntime', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('update-portal-runtime', function () {
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const portal = vNextAdminResolvePortal_(hub);
+      const target = vNextPortalRuntimeVerifiedBundle_();
+      if (String(target.version || '') !== VN_ADMIN_PORTAL_RUNTIME_VERSION) {
+        throw new Error('Deployed Portal bundle version does not match Admin target version.');
+      }
+      const targetFiles = vNextPortalRuntimeValidateFiles_(target.files || []);
+      const targetSha = vNextClientRuntimeFilesSha256_(targetFiles);
+      if (targetSha !== String(target.sha256 || '')) throw new Error('Target Portal bundle hash mismatch.');
+      if (portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION && portal.runtimeSha256 === targetSha) {
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
+        vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
+        return {
+          ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
+          runtimeSha256: portal.runtimeSha256, catalog: catalog,
+          message: '社員ポータルは最新版です。ZACクライアント候補だけを更新しました。'
+        };
+      }
+      if (VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS.indexOf(portal.runtimeVersion) < 0) {
+        throw new Error('Portal runtime migration source version is not allowlisted: ' + portal.runtimeVersion);
+      }
+      const project = vNextClientRuntimeAssertBoundParent_(portal.scriptId, portal.spreadsheetId);
+      const currentContent = vNextClientRuntimeGetContent_(portal.scriptId);
+      const currentFiles = vNextPortalRuntimeValidateFiles_(currentContent.files || []);
+      const currentSha = vNextClientRuntimeFilesSha256_(currentFiles);
+      if (currentContent.scriptId && String(currentContent.scriptId) !== portal.scriptId) {
+        throw new Error('Current Portal content scriptId mismatch.');
+      }
+      if (currentSha !== portal.runtimeSha256) {
+        throw new Error('Current Portal runtime does not match its stored SHA-256 pin.');
+      }
+      const hubConfigBefore = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      const localConfigBefore = vNextAdminReadKeyValueSheet_(portal.spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
+      const settingBefore = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
+        return String(row.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
+      });
+      const requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
+      const directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
+      let contentUpdateAttempted = false;
+      let tablesExpanded = false;
+      let pinsUpdated = false;
+      try {
+        // Freeze employee appends during the small cross-file migration window.
+        vNextAdminProtectInternalSheets_(portal.spreadsheet,
+          vNextAdminMergeEmails_(hubConfigBefore.admin_emails, vNextAdminActor_()),
+          [VN_ADMIN_PORTAL_REQUEST_SHEET]);
+        // Arm rollback before the remote PUT. The Apps Script API can apply the
+        // new content and still lose the response; in that case we must restore
+        // the verified previous bundle instead of leaving v2 code with v1 pins.
+        contentUpdateAttempted = true;
+        const put = vNextClientRuntimePutContent_(portal.scriptId, target);
+        const written = put && Array.isArray(put.files) ? put : vNextClientRuntimeGetContent_(portal.scriptId);
+        const writtenFiles = vNextPortalRuntimeValidateFiles_(written.files || []);
+        if (written.scriptId && String(written.scriptId) !== portal.scriptId ||
+            vNextClientRuntimeFilesSha256_(writtenFiles) !== targetSha) {
+          throw new Error('Written Portal runtime could not be verified.');
+        }
+        // Mark the migration attempt before the first header write. The helper
+        // performs several Sheets calls; any mid-call failure must still enter
+        // the v1 header rollback path.
+        tablesExpanded = true;
+        vNextAdminExpandPortalTableHeadersForV2_(portal.spreadsheet);
+        vNextAdminWritePortalConfigValues_(portal.spreadsheet, {
+          schema_version: VN_ADMIN_PORTAL_REQUEST_SCHEMA,
+          runtime_version: VN_ADMIN_PORTAL_RUNTIME_VERSION,
+          runtime_sha256: targetSha,
+          updated_at: new Date().toISOString(), updated_by: vNextAdminActor_()
+        });
+        vNextAdminWriteSystemConfig_(hub, {
+          portal_runtime_version: VN_ADMIN_PORTAL_RUNTIME_VERSION,
+          portal_runtime_sha256: targetSha,
+          portal_runtime_updated_at: new Date().toISOString(),
+          portal_runtime_updated_by: vNextAdminActor_()
+        });
+        pinsUpdated = true;
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
+        vNextAdminRefreshPortalDirectory_(hub);
+        const settingValue = vNextAdminCanonicalJson_({
+          portalId: portal.portalId, spreadsheetId: portal.spreadsheetId,
+          scriptId: portal.scriptId, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
+          runtimeSha256: targetSha, employeeDomain: portal.employeeDomain,
+          accessPolicy: 'INTERNAL_OPEN'
+        });
+        vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'EMPLOYEE_PORTAL_JSON', {
+          setting_key: 'EMPLOYEE_PORTAL_JSON', setting_value: settingValue, value_type: 'JSON',
+          scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
+          updated_by: vNextAdminActor_(), note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+        });
+        vNextAdminProtectInternalSheets_(portal.spreadsheet,
+          vNextAdminMergeEmails_(hubConfigBefore.admin_emails, vNextAdminActor_()), [
+            VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET,
+            VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET
+          ]);
+        vNextAdminProtectClientInternalSheets_(portal.spreadsheet, [VN_ADMIN_PORTAL_REQUEST_SHEET]);
+        vNextAdminWriteAudit_(hub, 'UPDATE_EMPLOYEE_PORTAL_RUNTIME', 'PORTAL', portal.portalId, 'SUCCESS', {
+          fromVersion: portal.runtimeVersion, fromSha256: portal.runtimeSha256,
+          toVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, toSha256: targetSha,
+          scriptId: portal.scriptId, spreadsheetId: portal.spreadsheetId,
+          parentTitle: project.title, catalogVersion: catalog.catalogVersion, reason: reason
+        });
+        return {
+          ok: true, reused: false, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
+          runtimeSha256: targetSha, catalog: catalog,
+          message: '社員ポータルを最新版へ更新しました。Portalを再読み込みしてください。'
+        };
+      } catch (migrationError) {
+        const rollbackErrors = [];
+        try {
+          if (pinsUpdated) {
+            vNextAdminWriteSystemConfig_(hub, {
+              portal_runtime_version: hubConfigBefore.portal_runtime_version || portal.runtimeVersion,
+              portal_runtime_sha256: hubConfigBefore.portal_runtime_sha256 || portal.runtimeSha256
+            });
+            vNextAdminWritePortalConfigValues_(portal.spreadsheet, {
+              schema_version: localConfigBefore.schema_version || VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1,
+              runtime_version: localConfigBefore.runtime_version || portal.runtimeVersion,
+              runtime_sha256: localConfigBefore.runtime_sha256 || portal.runtimeSha256
+            });
+          }
+        } catch (pinRollbackError) { rollbackErrors.push('pins=' + String(pinRollbackError)); }
+        try {
+          if (tablesExpanded) vNextAdminRollbackPortalTableHeadersToV1_(requestSheet, directorySheet);
+        } catch (tableRollbackError) { rollbackErrors.push('tables=' + String(tableRollbackError)); }
+        try {
+          if (contentUpdateAttempted) {
+            vNextClientRuntimePutContent_(portal.scriptId, { files: currentFiles });
+            const restored = vNextClientRuntimeGetContent_(portal.scriptId);
+            const restoredFiles = vNextPortalRuntimeValidateFiles_(restored.files || []);
+            if (vNextClientRuntimeFilesSha256_(restoredFiles) !== currentSha) {
+              throw new Error('restored Portal SHA mismatch');
+            }
+          }
+        } catch (contentRollbackError) { rollbackErrors.push('content=' + String(contentRollbackError)); }
+        try {
+          if (settingBefore) {
+            const restoredSetting = Object.assign({}, settingBefore);
+            delete restoredSetting._rowNumber;
+            vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key',
+              'EMPLOYEE_PORTAL_JSON', restoredSetting);
+          }
+        } catch (settingRollbackError) { rollbackErrors.push('setting=' + String(settingRollbackError)); }
+        try { vNextAdminProtectClientInternalSheets_(portal.spreadsheet, [VN_ADMIN_PORTAL_REQUEST_SHEET]); }
+        catch (protectionRollbackError) { rollbackErrors.push('protection=' + String(protectionRollbackError)); }
+        vNextAdminWriteAudit_(hub, 'UPDATE_EMPLOYEE_PORTAL_RUNTIME', 'PORTAL', portal.portalId,
+          rollbackErrors.length ? 'ROLLBACK_INCOMPLETE' : 'ROLLED_BACK', {
+            fromVersion: portal.runtimeVersion, attemptedVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
+            error: String(migrationError && migrationError.message || migrationError),
+            rollbackErrors: rollbackErrors, reason: reason
+          });
+        if (rollbackErrors.length) {
+          throw new Error('Portal更新に失敗し、rollbackにも確認事項があります: ' +
+            String(migrationError && migrationError.message || migrationError) + '; ' + rollbackErrors.join('; '));
+        }
+        throw migrationError;
+      }
+    });
+  });
+}
+
+function vNextAdminWritePortalConfigValues_(portal, values) {
+  Object.keys(values || {}).forEach(function (key) {
+    vNextAdminUpsertObject_(portal, VN_ADMIN_PORTAL_CONFIG_SHEET, 'key', key,
+      { key: key, value: values[key] }, ['key', 'value']);
+  });
+  portal.getSheetByName(VN_ADMIN_PORTAL_CONFIG_SHEET).hideSheet();
+}
+
+function vNextAdminExpandPortalTableHeadersForV2_(portal) {
+  const request = vNextAdminEnsureExactTableHeaders_(portal,
+    VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS_V1);
+  const directory = vNextAdminEnsureExactTableHeaders_(portal,
+    VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1);
+  request.getRange(1, VN_ADMIN_PORTAL_REQUEST_HEADERS_V1.length + 1, 1, 2)
+    .setValues([['catalog_key', 'related_member_names_json']]);
+  directory.getRange(1, VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1.length + 1)
+    .setValue('related_member_names_json');
+  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET,
+    VN_ADMIN_PORTAL_REQUEST_HEADERS);
+  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_DIRECTORY_SHEET,
+    VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS).hideSheet();
+}
+
+function vNextAdminRollbackPortalTableHeadersToV1_(requestSheet, directorySheet) {
+  if (requestSheet) {
+    const firstExtra = VN_ADMIN_PORTAL_REQUEST_HEADERS_V1.length + 1;
+    const extraWidth = VN_ADMIN_PORTAL_REQUEST_HEADERS.length - VN_ADMIN_PORTAL_REQUEST_HEADERS_V1.length;
+    if (requestSheet.getLastRow() > 1) {
+      const values = requestSheet.getRange(2, firstExtra, requestSheet.getLastRow() - 1, extraWidth).getValues();
+      if (values.some(function (row) { return row.some(function (value) { return String(value || '') !== ''; }); })) {
+        throw new Error('v2 request data appeared during rollback; extra columns were preserved.');
+      }
+    }
+    requestSheet.getRange(1, firstExtra, Math.max(1, requestSheet.getLastRow()), extraWidth).clearContent();
+  }
+  if (directorySheet) {
+    const extraColumn = VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1.length + 1;
+    directorySheet.getRange(1, extraColumn, Math.max(1, directorySheet.getLastRow()), 1).clearContent();
+  }
+}
+
+/**
  * Create an Admin-private, mutable UI draft. Only the three employee-facing
  * sheets cross the boundary; runtime/config/audit sheets are freshly created.
  */
@@ -3545,6 +3830,28 @@ function vNextAdminMenuProcessJobs() {
   return out;
 }
 
+function vNextAdminMenuRefreshZacClientCatalog() {
+  const result = vNextAdminRefreshZacClientCatalog({ force: true });
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    'ZACクライアント候補を更新しました（' + Number(result.activeCount || 0) + '件）。',
+    VN_ADMIN_MENU_NAME, 5
+  );
+  return result;
+}
+
+function vNextAdminMenuUpdatePortalRuntime() {
+  const ui = SpreadsheetApp.getUi();
+  const choice = ui.alert(
+    '社員ポータルを最新版へ更新',
+    '既存の受付履歴を残したまま、Portal runtimeとZACクライアント候補を最新版へ更新します。続行しますか？',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (choice !== ui.Button.OK) return { cancelled: true };
+  const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
+  ui.alert('完了', result.message || '社員ポータルを更新しました。', ui.ButtonSet.OK);
+  return result;
+}
+
 function vNextAdminMenuOpenRegistry() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.REGISTRY); }
 function vNextAdminMenuOpenExceptions() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.EXCEPTIONS); }
 function vNextAdminMenuOpenApprovals() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.APPROVALS); }
@@ -3658,7 +3965,10 @@ function vNextAdminInitializeClient_(ss, opt) {
 }
 
 function vNextAdminInitializePortal_(ss, opt) {
-  const keep = new Set(['ホーム', VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET]);
+  const keep = new Set([
+    'ホーム', VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET,
+    VN_ADMIN_PORTAL_CONFIG_SHEET, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET
+  ]);
   ss.getSheets().slice().forEach(function (sheet) {
     if (!keep.has(sheet.getName()) && ss.getSheets().length > 1) ss.deleteSheet(sheet);
   });
@@ -3666,6 +3976,8 @@ function vNextAdminInitializePortal_(ss, opt) {
   if (!home) home = ss.insertSheet('ホーム', 0);
   vNextAdminEnsureTable_(ss, VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS);
   vNextAdminEnsureTable_(ss, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  vNextAdminEnsureExactTableHeaders_(ss, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS);
   vNextAdminReplacePortalConfig_(ss, {
     mode: 'PORTAL', portal_id: opt.portalId, schema_version: VN_ADMIN_PORTAL_REQUEST_SCHEMA,
     runtime_version: opt.runtimeVersion, runtime_sha256: opt.runtimeSha256,
@@ -3674,10 +3986,12 @@ function vNextAdminInitializePortal_(ss, opt) {
   });
   home.showSheet();
   ss.setActiveSheet(home);
-  [VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET]
+  [VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET]
     .forEach(function (name) { const sheet = ss.getSheetByName(name); if (sheet) sheet.hideSheet(); });
   vNextAdminProtectInternalSheets_(ss, opt.adminEmails || [], [
-    VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET
+    VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET
   ]);
   vNextAdminProtectClientInternalSheets_(ss, [VN_ADMIN_PORTAL_REQUEST_SHEET]);
   return true;
@@ -4255,7 +4569,7 @@ function vNextAdminMarkPortalJobFailed_(hub, job, message) {
       String(row.event_type || '').toUpperCase() === 'REQUESTED';
   });
   if (!requested) return false;
-  const validated = vNextAdminValidatePortalRequest_(portal, requested);
+  const validated = vNextAdminValidatePortalRequest_(hub, portal, requested);
   vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'FAILED', 'FAILED', {
     relatedJobId: job.job_id, detailCode: 'CREATION_FAILED',
     detailMessage: '作成を完了できませんでした。管理担当者が確認します。'
@@ -4564,6 +4878,341 @@ function vNextAdminHarvestPortalRequestsSafely_(hub) {
   }
 }
 
+/** Manual Admin entry. The previous successful catalog remains untouched on failure. */
+function vNextAdminRefreshZacClientCatalog(request) {
+  return vNextAdminGuard_('vNextAdminRefreshZacClientCatalog', function () {
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminRefreshZacClientCatalogIfStale_(hub,
+      Boolean(request && request.force !== false));
+  });
+}
+
+function vNextAdminRefreshZacClientCatalogSafely_(hub, force) {
+  try {
+    return vNextAdminRefreshZacClientCatalogIfStale_(hub, Boolean(force));
+  } catch (error) {
+    const detail = String(error && error.message || error).slice(0, 1200);
+    Logger.log('ZAC client catalog refresh isolated: %s', detail);
+    try {
+      const open = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS).rows.some(function (row) {
+        return String(row.exception_type || '') === 'ZAC_CLIENT_CATALOG_REFRESH_FAILED' &&
+          String(row.status || 'OPEN').toUpperCase() === 'OPEN' && String(row.detail || '') === detail;
+      });
+      if (!open) vNextAdminAppendException_(hub, {
+        severity: 'ERROR', exception_type: 'ZAC_CLIENT_CATALOG_REFRESH_FAILED', book_id: '',
+        title: 'ZACクライアント候補を更新できません', detail: detail,
+        recommended_action: 'ZAC実績sourceの権限、対象tab、AN/AO列を確認。前回成功版は継続利用されます。',
+        source_ref: VN_ADMIN_ZAC_CLIENT_CATALOG_SHEET
+      });
+    } catch (exceptionError) {
+      Logger.log('ZAC catalog exception recording skipped: %s', String(exceptionError));
+    }
+    return { refreshed: false, reusedLastKnownGood: true, error: detail };
+  }
+}
+
+function vNextAdminRefreshZacClientCatalogIfStale_(hub, force, options) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const refreshedMs = new Date(config.zac_client_catalog_refreshed_at || 0).getTime();
+  const currentVersion = String(config.zac_client_catalog_version || '');
+  const activeCount = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.CATALOG).rows.filter(function (row) {
+    return vNextAdminBool_(row.is_active) && String(row.catalog_version || '') === currentVersion;
+  }).length;
+  const stale = !currentVersion || !activeCount || !isFinite(refreshedMs) ||
+    Date.now() - refreshedMs >= VN_ADMIN_ZAC_CATALOG_STALE_MS;
+  if (!force && !stale) {
+    return {
+      refreshed: false, stale: false,
+      activeCount: activeCount,
+      catalogVersion: currentVersion,
+      refreshedAt: String(config.zac_client_catalog_refreshed_at || '')
+    };
+  }
+  return vNextAdminRefreshZacClientCatalogNow_(hub, options);
+}
+
+function vNextAdminRefreshZacClientCatalogNow_(hub, options) {
+  const runtime = vNextGetRuntimeConfig_();
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const sourceId = vNextAdminRequiredText_(
+    config.source_spreadsheet_id || runtime.VNEXT_ZAC_SOURCE_SPREADSHEET_ID ||
+    runtime.FORECAST_SOURCE_SPREADSHEET_ID, 'ZAC source spreadsheet ID'
+  );
+  const extracted = vNextAdminExtractZacClientCatalog_(SpreadsheetApp.openById(sourceId));
+  if (!extracted.clients.length) throw new Error('ZAC sourceからクライアント候補を1件も取得できませんでした。');
+  const refreshedAt = new Date().toISOString();
+  const versionBasis = extracted.clients.map(function (row) {
+    return { catalogKey: row.catalogKey, clientId: row.clientId, clientCode: row.clientCode, clientName: row.clientName };
+  }).sort(function (a, b) { return String(a.catalogKey).localeCompare(String(b.catalogKey)); });
+  const catalogVersion = 'ZACCAT-' + vNextAdminSha256_(vNextAdminCanonicalJson_(versionBasis)).slice(0, 20).toUpperCase();
+  const commit = function () {
+    vNextAdminEnsureExactTableHeaders_(hub, VN_ADMIN_SHEETS.CATALOG,
+      VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS).hideSheet();
+    const existingTable = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.CATALOG);
+    const existing = existingTable.rows;
+    const hubCatalogBefore = existing.map(function (row) {
+      return VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.map(function (header) {
+        return row[header] === undefined ? '' : row[header];
+      });
+    });
+    let portal = null;
+    let portalCatalogBefore = null;
+    try {
+      portal = vNextAdminResolvePortal_(hub);
+      portalCatalogBefore = vNextAdminSnapshotExactTableBody_(portal.spreadsheet,
+        VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET, VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS);
+    } catch (portalResolveError) {
+      if (!/not configured/i.test(String(portalResolveError && portalResolveError.message || portalResolveError))) {
+        throw portalResolveError;
+      }
+    }
+    const existingByKey = {};
+    existing.forEach(function (row) { existingByKey[String(row.catalog_key || '')] = row; });
+    const activeKeys = new Set();
+    try {
+      extracted.clients.forEach(function (candidate) {
+        activeKeys.add(candidate.catalogKey);
+        const prior = existingByKey[candidate.catalogKey] || {};
+        vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.CATALOG, 'catalog_key', candidate.catalogKey, {
+          catalog_key: candidate.catalogKey, client_id: candidate.clientId,
+          client_code: candidate.clientCode, client_name: candidate.clientName,
+          normalized_name: candidate.normalizedName, is_active: 1,
+          source_years_json: vNextAdminCanonicalJson_(candidate.sourceYears),
+          first_seen_at: prior.first_seen_at || refreshedAt, last_seen_at: refreshedAt,
+          catalog_version: catalogVersion, refreshed_at: refreshedAt,
+          source_spreadsheet_id: sourceId
+        }, VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS);
+      });
+      existing.forEach(function (row) {
+        const key = String(row.catalog_key || '');
+        if (!key || activeKeys.has(key) || !vNextAdminBool_(row.is_active)) return;
+        vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.CATALOG, row._rowNumber, {
+          is_active: 0, catalog_version: catalogVersion, refreshed_at: refreshedAt
+        });
+      });
+      const projection = vNextAdminProjectZacClientCatalogToPortal_(hub, {
+        catalogVersion: catalogVersion, syncedAt: refreshedAt,
+        portalSpreadsheet: portal && portal.spreadsheet
+      });
+      // Commit the current pointer last. Request harvesting never accepts rows
+      // whose catalog version is not this committed version.
+      vNextAdminWriteSystemConfig_(hub, {
+        zac_client_catalog_version: catalogVersion,
+        zac_client_catalog_refreshed_at: refreshedAt,
+        zac_client_catalog_source_id: sourceId
+      });
+      const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      vNextAdminProtectInternalSheets_(hub,
+        vNextAdminMergeEmails_(hubConfig.admin_emails, vNextAdminActor_()), [VN_ADMIN_SHEETS.CATALOG]);
+      vNextAdminWriteAudit_(hub, 'REFRESH_ZAC_CLIENT_CATALOG', 'CLIENT_CATALOG', catalogVersion, 'SUCCESS', {
+        activeCount: extracted.clients.length, actualTabs: extracted.actualTabs,
+        defclientsTabs: extracted.defclientsTabs, portalRows: projection.rows,
+        sourceSpreadsheetId: sourceId
+      });
+      return {
+        refreshed: true, stale: false, activeCount: extracted.clients.length,
+        catalogVersion: catalogVersion, refreshedAt: refreshedAt,
+        actualTabs: extracted.actualTabs, defclientsTabs: extracted.defclientsTabs,
+        portalRows: projection.rows
+      };
+    } catch (refreshError) {
+      const rollbackErrors = [];
+      try {
+        vNextAdminReplaceExactTableBody_(hub, VN_ADMIN_SHEETS.CATALOG,
+          VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS, hubCatalogBefore);
+      } catch (hubRollbackError) { rollbackErrors.push('hub=' + String(hubRollbackError)); }
+      try {
+        if (portal && portalCatalogBefore) {
+          vNextAdminReplaceExactTableBody_(portal.spreadsheet, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+            VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS, portalCatalogBefore);
+        }
+      } catch (portalRollbackError) { rollbackErrors.push('portal=' + String(portalRollbackError)); }
+      try {
+        vNextAdminWriteSystemConfig_(hub, {
+          zac_client_catalog_version: config.zac_client_catalog_version || '',
+          zac_client_catalog_refreshed_at: config.zac_client_catalog_refreshed_at || '',
+          zac_client_catalog_source_id: config.zac_client_catalog_source_id || ''
+        });
+      } catch (configRollbackError) { rollbackErrors.push('config=' + String(configRollbackError)); }
+      if (rollbackErrors.length) {
+        throw new Error('ZAC catalog refresh failed and LKG rollback is incomplete: ' +
+          String(refreshError && refreshError.message || refreshError) + '; ' + rollbackErrors.join('; '));
+      }
+      throw refreshError;
+    }
+  };
+  return options && options.lockHeld
+    ? commit()
+    : vNextAdminWithScriptLock_('commit-zac-client-catalog', commit);
+}
+
+/** Reads each selected source range once. It never mutates the last-known-good catalog. */
+function vNextAdminExtractZacClientCatalog_(source) {
+  const actualTabs = source.getSheets().map(function (sheet) {
+    const match = sheet.getName().match(/^\*(\d{4})_actual_value$/);
+    return match ? { sheet: sheet, year: Number(match[1]) } : null;
+  }).filter(Boolean).sort(function (a, b) { return b.year - a.year; }).slice(0, 2);
+  const defclients = source.getSheets().filter(function (sheet) {
+    return /\*defclients$/i.test(sheet.getName());
+  });
+  if (!actualTabs.length && !defclients.length) {
+    throw new Error('ZAC sourceに*YYYY_actual_valueまたは*defclients tabがありません。');
+  }
+  const byName = {};
+  actualTabs.forEach(function (entry) {
+    const sheet = entry.sheet;
+    if (sheet.getLastRow() < 2 || sheet.getMaxColumns() < VN_ADMIN_ZAC_CLIENT_NAME_COLUMN) return;
+    const codeHeader = String(sheet.getRange(1, VN_ADMIN_ZAC_CLIENT_CODE_COLUMN).getValue() || '').trim();
+    const nameHeader = String(sheet.getRange(1, VN_ADMIN_ZAC_CLIENT_NAME_COLUMN).getValue() || '').trim();
+    if (codeHeader !== 'クライアントコード' || nameHeader !== 'クライアント名') {
+      throw new Error(sheet.getName() + ' AN/AO列header不一致: expected=クライアントコード/クライアント名; actual=' +
+        codeHeader + '/' + nameHeader);
+    }
+    const values = sheet.getRange(2, VN_ADMIN_ZAC_CLIENT_CODE_COLUMN,
+      sheet.getLastRow() - 1, 2).getDisplayValues();
+    values.forEach(function (row) {
+      vNextAdminMergeZacCatalogCandidate_(byName, row[1], row[0], entry.year, false);
+    });
+  });
+  defclients.forEach(function (sheet) {
+    if (sheet.getLastRow() < 1) return;
+    const values = sheet.getRange(1, 1, sheet.getLastRow(), 1).getDisplayValues();
+    values.forEach(function (row, index) {
+      const name = String(row[0] || '').trim();
+      if (!name || (index === 0 && /クライアント|顧客|取引先|メーカー/.test(name))) return;
+      vNextAdminMergeZacCatalogCandidate_(byName, name, '', 0, true);
+    });
+  });
+  const clients = Object.keys(byName).map(function (nameKey) {
+    const item = byName[nameKey];
+    const code = item.clientCode;
+    const identity = code ? 'CODE|' + code : 'NAME|' + nameKey;
+    const prefix = code ? 'ZAC-CODE-' : 'ZAC-NAME-';
+    const stable = prefix + vNextAdminSha256_(identity).slice(0, 20).toUpperCase();
+    return {
+      catalogKey: stable, clientId: stable, clientCode: code,
+      clientName: item.clientName, normalizedName: nameKey,
+      sourceYears: Array.from(item.sourceYears).sort()
+    };
+  }).sort(function (a, b) { return a.clientName.localeCompare(b.clientName, 'ja'); });
+  return {
+    clients: clients, actualTabs: actualTabs.map(function (entry) { return entry.sheet.getName(); }),
+    defclientsTabs: defclients.map(function (sheet) { return sheet.getName(); })
+  };
+}
+
+function vNextAdminMergeZacCatalogCandidate_(byName, rawName, rawCode, year, fromDefinition) {
+  const clientName = vNextAdminSafeCatalogText_(rawName, 120, 'clientName');
+  if (!clientName) return;
+  const nameKey = vNextAdminNormalizeCatalogClientName_(clientName);
+  if (!nameKey) return;
+  const code = vNextAdminSafeCatalogText_(rawCode, 120, 'clientCode');
+  const existing = byName[nameKey];
+  if (!existing) {
+    byName[nameKey] = {
+      clientName: clientName, clientCode: code, sourceYears: new Set(year ? [Number(year)] : []),
+      fromDefinition: Boolean(fromDefinition)
+    };
+    return;
+  }
+  if (code && existing.clientCode && code !== existing.clientCode) {
+    throw new Error('同じクライアント名に複数のAN codeがあります: ' + clientName);
+  }
+  if (code) existing.clientCode = code;
+  if (year) existing.sourceYears.add(Number(year));
+}
+
+function vNextAdminSafeCatalogText_(value, maxLength, label) {
+  const text = String(value === undefined || value === null ? '' : value).trim();
+  if (!text) return '';
+  if (text.length > maxLength || /[\u0000-\u001f\u007f]/.test(text) || /^[=+\-@]/.test(text)) {
+    throw new Error('ZAC ' + label + 'に安全でない値があります。');
+  }
+  return text;
+}
+
+function vNextAdminNormalizeCatalogClientName_(value) {
+  let text = String(value || '').trim().toLowerCase();
+  try { text = text.normalize('NFKC'); } catch (ignoredNormalize) {}
+  return text.replace(/[\s\u3000]/g, '').replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)|㈱|㈲/g, '');
+}
+
+function vNextAdminProjectZacClientCatalogToPortal_(hub, options) {
+  let portal;
+  try {
+    portal = options && options.portalSpreadsheet
+      ? { spreadsheet: options.portalSpreadsheet }
+      : vNextAdminResolvePortal_(hub);
+  }
+  catch (error) {
+    if (/not configured/i.test(String(error && error.message || error))) return { configured: false, rows: 0 };
+    throw error;
+  }
+  const opt = options || {};
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const catalogVersion = String(opt.catalogVersion || config.zac_client_catalog_version || '');
+  const syncedAt = String(opt.syncedAt || new Date().toISOString());
+  if (!catalogVersion) throw new Error('Hub ZAC client catalog version is missing.');
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.CATALOG).rows.filter(function (row) {
+    return vNextAdminBool_(row.is_active) && String(row.catalog_version || '') === catalogVersion;
+  }).map(function (row) {
+    return {
+      catalog_key: String(row.catalog_key || ''), client_name: String(row.client_name || ''),
+      is_active: 1, catalog_version: catalogVersion, synced_at: syncedAt
+    };
+  }).sort(function (a, b) { return a.client_name.localeCompare(b.client_name, 'ja'); });
+  if (!rows.length) throw new Error('Portalへ投影できるactive ZAC clientがありません。');
+  const sheet = vNextAdminEnsureExactTableHeaders_(portal.spreadsheet,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET, VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS);
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS.length).clearContent();
+  }
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS.length).setValues(rows.map(function (row) {
+      return VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS.map(function (header) { return row[header]; });
+    }));
+  }
+  sheet.hideSheet();
+  return { configured: true, rows: rows.length, catalogVersion: catalogVersion, syncedAt: syncedAt };
+}
+
+function vNextAdminSnapshotExactTableBody_(ss, name, headers) {
+  const sheet = vNextAdminEnsureExactTableHeaders_(ss, name, headers);
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+}
+
+function vNextAdminReplaceExactTableBody_(ss, name, headers, values) {
+  const sheet = vNextAdminEnsureExactTableHeaders_(ss, name, headers);
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).clearContent();
+  }
+  const rows = Array.isArray(values) ? values : [];
+  if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  return sheet;
+}
+
+function vNextAdminResolveZacCatalogSelection_(hub, catalogKey, clientName) {
+  const key = vNextAdminRequiredText_(catalogKey, 'catalogKey');
+  const name = vNextAdminRequiredText_(clientName, 'clientName');
+  const row = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.CATALOG).rows.find(function (candidate) {
+    return String(candidate.catalog_key || '') === key && vNextAdminBool_(candidate.is_active);
+  });
+  if (!row || String(row.client_name || '') !== name) {
+    throw new Error('選択されたクライアントは現在のZAC候補正本と一致しません。画面を開き直してください。');
+  }
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  if (!String(config.zac_client_catalog_version || '') ||
+      String(row.catalog_version || '') !== String(config.zac_client_catalog_version || '')) {
+    throw new Error('ZACクライアント候補の版が更新されています。画面を開き直してください。');
+  }
+  return {
+    catalogKey: key, clientId: vNextAdminRequiredText_(row.client_id, 'catalog.client_id'),
+    clientName: name, catalogVersion: String(row.catalog_version || '')
+  };
+}
+
 /** Read-only check: an existing duplicate is reusable only when it is already employee-open. */
 function vNextAdminPortalExistingBookAccess_(portal, registry) {
   const policy = String(registry && registry.access_policy || '').trim().toUpperCase();
@@ -4628,8 +5277,10 @@ function vNextAdminHarvestPortalRequests_(hub) {
     if (String(latest.event_type || '').toUpperCase() !== 'REQUESTED' ||
         String(latest.status || '').toUpperCase() !== 'PENDING') return;
     try {
-      const validated = vNextAdminValidatePortalRequest_(portal, events[0]);
-      const duplicates = vNextAdminFindClientFyDuplicates_(hub, validated.payload);
+      const validated = vNextAdminValidatePortalRequest_(hub, portal, events[0]);
+      const duplicates = vNextAdminFindClientFyDuplicates_(hub, Object.assign({}, validated.payload, {
+        clientId: validated.clientId
+      }));
       if (duplicates.length > 1) throw new Error('同じクライアント・年度の登録が複数あります。管理者確認が必要です。');
       if (duplicates.length === 1 && String(duplicates[0].status || '').toUpperCase() === 'ACTIVE') {
         const access = vNextAdminPortalExistingBookAccess_(portal, duplicates[0]);
@@ -4645,7 +5296,9 @@ function vNextAdminHarvestPortalRequests_(hub) {
         result.reused++;
         return;
       }
-      const idempotency = 'PORTAL_PROVISION|' + vNextAdminPortalCanonicalClientKey_(validated.payload) + '|' + validated.payload.fiscalYear;
+      const idempotency = 'PORTAL_PROVISION|' + vNextAdminPortalCanonicalClientKey_({
+        clientId: validated.clientId, clientName: validated.payload.clientName
+      }) + '|' + validated.payload.fiscalYear;
       const job = vNextAdminEnqueueJobInternal_(hub, {
         jobType: 'PORTAL_PROVISION_CLIENT', targetBookId: validated.payload.requestId,
         targetSpreadsheetId: portal.spreadsheetId,
@@ -4654,8 +5307,10 @@ function vNextAdminHarvestPortalRequests_(hub) {
           requestId: validated.payload.requestId, requestHash: validated.requestHash,
           clientId: validated.clientId, clientName: validated.payload.clientName,
           fiscalYear: validated.payload.fiscalYear,
-          forecastOwnerEmail: validated.payload.forecastOwnerEmail,
-          relatedMemberEmails: validated.payload.relatedMemberEmails,
+          schemaVersion: validated.schemaVersion, catalogKey: validated.catalogKey || '',
+          forecastOwnerEmail: validated.forecastOwnerEmail,
+          relatedMemberEmails: validated.relatedMemberEmails,
+          relatedMemberNames: validated.relatedMemberNames,
           requestedAt: validated.payload.requestedAt, requestedBy: validated.payload.requestedBy,
           employeeDomain: portal.employeeDomain
         },
@@ -4672,7 +5327,9 @@ function vNextAdminHarvestPortalRequests_(hub) {
           requestId: requestId, requestedAt: requested.requested_at || '', requestedBy: requested.requested_by || '',
           fiscalYear: Number(requested.fiscal_year || 0), clientId: String(requested.client_id || ''),
           clientName: String(requested.client_name || ''), forecastOwnerEmail: String(requested.forecast_owner_email || ''),
-          relatedMemberEmails: vNextAdminParseJson_(requested.related_member_emails_json, [])
+          relatedMemberEmails: vNextAdminParseJson_(requested.related_member_emails_json, []),
+          catalogKey: String(requested.catalog_key || ''),
+          relatedMemberNames: vNextAdminParseJson_(requested.related_member_names_json, [])
         },
         requestHash: String(requested.request_hash || '')
       };
@@ -4691,18 +5348,23 @@ function vNextAdminHarvestPortalRequests_(hub) {
   return result;
 }
 
-function vNextAdminValidatePortalRequest_(portal, row) {
+function vNextAdminValidatePortalRequest_(hub, portal, row) {
   const requestJson = String(row.request_json || '');
   const requestHash = String(row.request_hash || '').toLowerCase();
   const payload = vNextAdminParseJson_(requestJson, null);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Portal request JSON is invalid.');
   const actualKeys = Object.keys(payload).sort();
-  const expectedKeys = VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS.slice().sort();
+  const schemaVersion = String(payload.schemaVersion || '');
+  const expectedKeys = (schemaVersion === VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1
+    ? VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS_V1
+    : schemaVersion === VN_ADMIN_PORTAL_REQUEST_SCHEMA
+      ? VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS_V2 : []).slice().sort();
+  if (!expectedKeys.length) throw new Error('Portal request schema is not supported.');
   if (vNextAdminCanonicalJson_(actualKeys) !== vNextAdminCanonicalJson_(expectedKeys)) throw new Error('Portal request keys do not match schema.');
   if (requestJson !== vNextAdminCanonicalJson_(payload) || requestHash !== vNextAdminSha256_(requestJson)) {
     throw new Error('Portal request canonical hash is invalid.');
   }
-  if (payload.schemaVersion !== VN_ADMIN_PORTAL_REQUEST_SCHEMA || payload.requestType !== 'CREATE_CLIENT_FY_BOOK') {
+  if (payload.requestType !== 'CREATE_CLIENT_FY_BOOK') {
     throw new Error('Portal request schema/type is invalid.');
   }
   if (String(row.request_id || '') !== String(payload.requestId || '') ||
@@ -4714,18 +5376,55 @@ function vNextAdminValidatePortalRequest_(portal, row) {
   const clientName = vNextAdminRequiredText_(payload.clientName, 'clientName');
   if (clientName.length > 120 || /^[=+@]/.test(clientName)) throw new Error('clientName is unsafe.');
   const requestedBy = String(payload.requestedBy || '').trim().toLowerCase();
-  const owner = String(payload.forecastOwnerEmail || '').trim().toLowerCase();
-  if (vNextAdminEmailDomain_(requestedBy) !== portal.employeeDomain || vNextAdminEmailDomain_(owner) !== portal.employeeDomain) {
-    throw new Error('Portal requester/owner is outside the employee domain.');
+  if (vNextAdminEmailDomain_(requestedBy) !== portal.employeeDomain) {
+    throw new Error('Portal requester is outside the employee domain.');
   }
-  const members = Array.isArray(payload.relatedMemberEmails) ? payload.relatedMemberEmails.map(function (email) {
-    return String(email || '').trim().toLowerCase();
-  }) : [];
-  if (members.length > 50 || members.some(function (email) { return vNextAdminEmailDomain_(email) !== portal.employeeDomain; })) {
-    throw new Error('relatedMemberEmails contains an invalid employee account.');
+  if (schemaVersion === VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1) {
+    const owner = String(payload.forecastOwnerEmail || '').trim().toLowerCase();
+    if (vNextAdminEmailDomain_(owner) !== portal.employeeDomain) {
+      throw new Error('Portal owner is outside the employee domain.');
+    }
+    const members = Array.isArray(payload.relatedMemberEmails) ? payload.relatedMemberEmails.map(function (email) {
+      return String(email || '').trim().toLowerCase();
+    }) : [];
+    if (members.length > 50 || members.some(function (email) {
+      return vNextAdminEmailDomain_(email) !== portal.employeeDomain;
+    })) throw new Error('relatedMemberEmails contains an invalid employee account.');
+    const legacyClientId = vNextAdminText_(payload.clientId) || vNextAdminDeriveClientId_(clientName);
+    return {
+      payload: Object.assign({}, payload, { fiscalYear: fiscalYear }), requestHash: requestHash,
+      schemaVersion: schemaVersion, clientId: legacyClientId, catalogKey: '',
+      forecastOwnerEmail: owner, relatedMemberEmails: members, relatedMemberNames: []
+    };
   }
-  const clientId = vNextAdminText_(payload.clientId) || vNextAdminDeriveClientId_(clientName);
-  return { payload: Object.assign({}, payload, { fiscalYear: fiscalYear }), requestHash: requestHash, clientId: clientId };
+  const names = vNextAdminNormalizeRelatedMemberNames_(payload.relatedMemberNames);
+  if (vNextAdminCanonicalJson_(names) !== vNextAdminCanonicalJson_(payload.relatedMemberNames)) {
+    throw new Error('relatedMemberNames is not normalized.');
+  }
+  const selected = vNextAdminResolveZacCatalogSelection_(hub, payload.catalogKey, clientName);
+  return {
+    payload: Object.assign({}, payload, { fiscalYear: fiscalYear }), requestHash: requestHash,
+    schemaVersion: schemaVersion, clientId: selected.clientId, catalogKey: selected.catalogKey,
+    catalogVersion: selected.catalogVersion, forecastOwnerEmail: requestedBy,
+    relatedMemberEmails: [], relatedMemberNames: names
+  };
+}
+
+function vNextAdminNormalizeRelatedMemberNames_(value) {
+  if (!Array.isArray(value)) throw new Error('関与メンバーの氏名は配列である必要があります。');
+  if (value.length < 1 || value.length > 5) throw new Error('関与メンバーは1名以上5名以内で指定してください。');
+  const seen = new Set();
+  return value.map(function (item) {
+    let name = String(item === undefined || item === null ? '' : item).trim();
+    try { name = name.normalize('NFKC'); } catch (ignoredNormalize) {}
+    if (!name || name.length > 80 || /[\u0000-\u001f\u007f]/.test(name) || /^[=+\-@]/.test(name)) {
+      throw new Error('関与メンバーの氏名を80文字以内の通常テキストで入力してください。');
+    }
+    const key = name.toLowerCase().replace(/[\s\u3000]/g, '');
+    if (seen.has(key)) throw new Error('同じ関与メンバーが重複しています。');
+    seen.add(key);
+    return name;
+  });
 }
 
 function vNextAdminFindClientFyDuplicates_(hub, input) {
@@ -4948,13 +5647,21 @@ function vNextAdminExecuteJob_(hub, job) {
         return String(row.event_type || '').toUpperCase() === 'REQUESTED' && String(row.status || '').toUpperCase() === 'PENDING';
       });
       if (!requested) throw new Error('The original Portal REQUESTED/PENDING event is missing.');
-      const validated = vNextAdminValidatePortalRequest_(portal, requested);
+      const validated = vNextAdminValidatePortalRequest_(hub, portal, requested);
       if (validated.requestHash !== String(payload.requestHash || '') ||
           validated.payload.requestedBy !== String(payload.requestedBy || '') ||
-          validated.payload.forecastOwnerEmail !== String(payload.forecastOwnerEmail || '')) {
+          validated.schemaVersion !== String(payload.schemaVersion || VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1) ||
+          validated.clientId !== String(payload.clientId || '') ||
+          validated.forecastOwnerEmail !== String(payload.forecastOwnerEmail || '') ||
+          vNextAdminCanonicalJson_(validated.relatedMemberEmails) !==
+            vNextAdminCanonicalJson_(payload.relatedMemberEmails || []) ||
+          vNextAdminCanonicalJson_(validated.relatedMemberNames) !==
+            vNextAdminCanonicalJson_(payload.relatedMemberNames || [])) {
         throw new Error('Portal job/request lineage mismatch.');
       }
-      const duplicates = vNextAdminFindClientFyDuplicates_(hub, validated.payload);
+      const duplicates = vNextAdminFindClientFyDuplicates_(hub, Object.assign({}, validated.payload, {
+        clientId: validated.clientId
+      }));
       let provisioned;
       if (duplicates.length === 1 && String(duplicates[0].status || '').toUpperCase() === 'ACTIVE') {
         const access = vNextAdminPortalExistingBookAccess_(portal, duplicates[0]);
@@ -4976,8 +5683,9 @@ function vNextAdminExecuteJob_(hub, job) {
         provisioned = vNextAdminProvisionClientInHub_(hub, {
           clientId: validated.clientId, clientName: validated.payload.clientName,
           fiscalYear: validated.payload.fiscalYear,
-          forecastOwnerEmails: [validated.payload.forecastOwnerEmail],
-          editorEmails: [validated.payload.requestedBy].concat(validated.payload.relatedMemberEmails || []),
+          forecastOwnerEmails: [validated.forecastOwnerEmail],
+          editorEmails: [validated.forecastOwnerEmail].concat(validated.relatedMemberEmails),
+          relatedMemberNames: validated.relatedMemberNames,
           accessPolicy: 'INTERNAL_OPEN', internalDomain: portal.employeeDomain,
           idempotencyKey: String(job.idempotency_key || ''), internalOperation: 'PORTAL_JOB'
         });
@@ -7530,7 +8238,8 @@ function vNextAdminResolvePortal_(hub) {
   const runtimeSha256 = vNextAdminRequiredText_(config.portal_runtime_sha256, 'portal_runtime_sha256');
   const employeeDomain = vNextAdminNormalizeDomain_(config.employee_domain ||
     PropertiesService.getScriptProperties().getProperty('VNEXT_EMPLOYEE_DOMAIN'));
-  if (runtimeVersion !== VN_ADMIN_PORTAL_RUNTIME_VERSION || !/^[a-f0-9]{64}$/.test(runtimeSha256) || !employeeDomain) {
+  const supportedRuntimeVersions = [VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS);
+  if (supportedRuntimeVersions.indexOf(runtimeVersion) < 0 || !/^[a-f0-9]{64}$/.test(runtimeSha256) || !employeeDomain) {
     throw new Error('Employee Portal runtime/domain identity is invalid.');
   }
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
@@ -7544,8 +8253,20 @@ function vNextAdminResolvePortal_(hub) {
     throw new Error('Employee Portal local identity does not match the Hub record.');
   }
   vNextClientRuntimeAssertBoundParent_(scriptId, spreadsheetId);
-  vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS);
-  vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  const requestHeaders = runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION
+    ? VN_ADMIN_PORTAL_REQUEST_HEADERS : VN_ADMIN_PORTAL_REQUEST_HEADERS_V1;
+  const directoryHeaders = runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION
+    ? VN_ADMIN_PORTAL_DIRECTORY_HEADERS : VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1;
+  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET, requestHeaders);
+  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, directoryHeaders);
+  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+    VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS).hideSheet();
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  vNextAdminProtectInternalSheets_(spreadsheet,
+    vNextAdminMergeEmails_(hubConfig.admin_emails, vNextAdminActor_()), [
+      VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET,
+      VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET
+    ]);
   return {
     portalId: portalId, spreadsheetId: spreadsheetId, scriptId: scriptId,
     runtimeVersion: runtimeVersion, runtimeSha256: runtimeSha256,
@@ -7557,19 +8278,34 @@ function vNextAdminAppendPortalRequestEvent_(portal, validated, eventType, statu
   const payload = validated.payload || {};
   const extra = detail || {};
   const now = new Date().toISOString();
+  const ownerEmail = String(validated.forecastOwnerEmail || payload.forecastOwnerEmail || payload.requestedBy || '').toLowerCase();
+  const relatedMemberEmails = validated.relatedMemberEmails || payload.relatedMemberEmails || [];
+  const relatedMemberNames = validated.relatedMemberNames || payload.relatedMemberNames || [];
   const record = {
     request_event_id: 'PORTAL-REQEV-' + Utilities.getUuid(), request_id: String(payload.requestId || ''),
     event_type: String(eventType || '').toUpperCase(), status: String(status || '').toUpperCase(),
     request_hash: String(validated.requestHash || ''), request_json: '',
-    fiscal_year: Number(payload.fiscalYear || 0), client_id: String(payload.clientId || validated.clientId || ''),
-    client_name: String(payload.clientName || ''), forecast_owner_email: String(payload.forecastOwnerEmail || ''),
-    related_member_emails_json: vNextAdminCanonicalJson_(payload.relatedMemberEmails || []),
+    fiscal_year: Number(payload.fiscalYear || 0),
+    // v2 Portal rows keep their untrusted transport identity self-consistent;
+    // the authoritative ZAC-derived clientId exists only in Hub job/registry.
+    client_id: String(payload.schemaVersion === VN_ADMIN_PORTAL_REQUEST_SCHEMA
+      ? payload.catalogKey : (payload.clientId || '')),
+    client_name: String(payload.clientName || ''), forecast_owner_email: ownerEmail,
+    related_member_emails_json: vNextAdminCanonicalJson_(relatedMemberEmails),
     requested_at: String(payload.requestedAt || ''), requested_by: String(payload.requestedBy || ''),
     related_book_id: String(extra.relatedBookId || ''), related_book_url: String(extra.relatedBookUrl || ''),
     detail_code: String(extra.detailCode || ''), detail_message: String(extra.detailMessage || ''),
-    created_at: now, created_by: vNextAdminActor_()
+    created_at: now, created_by: vNextAdminActor_(),
+    catalog_key: String(validated.catalogKey || payload.catalogKey || ''),
+    // Legacy v1 rows predate the projection columns. Keep them truly blank so
+    // the v1 reader can distinguish the immutable legacy shape after upgrade.
+    related_member_names_json: String(payload.schemaVersion || '') === VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1
+      ? '' : vNextAdminCanonicalJson_(relatedMemberNames)
   };
-  vNextAdminAppendObject_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET, record, VN_ADMIN_PORTAL_REQUEST_HEADERS);
+  const config = vNextAdminReadKeyValueSheet_(portal, VN_ADMIN_PORTAL_CONFIG_SHEET);
+  const headers = String(config.runtime_version || '') === VN_ADMIN_PORTAL_RUNTIME_VERSION
+    ? VN_ADMIN_PORTAL_REQUEST_HEADERS : VN_ADMIN_PORTAL_REQUEST_HEADERS_V1;
+  vNextAdminAppendObject_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET, record, headers);
   return record;
 }
 
@@ -7591,8 +8327,18 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     plansByBook[String(row.book_id || '')] = row;
   });
   const requestIds = {};
-  vNextAdminReadTable_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.forEach(function (row) {
-    if (String(row.related_book_id || '')) requestIds[String(row.related_book_id)] = String(row.request_id || '');
+  const memberNamesByRequest = {};
+  const portalRequestRows = vNextAdminReadTable_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows;
+  portalRequestRows.forEach(function (requestRow) {
+    const requestId = String(requestRow.request_id || '');
+    if (String(requestRow.related_book_id || '')) {
+      requestIds[String(requestRow.related_book_id)] = requestId;
+    }
+    if (String(requestRow.event_type || '').toUpperCase() !== 'REQUESTED' || !requestId) return;
+    const payload = vNextAdminParseJson_(requestRow.request_json, null);
+    if (!payload || String(payload.schemaVersion || '') !== VN_ADMIN_PORTAL_REQUEST_SCHEMA) return;
+    try { memberNamesByRequest[requestId] = vNextAdminNormalizeRelatedMemberNames_(payload.relatedMemberNames); }
+    catch (ignoredInvalidNames) { memberNamesByRequest[requestId] = []; }
   });
   const teamByBook = {};
   vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM).rows.forEach(function (row) {
@@ -7606,6 +8352,10 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     const run = runsByBook[bookId] || {};
     const plan = plansByBook[bookId] || {};
     const state = String(row.state || 'INPUT_OPEN').toUpperCase();
+    let relatedMemberNames = vNextAdminParseJson_(row.related_member_names_json, []);
+    if (!Array.isArray(relatedMemberNames) || !relatedMemberNames.length) {
+      relatedMemberNames = memberNamesByRequest[requestIds[bookId] || ''] || [];
+    }
     return {
       directory_event_id: 'DIR-' + Utilities.getUuid(),
       directory_key: Number(row.fiscal_year) + '|' + vNextAdminPortalCanonicalClientKey_(row),
@@ -7619,16 +8369,21 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
       final_budget: plan.final_budget === '' || plan.final_budget === undefined ? '' : Number(plan.final_budget),
       next_action: vNextAdminPortalNextAction_(state, String(row.health_code || '')),
       client_book_url: String(row.spreadsheet_url || ''), request_id: requestIds[bookId] || '',
-      updated_at: new Date().toISOString(), updated_by: vNextAdminActor_()
+      updated_at: new Date().toISOString(), updated_by: vNextAdminActor_(),
+      related_member_names_json: vNextAdminCanonicalJson_(relatedMemberNames)
     };
   });
-  const sheet = vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
+  const directoryHeaders = String(portalConfig.runtime_version || '') === VN_ADMIN_PORTAL_RUNTIME_VERSION
+    ? VN_ADMIN_PORTAL_DIRECTORY_HEADERS : VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1;
+  const sheet = vNextAdminEnsureExactTableHeaders_(spreadsheet,
+    VN_ADMIN_PORTAL_DIRECTORY_SHEET, directoryHeaders);
   if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
   if (rows.length) {
     const values = rows.map(function (row) {
-      return VN_ADMIN_PORTAL_DIRECTORY_HEADERS.map(function (header) { return row[header] === undefined ? '' : row[header]; });
+      return directoryHeaders.map(function (header) { return row[header] === undefined ? '' : row[header]; });
     });
-    sheet.getRange(2, 1, values.length, VN_ADMIN_PORTAL_DIRECTORY_HEADERS.length).setValues(values);
+    sheet.getRange(2, 1, values.length, directoryHeaders.length).setValues(values);
   }
   sheet.hideSheet();
   return { portalSpreadsheetId: spreadsheet.getId(), rows: rows.length };
@@ -8545,6 +9300,32 @@ function vNextAdminEnsureTable_(ss, name, headers) {
     }
   }
   sheet.getRange(1, 1, 1, Math.max(required.length, sheet.getLastColumn())).setFontWeight('bold').setBackground('#eeeeee');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+/** Fail closed for employee-runtime tables whose positional schema is part of the signed contract. */
+function vNextAdminEnsureExactTableHeaders_(ss, name, headers) {
+  const expected = (headers || []).map(String);
+  const sheet = vNextAdminGetOrCreateSheet_(ss, name);
+  if (sheet.getMaxColumns() < expected.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), expected.length - sheet.getMaxColumns());
+  }
+  const width = Math.max(1, sheet.getLastColumn(), expected.length);
+  const actual = sheet.getRange(1, 1, 1, width).getValues()[0].map(function (value) {
+    return String(value || '').trim();
+  });
+  const hasHeader = actual.some(Boolean);
+  if (!hasHeader) {
+    sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+  } else {
+    const defined = actual.slice(0, expected.length);
+    const unexpected = actual.slice(expected.length).filter(Boolean);
+    if (vNextAdminCanonicalJson_(defined) !== vNextAdminCanonicalJson_(expected) || unexpected.length) {
+      throw new Error(name + 'の列構成がruntime契約と一致しません。管理者が直接修正せずversioned migrationを実行してください。');
+    }
+  }
+  sheet.getRange(1, 1, 1, expected.length).setFontWeight('bold').setBackground('#eeeeee');
   sheet.setFrozenRows(1);
   return sheet;
 }

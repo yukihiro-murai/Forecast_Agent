@@ -11,9 +11,8 @@
     .lead { color:var(--muted); margin:0 0 18px; }
     label { display:block; font-weight:bold; margin:14px 0 5px; }
     .required::after { content:' 必須'; color:#b3261e; font-size:11px; font-weight:normal; }
-    input, select, textarea { width:100%; border:1px solid var(--line); border-radius:6px; padding:9px 10px; font:inherit; background:#fff; }
-    textarea { min-height:70px; resize:vertical; }
-    input:focus, select:focus, textarea:focus { outline:2px solid #d2e3fc; border-color:var(--blue); }
+    input, select { width:100%; border:1px solid var(--line); border-radius:6px; padding:9px 10px; font:inherit; background:#fff; }
+    input:focus, select:focus { outline:2px solid #d2e3fc; border-color:var(--blue); }
     .hint { color:var(--muted); font-size:12px; margin-top:4px; }
     .actions { display:flex; gap:8px; margin-top:18px; }
     button { border:0; border-radius:6px; padding:10px 13px; font-weight:bold; cursor:pointer; }
@@ -29,6 +28,9 @@
     .candidate a { color:var(--blue); font-weight:bold; }
     .check { display:flex; align-items:flex-start; gap:8px; margin-top:12px; font-weight:normal; }
     .check input { width:auto; margin-top:4px; }
+    .identity { margin:10px 0 2px; padding:10px 12px; border-radius:8px; background:#e8f0fe; color:#174ea6; }
+    .member-grid { display:grid; gap:8px; }
+    .member-grid label { margin:0; font-weight:normal; }
     .hidden { display:none; }
     .spinner { display:inline-block; width:14px; height:14px; border:2px solid #c5c5c5; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:6px; }
     @keyframes spin { to { transform:rotate(360deg); } }
@@ -39,27 +41,30 @@
   <p class="lead" id="lead">既存の計画を確認してから、作成を依頼します。</p>
 
   <form id="form" autocomplete="off">
+    <div class="identity">作成担当：<span id="requester">確認中…</span></div>
+
     <label class="required" for="fiscalYear">対象年度</label>
-    <select id="fiscalYear" required></select>
+    <select id="fiscalYear" required disabled></select>
     <div class="hint">年度は4月から翌年3月です。</div>
 
-    <label class="required" for="clientName">クライアント名</label>
-    <input id="clientName" maxlength="120" placeholder="例：MSD株式会社" required>
+    <label class="required" for="clientKey">クライアント</label>
+    <select id="clientKey" required disabled>
+      <option value="">ZACの一覧を読み込んでいます…</option>
+    </select>
+    <div class="hint" id="catalogInfo">クライアント名とIDの手入力は不要です。</div>
 
-    <label for="clientId">クライアントID（わかる場合だけ）</label>
-    <input id="clientId" maxlength="100" placeholder="社内で使用しているID">
-    <div class="hint">空欄でも依頼できます。後で正式IDと結び付けられます。</div>
-
-    <label class="required" for="forecastOwnerEmail">Forecast Owner</label>
-    <input id="forecastOwnerEmail" type="email" maxlength="254" required>
-    <div class="hint">アクセス制限ではなく、計画案をまとめて提出する担当者です。</div>
-
-    <label for="relatedMembersText">関与メンバー（任意）</label>
-    <textarea id="relatedMembersText" placeholder="メールアドレスを改行またはカンマで区切って入力"></textarea>
-    <div class="hint">複数クライアントへ関与する人も自由に追加できます。後から変更できます。</div>
+    <label class="required" for="memberName1">関与メンバー</label>
+    <div class="member-grid">
+      <label>1人目<input id="memberName1" maxlength="80" placeholder="氏名" required></label>
+      <label>2人目<input id="memberName2" maxlength="80" placeholder="氏名（任意）"></label>
+      <label>3人目<input id="memberName3" maxlength="80" placeholder="氏名（任意）"></label>
+      <label>4人目<input id="memberName4" maxlength="80" placeholder="氏名（任意）"></label>
+      <label>5人目<input id="memberName5" maxlength="80" placeholder="氏名（任意）"></label>
+    </div>
+    <div class="hint">少なくとも1名、最大5名まで入力してください。</div>
 
     <div class="actions">
-      <button class="secondary" type="button" id="previewButton">重複候補を確認</button>
+      <button class="secondary" type="button" id="previewButton" disabled>重複候補を確認</button>
     </div>
     <div id="result" class="hidden" role="status" aria-live="polite"></div>
     <label id="similarConfirmWrap" class="check hidden">
@@ -75,9 +80,11 @@
     'use strict';
     var latestPreview = null;
     var busy = false;
-    var ids = ['fiscalYear','clientName','clientId','forecastOwnerEmail','relatedMembersText'];
+    var modelLoaded = false;
+    var memberIds = ['memberName1','memberName2','memberName3','memberName4','memberName5'];
+    var ids = ['fiscalYear','clientKey'].concat(memberIds);
     var elements = {};
-    ids.concat(['lead','form','result','previewButton','submitButton','confirmSimilarDuplicates','similarConfirmWrap']).forEach(function(id) {
+    ids.concat(['lead','requester','catalogInfo','form','result','previewButton','submitButton','confirmSimilarDuplicates','similarConfirmWrap']).forEach(function(id) {
       elements[id] = document.getElementById(id);
     });
 
@@ -96,21 +103,35 @@
         if (Number(year) === Number(model.defaultFiscalYear)) option.selected = true;
         elements.fiscalYear.appendChild(option);
       });
-      elements.forecastOwnerEmail.value = model.defaultForecastOwnerEmail || '';
+      elements.clientKey.textContent = '';
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '選択してください';
+      elements.clientKey.appendChild(placeholder);
+      (model.clients || []).forEach(function(client) {
+        var option = document.createElement('option');
+        option.value = client.key;
+        option.textContent = client.name;
+        elements.clientKey.appendChild(option);
+      });
+      elements.requester.textContent = model.requesterEmail || '確認できません';
+      elements.catalogInfo.textContent = 'ZAC一覧更新：' + displayDateTime(model.catalogSyncedAt) + '／' + (model.clients || []).length + '件';
+      elements.fiscalYear.disabled = false;
+      elements.clientKey.disabled = false;
+      modelLoaded = true;
+      elements.previewButton.disabled = false;
     }
 
     function basePayload() {
       return {
         fiscalYear: Number(elements.fiscalYear.value),
-        clientName: elements.clientName.value,
-        clientId: elements.clientId.value,
-        forecastOwnerEmail: elements.forecastOwnerEmail.value,
-        relatedMembersText: elements.relatedMembersText.value
+        clientKey: elements.clientKey.value,
+        relatedMemberNames: memberIds.map(function(id) { return elements[id].value; })
       };
     }
 
     function preview() {
-      if (busy || !elements.form.reportValidity()) return;
+      if (busy || !modelLoaded || !elements.form.reportValidity()) return;
       setBusy(true, '候補を確認しています…');
       google.script.run.withSuccessHandler(function(result) {
         setBusy(false);
@@ -120,7 +141,7 @@
     }
 
     function submit() {
-      if (busy || !latestPreview || !elements.form.reportValidity()) return;
+      if (busy || !modelLoaded || !latestPreview || !elements.form.reportValidity()) return;
       setBusy(true, '作成依頼を送信しています…');
       var payload = basePayload();
       payload.duplicateCheckHash = latestPreview.duplicateCheckHash;
@@ -158,7 +179,7 @@
         title.textContent = 'FY' + candidate.fiscalYear + '　' + candidate.clientName;
         box.appendChild(title);
         var detail = document.createElement('div');
-        detail.textContent = candidate.reason + '／' + candidate.status + (candidate.clientId ? '／ID: ' + candidate.clientId : '');
+        detail.textContent = candidate.reason + '／' + candidate.status;
         box.appendChild(detail);
         if (candidate.url) {
           var link = document.createElement('a');
@@ -203,7 +224,7 @@
 
     function setBusy(value, message) {
       busy = value;
-      elements.previewButton.disabled = value;
+      elements.previewButton.disabled = value || !modelLoaded;
       elements.submitButton.disabled = value || !latestPreview;
       if (value) {
         clearResult('');
@@ -218,10 +239,16 @@
 
     function showFailure(error) {
       busy = false;
-      elements.previewButton.disabled = false;
+      elements.previewButton.disabled = !modelLoaded;
       clearResult('bad');
       appendText(elements.result, error && error.message ? error.message : String(error || '処理に失敗しました。'));
       updateSubmitState();
+    }
+
+    function displayDateTime(value) {
+      var date = new Date(value || '');
+      if (isNaN(date.getTime())) return '確認中';
+      return date.toLocaleString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
     }
   </script>
 </body>

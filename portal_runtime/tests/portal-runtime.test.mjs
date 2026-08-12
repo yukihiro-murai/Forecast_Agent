@@ -10,13 +10,17 @@ import { fileURLToPath } from 'node:url';
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const sourceDir = path.resolve(testDir, '..', 'src');
 let uuid = 0;
+const cacheValues = new Map();
 const sandbox = {
   console,
   Logger: { log() {} },
   SpreadsheetApp: { getActiveSpreadsheet: () => ({}) },
-  Session: {
-    getActiveUser: () => ({ getEmail: () => 'creator@example.com' }),
-    getEffectiveUser: () => ({ getEmail: () => 'creator@example.com' })
+  Session: { getActiveUser: () => ({ getEmail: () => 'creator@example.com' }) },
+  CacheService: {
+    getDocumentCache: () => ({
+      get: key => cacheValues.get(key) || null,
+      put: (key, value) => cacheValues.set(key, value)
+    })
   },
   Utilities: {
     getUuid: () => `12345678-test-${++uuid}`,
@@ -30,13 +34,35 @@ vm.createContext(sandbox);
 vm.runInContext(await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8'), sandbox, { filename: 'Portal_Core.js' });
 
 testCanonicalJson();
-testExactSchemas();
-testNormalization();
+testV2AndLegacySchemas();
+testMemberAndFiscalYearValidation();
+testCatalogCacheAndStrictSelection();
 testDuplicateCandidates();
+testRequestRowProjection();
 testStatusEventValidation();
 testAppendRequestContract();
+testCreateModel();
 await testStaticUxContracts();
-process.stdout.write('PASS portal runtime behavior tests (7)\n');
+process.stdout.write('PASS portal runtime behavior tests (10)\n');
+
+function v2Payload(overrides = {}) {
+  return {
+    catalogKey: 'ZAC-C-001', clientName: 'テスト株式会社', fiscalYear: 2027,
+    relatedMemberNames: ['山田 太郎'], requestId: 'PORTAL-REQ-12345678-test',
+    requestType: 'CREATE_CLIENT_FY_BOOK', requestedAt: '2026-08-12T00:00:00.000Z',
+    requestedBy: 'creator@example.com', schemaVersion: 'vnext-portal-request-2', ...overrides
+  };
+}
+
+function legacyPayload(overrides = {}) {
+  return {
+    clientId: 'CLIENT-1', clientName: 'テスト株式会社', fiscalYear: 2027,
+    forecastOwnerEmail: 'owner@example.com', relatedMemberEmails: ['member@example.com'],
+    requestId: 'PORTAL-REQ-12345678-test', requestType: 'CREATE_CLIENT_FY_BOOK',
+    requestedAt: '2026-08-12T00:00:00.000Z', requestedBy: 'creator@example.com',
+    schemaVersion: 'vnext-portal-request-1', ...overrides
+  };
+}
 
 function testCanonicalJson() {
   assert.equal(sandbox.vNextPortalCanonicalJson_({ b: 2, a: 1 }), '{"a":1,"b":2}');
@@ -44,64 +70,98 @@ function testCanonicalJson() {
   assert.equal(sandbox.vNextPortalSha256Hex_('{"a":1}'), createHash('sha256').update('{"a":1}').digest('hex'));
 }
 
-function testExactSchemas() {
-  const payload = {
-    clientId: 'CLIENT-1', clientName: 'テスト株式会社', fiscalYear: 2027,
-    forecastOwnerEmail: 'owner@example.com', relatedMemberEmails: ['member@example.com'],
-    requestId: 'PORTAL-REQ-12345678-test', requestType: 'CREATE_CLIENT_FY_BOOK',
-    requestedAt: '2026-08-12T00:00:00.000Z', requestedBy: 'creator@example.com',
-    schemaVersion: 'vnext-portal-request-1'
-  };
-  assert.equal(sandbox.vNextPortalValidateRequestPayload_(payload), payload);
-  assert.throws(() => sandbox.vNextPortalValidateRequestPayload_({ ...payload, unexpected: true }), /項目が契約と一致/);
-  assert.throws(() => sandbox.vNextPortalAssertExactKeys_({ clientName: 'x' }, sandbox.VNEXT_PORTAL.PREVIEW_INPUT_KEYS), /項目が契約と一致/);
+function testV2AndLegacySchemas() {
+  const current = v2Payload();
+  assert.equal(sandbox.vNextPortalValidateRequestPayload_(current), current);
+  assert.deepEqual(Object.keys(current).sort(), [...sandbox.VNEXT_PORTAL.PAYLOAD_KEYS].sort());
+  assert.throws(() => sandbox.vNextPortalValidateRequestPayload_({ ...current, clientId: 'tampered' }), /項目が契約と一致/);
+  assert.throws(() => sandbox.vNextPortalValidateRequestPayload_(v2Payload({ relatedMemberNames: [] })), /1名以上/);
+
+  const legacy = legacyPayload();
+  assert.equal(sandbox.vNextPortalValidateRequestPayload_(legacy), legacy);
+  const legacyModel = sandbox.vNextPortalRequestPayloadToModel_(legacy);
+  assert.equal(legacyModel.clientId, 'CLIENT-1');
+  assert.deepEqual([...legacyModel.relatedMemberEmails], ['member@example.com']);
+  assert.deepEqual([...legacyModel.relatedMemberNames], []);
+  const currentModel = sandbox.vNextPortalRequestPayloadToModel_(current);
+  assert.equal(currentModel.clientId, 'ZAC-C-001');
+  assert.equal(currentModel.forecastOwnerEmail, 'creator@example.com');
+  assert.deepEqual([...currentModel.relatedMemberNames], ['山田 太郎']);
 }
 
-function testNormalization() {
-  const value = sandbox.vNextPortalNormalizeCreationInput_({
-    fiscalYear: '2027', clientName: '  テスト株式会社  ', clientId: ' C-001 ',
-    forecastOwnerEmail: 'OWNER@EXAMPLE.COM',
-    relatedMembersText: 'member@example.com, OWNER@example.com\nmember@example.com\nother@example.com'
-  });
-  assert.equal(value.fiscalYear, 2027);
-  assert.equal(value.clientName, 'テスト株式会社');
-  assert.equal(value.forecastOwnerEmail, 'owner@example.com');
-  assert.deepEqual([...value.relatedMemberEmails], ['member@example.com', 'other@example.com']);
-  assert.equal(sandbox.vNextPortalNormalizeClientName_('株式会社 テスト製薬'), 'テスト製薬');
+function testMemberAndFiscalYearValidation() {
+  assert.throws(() => sandbox.vNextPortalNormalizeMemberNames_([], true), /1名以上/);
+  assert.deepEqual([...sandbox.vNextPortalNormalizeMemberNames_(['山田 太郎'], true)], ['山田 太郎']);
+  assert.deepEqual(
+    [...sandbox.vNextPortalNormalizeMemberNames_(['A', 'B', 'C', 'D', 'E'], true)],
+    ['A', 'B', 'C', 'D', 'E']
+  );
+  assert.throws(() => sandbox.vNextPortalNormalizeMemberNames_(['A', 'B', 'C', 'D', 'E', 'F'], true), /5名以内/);
+  assert.throws(() => sandbox.vNextPortalNormalizeMemberNames_(['山田 太郎', '山田　太郎'], true), /同じ関与メンバー/);
+  const now = new Date('2026-08-12T00:00:00.000Z');
+  assert.equal(sandbox.vNextPortalNormalizeCreationFiscalYear_(2026, now), 2026);
+  assert.equal(sandbox.vNextPortalNormalizeCreationFiscalYear_(2036, now), 2036);
+  assert.throws(() => sandbox.vNextPortalNormalizeCreationFiscalYear_(2037, now), /一覧から/);
+  assert.throws(() => sandbox.vNextPortalNormalizeCreationFiscalYear_(2025, now), /一覧から/);
+}
+
+function testCatalogCacheAndStrictSelection() {
+  cacheValues.clear();
+  const originalRead = sandbox.vNextPortalReadTable_;
+  let reads = 0;
+  sandbox.vNextPortalReadTable_ = () => {
+    reads++;
+    return [
+      { catalog_key: 'ZAC-2', client_name: 'ベータ製薬', is_active: false, catalog_version: 'CAT-1', synced_at: '2026-08-12T00:00:00.000Z' },
+      { catalog_key: 'ZAC-1', client_name: 'アルファ製薬', is_active: true, catalog_version: 'CAT-1', synced_at: '2026-08-12T00:00:00.000Z' }
+    ];
+  };
+  try {
+    const first = sandbox.vNextPortalReadClientCatalog_({}, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(first.clients)), [{ key: 'ZAC-1', name: 'アルファ製薬' }]);
+    assert.equal(reads, 1);
+    sandbox.vNextPortalReadClientCatalog_({}, true);
+    assert.equal(reads, 1, 'second model load should hit the document cache');
+    sandbox.vNextPortalReadClientCatalog_({}, false);
+    assert.equal(reads, 2, 'submit path must bypass the catalog cache');
+
+    const selected = sandbox.vNextPortalResolveCreationInput_(
+      { clientKey: 'ZAC-1', fiscalYear: 2027, relatedMemberNames: ['佐藤 花子'] },
+      {}, 'creator@example.com', false
+    );
+    assert.equal(selected.clientName, 'アルファ製薬');
+    assert.equal(selected.catalogKey, 'ZAC-1');
+    assert.throws(() => sandbox.vNextPortalResolveCreationInput_(
+      { clientKey: 'BROWSER-TAMPER', fiscalYear: 2027, relatedMemberNames: ['佐藤 花子'] },
+      {}, 'creator@example.com', false
+    ), /現在のZAC一覧にありません/);
+  } finally {
+    sandbox.vNextPortalReadTable_ = originalRead;
+    cacheValues.clear();
+  }
 }
 
 function testDuplicateCandidates() {
   const originalDirectory = sandbox.vNextPortalReadDirectory_;
   const originalRequests = sandbox.vNextPortalReadRequestModels_;
   sandbox.vNextPortalReadDirectory_ = () => [{
-    source: 'DIRECTORY', directoryKey: 'D1', fiscalYear: 2027, clientId: 'C-001',
+    source: 'DIRECTORY', directoryKey: 'D1', fiscalYear: 2027, clientId: 'ZAC-C-001',
     clientName: '株式会社テスト製薬', state: 'INPUT_OPEN', requestId: 'REQ-D1',
     url: 'https://docs.google.com/spreadsheets/d/12345678901234567890/edit', updatedAt: '2026-08-10T00:00:00Z'
-  }, {
-    source: 'DIRECTORY', directoryKey: 'D2', fiscalYear: 2027, clientId: '',
-    clientName: 'テスト製薬 東日本', state: 'DRAFT_READY', requestId: '', url: '', updatedAt: '2026-08-09T00:00:00Z'
   }];
   sandbox.vNextPortalReadRequestModels_ = () => [{
-    source: 'REQUEST', requestId: 'REQ-PENDING', fiscalYear: 2027, clientId: '',
-    clientName: '別会社', status: 'PENDING', statusLabel: '受付済み', url: '', updatedAt: '2026-08-11T00:00:00Z'
-  }, {
-    source: 'REQUEST', requestId: 'REQ-FAILED', fiscalYear: 2027, clientId: '',
-    clientName: '株式会社テスト製薬', status: 'FAILED', statusLabel: '作成できませんでした', url: '', updatedAt: '2026-08-11T00:00:00Z'
+    source: 'REQUEST', requestId: 'REQ-FAILED', fiscalYear: 2027, clientId: 'ZAC-C-001',
+    clientName: '株式会社テスト製薬', status: 'FAILED', statusLabel: '作成できませんでした', url: ''
   }];
   try {
     const exact = sandbox.vNextPortalBuildDuplicateCheck_({}, {
-      fiscalYear: 2027, clientId: 'c001', clientName: 'テスト製薬株式会社',
-      forecastOwnerEmail: 'owner@example.com', relatedMemberEmails: []
+      fiscalYear: 2027, catalogKey: 'ZAC-C-001', clientName: 'テスト製薬株式会社',
+      requestedBy: 'creator@example.com', relatedMemberNames: ['山田 太郎']
     });
     assert.equal(exact.hasExact, true);
     assert.equal(exact.candidates[0].reason, 'クライアントIDが一致');
-    assert.equal(exact.candidates.some((item) => item.requestId === 'REQ-FAILED'), false, 'failed requests must not block retry');
-    const pending = sandbox.vNextPortalBuildDuplicateCheck_({}, {
-      fiscalYear: 2027, clientId: '', clientName: '別会社',
-      forecastOwnerEmail: 'owner@example.com', relatedMemberEmails: []
-    });
-    assert.equal(pending.hasExact, true, 'pending local requests must prevent a concurrent duplicate');
-    assert.match(pending.hash, /^[a-f0-9]{64}$/);
+    assert.equal(exact.candidates.some(item => item.requestId === 'REQ-FAILED'), false);
+    assert.match(exact.hash, /^[a-f0-9]{64}$/);
   } finally {
     sandbox.vNextPortalReadDirectory_ = originalDirectory;
     sandbox.vNextPortalReadRequestModels_ = originalRequests;
@@ -110,60 +170,126 @@ function testDuplicateCandidates() {
 
 function testAppendRequestContract() {
   const originals = {
-    ensure: sandbox.vNextPortalEnsureStructure_, duplicate: sandbox.vNextPortalBuildDuplicateCheck_,
+    resolve: sandbox.vNextPortalResolveCreationInput_, duplicate: sandbox.vNextPortalBuildDuplicateCheck_,
     lock: sandbox.vNextPortalWithDocumentLock_, append: sandbox.vNextPortalAppendRow_
   };
   let appended = null;
-  sandbox.vNextPortalEnsureStructure_ = () => ({});
+  sandbox.vNextPortalResolveCreationInput_ = () => ({
+    catalogKey: 'ZAC-C-001', clientName: '新規クライアント', fiscalYear: 2027,
+    relatedMemberNames: ['山田 太郎'], requestedBy: 'creator@example.com'
+  });
   sandbox.vNextPortalBuildDuplicateCheck_ = () => ({ hash: 'a'.repeat(64), hasExact: false, hasSimilar: false, candidates: [] });
-  sandbox.vNextPortalWithDocumentLock_ = (operation) => operation();
+  sandbox.vNextPortalWithDocumentLock_ = operation => operation();
   sandbox.vNextPortalAppendRow_ = (spreadsheet, name, headers, record) => { appended = { name, headers, record }; };
   try {
     const result = sandbox.vNextPortalSubmitCreationRequest({
-      clientId: '', clientName: '新規クライアント', confirmSimilarDuplicates: false,
-      duplicateCheckHash: 'a'.repeat(64), fiscalYear: 2027,
-      forecastOwnerEmail: 'owner@example.com', relatedMembersText: 'member@example.com'
+      clientKey: 'ZAC-C-001', confirmSimilarDuplicates: false, duplicateCheckHash: 'a'.repeat(64),
+      fiscalYear: 2027, relatedMemberNames: ['山田 太郎', '', '', '', '']
     });
     assert.equal(result.status, 'PENDING');
     assert.equal(appended.name, 'VN_PORTAL_REQUEST');
     assert.equal(appended.record.event_type, 'REQUESTED');
+    assert.equal(appended.record.catalog_key, 'ZAC-C-001');
+    assert.equal(appended.record.forecast_owner_email, 'creator@example.com');
+    assert.equal(appended.record.related_member_emails_json, '[]');
+    assert.equal(appended.record.related_member_names_json, '["山田 太郎"]');
     assert.equal(appended.record.request_hash, sandbox.vNextPortalSha256Hex_(appended.record.request_json));
     const payload = JSON.parse(appended.record.request_json);
     assert.deepEqual(Object.keys(payload).sort(), [...sandbox.VNEXT_PORTAL.PAYLOAD_KEYS].sort());
-    assert.equal(payload.requestType, 'CREATE_CLIENT_FY_BOOK');
     assert.equal(payload.requestedBy, 'creator@example.com');
+    assert.equal(Object.hasOwn(payload, 'forecastOwnerEmail'), false);
   } finally {
-    sandbox.vNextPortalEnsureStructure_ = originals.ensure;
+    sandbox.vNextPortalResolveCreationInput_ = originals.resolve;
     sandbox.vNextPortalBuildDuplicateCheck_ = originals.duplicate;
     sandbox.vNextPortalWithDocumentLock_ = originals.lock;
     sandbox.vNextPortalAppendRow_ = originals.append;
   }
 }
 
+function testRequestRowProjection() {
+  const payload = v2Payload();
+  const current = {
+    fiscal_year: 2027, client_id: 'ZAC-C-001', client_name: 'テスト株式会社',
+    forecast_owner_email: 'creator@example.com', related_member_emails_json: '[]',
+    requested_at: payload.requestedAt, requested_by: payload.requestedBy,
+    catalog_key: 'ZAC-C-001', related_member_names_json: '["山田 太郎"]'
+  };
+  assert.equal(sandbox.vNextPortalAssertRequestRowProjection_(current, payload), true);
+  assert.throws(() => sandbox.vNextPortalAssertRequestRowProjection_(
+    { ...current, client_name: '改ざん値' }, payload
+  ), /projection mismatch/);
+  assert.throws(() => sandbox.vNextPortalAssertRequestRowProjection_(
+    { ...current, related_member_names_json: '["X"]' }, payload
+  ), /projection mismatch/);
+
+  const legacy = legacyPayload();
+  const legacyRow = {
+    fiscal_year: 2027, client_id: 'CLIENT-1', client_name: 'テスト株式会社',
+    forecast_owner_email: 'owner@example.com', related_member_emails_json: '["member@example.com"]',
+    requested_at: legacy.requestedAt, requested_by: legacy.requestedBy,
+    catalog_key: '', related_member_names_json: ''
+  };
+  assert.equal(sandbox.vNextPortalAssertRequestRowProjection_(legacyRow, legacy), true);
+}
+
 function testStatusEventValidation() {
   const hash = 'b'.repeat(64);
   const base = {
     request_id: 'PORTAL-REQ-12345678-test', request_hash: hash,
-    event_type: 'CREATION_STARTED', status: 'CREATING', request_json: '', related_book_url: ''
+    event_type: 'CREATION_STARTED', status: 'CREATING', request_json: '', related_book_url: '',
+    fiscal_year: 2027, client_id: 'ZAC-C-001', client_name: 'テスト株式会社',
+    forecast_owner_email: 'creator@example.com', related_member_emails_json: '[]',
+    requested_at: '2026-08-12T00:00:00.000Z', requested_by: 'creator@example.com',
+    catalog_key: 'ZAC-C-001', related_member_names_json: '["山田 太郎"]'
   };
-  assert.equal(sandbox.vNextPortalIsValidStatusEvent_(base, base.request_id, hash), true);
-  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, status: 'COMPLETED' }, base.request_id, hash), false);
-  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, request_hash: 'c'.repeat(64) }, base.request_id, hash), false);
-  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, request_json: '{}' }, base.request_id, hash), false);
-  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({
-    ...base, event_type: 'COMPLETED', status: 'COMPLETED',
-    related_book_url: 'https://example.com/not-a-sheet'
-  }, base.request_id, hash), false);
+  const payload = v2Payload();
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_(base, base.request_id, hash, payload), true);
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, status: 'COMPLETED' }, base.request_id, hash, payload), false);
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, request_hash: 'c'.repeat(64) }, base.request_id, hash, payload), false);
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, request_json: '{}' }, base.request_id, hash, payload), false);
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, catalog_key: 'TAMPERED' }, base.request_id, hash, payload), false);
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_({ ...base, related_member_names_json: '["X"]' }, base.request_id, hash, payload), false);
+
+  const legacy = legacyPayload();
+  const legacyStatus = {
+    ...base, client_id: 'CLIENT-1', forecast_owner_email: 'owner@example.com',
+    related_member_emails_json: '["member@example.com"]', catalog_key: '', related_member_names_json: ''
+  };
+  assert.equal(sandbox.vNextPortalIsValidStatusEvent_(legacyStatus, legacyStatus.request_id, hash, legacy), true);
+}
+
+function testCreateModel() {
+  const originalCatalog = sandbox.vNextPortalReadClientCatalog_;
+  sandbox.vNextPortalReadClientCatalog_ = () => ({
+    version: 'CAT-1', syncedAt: '2026-08-12T00:00:00.000Z', clients: [{ key: 'ZAC-1', name: 'テスト' }]
+  });
+  try {
+    const model = sandbox.vNextPortalGetCreateModel();
+    assert.equal(model.fiscalYears.length, 11);
+    assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
+    assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
+    assert.equal(model.requesterEmail, 'creator@example.com');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.1.0');
+  } finally {
+    sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
+  }
 }
 
 async function testStaticUxContracts() {
+  const core = await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8');
   const ux = await readFile(path.join(sourceDir, 'Portal_UX.js'), 'utf8');
   const html = await readFile(path.join(sourceDir, 'Portal_CreateSidebar.html'), 'utf8');
   assert.match(ux, /function onOpen\(event\)/);
   assert.match(ux, /addItem\('ホームに戻る'/);
-  assert.match(ux, /addItem\('新しい年度計画を作る'/);
-  assert.match(ux, /addItem\('使い方・困ったとき'/);
-  assert.match(ux, /vNextPortalEnsureFiscalYearSheet_/);
+  const onOpenBody = ux.slice(ux.indexOf('function vNextPortalOnOpen_'), ux.indexOf('function vNextPortalGoHome'));
+  assert.doesNotMatch(onOpenBody, /vNextPortalRefreshViews_/);
+  const openSidebarBody = ux.slice(ux.indexOf('function vNextPortalOpenCreateSidebar'), ux.indexOf('function vNextPortalOpenHelp'));
+  assert.doesNotMatch(openSidebarBody, /vNextPortalEnsureStructure_/);
+  assert.doesNotMatch(core, /getEffectiveUser/);
+  assert.match(html, /id="clientKey"/);
+  assert.doesNotMatch(html, /id="clientName"|id="clientId"|id="forecastOwnerEmail"/);
+  assert.equal((html.match(/id="memberName[1-5]"/g) || []).length, 5);
+  assert.match(html, /関与メンバー/);
   assert.match(html, /重複候補を確認/);
-  assert.match(html, /このクライアントの作成を依頼/);
+  assert.match(core, /CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG'/);
 }

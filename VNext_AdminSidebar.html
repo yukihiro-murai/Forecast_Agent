@@ -118,6 +118,15 @@
         <label>会社ドメイン（空欄は管理者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
         <label>ポータル名（任意）<input id="portalTitle" placeholder="年度計画ポータル"></label>
         <button class="good" onclick="provisionSharedPortal()">社員ポータルを準備する</button>
+        <div id="portalRuntimeStatus" class="status">Portal runtimeを確認中…</div>
+        <div id="clientCatalogStatus" class="status">ZACクライアント候補を確認中…</div>
+        <button id="refreshClientCatalogButton" class="secondary" onclick="refreshClientCatalog()">ZACクライアント候補を今すぐ更新</button>
+        <details>
+          <summary>既存ポータルを最新版へ更新する</summary>
+          <p class="muted">受付履歴とClient一覧は残したまま、検証済みruntimeとクライアント選択候補を更新します。</p>
+          <label>更新理由（必須）<input id="portalRuntimeReason" placeholder="入力項目の簡略化・不具合修正など"></label>
+          <button id="updatePortalRuntimeButton" class="warn" onclick="updatePortalRuntime()">既存ポータルを最新版へ更新</button>
+        </details>
         <details>
           <summary>初回Pilotを一括準備する</summary>
           <p class="muted">現在の予測Engine・parameterを変更せず、新しいClient runtime用のTemplate／Model版を発行してから社員ポータルを準備します。1回に1段階だけ進むため、「完了」と表示されるまで同じボタンを繰り返してください。</p>
@@ -319,6 +328,17 @@
             ? `中央更新経路：有効\n現在SHA-256：${model.adminRuntimeSha256 || '未記録'}`
             : '中央更新経路が未登録です。clean bootstrapで生成したHubを使用してください。';
           $('updateAdminRuntimeButton').classList.toggle('hidden', !model.adminRuntimeUpdatable);
+          $('portalRuntimeStatus').textContent = model.portalRuntimeUpdatable
+            ? `現在：${model.portalRuntimeVersion || '未記録'}\nSHA-256：${model.portalRuntimeSha256 || '未記録'}`
+            : '社員ポータルはまだ準備されていません。';
+          $('clientCatalogStatus').textContent =
+            `選択可能：${model.clientCatalogActiveCount || 0}社\n` +
+            `候補版：${model.clientCatalogVersion || '未取得'}\n` +
+            `最終更新：${model.clientCatalogRefreshedAt || '未取得'}` +
+            (model.clientCatalogStale ? '\n更新が必要です。' : '');
+          $('clientCatalogStatus').classList.toggle('error', !!model.clientCatalogStale);
+          $('updatePortalRuntimeButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
+          $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           renderModelReleases(model);
         }
         showStatus('準備完了');
@@ -494,6 +514,20 @@
         }).withFailureHandler(onFailure).vNextAdminProvisionSharedPortal({
           employeeDomain:value('portalEmployeeDomain'), title:value('portalTitle')
         });
+      }
+      function refreshClientCatalog() {
+        setBusy(true); showStatus('ZACからクライアント候補をまとめて取得し、社員ポータルへ反映しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); load();
+        }).withFailureHandler(onFailure).vNextAdminRefreshZacClientCatalog({force:true});
+      }
+      function updatePortalRuntime() {
+        const reason = value('portalRuntimeReason');
+        if (!reason) { showStatus('社員ポータルの更新理由を入力してください。', true); return; }
+        setBusy(true); showStatus('受付履歴を保ったまま、社員ポータルを検証済み最新版へ更新しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); $('portalRuntimeReason').value = ''; load();
+        }).withFailureHandler(onFailure).vNextAdminUpdateSharedPortalRuntime({reason});
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }

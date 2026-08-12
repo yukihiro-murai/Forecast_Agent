@@ -14,8 +14,6 @@ function vNextPortalOnOpen_() {
       .addItem('新しい年度計画を作る', 'vNextPortalOpenCreateSidebar')
       .addItem('使い方・困ったとき', 'vNextPortalOpenHelp')
       .addToUi();
-    try { vNextPortalRefreshViews_(); }
-    catch (refreshError) { vNextPortalLog_('onOpen refresh skipped', refreshError); }
     return true;
   } catch (error) {
     vNextPortalLog_('vNextPortalOnOpen_ failed', error);
@@ -38,7 +36,6 @@ function vNextPortalGoHome() {
 
 function vNextPortalOpenCreateSidebar() {
   try {
-    vNextPortalEnsureStructure_(SpreadsheetApp.getActiveSpreadsheet());
     var html = HtmlService.createTemplateFromFile('Portal_CreateSidebar').evaluate()
       .setTitle('新しい年度計画を作る')
       .setWidth(430);
@@ -81,6 +78,7 @@ function vNextPortalRefreshViews_(spreadsheet) {
   });
   vNextPortalHideInternalSheet_(ss.getSheetByName(VNEXT_PORTAL.DIRECTORY_SHEET));
   vNextPortalHideInternalSheet_(ss.getSheetByName(VNEXT_PORTAL.REQUEST_SHEET));
+  vNextPortalHideInternalSheet_(ss.getSheetByName(VNEXT_PORTAL.CLIENT_CATALOG_SHEET));
   return { ok: true, years: data.years, requestCount: data.requests.length, directoryCount: data.directory.length };
 }
 
@@ -96,7 +94,7 @@ function vNextPortalRenderHome_(sheet, data) {
     .setNote('既存ブックの重複を防ぐため、作成前に同じ年度の候補を自動確認します。');
 
   sheet.getRange('A10:J10').merge().setValue('作成依頼の状況').setFontWeight('bold').setBackground('#f1f3f4');
-  var headers = ['受付日時', '年度', 'クライアント', '状態', '次の案内', 'Forecast Owner', '依頼者', '更新日時', '受付番号', '開く'];
+  var headers = ['受付日時', '年度', 'クライアント', '状態', '次の案内', '作成担当', '依頼者', '更新日時', '受付番号', '開く'];
   sheet.getRange(11, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#f8f9fa');
   sheet.getRange('D11').setNote('受付済み→内容確認中→ブック作成中→利用できます、の順で進みます。');
   var requests = data.requests.slice().sort(function (a, b) {
@@ -144,7 +142,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
     .setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#188038');
   sheet.getRange('A4:J4').merge().setValue('クライアントを探し、「開く」から専用ブックへ進んでください。見つからない場合は上部メニューから新しく作成できます。')
     .setWrap(true);
-  var headers = ['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', 'Forecast Owner', '関与メンバー', '次の対応', '更新日', '開く'];
+  var headers = ['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '作成担当', '関与メンバー', '次の対応', '更新日', '開く'];
   sheet.getRange(6, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setFontColor('#ffffff').setBackground('#5f6368');
   sheet.getRange('C6').setNote('システムが算出した条件付き予測の中心値です。営業目標ではありません。');
   sheet.getRange('D6').setNote('予測を確認したうえで、計画に採用した金額です。');
@@ -162,7 +160,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
         entry.adoptedForecast,
         entry.finalBudget,
         entry.forecastOwnerEmail,
-        entry.relatedMemberEmails.join('\n'),
+        (entry.relatedMemberNames.length ? entry.relatedMemberNames : entry.relatedMemberEmails).join('\n'),
         entry.nextAction,
         vNextPortalDisplayDate_(entry.updatedAt),
         entry.url ? '開く' : '準備中'
@@ -201,6 +199,7 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
       finalBudget: item.finalBudget,
       forecastOwnerEmail: item.forecastOwnerEmail,
       relatedMemberEmails: item.relatedMemberEmails,
+      relatedMemberNames: item.relatedMemberNames || [],
       nextAction: item.nextAction || '専用ブックで次の対応を確認してください。',
       updatedAt: item.updatedAt,
       url: item.url
@@ -218,6 +217,7 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
       finalBudget: null,
       forecastOwnerEmail: request.forecastOwnerEmail,
       relatedMemberEmails: request.relatedMemberEmails,
+      relatedMemberNames: request.relatedMemberNames || [],
       nextAction: vNextPortalStatusNextAction_(request.status, request.detailMessage, Boolean(request.url)),
       updatedAt: request.updatedAt,
       url: request.url
