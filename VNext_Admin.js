@@ -85,8 +85,10 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.1.0';
-const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze(['vnext-portal-1.0.0']);
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.2.0';
+const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
+  'vnext-portal-1.0.0', 'vnext-portal-1.1.0'
+]);
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-2';
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1 = 'vnext-portal-request-1';
 const VN_ADMIN_ZAC_CLIENT_CODE_COLUMN = 40; // AN
@@ -1355,7 +1357,11 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       const clientName = vNextAdminRequiredText_(req.clientName, 'clientName');
       const clientId = vNextAdminText_(req.clientId) || vNextAdminDeriveClientId_(clientName);
       const fiscalYear = vNextAdminNormalizeFiscalYear_(req.fiscalYear);
-      const release = vNextAdminResolveRelease_(hub, req.releaseId || runtime.VNEXT_ACTIVE_RELEASE_ID);
+      // ACTIVE_RELEASE_PAIR_JSON is the canonical deployment pointer. Script
+      // Properties are only runtime caches and may lag after a pair activation,
+      // especially in time-trigger executions where the Hub is not the active
+      // container. An explicit caller pin is still honored and validated.
+      const release = vNextAdminResolveRelease_(hub, req.releaseId);
       const modelRelease = vNextAdminResolveActiveModelRelease_(hub, req.modelReleaseId);
       vNextAdminAssertModelTemplateCompatibility_(hub, modelRelease, release);
       const templateId = vNextAdminText_(req.templateSpreadsheetId) || release.template_spreadsheet_id || runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID;
@@ -3161,6 +3167,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       });
       const requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
       const directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
+      const needsV2HeaderExpansion = !vNextAdminPortalUsesV2Tables_(portal.runtimeVersion);
       let contentUpdateAttempted = false;
       let tablesExpanded = false;
       let pinsUpdated = false;
@@ -3183,8 +3190,10 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         // Mark the migration attempt before the first header write. The helper
         // performs several Sheets calls; any mid-call failure must still enter
         // the v1 header rollback path.
-        tablesExpanded = true;
-        vNextAdminExpandPortalTableHeadersForV2_(portal.spreadsheet);
+        if (needsV2HeaderExpansion) {
+          tablesExpanded = true;
+          vNextAdminExpandPortalTableHeadersForV2_(portal.spreadsheet);
+        }
         vNextAdminWritePortalConfigValues_(portal.spreadsheet, {
           schema_version: VN_ADMIN_PORTAL_REQUEST_SCHEMA,
           runtime_version: VN_ADMIN_PORTAL_RUNTIME_VERSION,
@@ -3825,7 +3834,12 @@ function vNextAdminMenuRunHealthScan() {
 }
 
 function vNextAdminMenuProcessJobs() {
-  const out = vNextAdminProcessJobQueue(5);
+  const hub = vNextAdminRequireHub_();
+  const retries = vNextAdminWithScriptLock_('manual-known-pilot-retries', function () {
+    return vNextAdminRequeueKnownPilotFailures_(hub);
+  });
+  const out = vNextAdminProcessJobsForHub_(hub, 5);
+  out.retries = retries;
   SpreadsheetApp.getActiveSpreadsheet().toast('待機中の処理を実行しました。', VN_ADMIN_MENU_NAME, 5);
   return out;
 }
@@ -4703,7 +4717,19 @@ function vNextAdminRecoverStaleLeases_(hub, staleMinutes) {
  */
 function vNextAdminRequeueKnownPilotFailures_(hub) {
   let requeued = 0;
+  let portalRequeued = 0;
   vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.forEach(function (job) {
+    try {
+      if (vNextAdminRequeueKnownPortalReleaseFailure_(hub, job)) {
+        requeued++;
+        portalRequeued++;
+        return;
+      }
+    } catch (portalRetryError) {
+      Logger.log('Known Portal release retry skipped job=%s error=%s', String(job.job_id || ''),
+        String(portalRetryError && portalRetryError.stack || portalRetryError));
+      return;
+    }
     if (String(job.job_type || '') !== 'FORECAST_REQUEST' ||
         String(job.status || '').toUpperCase() !== 'FAILED' ||
         Number(job.attempts || 0) >= 3 ||
@@ -4743,7 +4769,86 @@ function vNextAdminRequeueKnownPilotFailures_(hub) {
     });
     requeued++;
   });
-  return { requeuedJobs: requeued };
+  return { requeuedJobs: requeued, portalRequeuedJobs: portalRequeued };
+}
+
+/**
+ * Recover only the pre-side-effect Portal failure caused by a stale cached
+ * Template release. The original request, job ID and idempotency key remain
+ * unchanged; every authoritative identity is revalidated before requeue.
+ */
+function vNextAdminRequeueKnownPortalReleaseFailure_(hub, job) {
+  if (String(job.job_type || '') !== 'PORTAL_PROVISION_CLIENT' ||
+      String(job.status || '').toUpperCase() !== 'FAILED' ||
+      Number(job.attempts || 0) >= 3) return false;
+  const staleMatch = /^Requested release is not ACTIVE: ([-A-Za-z0-9._]+)$/.exec(String(job.error || ''));
+  if (!staleMatch) return false;
+  const staleReleaseId = staleMatch[1];
+  const payload = vNextAdminParseJson_(job.request_json, {});
+  if (!payload || payload.releaseId || payload.modelReleaseId ||
+      String(job.target_book_id || '') !== String(payload.requestId || '')) return false;
+
+  const portal = vNextAdminResolvePortal_(hub);
+  if (String(job.target_spreadsheet_id || '') !== portal.spreadsheetId ||
+      String(payload.portalSpreadsheetId || '') !== portal.spreadsheetId ||
+      String(payload.portalId || '') !== portal.portalId) return false;
+  const events = vNextAdminReadTable_(portal.spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.filter(function (row) {
+    return String(row.request_id || '') === String(payload.requestId || '');
+  });
+  const requested = events.find(function (row) {
+    return String(row.event_type || '').toUpperCase() === 'REQUESTED' &&
+      String(row.status || '').toUpperCase() === 'PENDING';
+  });
+  const latest = events.length ? events[events.length - 1] : null;
+  if (!requested || String(latest && latest.event_type || '').toUpperCase() !== 'FAILED' ||
+      String(latest && latest.status || '').toUpperCase() !== 'FAILED') return false;
+
+  const validated = vNextAdminValidatePortalRequest_(hub, portal, requested);
+  if (validated.requestHash !== String(payload.requestHash || '') ||
+      validated.payload.requestedBy !== String(payload.requestedBy || '') ||
+      validated.schemaVersion !== String(payload.schemaVersion || VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1) ||
+      validated.clientId !== String(payload.clientId || '') ||
+      validated.forecastOwnerEmail !== String(payload.forecastOwnerEmail || '') ||
+      vNextAdminCanonicalJson_(validated.relatedMemberEmails) !==
+        vNextAdminCanonicalJson_(payload.relatedMemberEmails || []) ||
+      vNextAdminCanonicalJson_(validated.relatedMemberNames) !==
+        vNextAdminCanonicalJson_(payload.relatedMemberNames || [])) return false;
+
+  const expectedIdempotency = 'PORTAL_PROVISION|' + vNextAdminPortalCanonicalClientKey_({
+    clientId: validated.clientId, clientName: validated.payload.clientName
+  }) + '|' + validated.payload.fiscalYear;
+  if (String(job.idempotency_key || '') !== expectedIdempotency) return false;
+  const staleRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+    return String(row.release_id || '') === staleReleaseId;
+  });
+  if (!staleRelease || String(staleRelease.status || '').toUpperCase() === 'ACTIVE') return false;
+  const activeRelease = vNextAdminResolveRelease_(hub, '');
+  const activeModel = vNextAdminResolveActiveModelRelease_(hub, '');
+  if (String(activeRelease.release_id || '') === staleReleaseId) return false;
+  vNextAdminAssertModelTemplateCompatibility_(hub, activeModel, activeRelease);
+
+  const now = new Date();
+  vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
+    status: 'QUEUED', not_before: '', locked_at: '', locked_by: '', started_at: '', finished_at: '',
+    result_json: '', error: '', updated_at: now
+  });
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.JOB_LOG, {
+    log_id: 'JLOG-' + Utilities.getUuid(), job_id: job.job_id, logged_at: now,
+    status: 'QUEUED', message: 'Portal job requeued after stale Template release cache fix',
+    detail_json: vNextAdminCanonicalJson_({
+      requestId: payload.requestId, staleReleaseId: staleReleaseId,
+      activeReleaseId: activeRelease.release_id, attemptsPreserved: Number(job.attempts || 0)
+    }), actor: vNextAdminActor_()
+  });
+  vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated,
+    'VALIDATION_STARTED', 'VALIDATING', {
+      relatedJobId: job.job_id, detailCode: 'RETRY_QUEUED',
+      detailMessage: '作成処理を安全に再開しました。内容を確認しています。'
+    });
+  vNextAdminWriteAudit_(hub, 'REQUEUE_PORTAL_PROVISION', 'PORTAL_REQUEST', payload.requestId, 'SUCCESS', {
+    jobId: job.job_id, staleReleaseId: staleReleaseId, activeReleaseId: activeRelease.release_id
+  });
+  return true;
 }
 
 function vNextAdminRecoverExhaustedForecastJob_(hub, job) {
@@ -5750,6 +5855,8 @@ function vNextAdminExecuteJob_(hub, job) {
         relatedBookUrl: provisioned.spreadsheetUrl, detailCode: provisioned.reused ? 'EXISTING_BOOK_REUSED' : 'CREATED',
         detailMessage: provisioned.reused ? '既存の年度計画をご利用ください。' : '年度計画を利用できます。'
       });
+      vNextAdminResolveOpenExceptions_(hub, validated.payload.requestId,
+        ['PORTAL_PROVISION_FAILED'], job.job_id);
       vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
       return provisioned;
     }
@@ -8282,6 +8389,11 @@ function vNextAdminRefreshHome_(hub) {
   sheet.setFrozenRows(1);
 }
 
+function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
+  const version = String(runtimeVersion || '');
+  return version === VN_ADMIN_PORTAL_RUNTIME_VERSION || version === 'vnext-portal-1.1.0';
+}
+
 function vNextAdminResolvePortal_(hub) {
   const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   const spreadsheetId = String(config.portal_spreadsheet_id ||
@@ -8308,9 +8420,9 @@ function vNextAdminResolvePortal_(hub) {
     throw new Error('Employee Portal local identity does not match the Hub record.');
   }
   vNextClientRuntimeAssertBoundParent_(scriptId, spreadsheetId);
-  const requestHeaders = runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION
+  const requestHeaders = vNextAdminPortalUsesV2Tables_(runtimeVersion)
     ? VN_ADMIN_PORTAL_REQUEST_HEADERS : VN_ADMIN_PORTAL_REQUEST_HEADERS_V1;
-  const directoryHeaders = runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION
+  const directoryHeaders = vNextAdminPortalUsesV2Tables_(runtimeVersion)
     ? VN_ADMIN_PORTAL_DIRECTORY_HEADERS : VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1;
   vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET, requestHeaders);
   vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, directoryHeaders);
@@ -8358,7 +8470,7 @@ function vNextAdminAppendPortalRequestEvent_(portal, validated, eventType, statu
       ? '' : vNextAdminCanonicalJson_(relatedMemberNames)
   };
   const config = vNextAdminReadKeyValueSheet_(portal, VN_ADMIN_PORTAL_CONFIG_SHEET);
-  const headers = String(config.runtime_version || '') === VN_ADMIN_PORTAL_RUNTIME_VERSION
+  const headers = vNextAdminPortalUsesV2Tables_(config.runtime_version)
     ? VN_ADMIN_PORTAL_REQUEST_HEADERS : VN_ADMIN_PORTAL_REQUEST_HEADERS_V1;
   vNextAdminAppendObject_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET, record, headers);
   return record;
@@ -8429,7 +8541,7 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     };
   });
   const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
-  const directoryHeaders = String(portalConfig.runtime_version || '') === VN_ADMIN_PORTAL_RUNTIME_VERSION
+  const directoryHeaders = vNextAdminPortalUsesV2Tables_(portalConfig.runtime_version)
     ? VN_ADMIN_PORTAL_DIRECTORY_HEADERS : VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1;
   const sheet = vNextAdminEnsureExactTableHeaders_(spreadsheet,
     VN_ADMIN_PORTAL_DIRECTORY_SHEET, directoryHeaders);
@@ -9645,6 +9757,12 @@ function vNextAdminHydrateHubRuntime_(hub) {
   }
   if (routing.active_model_release_id) {
     script.setProperty('VNEXT_ACTIVE_MODEL_RELEASE_ID', String(routing.active_model_release_id));
+  }
+  if (routing.active_release_id) {
+    script.setProperty('VNEXT_ACTIVE_RELEASE_ID', String(routing.active_release_id));
+  }
+  if (routing.template_spreadsheet_id) {
+    script.setProperty('VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID', String(routing.template_spreadsheet_id));
   }
   [
     'VERTEX_PROJECT_ID', 'VERTEX_LOCATION', 'VERTEX_GEMINI_MODEL',

@@ -269,7 +269,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.1.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.2.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -292,4 +292,15 @@ async function testStaticUxContracts() {
   assert.match(html, /関与メンバー/);
   assert.match(html, /重複候補を確認/);
   assert.match(core, /CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG'/);
+  assert.doesNotMatch(ux, /\.merge\(/,
+    'Portal view rendering must not create merged cells');
+  assert.match(ux, /var headers = \['状態', 'クライアント', '年度', '次の案内', '更新', '開く'\]/,
+    'Home must expose the compact six-column employee view');
+  assert.match(ux, /var headers = \['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'\]/,
+    'FY tabs must expose the compact nine-column planning view');
+  assert.match(ux, /dataRange\.getMergedRanges\(\)/);
+  assert.doesNotMatch(ux, /sheet\.clear\(\)/,
+    'View refresh must clear only the authored range, not the entire sheet');
+  assert.match(html, /vNextPortalGoHome\(\)/,
+    'A successful request must refresh Home without asking for another button click');
 }

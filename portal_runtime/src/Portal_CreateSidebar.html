@@ -147,7 +147,6 @@
       payload.duplicateCheckHash = latestPreview.duplicateCheckHash;
       payload.confirmSimilarDuplicates = Boolean(elements.confirmSimilarDuplicates.checked);
       google.script.run.withSuccessHandler(function(result) {
-        setBusy(false);
         elements.form.classList.add('hidden');
         clearResult('good');
         appendText(elements.result, result.message);
@@ -155,17 +154,15 @@
         id.className = 'candidate';
         id.textContent = '受付番号：' + result.requestId;
         elements.result.appendChild(id);
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'primary';
-        button.style.marginTop = '14px';
-        button.textContent = 'ホームを更新して閉じる';
-        button.addEventListener('click', function() {
-          button.disabled = true;
-          google.script.run.withSuccessHandler(function() { google.script.host.close(); })
-            .withFailureHandler(showFailure).vNextPortalGoHome();
-        });
-        elements.result.appendChild(button);
+        appendText(elements.result, 'ホームへ戻り、受付状況を表示します…');
+        google.script.run.withSuccessHandler(function() {
+          google.script.host.close();
+        }).withFailureHandler(function(error) {
+          clearResult('warn');
+          appendText(elements.result, '作成依頼は受付済みです。ホームの自動更新だけを完了できませんでした。');
+          appendText(elements.result, '受付番号：' + result.requestId);
+          appendText(elements.result, error && error.message ? error.message : String(error || 'ホーム更新に失敗しました。'));
+        }).vNextPortalGoHome();
       }).withFailureHandler(showFailure).vNextPortalSubmitCreationRequest(payload);
     }
 

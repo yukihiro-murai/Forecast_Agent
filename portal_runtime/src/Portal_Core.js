@@ -4,7 +4,7 @@
  */
 
 var VNEXT_PORTAL = Object.freeze({
-  RUNTIME_VERSION: 'vnext-portal-1.1.0',
+  RUNTIME_VERSION: 'vnext-portal-1.2.0',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -258,7 +258,7 @@ function vNextPortalEnsureFiscalYearSheet_(spreadsheet, fiscalYear) {
   var name = 'FY' + Number(fiscalYear);
   var sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
   sheet.showSheet();
-  sheet.setTabColor('#34a853');
+  sheet.setTabColor(null);
   return sheet;
 }
 

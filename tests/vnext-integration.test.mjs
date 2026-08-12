@@ -159,7 +159,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.1.0');
+  assert.equal(bundle.version, 'vnext-portal-1.2.0');
   assert.equal(bundle.files.length, 4);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -634,6 +634,9 @@ async function checkAdminCoverageContracts() {
   'Portal migration must arm runtime rollback before the remote content PUT can partially succeed');
   assert.ok(portalMigration.includes('if (contentUpdateAttempted) {'),
     'Portal migration catch path must restore the previous runtime after every attempted PUT');
+  assert.ok(portalMigration.includes('const needsV2HeaderExpansion = !vNextAdminPortalUsesV2Tables_') &&
+    portalMigration.includes('if (needsV2HeaderExpansion) {'),
+  'Portal v1.1 to v1.2 must preserve the already-expanded v2 table headers');
 
   const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
   const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;
@@ -717,6 +720,9 @@ async function checkAdminCoverageContracts() {
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
   const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
   const provision = source.slice(provisionStart, provisionEnd);
+  assert.ok(provision.includes('vNextAdminResolveRelease_(hub, req.releaseId)') &&
+    !provision.includes('req.releaseId || runtime.VNEXT_ACTIVE_RELEASE_ID'),
+    'Unpinned Portal provisioning must resolve the canonical active pair instead of a stale Script Property cache');
   const duplicateStart = provision.indexOf('const existing = vNextAdminFindRegistryRow_');
   const duplicateEnd = provision.indexOf('if (existing)', duplicateStart);
   assert.equal(provision.slice(duplicateStart, duplicateEnd).includes('template_release_id'), false,
@@ -851,8 +857,13 @@ async function checkAdminCoverageContracts() {
     source.includes('vNextAdminProcessJobsForHub_(hub, 4'),
     'Scheduled sweep pilot batches must scan 10 books and process 4 jobs');
   assert.ok(source.includes('pilotRetries: vNextAdminRequeueKnownPilotFailures_(hub)') &&
-    source.includes("String(job.error || '') !== 'A matching valid pending forecast request was not found.'"),
-    'The scheduler must narrowly recover only the known pre-fix Pilot request-validation failure');
+    source.includes("String(job.error || '') !== 'A matching valid pending forecast request was not found.'") &&
+    source.includes('function vNextAdminRequeueKnownPortalReleaseFailure_(') &&
+    source.includes('Portal job requeued after stale Template release cache fix'),
+    'The scheduler must narrowly recover both known pre-fix Pilot failures without generic retries');
+  assert.ok(source.includes("script.setProperty('VNEXT_ACTIVE_RELEASE_ID'") &&
+    source.includes("script.setProperty('VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID'"),
+    'Time-trigger Hub hydration must refresh both active Template caches');
   assert.ok(worker.includes("actorRole: 'ADMIN', hub: hub"),
     'Central-source forecast recovery must use the explicit Hub instead of UI focus');
 }
