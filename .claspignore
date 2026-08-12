@@ -5,3 +5,4 @@
 !**/*.html
 !appsscript.json
 client_runtime/**
+portal_runtime/**

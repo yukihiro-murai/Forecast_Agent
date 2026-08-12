@@ -33,13 +33,14 @@ for (const name of ['Client_Core.js', 'Client_Bridge.js']) {
 
 testCanonicalJson();
 testStateEventAuthoritative();
+testInternalOpenContributor();
 testInputRoundBoundary();
 testCommitmentEvidence();
 testClientQueue();
 testPlanSubmission();
 await testStableViewSheetHandles();
 await testBlankIdentityStillGetsMenu();
-process.stdout.write('PASS client runtime behavior tests (11)\n');
+process.stdout.write('PASS client runtime behavior tests (12)\n');
 
 function testCanonicalJson() {
   assert.equal(sandbox.vNextCanonicalJson_({ b: 2, a: 1 }), '{"a":1,"b":2}');
@@ -69,6 +70,63 @@ function testStateEventAuthoritative() {
     const viewer = sandbox.vNextGetBookContext_({ spreadsheet: { getId: () => 'SHEET-1' } });
     assert.equal(viewer.role, 'VIEWER');
     assert.equal(viewer.isTeamMember, false);
+    assert.equal(viewer.isInternalUser, false);
+    assert.equal(viewer.canContribute, false);
+  } finally {
+    sandbox.vNextClientReadConfig_ = originalReadConfig;
+    sandbox.vNextReadRecords_ = originalReadRecords;
+    sandbox.vNextActiveUserEmail_ = originalActiveUser;
+  }
+}
+
+function testInternalOpenContributor() {
+  const originalReadConfig = sandbox.vNextClientReadConfig_;
+  const originalReadRecords = sandbox.vNextReadRecords_;
+  const originalActiveUser = sandbox.vNextActiveUserEmail_;
+  sandbox.vNextClientReadConfig_ = () => ({
+    mode: 'CLIENT', book_id: 'BOOK-1', state: 'INPUT_OPEN',
+    access_policy: 'INTERNAL_OPEN', internal_domain: '@example.com'
+  });
+  sandbox.vNextActiveUserEmail_ = () => 'contributor@example.com';
+  sandbox.vNextReadRecords_ = (sheetName) => {
+    if (sheetName === 'BOOK_META') return [{
+      book_id: 'BOOK-1', client_id: 'CLIENT-1', client_name: 'テスト', fiscal_year: 2027,
+      forecast_owner_email: 'owner@example.com',
+      team_member_emails_json: '["owner@example.com","member@example.com"]',
+      state: 'INPUT_OPEN', as_of: '2026-08-09', cutoff: '2026-07-31', schema_version: 'vnext-schema-2'
+    }];
+    if (sheetName === 'STATE_EVENT') return [];
+    if (sheetName === 'EVIDENCE_EVENT') return [
+      {
+        book_id: 'BOOK-1', actor_email: 'owner@example.com', evidence_type: 'CHECK_IN',
+        response_type: 'NO_CHANGE', status: 'SUBMITTED', created_at: '2026-08-10T00:00:00Z'
+      },
+      {
+        book_id: 'BOOK-1', actor_email: 'contributor@example.com', evidence_type: 'HUMAN_CHANGE',
+        response_type: 'CHANGE', status: 'SUBMITTED', created_at: '2026-08-10T00:01:00Z'
+      }
+    ];
+    return [];
+  };
+  try {
+    const contributor = sandbox.vNextGetBookContext_({ spreadsheet: { getId: () => 'SHEET-1' } });
+    assert.equal(contributor.role, 'INTERNAL_CONTRIBUTOR');
+    assert.equal(contributor.isForecastOwner, false);
+    assert.equal(contributor.isTeamMember, false, 'open contributors must not become registered team members');
+    assert.equal(contributor.isInternalUser, true);
+    assert.equal(contributor.canContribute, true);
+    assert.equal(contributor.inputStatus.submitted, true);
+    assert.equal(contributor.inputStatus.answeredCount, 1, 'open contributor answers must not advance registered-team readiness');
+    assert.equal(contributor.inputStatus.totalCount, 2);
+    assert.equal(contributor.inputStatus.changeCount, 0, 'open contributor answers must not alter registered-team response counts');
+    assert.equal(contributor.canProceed, false);
+
+    sandbox.vNextActiveUserEmail_ = () => 'external@outside.test';
+    const external = sandbox.vNextGetBookContext_({ spreadsheet: { getId: () => 'SHEET-1' } });
+    assert.equal(external.role, 'VIEWER');
+    assert.equal(external.isTeamMember, false);
+    assert.equal(external.isInternalUser, false);
+    assert.equal(external.canContribute, false);
   } finally {
     sandbox.vNextClientReadConfig_ = originalReadConfig;
     sandbox.vNextReadRecords_ = originalReadRecords;
@@ -127,7 +185,7 @@ function testCommitmentEvidence() {
   let appended = null;
   sandbox.vNextGetBookContext_ = () => ({
     bookId: 'BOOK-1', clientId: 'CLIENT-1', fiscalYear: 2027,
-    userEmail: 'owner@example.com', isTeamMember: true, state: 'INPUT_OPEN'
+    userEmail: 'owner@example.com', isTeamMember: true, canContribute: true, state: 'INPUT_OPEN'
   });
   sandbox.vNextAppendRecord_ = (sheet, record) => { appended = { sheet, record }; };
   const result = sandbox.vNextAppendEvidence_({
@@ -155,6 +213,13 @@ function testCommitmentEvidence() {
     bookId: 'BOOK-1', responseType: 'change', evidenceType: 'AI_RESEARCH',
     target: 'x', direction: 'increase', confidence: 'confirmed', evidence: 'x'
   }, { spreadsheet: {} }), /情報の種類が不正/);
+  sandbox.vNextGetBookContext_ = () => ({
+    bookId: 'BOOK-1', clientId: 'CLIENT-1', fiscalYear: 2027,
+    userEmail: 'external@outside.test', isTeamMember: false, canContribute: false, state: 'INPUT_OPEN'
+  });
+  assert.throws(() => sandbox.vNextAppendEvidence_({
+    bookId: 'BOOK-1', responseType: 'no_change'
+  }, { spreadsheet: {} }), /社内アカウント/);
 }
 
 function testClientQueue() {

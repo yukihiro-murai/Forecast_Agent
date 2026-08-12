@@ -10,12 +10,15 @@ const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
 const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
 const VN_ADMIN_OFFICIAL_COPY_SHEET = 'OFFICIAL_SNAPSHOT';
 const VN_ADMIN_CLIENT_REQUEST_SHEET = 'VN_CLIENT_REQUEST';
+const VN_ADMIN_PORTAL_REQUEST_SHEET = 'VN_PORTAL_REQUEST';
+const VN_ADMIN_PORTAL_DIRECTORY_SHEET = 'PORTAL_DIRECTORY';
+const VN_ADMIN_PORTAL_CONFIG_SHEET = 'VN_PORTAL_CONFIG';
 const VN_ADMIN_SCHEDULED_HANDLER = 'vNextAdminScheduledSweep';
 const VN_ADMIN_PILOT_INITIAL_LIMIT = 3;
 const VN_ADMIN_PILOT_CANARY_LIMIT = 5;
 const VN_ADMIN_STALE_MINUTES = 15;
 const VN_ADMIN_MIGRATION_APPLY_ENABLED = false;
-const VN_ADMIN_MODES = ['LEGACY', 'ADMIN', 'TEMPLATE', 'CLIENT'];
+const VN_ADMIN_MODES = ['LEGACY', 'ADMIN', 'TEMPLATE', 'CLIENT', 'PORTAL'];
 const VN_ADMIN_CLIENT_STATES = [
   'INPUT_OPEN', 'READY_TO_RUN', 'RUNNING', 'DRAFT_READY', 'SUBMITTED',
   'CHANGES_REQUESTED', 'OFFICIAL_LOCKED', 'REVIEW_DUE', 'YEAR_CLOSED'
@@ -36,6 +39,8 @@ const VN_ADMIN_RUNTIME_KEYS = [
   'VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID',
   'VNEXT_DEFAULT_EDITORS',
   'VNEXT_DEFAULT_VIEWERS',
+  'VNEXT_EMPLOYEE_DOMAIN',
+  'VNEXT_PORTAL_SPREADSHEET_ID',
   'VNEXT_ACTIVE_RELEASE_ID',
   'VNEXT_ACTIVE_MODEL_RELEASE_ID'
 ];
@@ -44,6 +49,24 @@ const VN_ADMIN_CLIENT_REQUEST_PAYLOAD_KEYS = Object.freeze([
   'requestId', 'bookId', 'clientId', 'clientName', 'fiscalYear', 'asOf',
   'cutoff', 'bookConfiguredAsOf', 'requestedAt', 'requestedBy'
 ]);
+const VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS = Object.freeze([
+  'clientId', 'clientName', 'fiscalYear', 'forecastOwnerEmail', 'relatedMemberEmails',
+  'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
+]);
+const VN_ADMIN_PORTAL_REQUEST_HEADERS = Object.freeze([
+  'request_event_id', 'request_id', 'event_type', 'status', 'request_hash', 'request_json',
+  'fiscal_year', 'client_id', 'client_name', 'forecast_owner_email',
+  'related_member_emails_json', 'requested_at', 'requested_by', 'related_book_id',
+  'related_book_url', 'detail_code', 'detail_message', 'created_at', 'created_by'
+]);
+const VN_ADMIN_PORTAL_DIRECTORY_HEADERS = Object.freeze([
+  'directory_event_id', 'directory_key', 'fiscal_year', 'client_id', 'client_name',
+  'forecast_owner_email', 'related_member_emails_json', 'state', 'center_forecast',
+  'adopted_forecast', 'final_budget', 'next_action', 'client_book_url', 'request_id',
+  'updated_at', 'updated_by'
+]);
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.0.0';
+const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-1';
 const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA = 'VNEXT_TEMPLATE_UI_V3';
 const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 = 'VNEXT_TEMPLATE_UI_V2';
 const VN_ADMIN_TEMPLATE_FORBIDDEN_FORMULA = /\b(?:IMPORTRANGE|IMPORTDATA|IMPORTHTML|IMPORTXML|GOOGLEFINANCE)\s*\(/i;
@@ -82,6 +105,7 @@ VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.REGISTRY] = [
   'template_release_id', 'schema_version', 'state', 'status', 'health_status', 'health_code',
   'last_health_at', 'last_forecast_at', 'current_official_id', 'forecast_owner_emails',
   'editor_emails', 'viewer_emails', 'created_at', 'created_by', 'updated_at', 'note'
+  , 'access_policy', 'internal_domain'
 ];
 VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.TEAM] = [
   'team_key', 'book_id', 'client_id', 'fiscal_year', 'email', 'role', 'status',
@@ -995,6 +1019,125 @@ function vNextAdminProvisionPilotClientFromSource(request) {
   });
 }
 
+/** Creates or returns the single employee-facing annual planning portal. */
+function vNextAdminProvisionSharedPortal(request) {
+  return vNextAdminGuard_('vNextAdminProvisionSharedPortal', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminProvisionSharedPortalInHub_(hub, request);
+  });
+}
+
+/** Central-source fallback used while a generated Hub is waiting for API execution linkage. */
+function vNextAdminProvisionSharedPortalFromSource(request) {
+  return vNextAdminGuard_('vNextAdminProvisionSharedPortalFromSource', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub) ||
+        String(hubConfig.admin_source_script_id || '') !== String(ScriptApp.getScriptId())) {
+      throw new Error('The supplied Hub is not registered.');
+    }
+    vNextAdminAssertHubAdmin_(hub, false);
+    vNextAdminHydrateHubRuntime_(hub);
+    return vNextAdminProvisionSharedPortalInHub_(hub, req);
+  });
+}
+
+function vNextAdminProvisionSharedPortalInHub_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  return vNextAdminWithScriptLock_('provision-shared-portal', function () {
+    const runtime = vNextGetRuntimeConfig_();
+    const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const existingId = String(hubConfig.portal_spreadsheet_id || runtime.VNEXT_PORTAL_SPREADSHEET_ID || '').trim();
+    if (existingId && vNextAdminSpreadsheetAccessible_(existingId)) {
+      const existingPortal = vNextAdminResolvePortal_(hub);
+      const existingFile = DriveApp.getFileById(existingPortal.spreadsheetId);
+      vNextAdminApplyEmployeeFileSharing_(existingFile, {
+        targetMode: 'PORTAL', accessPolicy: 'INTERNAL_OPEN', internalDomain: existingPortal.employeeDomain
+      });
+      vNextAdminAssertEmployeeFileSharing_(existingFile, {
+        targetMode: 'PORTAL', accessPolicy: 'INTERNAL_OPEN', internalDomain: existingPortal.employeeDomain
+      });
+      vNextAdminRefreshPortalDirectory_(hub, existingPortal.spreadsheet);
+      return {
+        reused: true, portalId: existingPortal.portalId, spreadsheetId: existingPortal.spreadsheetId,
+        spreadsheetUrl: existingPortal.spreadsheet.getUrl(), runtimeVersion: existingPortal.runtimeVersion
+      };
+    }
+    const actor = vNextAdminActor_();
+    const domain = vNextAdminNormalizeDomain_(req.employeeDomain || runtime.VNEXT_EMPLOYEE_DOMAIN || vNextAdminEmailDomain_(actor));
+    if (!domain || vNextAdminEmailDomain_(actor) !== domain) {
+      throw new Error('employeeDomainは管理者のGoogle Workspaceドメインと一致する必要があります。');
+    }
+    if (typeof vNextPortalRuntimeCreateBoundSpreadsheet_ !== 'function') {
+      throw new Error('Portal runtime provisioner is not installed.');
+    }
+    const adminEmails = vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, actor);
+    const folder = vNextAdminPrepareClientDestinationFolder_(hub, req.folderId,
+      'Employee-Portal-' + Utilities.getUuid().slice(0, 8), adminEmails);
+    const created = vNextPortalRuntimeCreateBoundSpreadsheet_({
+      title: vNextAdminText_(req.title) || '年度計画ポータル', folderId: folder.getId()
+    });
+    if (String(created.runtimeVersion || '') !== VN_ADMIN_PORTAL_RUNTIME_VERSION) {
+      throw new Error('Generated Portal runtime version is not supported.');
+    }
+    const portalId = 'PORTAL-' + Utilities.getUuid();
+    const portal = SpreadsheetApp.openById(created.spreadsheetId);
+    const file = DriveApp.getFileById(created.spreadsheetId);
+    try {
+      vNextClientRuntimeAssertBoundParent_(created.scriptId, created.spreadsheetId);
+      vNextAdminInitializePortal_(portal, {
+        portalId: portalId, employeeDomain: domain, runtimeVersion: created.runtimeVersion,
+        runtimeSha256: created.bundleSha256, actor: actor, adminEmails: adminEmails
+      });
+      vNextAdminWriteSystemConfig_(hub, {
+        portal_id: portalId, portal_spreadsheet_id: created.spreadsheetId,
+        portal_script_id: created.scriptId, portal_runtime_version: created.runtimeVersion,
+        portal_runtime_sha256: created.bundleSha256, employee_domain: domain
+      });
+      vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'EMPLOYEE_PORTAL_JSON', {
+        setting_key: 'EMPLOYEE_PORTAL_JSON',
+        setting_value: vNextAdminCanonicalJson_({
+          portalId: portalId, spreadsheetId: created.spreadsheetId, scriptId: created.scriptId,
+          runtimeVersion: created.runtimeVersion, runtimeSha256: created.bundleSha256,
+          employeeDomain: domain, accessPolicy: 'INTERNAL_OPEN'
+        }),
+        value_type: 'JSON', scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
+        updated_by: actor, note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+      });
+      PropertiesService.getScriptProperties().setProperties({
+        VNEXT_PORTAL_SPREADSHEET_ID: created.spreadsheetId,
+        VNEXT_EMPLOYEE_DOMAIN: domain
+      }, false);
+      vNextAdminRefreshPortalDirectory_(hub, portal);
+      vNextAdminApplyEmployeeFileSharing_(file, {
+        targetMode: 'PORTAL', accessPolicy: 'INTERNAL_OPEN', internalDomain: domain
+      });
+      vNextAdminAssertEmployeeFileSharing_(file, {
+        targetMode: 'PORTAL', accessPolicy: 'INTERNAL_OPEN', internalDomain: domain
+      });
+      vNextAdminWriteAudit_(hub, 'PROVISION_EMPLOYEE_PORTAL', 'PORTAL', portalId, 'SUCCESS', {
+        spreadsheetId: created.spreadsheetId, scriptId: created.scriptId,
+        runtimeVersion: created.runtimeVersion, runtimeSha256: created.bundleSha256,
+        employeeDomain: domain, folderId: folder.getId()
+      });
+      SpreadsheetApp.flush();
+      return {
+        reused: false, portalId: portalId, spreadsheetId: created.spreadsheetId,
+        spreadsheetUrl: portal.getUrl(), scriptId: created.scriptId,
+        runtimeVersion: created.runtimeVersion, runtimeSha256: created.bundleSha256
+      };
+    } catch (error) {
+      try { vNextAdminEnforcePrivateFileAcl_(file, adminEmails); }
+      catch (rollbackError) { Logger.log('Portal ACL rollback failed: %s', String(rollbackError)); }
+      try { file.setName('[SETUP FAILED] 年度計画ポータル'); } catch (ignoredRename) {}
+      throw error;
+    }
+  });
+}
+
 function vNextAdminProvisionClientInHub_(hub, request) {
   const req = request && typeof request === 'object' ? request : {};
   return vNextAdminWithScriptLock_('provision-client', function () {
@@ -1021,7 +1164,7 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       // pinned identities are revalidated from Hub-owned metadata.
       const existing = vNextAdminFindRegistryRow_(hub, function (row) {
         return String(row.mode) === 'CLIENT' && String(row.client_id) === clientId &&
-          String(row.fiscal_year) === String(fiscalYear) && String(row.template_release_id) === String(release.release_id) &&
+          String(row.fiscal_year) === String(fiscalYear) &&
           String(row.status) !== 'ARCHIVED';
       });
       if (existing) {
@@ -1058,6 +1201,14 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       if (forecastOwners.length !== 1) throw new Error('Forecast Ownerを1名だけ指定してください。');
       const editors = vNextAdminMergeEmails_(forecastOwners, req.editorEmails, runtime.VNEXT_DEFAULT_EDITORS);
       const viewers = vNextAdminMergeEmails_(req.viewerEmails, runtime.VNEXT_DEFAULT_VIEWERS);
+      const accessPolicy = String(req.accessPolicy || 'PRIVATE').trim().toUpperCase();
+      if (['PRIVATE', 'INTERNAL_OPEN'].indexOf(accessPolicy) < 0) throw new Error('accessPolicy is invalid.');
+      const internalDomain = accessPolicy === 'INTERNAL_OPEN'
+        ? vNextAdminNormalizeDomain_(req.internalDomain || runtime.VNEXT_EMPLOYEE_DOMAIN)
+        : '';
+      if (accessPolicy === 'INTERNAL_OPEN' && !internalDomain) {
+        throw new Error('社内共通アクセスにはinternalDomainが必要です。');
+      }
       const asOf = vNextAdminText_(req.asOf) || Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd');
       // cutoff is an invariant: always the last day of the month before asOf.
       // It cannot be overridden from provisioning or employee UI.
@@ -1097,7 +1248,8 @@ function vNextAdminProvisionClientInHub_(hub, request) {
         forecast_owner_emails: forecastOwners.join(','), editor_emails: editors.join(','), viewer_emails: viewers.join(','),
         created_at: now, created_by: actor, updated_at: now,
         note: 'idempotency=' + idempotencyKey + '; runtime=' + clientRuntimeVersion +
-          '; runtime_sha256=' + clientRuntimeSha256 + '; model_release=' + modelRelease.model_release_id
+          '; runtime_sha256=' + clientRuntimeSha256 + '; model_release=' + modelRelease.model_release_id,
+        access_policy: accessPolicy, internal_domain: internalDomain
       };
       let registryCreated = false;
       let teamCreated = false;
@@ -1113,6 +1265,7 @@ function vNextAdminProvisionClientInHub_(hub, request) {
           forecastOwnerEmails: forecastOwners, editors: editors, viewers: viewers,
           hubSpreadsheetId: hub.getId(), templateSpreadsheetId: templateId,
           releaseId: release.release_id, modelReleaseId: modelRelease.model_release_id,
+          accessPolicy: accessPolicy, internalDomain: internalDomain,
           actor: actor, now: now,
           visibleSheets: req.visibleSheets
         });
@@ -1133,7 +1286,14 @@ function vNextAdminProvisionClientInHub_(hub, request) {
         employeeAclAttempted = true;
         if (folder.getId() !== stagingFolder.getId()) clientFile.moveTo(folder);
         vNextAdminApplyFileAcl_(clientFile, editors, viewers, []);
-        vNextAdminAssertClientFileAcl_(clientFile, editors, viewers);
+        vNextAdminApplyEmployeeFileSharing_(clientFile, {
+          targetMode: 'CLIENT', accessPolicy: accessPolicy, internalDomain: internalDomain,
+          editors: editors, viewers: viewers
+        });
+        vNextAdminAssertEmployeeFileSharing_(clientFile, {
+          targetMode: 'CLIENT', accessPolicy: accessPolicy, internalDomain: internalDomain,
+          editors: editors, viewers: viewers
+        });
         vNextAdminPreparePrivateBootstrapFolder_(folder.getId(), folder.getName(), adminEmails);
         employeeAclGranted = true;
         vNextAdminPatchRegistryByBookId_(hub, bookId, {
@@ -1220,6 +1380,8 @@ function vNextAdminResumeProvisioningClient_(hub, registry, request, release, mo
   const file = DriveApp.getFileById(spreadsheetId);
   const config = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
   const expectedOwners = vNextAdminParseList_(registry.forecast_owner_emails);
+  const accessPolicy = String(registry.access_policy || config.access_policy || 'PRIVATE').toUpperCase();
+  const internalDomain = vNextAdminNormalizeDomain_(registry.internal_domain || config.internal_domain || '');
   const requestedOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
   if (requestedOwners.length && vNextAdminCanonicalJson_(requestedOwners.slice().sort()) !==
       vNextAdminCanonicalJson_(expectedOwners.slice().sort())) {
@@ -1231,6 +1393,8 @@ function vNextAdminResumeProvisioningClient_(hub, registry, request, release, mo
       Number(config.fiscal_year) !== Number(registry.fiscal_year) ||
       String(config.template_release_id || config.version || '') !== String(release.release_id || '') ||
       String(config.model_release_id || '') !== String(modelRelease.model_release_id || '') ||
+      String(config.access_policy || 'PRIVATE').toUpperCase() !== accessPolicy ||
+      vNextAdminNormalizeDomain_(config.internal_domain || '') !== internalDomain ||
       String(config.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
       String(config.client_runtime_bundle_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
     throw new Error('生成途中Clientの固定identityがHub正本と一致しないため再開を停止しました。');
@@ -1252,7 +1416,14 @@ function vNextAdminResumeProvisioningClient_(hub, registry, request, release, mo
   const editors = vNextAdminParseList_(registry.editor_emails);
   const viewers = vNextAdminParseList_(registry.viewer_emails);
   vNextAdminApplyFileAcl_(file, editors, viewers, []);
-  vNextAdminAssertClientFileAcl_(file, editors, viewers);
+  vNextAdminApplyEmployeeFileSharing_(file, {
+    targetMode: 'CLIENT', accessPolicy: accessPolicy, internalDomain: internalDomain,
+    editors: editors, viewers: viewers
+  });
+  vNextAdminAssertEmployeeFileSharing_(file, {
+    targetMode: 'CLIENT', accessPolicy: accessPolicy, internalDomain: internalDomain,
+    editors: editors, viewers: viewers
+  });
   vNextAdminPreparePrivateBootstrapFolder_(folder.getId(), folder.getName(), adminEmails);
   vNextAdminPatchRegistryByBookId_(hub, bookId, {
     status: 'ACTIVE', health_status: 'PENDING', health_code: 'PROVISION_RESUMED', updated_at: new Date()
@@ -1781,11 +1952,14 @@ function vNextAdminScheduledSweep() {
     const maintenance = vNextAdminWithScriptLock_('scheduled-maintenance', function () {
       return {
         leases: vNextAdminRecoverStaleLeases_(hub, 20),
+        portalRequests: vNextAdminHarvestPortalRequestsSafely_(hub),
         pilotRetries: vNextAdminRequeueKnownPilotFailures_(hub),
         scan: vNextAdminScanRegistryBatch_(hub, 10)
       };
     });
     const jobs = vNextAdminProcessJobsForHub_(hub, 4, startedAt + 270000);
+    try { vNextAdminRefreshPortalDirectory_(hub); }
+    catch (portalRefreshError) { Logger.log('Portal refresh skipped: %s', String(portalRefreshError)); }
     const finishedAt = Date.now();
     props.setProperties({
       VNEXT_LAST_SWEEP_SUCCEEDED_AT: new Date(finishedAt).toISOString(),
@@ -3303,6 +3477,7 @@ function vNextAdminInitializeClient_(ss, opt) {
     input_submitted: 0, input_answered_count: 0, input_total_count: 0,
     input_due_date: opt.inputDueDate || '', version: opt.releaseId,
     model_release_id: opt.modelReleaseId || '',
+    access_policy: opt.accessPolicy || 'PRIVATE', internal_domain: opt.internalDomain || '',
     client_runtime_version: opt.clientRuntimeVersion || '',
     client_runtime_bundle_sha256: opt.clientRuntimeSha256 || '',
     template_release_id: opt.releaseId, schema_version: vNextAdminClientSchemaVersion_(),
@@ -3329,6 +3504,42 @@ function vNextAdminInitializeClient_(ss, opt) {
   // unavoidable Sheets-only trust boundary.
   vNextAdminProtectClientInternalSheets_(ss, protectedNames);
   return { bookMeta: bookMeta };
+}
+
+function vNextAdminInitializePortal_(ss, opt) {
+  const keep = new Set(['ホーム', VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET]);
+  ss.getSheets().slice().forEach(function (sheet) {
+    if (!keep.has(sheet.getName()) && ss.getSheets().length > 1) ss.deleteSheet(sheet);
+  });
+  let home = ss.getSheetByName('ホーム');
+  if (!home) home = ss.insertSheet('ホーム', 0);
+  vNextAdminEnsureTable_(ss, VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS);
+  vNextAdminEnsureTable_(ss, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  vNextAdminReplacePortalConfig_(ss, {
+    mode: 'PORTAL', portal_id: opt.portalId, schema_version: VN_ADMIN_PORTAL_REQUEST_SCHEMA,
+    runtime_version: opt.runtimeVersion, runtime_sha256: opt.runtimeSha256,
+    employee_domain: opt.employeeDomain, access_policy: 'INTERNAL_OPEN',
+    created_at: new Date().toISOString(), created_by: opt.actor
+  });
+  home.showSheet();
+  ss.setActiveSheet(home);
+  [VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET]
+    .forEach(function (name) { const sheet = ss.getSheetByName(name); if (sheet) sheet.hideSheet(); });
+  vNextAdminProtectInternalSheets_(ss, opt.adminEmails || [], [
+    VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_CONFIG_SHEET
+  ]);
+  vNextAdminProtectClientInternalSheets_(ss, [VN_ADMIN_PORTAL_REQUEST_SHEET]);
+  return true;
+}
+
+function vNextAdminReplacePortalConfig_(ss, values) {
+  const existing = ss.getSheetByName(VN_ADMIN_PORTAL_CONFIG_SHEET);
+  if (existing) existing.clear();
+  const sheet = vNextAdminEnsureTable_(ss, VN_ADMIN_PORTAL_CONFIG_SHEET, ['key', 'value']);
+  Object.keys(values || {}).forEach(function (key) {
+    vNextAdminAppendObject_(ss, VN_ADMIN_PORTAL_CONFIG_SHEET, { key: key, value: values[key] }, ['key', 'value']);
+  });
+  sheet.hideSheet();
 }
 
 /**
@@ -3861,6 +4072,10 @@ function vNextAdminProcessJobsForHub_(hub, limit, deadlineMs) {
       results.push({ jobId: job.job_id, status: 'SUCCEEDED', result: result });
     } catch (err) {
       const message = String(err && err.message || err);
+      if (String(job.job_type || '') === 'PORTAL_PROVISION_CLIENT') {
+        try { vNextAdminMarkPortalJobFailed_(hub, job, message); }
+        catch (portalFailureError) { Logger.log('Portal failure status append skipped: %s', String(portalFailureError)); }
+      }
       vNextAdminWithScriptLock_('fail-job', function () { vNextAdminFinishJob_(hub, job.job_id, 'FAILED', null, message); });
       results.push({ jobId: job.job_id, status: 'FAILED', error: message });
       Logger.log('Job failed id=%s type=%s error=%s', job.job_id, job.job_type, String(err && err.stack || err));
@@ -3869,6 +4084,36 @@ function vNextAdminProcessJobsForHub_(hub, limit, deadlineMs) {
   vNextAdminRefreshTodayExceptions_(hub);
   vNextAdminRefreshHome_(hub);
   return vNextAdminJsonSafe_({ processed: results.length, jobs: results });
+}
+
+function vNextAdminMarkPortalJobFailed_(hub, job, message) {
+  const payload = vNextAdminParseJson_(job.request_json, {});
+  const portal = vNextAdminResolvePortal_(hub);
+  const events = vNextAdminReadTable_(portal.spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.filter(function (row) {
+    return String(row.request_id || '') === String(payload.requestId || '');
+  });
+  const latest = events.length ? events[events.length - 1] : null;
+  const latestPair = String(latest && latest.event_type || '').toUpperCase() + '>' +
+    String(latest && latest.status || '').toUpperCase();
+  if (['COMPLETED>COMPLETED', 'REJECTED>REJECTED'].indexOf(latestPair) >= 0) return false;
+  if (latestPair === 'FAILED>FAILED') return true;
+  const requested = events.find(function (row) {
+    return String(row.request_id || '') === String(payload.requestId || '') &&
+      String(row.event_type || '').toUpperCase() === 'REQUESTED';
+  });
+  if (!requested) return false;
+  const validated = vNextAdminValidatePortalRequest_(portal, requested);
+  vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'FAILED', 'FAILED', {
+    relatedJobId: job.job_id, detailCode: 'CREATION_FAILED',
+    detailMessage: '作成を完了できませんでした。管理担当者が確認します。'
+  });
+  vNextAdminAppendException_(hub, {
+    severity: 'ERROR', exception_type: 'PORTAL_PROVISION_FAILED', book_id: String(payload.requestId || ''),
+    client_name: String(payload.clientName || ''), fiscal_year: Number(payload.fiscalYear || 0),
+    title: 'ポータル経由の年度計画作成に失敗', detail: String(message || '').slice(0, 1200),
+    recommended_action: 'JOB_QUEUEと生成途中BOOK_REGISTRYを確認し、必要なら再依頼', source_ref: job.job_id
+  });
+  return true;
 }
 
 function vNextAdminScanRegistryForHub_(hub) {
@@ -3931,6 +4176,17 @@ function vNextAdminRecoverStaleLeases_(hub, staleMinutes) {
         } catch (recoveryError) {
           recoveryDetail = ' client recovery failed: ' + String(recoveryError && recoveryError.message || recoveryError);
           Logger.log('Exhausted forecast recovery failed job=%s error=%s', job.job_id, String(recoveryError && recoveryError.stack || recoveryError));
+        }
+      }
+      if (String(job.job_type || '') === 'PORTAL_PROVISION_CLIENT') {
+        try {
+          vNextAdminMarkPortalJobFailed_(hub, job, 'Lease expired after 3 attempts.');
+          recoveryDetail = '; Portal request marked FAILED';
+        } catch (portalRecoveryError) {
+          recoveryDetail = '; Portal failure event could not be appended: ' +
+            String(portalRecoveryError && portalRecoveryError.message || portalRecoveryError);
+          Logger.log('Exhausted Portal recovery failed job=%s error=%s', job.job_id,
+            String(portalRecoveryError && portalRecoveryError.stack || portalRecoveryError));
         }
       }
       vNextAdminAppendException_(hub, {
@@ -4127,6 +4383,223 @@ function vNextAdminClaimNextJob_(hub) {
   return job;
 }
 
+/** Portal faults are isolated so they cannot stop unrelated forecast and health jobs. */
+function vNextAdminHarvestPortalRequestsSafely_(hub) {
+  try {
+    return vNextAdminHarvestPortalRequests_(hub);
+  } catch (error) {
+    const detail = String(error && error.message || error).slice(0, 1200);
+    Logger.log('Portal request harvest isolated: %s', detail);
+    try {
+      const alreadyOpen = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS).rows.some(function (row) {
+        return String(row.exception_type || '').toUpperCase() === 'PORTAL_HARVEST_FAILED' &&
+          String(row.status || 'OPEN').toUpperCase() === 'OPEN' && String(row.detail || '') === detail;
+      });
+      if (!alreadyOpen) {
+        vNextAdminAppendException_(hub, {
+          severity: 'ERROR', exception_type: 'PORTAL_HARVEST_FAILED', book_id: '',
+          title: '年度計画ポータルの受付確認に失敗', detail: detail,
+          recommended_action: 'Portalの権限・runtime identity・内部sheet列構成を確認',
+          source_ref: 'EMPLOYEE_PORTAL'
+        });
+      }
+    } catch (exceptionError) {
+      Logger.log('Portal harvest exception recording skipped: %s',
+        String(exceptionError && exceptionError.message || exceptionError));
+    }
+    return { configured: true, queued: 0, reused: 0, rejected: 0, isolatedError: detail };
+  }
+}
+
+/** Read-only check: an existing duplicate is reusable only when it is already employee-open. */
+function vNextAdminPortalExistingBookAccess_(portal, registry) {
+  const policy = String(registry && registry.access_policy || '').trim().toUpperCase();
+  const domain = vNextAdminNormalizeDomain_(registry && registry.internal_domain || '');
+  if (policy !== 'INTERNAL_OPEN' || !domain || domain !== portal.employeeDomain) {
+    return { reusable: false, code: 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED' };
+  }
+  if (!vNextAdminSpreadsheetAccessible_(registry.spreadsheet_id)) {
+    return { reusable: false, code: 'EXISTING_BOOK_INACCESSIBLE' };
+  }
+  try {
+    vNextAdminAssertEmployeeFileSharing_(DriveApp.getFileById(String(registry.spreadsheet_id)), {
+      targetMode: 'CLIENT', accessPolicy: 'INTERNAL_OPEN', internalDomain: portal.employeeDomain,
+      editors: vNextAdminParseList_(registry.editor_emails), viewers: vNextAdminParseList_(registry.viewer_emails)
+    });
+    return { reusable: true, code: 'EXISTING_BOOK_REUSED' };
+  } catch (error) {
+    return {
+      reusable: false, code: 'EXISTING_BOOK_SHARING_MISMATCH',
+      detail: String(error && error.message || error).slice(0, 500)
+    };
+  }
+}
+
+function vNextAdminRejectPortalExistingBook_(hub, portal, validated, registry, detail) {
+  const extra = detail || {};
+  vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'REJECTED', 'REJECTED', {
+    relatedBookId: '', relatedBookUrl: '', detailCode: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED'),
+    detailMessage: '既存の年度計画がありますが、社内共通アクセスの確認が必要です。管理担当者へ連絡してください。'
+  });
+  vNextAdminAppendException_(hub, {
+    severity: 'WARN', exception_type: 'PORTAL_EXISTING_BOOK_ACCESS_REQUIRED',
+    book_id: String(registry.book_id || ''), client_name: String(registry.client_name || ''),
+    fiscal_year: Number(registry.fiscal_year || 0), title: '既存年度計画のアクセス確認が必要',
+    detail: 'request=' + String(validated.payload && validated.payload.requestId || '') +
+      '; code=' + String(extra.code || '') + (extra.detail ? '; ' + String(extra.detail) : ''),
+    recommended_action: '既存bookの共有方針を管理者が確認し、必要ならversioned migrationでINTERNAL_OPENへ変更',
+    source_ref: String(registry.book_id || '')
+  });
+  return { rejected: true, code: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED') };
+}
+
+function vNextAdminHarvestPortalRequests_(hub) {
+  let portal;
+  try { portal = vNextAdminResolvePortal_(hub); }
+  catch (error) {
+    if (/not configured/i.test(String(error && error.message || error))) return { configured: false, queued: 0, reused: 0, rejected: 0 };
+    throw error;
+  }
+  const table = vNextAdminReadTable_(portal.spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET);
+  const grouped = {};
+  table.rows.forEach(function (row) {
+    const id = String(row.request_id || '').trim();
+    if (!id) return;
+    if (!grouped[id]) grouped[id] = [];
+    grouped[id].push(row);
+  });
+  const result = { configured: true, queued: 0, reused: 0, rejected: 0 };
+  Object.keys(grouped).forEach(function (requestId) {
+    const events = grouped[requestId];
+    const latest = events[events.length - 1];
+    if (String(latest.event_type || '').toUpperCase() !== 'REQUESTED' ||
+        String(latest.status || '').toUpperCase() !== 'PENDING') return;
+    try {
+      const validated = vNextAdminValidatePortalRequest_(portal, events[0]);
+      const duplicates = vNextAdminFindClientFyDuplicates_(hub, validated.payload);
+      if (duplicates.length > 1) throw new Error('同じクライアント・年度の登録が複数あります。管理者確認が必要です。');
+      if (duplicates.length === 1 && String(duplicates[0].status || '').toUpperCase() === 'ACTIVE') {
+        const access = vNextAdminPortalExistingBookAccess_(portal, duplicates[0]);
+        if (!access.reusable) {
+          vNextAdminRejectPortalExistingBook_(hub, portal, validated, duplicates[0], access);
+          result.rejected++;
+          return;
+        }
+        vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
+          relatedBookId: duplicates[0].book_id, relatedBookUrl: duplicates[0].spreadsheet_url,
+          detailCode: 'EXISTING_BOOK_REUSED', detailMessage: '既存の年度計画をご利用ください。'
+        });
+        result.reused++;
+        return;
+      }
+      const idempotency = 'PORTAL_PROVISION|' + vNextAdminPortalCanonicalClientKey_(validated.payload) + '|' + validated.payload.fiscalYear;
+      const job = vNextAdminEnqueueJobInternal_(hub, {
+        jobType: 'PORTAL_PROVISION_CLIENT', targetBookId: validated.payload.requestId,
+        targetSpreadsheetId: portal.spreadsheetId,
+        request: {
+          portalSpreadsheetId: portal.spreadsheetId, portalId: portal.portalId,
+          requestId: validated.payload.requestId, requestHash: validated.requestHash,
+          clientId: validated.clientId, clientName: validated.payload.clientName,
+          fiscalYear: validated.payload.fiscalYear,
+          forecastOwnerEmail: validated.payload.forecastOwnerEmail,
+          relatedMemberEmails: validated.payload.relatedMemberEmails,
+          requestedAt: validated.payload.requestedAt, requestedBy: validated.payload.requestedBy,
+          employeeDomain: portal.employeeDomain
+        },
+        idempotencyKey: idempotency, priority: 80
+      });
+      vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'VALIDATION_STARTED', 'VALIDATING', {
+        relatedJobId: job.job_id, detailCode: 'QUEUED', detailMessage: '内容を確認し、作成の準備をしています。'
+      });
+      result.queued++;
+    } catch (error) {
+      const requested = events[0];
+      const weak = {
+        payload: {
+          requestId: requestId, requestedAt: requested.requested_at || '', requestedBy: requested.requested_by || '',
+          fiscalYear: Number(requested.fiscal_year || 0), clientId: String(requested.client_id || ''),
+          clientName: String(requested.client_name || ''), forecastOwnerEmail: String(requested.forecast_owner_email || ''),
+          relatedMemberEmails: vNextAdminParseJson_(requested.related_member_emails_json, [])
+        },
+        requestHash: String(requested.request_hash || '')
+      };
+      vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, weak, 'REJECTED', 'REJECTED', {
+        detailCode: 'VALIDATION_FAILED', detailMessage: '入力内容を確認できませんでした。管理担当者へ連絡してください。'
+      });
+      vNextAdminAppendException_(hub, {
+        severity: 'WARN', exception_type: 'PORTAL_REQUEST_REJECTED', book_id: requestId,
+        client_name: String(requested.client_name || ''), fiscal_year: Number(requested.fiscal_year || 0),
+        title: 'ポータル作成依頼を検証できません', detail: String(error && error.message || error),
+        recommended_action: '依頼行と社内アカウント・重複登録を確認', source_ref: requestId
+      });
+      result.rejected++;
+    }
+  });
+  return result;
+}
+
+function vNextAdminValidatePortalRequest_(portal, row) {
+  const requestJson = String(row.request_json || '');
+  const requestHash = String(row.request_hash || '').toLowerCase();
+  const payload = vNextAdminParseJson_(requestJson, null);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Portal request JSON is invalid.');
+  const actualKeys = Object.keys(payload).sort();
+  const expectedKeys = VN_ADMIN_PORTAL_REQUEST_PAYLOAD_KEYS.slice().sort();
+  if (vNextAdminCanonicalJson_(actualKeys) !== vNextAdminCanonicalJson_(expectedKeys)) throw new Error('Portal request keys do not match schema.');
+  if (requestJson !== vNextAdminCanonicalJson_(payload) || requestHash !== vNextAdminSha256_(requestJson)) {
+    throw new Error('Portal request canonical hash is invalid.');
+  }
+  if (payload.schemaVersion !== VN_ADMIN_PORTAL_REQUEST_SCHEMA || payload.requestType !== 'CREATE_CLIENT_FY_BOOK') {
+    throw new Error('Portal request schema/type is invalid.');
+  }
+  if (String(row.request_id || '') !== String(payload.requestId || '') ||
+      String(row.requested_by || '').toLowerCase() !== String(payload.requestedBy || '').toLowerCase() ||
+      String(row.requested_at || '') !== String(payload.requestedAt || '')) throw new Error('Portal request row/payload mismatch.');
+  const requestedAt = new Date(payload.requestedAt);
+  if (isNaN(requestedAt.getTime()) || requestedAt.getTime() > Date.now() + 300000) throw new Error('Portal request timestamp is invalid.');
+  const fiscalYear = vNextAdminNormalizeFiscalYear_(payload.fiscalYear);
+  const clientName = vNextAdminRequiredText_(payload.clientName, 'clientName');
+  if (clientName.length > 120 || /^[=+@]/.test(clientName)) throw new Error('clientName is unsafe.');
+  const requestedBy = String(payload.requestedBy || '').trim().toLowerCase();
+  const owner = String(payload.forecastOwnerEmail || '').trim().toLowerCase();
+  if (vNextAdminEmailDomain_(requestedBy) !== portal.employeeDomain || vNextAdminEmailDomain_(owner) !== portal.employeeDomain) {
+    throw new Error('Portal requester/owner is outside the employee domain.');
+  }
+  const members = Array.isArray(payload.relatedMemberEmails) ? payload.relatedMemberEmails.map(function (email) {
+    return String(email || '').trim().toLowerCase();
+  }) : [];
+  if (members.length > 50 || members.some(function (email) { return vNextAdminEmailDomain_(email) !== portal.employeeDomain; })) {
+    throw new Error('relatedMemberEmails contains an invalid employee account.');
+  }
+  const clientId = vNextAdminText_(payload.clientId) || vNextAdminDeriveClientId_(clientName);
+  return { payload: Object.assign({}, payload, { fiscalYear: fiscalYear }), requestHash: requestHash, clientId: clientId };
+}
+
+function vNextAdminFindClientFyDuplicates_(hub, input) {
+  const canonicalInput = Object.assign({}, input || {});
+  if (!String(canonicalInput.clientId || '').trim() && String(canonicalInput.clientName || '').trim()) {
+    canonicalInput.clientId = vNextAdminDeriveClientId_(canonicalInput.clientName);
+  }
+  const key = vNextAdminPortalCanonicalClientKey_(canonicalInput);
+  const nameKey = vNextAdminPortalCanonicalClientKey_({ clientName: canonicalInput.clientName });
+  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '') === 'CLIENT' && String(row.status || '').toUpperCase() !== 'ARCHIVED' &&
+      Number(row.fiscal_year) === Number(canonicalInput.fiscalYear) &&
+      (vNextAdminPortalCanonicalClientKey_({ clientId: row.client_id, clientName: row.client_name }) === key ||
+       vNextAdminPortalCanonicalClientKey_({ clientName: row.client_name }) === nameKey);
+  });
+}
+
+function vNextAdminPortalCanonicalClientKey_(input) {
+  const id = String(input && (input.clientId || input.client_id) || '').trim().toLowerCase().replace(/[\s\-_.:/\\]/g, '');
+  if (id) return 'ID:' + id;
+  let name = String(input && (input.clientName || input.client_name) || '').trim().toLowerCase();
+  try { name = name.normalize('NFKC'); } catch (ignoredNormalize) {}
+  name = name.replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)|\(同\)|㈱|㈲/g, '')
+    .replace(/[\s\u3000・･.,，。'’"“”\-ー_]/g, '');
+  return 'NAME:' + name;
+}
+
 function vNextAdminExecuteJob_(hub, job) {
   const payload = vNextAdminParseJson_(job.request_json, {});
   switch (String(job.job_type)) {
@@ -4310,6 +4783,59 @@ function vNextAdminExecuteJob_(hub, job) {
       });
       if (!registry) throw new Error('Registry entry not found for health scan.');
       return vNextAdminScanOneBook_(hub, registry);
+    }
+    case 'PORTAL_PROVISION_CLIENT': {
+      const portal = vNextAdminResolvePortal_(hub);
+      if (portal.spreadsheetId !== String(payload.portalSpreadsheetId || '') ||
+          portal.portalId !== String(payload.portalId || '')) throw new Error('Portal job identity does not match the configured Portal.');
+      const events = vNextAdminReadTable_(portal.spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.filter(function (row) {
+        return String(row.request_id || '') === String(payload.requestId || '');
+      });
+      const requested = events.find(function (row) {
+        return String(row.event_type || '').toUpperCase() === 'REQUESTED' && String(row.status || '').toUpperCase() === 'PENDING';
+      });
+      if (!requested) throw new Error('The original Portal REQUESTED/PENDING event is missing.');
+      const validated = vNextAdminValidatePortalRequest_(portal, requested);
+      if (validated.requestHash !== String(payload.requestHash || '') ||
+          validated.payload.requestedBy !== String(payload.requestedBy || '') ||
+          validated.payload.forecastOwnerEmail !== String(payload.forecastOwnerEmail || '')) {
+        throw new Error('Portal job/request lineage mismatch.');
+      }
+      const duplicates = vNextAdminFindClientFyDuplicates_(hub, validated.payload);
+      let provisioned;
+      if (duplicates.length === 1 && String(duplicates[0].status || '').toUpperCase() === 'ACTIVE') {
+        const access = vNextAdminPortalExistingBookAccess_(portal, duplicates[0]);
+        if (!access.reusable) {
+          const rejected = vNextAdminRejectPortalExistingBook_(hub, portal, validated, duplicates[0], access);
+          vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
+          return rejected;
+        }
+        provisioned = {
+          reused: true, bookId: duplicates[0].book_id, spreadsheetId: duplicates[0].spreadsheet_id,
+          spreadsheetUrl: duplicates[0].spreadsheet_url, state: duplicates[0].state
+        };
+      } else if (duplicates.length > 1) {
+        throw new Error('Multiple client/FY duplicates block Portal provisioning.');
+      } else {
+        vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'CREATION_STARTED', 'CREATING', {
+          relatedJobId: job.job_id, detailCode: 'CREATING', detailMessage: 'クライアント別ブックを作成しています。'
+        });
+        provisioned = vNextAdminProvisionClientInHub_(hub, {
+          clientId: validated.clientId, clientName: validated.payload.clientName,
+          fiscalYear: validated.payload.fiscalYear,
+          forecastOwnerEmails: [validated.payload.forecastOwnerEmail],
+          editorEmails: [validated.payload.requestedBy].concat(validated.payload.relatedMemberEmails || []),
+          accessPolicy: 'INTERNAL_OPEN', internalDomain: portal.employeeDomain,
+          idempotencyKey: String(job.idempotency_key || ''), internalOperation: 'PORTAL_JOB'
+        });
+      }
+      vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
+        relatedJobId: job.job_id, relatedBookId: provisioned.bookId,
+        relatedBookUrl: provisioned.spreadsheetUrl, detailCode: provisioned.reused ? 'EXISTING_BOOK_REUSED' : 'CREATED',
+        detailMessage: provisioned.reused ? '既存の年度計画をご利用ください。' : '年度計画を利用できます。'
+      });
+      vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
+      return provisioned;
     }
     case 'AI_RESEARCH': {
       const registry = vNextAdminFindRegistryRow_(hub, function (row) {
@@ -6145,6 +6671,8 @@ function vNextAdminValidateClientEvidenceRows_(hub, bookId, rows) {
       String(row.role || '').toUpperCase() !== 'VIEWER';
   });
   const activeActors = new Set(team.map(function (row) { return String(row.email || '').toLowerCase(); }));
+  const internalOpen = String(registry.access_policy || '').toUpperCase() === 'INTERNAL_OPEN';
+  const internalDomain = vNextAdminNormalizeDomain_(registry.internal_domain || '');
   const allowedTypes = new Set(['COMMITMENT', 'HUMAN_CHANGE', 'CHECK_IN', 'REVIEW_LEARNING']);
   const bookMetaRows = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
     return String(row.book_id || '') === String(bookId);
@@ -6187,7 +6715,11 @@ function vNextAdminValidateClientEvidenceRows_(hub, bookId, rows) {
       if (!allowedTypes.has(type)) throw new Error('evidence_type is not client-allowlisted: ' + type);
       if (String(row.book_id || '') !== String(bookId) || String(row.client_id || '') !== String(registry.client_id || '') ||
           Number(row.fiscal_year) !== Number(registry.fiscal_year)) throw new Error('evidence book/client/FY mismatch');
-      if (!activeActors.has(String(row.actor_email || '').toLowerCase())) throw new Error('evidence actor is not an active input team member');
+      const actorEmail = String(row.actor_email || '').toLowerCase();
+      const internalContributor = internalOpen && internalDomain && vNextAdminEmailDomain_(actorEmail) === internalDomain;
+      if (!activeActors.has(actorEmail) && !internalContributor) {
+        throw new Error('evidence actor is not an active team member or internal contributor');
+      }
       ['ai_model', 'prompt_version', 'ai_schema_version', 'rule_version', 'applied_amount', 'evidence_quality'].forEach(function (key) {
         if (String(row[key] || '').trim()) throw new Error('client evidence contains forbidden AI metadata: ' + key);
       });
@@ -6206,6 +6738,7 @@ function vNextAdminValidateClientEvidenceRows_(hub, bookId, rows) {
       const isReview = type === 'REVIEW_LEARNING';
       const isChange = type === 'COMMITMENT' || type === 'HUMAN_CHANGE';
       if (isReview) {
+        if (!activeActors.has(actor)) throw new Error('REVIEW_LEARNING is limited to registered team members.');
         if (response !== 'UNKNOWN' || String(row.status || '').toUpperCase() !== 'ACTIVE' ||
             String(row.target || '') !== 'FY_REVIEW' || ['NEUTRAL', ''].indexOf(String(row.direction || '').toUpperCase()) < 0) {
           throw new Error('REVIEW_LEARNING record shape is invalid.');
@@ -6831,6 +7364,133 @@ function vNextAdminRefreshHome_(hub) {
   sheet.setColumnWidth(1, 190);
   sheet.setColumnWidth(2, 620);
   sheet.setFrozenRows(1);
+}
+
+function vNextAdminResolvePortal_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const spreadsheetId = String(config.portal_spreadsheet_id ||
+    PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
+  if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
+  const portalId = vNextAdminRequiredText_(config.portal_id, 'portal_id');
+  const scriptId = vNextAdminRequiredText_(config.portal_script_id, 'portal_script_id');
+  const runtimeVersion = vNextAdminRequiredText_(config.portal_runtime_version, 'portal_runtime_version');
+  const runtimeSha256 = vNextAdminRequiredText_(config.portal_runtime_sha256, 'portal_runtime_sha256');
+  const employeeDomain = vNextAdminNormalizeDomain_(config.employee_domain ||
+    PropertiesService.getScriptProperties().getProperty('VNEXT_EMPLOYEE_DOMAIN'));
+  if (runtimeVersion !== VN_ADMIN_PORTAL_RUNTIME_VERSION || !/^[a-f0-9]{64}$/.test(runtimeSha256) || !employeeDomain) {
+    throw new Error('Employee Portal runtime/domain identity is invalid.');
+  }
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
+  if (String(portalConfig.mode || '').toUpperCase() !== 'PORTAL' ||
+      String(portalConfig.portal_id || '') !== portalId ||
+      String(portalConfig.runtime_version || '') !== runtimeVersion ||
+      String(portalConfig.runtime_sha256 || '') !== runtimeSha256 ||
+      vNextAdminNormalizeDomain_(portalConfig.employee_domain || '') !== employeeDomain ||
+      String(portalConfig.access_policy || '').toUpperCase() !== 'INTERNAL_OPEN') {
+    throw new Error('Employee Portal local identity does not match the Hub record.');
+  }
+  vNextClientRuntimeAssertBoundParent_(scriptId, spreadsheetId);
+  vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS);
+  vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  return {
+    portalId: portalId, spreadsheetId: spreadsheetId, scriptId: scriptId,
+    runtimeVersion: runtimeVersion, runtimeSha256: runtimeSha256,
+    employeeDomain: employeeDomain, spreadsheet: spreadsheet
+  };
+}
+
+function vNextAdminAppendPortalRequestEvent_(portal, validated, eventType, status, detail) {
+  const payload = validated.payload || {};
+  const extra = detail || {};
+  const now = new Date().toISOString();
+  const record = {
+    request_event_id: 'PORTAL-REQEV-' + Utilities.getUuid(), request_id: String(payload.requestId || ''),
+    event_type: String(eventType || '').toUpperCase(), status: String(status || '').toUpperCase(),
+    request_hash: String(validated.requestHash || ''), request_json: '',
+    fiscal_year: Number(payload.fiscalYear || 0), client_id: String(payload.clientId || validated.clientId || ''),
+    client_name: String(payload.clientName || ''), forecast_owner_email: String(payload.forecastOwnerEmail || ''),
+    related_member_emails_json: vNextAdminCanonicalJson_(payload.relatedMemberEmails || []),
+    requested_at: String(payload.requestedAt || ''), requested_by: String(payload.requestedBy || ''),
+    related_book_id: String(extra.relatedBookId || ''), related_book_url: String(extra.relatedBookUrl || ''),
+    detail_code: String(extra.detailCode || ''), detail_message: String(extra.detailMessage || ''),
+    created_at: now, created_by: vNextAdminActor_()
+  };
+  vNextAdminAppendObject_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET, record, VN_ADMIN_PORTAL_REQUEST_HEADERS);
+  return record;
+}
+
+function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
+  const portal = optionalPortal && typeof optionalPortal.getId === 'function'
+    ? { spreadsheet: optionalPortal }
+    : vNextAdminResolvePortal_(hub);
+  const spreadsheet = portal.spreadsheet;
+  const registry = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '') === 'CLIENT' && String(row.status || '').toUpperCase() === 'ACTIVE';
+  });
+  const runsByBook = {};
+  vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').forEach(function (row) {
+    if (String(row.status || '').toUpperCase() === 'SUCCESS') runsByBook[String(row.book_id || '')] = row;
+  });
+  const plansByBook = {};
+  vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').forEach(function (row) {
+    if (['SUBMITTED', 'APPROVED'].indexOf(String(row.status || '').toUpperCase()) < 0) return;
+    plansByBook[String(row.book_id || '')] = row;
+  });
+  const requestIds = {};
+  vNextAdminReadTable_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.forEach(function (row) {
+    if (String(row.related_book_id || '')) requestIds[String(row.related_book_id)] = String(row.request_id || '');
+  });
+  const teamByBook = {};
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM).rows.forEach(function (row) {
+    if (String(row.status || '').toUpperCase() !== 'ACTIVE') return;
+    const id = String(row.book_id || '');
+    if (!teamByBook[id]) teamByBook[id] = [];
+    if (String(row.role || '').toUpperCase() !== 'FORECAST_OWNER') teamByBook[id].push(String(row.email || '').toLowerCase());
+  });
+  const rows = registry.map(function (row) {
+    const bookId = String(row.book_id || '');
+    const run = runsByBook[bookId] || {};
+    const plan = plansByBook[bookId] || {};
+    const state = String(row.state || 'INPUT_OPEN').toUpperCase();
+    return {
+      directory_event_id: 'DIR-' + Utilities.getUuid(),
+      directory_key: Number(row.fiscal_year) + '|' + vNextAdminPortalCanonicalClientKey_(row),
+      fiscal_year: Number(row.fiscal_year), client_id: String(row.client_id || ''),
+      client_name: String(row.client_name || ''),
+      forecast_owner_email: vNextAdminParseList_(row.forecast_owner_emails)[0] || '',
+      related_member_emails_json: vNextAdminCanonicalJson_(vNextAdminMergeEmails_(teamByBook[bookId] || [])),
+      state: state,
+      center_forecast: run.p50 === '' || run.p50 === undefined ? '' : Number(run.p50),
+      adopted_forecast: plan.adopted_forecast === '' || plan.adopted_forecast === undefined ? '' : Number(plan.adopted_forecast),
+      final_budget: plan.final_budget === '' || plan.final_budget === undefined ? '' : Number(plan.final_budget),
+      next_action: vNextAdminPortalNextAction_(state, String(row.health_code || '')),
+      client_book_url: String(row.spreadsheet_url || ''), request_id: requestIds[bookId] || '',
+      updated_at: new Date().toISOString(), updated_by: vNextAdminActor_()
+    };
+  });
+  const sheet = vNextAdminEnsureTable_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+  if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+  if (rows.length) {
+    const values = rows.map(function (row) {
+      return VN_ADMIN_PORTAL_DIRECTORY_HEADERS.map(function (header) { return row[header] === undefined ? '' : row[header]; });
+    });
+    sheet.getRange(2, 1, values.length, VN_ADMIN_PORTAL_DIRECTORY_HEADERS.length).setValues(values);
+  }
+  sheet.hideSheet();
+  return { portalSpreadsheetId: spreadsheet.getId(), rows: rows.length };
+}
+
+function vNextAdminPortalNextAction_(state, healthCode) {
+  if (String(healthCode || '').indexOf('HISTORY') >= 0) return '実績データの連携・不足状況を確認してください。';
+  const labels = {
+    INPUT_OPEN: '現場情報を回答してください。', READY_TO_RUN: 'Forecast Ownerが予測を依頼します。',
+    RUNNING: '予測を計算しています。', DRAFT_READY: 'Forecast Ownerが計画案を作成します。',
+    SUBMITTED: '管理者の承認待ちです。', CHANGES_REQUESTED: '差戻し内容を確認してください。',
+    OFFICIAL_LOCKED: '正式計画を確認できます。', REVIEW_DUE: '年度の振り返りを回答してください。',
+    YEAR_CLOSED: '年度終了（閲覧のみ）'
+  };
+  return labels[String(state || '').toUpperCase()] || '専用ブックで状況を確認してください。';
 }
 
 function vNextAdminAppendException_(hub, input) {
@@ -8138,6 +8798,61 @@ function vNextAdminAssertClientFileAcl_(file, editors, viewers) {
     throw new Error('Client file ACLの最終検証に失敗しました。missing=' + missing.join(',') + '; unexpected=' + unexpected.join(','));
   }
   return true;
+}
+
+/** Domain sharing is allowed only for employee-facing CLIENT/PORTAL files. */
+function vNextAdminApplyEmployeeFileSharing_(file, options) {
+  const opt = options || {};
+  const mode = String(opt.targetMode || '').toUpperCase();
+  if (['CLIENT', 'PORTAL'].indexOf(mode) < 0) throw new Error('Employee sharing is limited to CLIENT/PORTAL files.');
+  const policy = String(opt.accessPolicy || 'PRIVATE').toUpperCase();
+  if (policy === 'PRIVATE') {
+    file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
+    return true;
+  }
+  if (policy !== 'INTERNAL_OPEN') throw new Error('Unsupported employee access policy: ' + policy);
+  const domain = vNextAdminNormalizeDomain_(opt.internalDomain);
+  const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
+  if (!domain || vNextAdminEmailDomain_(owner) !== domain) {
+    throw new Error('Employee domain does not match the Workspace file owner.');
+  }
+  file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.EDIT);
+  return true;
+}
+
+function vNextAdminAssertEmployeeFileSharing_(file, options) {
+  const opt = options || {};
+  const mode = String(opt.targetMode || '').toUpperCase();
+  if (['CLIENT', 'PORTAL'].indexOf(mode) < 0) throw new Error('Employee sharing verification is limited to CLIENT/PORTAL files.');
+  const policy = String(opt.accessPolicy || 'PRIVATE').toUpperCase();
+  if (policy === 'PRIVATE') return vNextAdminAssertClientFileAcl_(file, opt.editors || [], opt.viewers || []);
+  if (policy !== 'INTERNAL_OPEN') throw new Error('Unsupported employee access policy: ' + policy);
+  const domain = vNextAdminNormalizeDomain_(opt.internalDomain);
+  const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
+  if (!domain || vNextAdminEmailDomain_(owner) !== domain) throw new Error('Employee domain verification failed.');
+  if (file.getSharingAccess() !== DriveApp.Access.DOMAIN_WITH_LINK ||
+      (typeof file.getSharingPermission === 'function' && file.getSharingPermission() !== DriveApp.Permission.EDIT)) {
+    throw new Error('Employee file is not restricted to domain-with-link edit access.');
+  }
+  const expectedEditors = vNextAdminMergeEmails_(opt.editors || []);
+  const expectedViewers = vNextAdminMergeEmails_(opt.viewers || []);
+  const actual = vNextAdminMergeEmails_(owner,
+    file.getEditors().map(function (user) { return String(user.getEmail() || '').toLowerCase(); }),
+    file.getViewers().map(function (user) { return String(user.getEmail() || '').toLowerCase(); }));
+  const missing = expectedEditors.concat(expectedViewers).filter(function (email) { return actual.indexOf(email) < 0; });
+  if (missing.length) throw new Error('Employee file ACL is missing explicit role recipients: ' + missing.join(','));
+  return true;
+}
+
+function vNextAdminNormalizeDomain_(value) {
+  const domain = String(value || '').trim().toLowerCase().replace(/^@/, '');
+  return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) && domain.indexOf('.') > 0 ? domain : '';
+}
+
+function vNextAdminEmailDomain_(value) {
+  const email = String(value || '').trim().toLowerCase();
+  const at = email.lastIndexOf('@');
+  return at > 0 && at < email.length - 1 ? email.slice(at + 1) : '';
 }
 
 function vNextAdminPreparePrivateBootstrapFolder_(folderId, name, adminEmails) {

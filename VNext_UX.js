@@ -445,10 +445,12 @@ function vNextGetClientViewModel() {
       cutoff: vNextUxDateText_(context.cutoff),
       state: context.state,
       stateLabel: VNEXT_UX_STATE_LABELS_[context.state] || context.state,
-      roleLabel: context.isForecastOwner ? 'Forecast Owner' : (context.isTeamMember ? '情報提供メンバー' : '閲覧メンバー'),
+      roleLabel: vNextUxRoleLabel_(context),
       isForecastOwner: Boolean(context.isForecastOwner),
       isTeamMember: Boolean(context.isTeamMember),
-      canInput: Boolean(context.isTeamMember) && VNEXT_UX_CONFIG_.INPUT_STATES.indexOf(context.state) >= 0,
+      isInternalUser: Boolean(context.isInternalUser),
+      canContribute: Boolean(context.canContribute),
+      canInput: Boolean(context.canContribute) && VNEXT_UX_CONFIG_.INPUT_STATES.indexOf(context.state) >= 0,
       inputLockMessage: vNextUxInputLockMessage_(context.state),
       inputStatus: context.inputStatus || {},
       canOverrideInput: vNextUxCanOverrideInput_(context),
@@ -616,6 +618,7 @@ function vNextUxGetBookContext_() {
   var normalizedMode = rawMode === 'CLIENT_BOOK' ? 'CLIENT' : rawMode === 'ADMIN_HUB' ? 'ADMIN' : rawMode;
   var state = String(raw.state || 'INPUT_OPEN').toUpperCase();
   var email = String(raw.userEmail || Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  var role = String(raw.role || raw.defaultRole || raw.default_role || 'EMPLOYEE').trim().toUpperCase();
   var owners = raw.forecastOwnerEmails || raw.forecast_owner_emails || [];
   if (!Array.isArray(owners)) owners = String(owners || '').split(',');
   owners = owners.map(function(value) { return String(value || '').trim().toLowerCase(); }).filter(Boolean);
@@ -632,6 +635,10 @@ function vNextUxGetBookContext_() {
       responseType: String(latestOwnEvidence.responseType || latestOwnEvidence.response_type || '').toLowerCase()
     });
   }
+  var isForecastOwner = raw.isForecastOwner === true || owners.indexOf(email) >= 0;
+  var isTeamMember = vNextUxBool_(raw.isTeamMember) || vNextUxBool_(raw.is_team_member) || isForecastOwner;
+  var isInternalUser = vNextUxBool_(raw.isInternalUser) || vNextUxBool_(raw.is_internal_user) || role === 'INTERNAL_CONTRIBUTOR';
+  var canContribute = isTeamMember || vNextUxBool_(raw.canContribute) || vNextUxBool_(raw.can_contribute) || (isInternalUser && role === 'INTERNAL_CONTRIBUTOR');
   return {
     mode: normalizedMode,
     bookId: raw.bookId || raw.book_id || ss.getId(),
@@ -641,10 +648,12 @@ function vNextUxGetBookContext_() {
     asOf: raw.asOf || raw.as_of || '',
     cutoff: raw.cutoff || '',
     state: state,
-    role: raw.role || raw.defaultRole || raw.default_role || 'EMPLOYEE',
+    role: role,
     userEmail: email,
-    isForecastOwner: raw.isForecastOwner === true || owners.indexOf(email) >= 0,
-    isTeamMember: vNextUxBool_(raw.isTeamMember) || vNextUxBool_(raw.is_team_member) || raw.isForecastOwner === true || owners.indexOf(email) >= 0,
+    isForecastOwner: isForecastOwner,
+    isTeamMember: isTeamMember,
+    isInternalUser: isInternalUser,
+    canContribute: canContribute,
     forecastOwnerEmails: owners,
     inputStatus: input,
     canProceed: raw.canProceed === true || raw.can_proceed === true,
@@ -746,11 +755,12 @@ function vNextUxMaybeAdvanceInputState_() {
 function vNextUxGetPrimaryAction_(context) {
   var owner = Boolean(context.isForecastOwner);
   var teamMember = Boolean(context.isTeamMember);
+  var canContribute = Boolean(context.canContribute) || teamMember || owner;
   var definitions = {
-    INPUT_OPEN: teamMember
+    INPUT_OPEN: canContribute
       ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '過去実績だけでは表せない変化について回答してください。' }
       : { key: 'WAIT', label: '閲覧のみです', instruction: 'このブックの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
-    READY_TO_RUN: owner ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' } : { key: 'WAIT', label: teamMember ? 'Forecast Ownerの操作待ち' : '閲覧のみです', instruction: teamMember ? 'あなたの入力は保存されています。Forecast Ownerが予測を依頼します。' : 'Forecast Ownerが予測を依頼します。現在、必要な操作はありません。' },
+    READY_TO_RUN: owner ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' } : { key: 'WAIT', label: canContribute ? 'Forecast Ownerの操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。Forecast Ownerが予測を依頼します。' : 'Forecast Ownerが予測を依頼します。現在、必要な操作はありません。' },
     RUNNING: { key: 'WAIT', label: '操作はありません', instruction: '予測を作成しています。完了すると表示が変わります。' },
     DRAFT_READY: { key: owner ? 'EDIT_PLAN' : 'VIEW_PLAN', label: owner ? '予測を確認して計画案を作る' : '予測を見る', instruction: owner ? 'システム推奨予測を確認し、採用判断と営業上積みを分けて入力してください。' : '予測の結論と根拠を確認してください。' },
     SUBMITTED: { key: 'WAIT', label: '操作はありません', instruction: '管理者が計画案を確認しています。' },
@@ -779,8 +789,19 @@ function vNextUxAssertClientBook_(context) {
 
 function vNextUxAssertInputAllowed_(context) {
   vNextUxAssertClientBook_(context);
-  if (!context.isTeamMember) throw new Error('登録された情報提供メンバーだけが回答できます。');
+  if (!(context.canContribute || context.isTeamMember || context.isForecastOwner)) {
+    throw new Error('登録メンバー、または社内アカウントだけが回答できます。');
+  }
   if (VNEXT_UX_CONFIG_.INPUT_STATES.indexOf(context.state) < 0) throw new Error(vNextUxInputLockMessage_(context.state));
+}
+
+function vNextUxRoleLabel_(context) {
+  if (context && context.isForecastOwner) return 'Forecast Owner';
+  if (context && context.isTeamMember) return '情報提供メンバー';
+  if (context && (String(context.role || '').toUpperCase() === 'INTERNAL_CONTRIBUTOR' || (context.isInternalUser && context.canContribute))) {
+    return '社内情報提供メンバー';
+  }
+  return '閲覧メンバー';
 }
 
 function vNextUxAssertPlanEditable_(context) {
@@ -1208,7 +1229,7 @@ function vNextUxRenderHome_(context, sheet) {
   sheet.getRange('A6:B6').merge().setValue('実績基準日').setFontWeight('bold');
   sheet.getRange('C6:D6').merge().setValue(vNextUxDateText_(context.cutoff) || '未設定');
   sheet.getRange('E6:F6').merge().setValue('あなたの役割').setFontWeight('bold');
-  sheet.getRange('G6:H6').merge().setValue(context.isForecastOwner ? 'Forecast Owner' : '情報提供メンバー');
+  sheet.getRange('G6:H6').merge().setValue(vNextUxRoleLabel_(context));
   sheet.getRange('A8:B8').merge().setValue('入力状況').setFontWeight('bold');
   sheet.getRange('C8:H8').merge().setValue(vNextUxInputStatusText_(input));
   sheet.getRange('A11:H11').merge().setValue('次にすること').setFontWeight('bold').setFontSize(13).setFontColor('#ffffff').setBackground('#188038');
@@ -1529,7 +1550,15 @@ function vNextUxErrorText_(err) {
 }
 
 function vNextUxAlertError_(prefix, err) {
-  SpreadsheetApp.getUi().alert('エラー', prefix + '\n' + vNextUxFriendlyValidationError_(err), SpreadsheetApp.getUi().ButtonSet.OK);
+  try {
+    var ui = SpreadsheetApp.getUi();
+    ui.alert('エラー', prefix + '\n' + vNextUxFriendlyValidationError_(err), ui.ButtonSet.OK);
+  } catch (uiError) {
+    // Spreadsheet UI functions cannot be shown when invoked from the Apps
+    // Script editor or a time trigger. Preserve the original error in logs
+    // without masking it with a second getUi() exception.
+    Logger.log('vNext UI message unavailable outside Spreadsheet context: ' + prefix + ' ' + vNextUxFriendlyValidationError_(err));
+  }
 }
 
 /** GAS editorから実行する小さな純粋関数test。 */
@@ -1594,6 +1623,19 @@ function testVNextUxPlanValidation() {
     var viewerInput = vNextUxGetPrimaryAction_({ state: 'INPUT_OPEN', isForecastOwner: false, isTeamMember: false });
     var viewerReview = vNextUxGetPrimaryAction_({ state: 'REVIEW_DUE', isForecastOwner: false, isTeamMember: false });
     if (viewerInput.key !== 'WAIT' || viewerReview.key !== 'VIEW_REVIEW') throw new Error('閲覧メンバーの操作制限が不正です。');
+    var internalContributor = { mode: 'CLIENT', state: 'INPUT_OPEN', role: 'INTERNAL_CONTRIBUTOR', isForecastOwner: false, isTeamMember: false, isInternalUser: true, canContribute: true };
+    if (vNextUxGetPrimaryAction_(internalContributor).key !== 'INPUT') throw new Error('社内情報提供メンバーの入力導線が不正です。');
+    if (vNextUxGetPrimaryAction_(Object.assign({}, internalContributor, { state: 'REVIEW_DUE' })).key !== 'VIEW_REVIEW') throw new Error('社内情報提供メンバーの振り返り導線が不正です。');
+    if (vNextUxRoleLabel_(internalContributor) !== '社内情報提供メンバー') throw new Error('社内情報提供メンバーの役割表示が不正です。');
+    vNextUxAssertInputAllowed_(internalContributor);
+    var internalReviewRejected = false;
+    try {
+      vNextUxAssertReviewEditable_(Object.assign({}, internalContributor, { state: 'REVIEW_DUE' }));
+    } catch (reviewAccessError) {
+      internalReviewRejected = true;
+    }
+    if (!internalReviewRejected) throw new Error('社内情報提供メンバーに登録メンバー限定の振り返り保存が開放されています。');
+    if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: true, isTeamMember: true, canContribute: true }).key !== 'REQUEST_FORECAST') throw new Error('Forecast Ownerの予測依頼導線が変更されています。');
     Logger.log('PASS testVNextUxPlanValidation');
   } catch (err) {
     Logger.log('FAIL testVNextUxPlanValidation: ' + vNextUxErrorText_(err));

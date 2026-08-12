@@ -20,6 +20,7 @@ Forecast vNext は、未来の売上を一点で「当てる」ものではな�
 
 - **Legacy book**: 現行運用を維持する参照元。vNext初期化では変更しません。
 - **Admin Hub**: registry、job、承認、公式run、release、例外を管理する管理者専用book。Legacyのcopyではなく、空Spreadsheetへ中央Admin runtimeだけをbindingします。
+- **年度計画ポータル**: 全社員が既存Client FY Bookを探し、未作成のclient×FYを申請する共通入口。Admin Hubとは別の最小権限runtimeです。
 - **Master Template**: 実クライアントデータを持たないimmutableなClient FY Book生成release。Client専用runtimeと表示3シートだけを持ちます。
 - **Client FY Book**: 1 client × 1 FY。従業員入力、予測・計画、振り返りだけを表示。
 - **Admin Audit Folder**: AI raw JSON、公式凍結時のbackup、監査exportを保存。
@@ -27,6 +28,8 @@ Forecast vNext は、未来の売上を一点で「当てる」ものではな�
 管理情報を単に隠すのではなく、Client FY Bookへ置かないことが基本方針です。Client FY Bookの非表示シートは、同一クライアント内の誤編集と認知負荷を抑えるためだけに使います。
 
 Admin HubとMaster Templateはいずれもlegacy bookのコピーではありません。bootstrap元の中央projectが空のSpreadsheetを作り、Apps Script APIでAdmin用の完全runtimeまたは[`client_runtime`](./client_runtime/README.md)の最小runtimeだけをbindingします。生成Hubにはsource/target script IDとcanonical runtime SHA-256を管理者専用設定として記録し、以後はAdmin Sidebarの1操作で中央clasp配備版へ更新できます。したがってClient FY BookのApps Script projectには、Admin処理、ZAC source ID、Vertex設定、AI raw、prompt、予測エンジンを含めません。Client側のOAuth scopeも、現在のブック、UI、利用者メールだけに限定します。
+
+年度計画ポータルも空Spreadsheetへ[`portal_runtime`](./portal_runtime/README.md)だけをbindingします。通常表示は`ホーム`と`FYyyyy`タブで、Client名、状態、Forecast Owner、次の対応、専用bookリンクをHub正本から投影します。新規作成は「年度・クライアント・Forecast Owner」を中心としたサイドバーから依頼し、Portal内の追記型stagingをAdmin workerが検証して非同期生成します。同じclient×FYはTemplate releaseが変わっても1冊だけです。
 
 公開済みMaster Templateは手編集するworking sheetではなく、immutable release artifactです。社員画面、MEMO、書式をシート上で改訂する場合は、Admin Hubから管理者限定の`TEMPLATE_DRAFT`を作り、その表示3シートだけを編集します。公開操作はdraft（code-only更新時は現ACTIVEの表示3シート）を新しいclean Templateへコピーし、Client runtime・表示内容・版の組を検証してからpointerを切り替えます。表示3シートのvalues/formulas/notes/format/validation等はcanonical hashへ結び付けられ、公開後の直接編集を検出した場合は新規Client生成を停止します。既存Clientはreleaseに固定されます。
 
@@ -47,6 +50,8 @@ Client側に残る追記型イベントは、初期版では**未信頼のステ
 7. 実績確定後は公式runだけを評価し、次年度の情報収集とモデルreleaseへ反映する。
 
 ホームには状態に応じた主操作を1つだけ表示し、同じ「次の作業を始める」ボタンが現在状態に対応する画面を開きます。ボタンが利用できない環境でも、上部の「年度計画」メニュー4項目から同じ操作を行えます。
+
+Client FY Bookと年度計画ポータルは、会社Workspaceドメイン内のリンク共有を選択できます。これは「誰がForecast Ownerか」とは別の概念です。社内ユーザーは担当登録がなくても閲覧と情報提供ができ、Forecast Ownerだけが予測依頼・計画提出を行います。回答完了判定は、Portal作成時に指定したOwner／関与メンバーの有限集合だけで計算し、自由参加者の未回答で処理を停止しません。Admin Hub、Template、監査folderは引き続きprivateです。
 
 AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した場合は、失敗をAdmin例外とrun監査へ残し、AI差分を0として継続性・案件・現場情報で予測を完了し、情報不足分だけ通常の振れ幅を広げます。AI取消の比較runは、元runが保存した有効evidence ID集合、非AI入力hash、model/version、as-of、seed、simulation数を再検証します。非AI入力が変わっていればAIだけの反実仮想とは呼ばず、通常の新runを要求します。
 
@@ -82,7 +87,7 @@ AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した
 - 承認時はHubにあるSUCCESS runとSUBMITTED planからsnapshotを再構築し、組合せを検証してから公式vintageを凍結します。
 - 正式計画の訂正は、現在の公式vintageを参照するamendmentとしてだけ発行します。
 - 実績評価は、対象FYの確定実績と現在の公式vintageを検証してから生成します。
-- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、15ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
+- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、16ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
 - Client runtime/UI改修は現行Templateを上書きしません。管理者限定Draft（code-only更新は現ACTIVE UI）から新しいprivate `STAGED` Templateを作り、そのrelease IDへ厳密に結び付いたPASS済みModel candidateとの組だけを有効化します。canonical pair pointerをCASで切り替え、property cache更新後にだけ旧TemplateをRETIREDへ移します。各phaseは追記型journalへ残るため、中断後も同じoperation IDから再開できます。
 - Client FY BookはAdmin管理のprivate root配下へだけ生成します。任意の共有folderや、共有境界を証明できない保存先はfail-closedで拒否します。
 

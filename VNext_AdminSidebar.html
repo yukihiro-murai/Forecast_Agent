@@ -113,6 +113,14 @@
       </div>
 
       <div class="card">
+        <h2>社員向け年度計画ポータル</h2>
+        <p class="muted">社員が年度別のClient bookを探し、未作成のclient×FYを申請する共通入口です。Admin Hubは共有しません。</p>
+        <label>会社ドメイン（空欄は管理者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
+        <label>ポータル名（任意）<input id="portalTitle" placeholder="年度計画ポータル"></label>
+        <button class="good" onclick="provisionSharedPortal()">社員ポータルを準備する</button>
+      </div>
+
+      <div class="card">
         <h2>クライアント年度bookを作成</h2>
         <label>クライアント名<input id="clientName"></label>
         <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
@@ -469,6 +477,17 @@
         };
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminProvisionClient(req);
+      }
+      function provisionSharedPortal() {
+        setBusy(true); showStatus('社員向け年度計画ポータルを安全な専用bookとして準備しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false);
+          const url = result && result.spreadsheetUrl;
+          showStatus(url ? `社員ポータルを準備しました。\n${url}` : result);
+          load();
+        }).withFailureHandler(onFailure).vNextAdminProvisionSharedPortal({
+          employeeDomain:value('portalEmployeeDomain'), title:value('portalTitle')
+        });
       }
       function publishTemplateRelease() {
         const reason = value('templateReleaseReason');

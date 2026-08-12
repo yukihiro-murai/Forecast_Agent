@@ -1,0 +1,12 @@
+{
+  "name": "forecast-vnext-portal-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/portal-runtime.test.mjs",
+    "verify": "node scripts/verify.mjs --dir src",
+    "build": "node scripts/build.mjs --emit-gas-bundle ../VNext_PortalRuntimeBundle.js",
+    "check": "npm test && npm run build"
+  }
+}

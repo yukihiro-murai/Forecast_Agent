@@ -17,6 +17,7 @@ await checkGlobalFunctionNames();
 await runCoreAndEngineTests();
 await checkClientSchemaCompatibility();
 await checkClientBundleBoundary();
+await checkPortalRuntimeBoundary();
 await checkAdminRecoveryContracts();
 await checkAdminCoverageContracts();
 checkSourceContract();
@@ -151,6 +152,49 @@ async function checkClientBundleBoundary() {
     'https://www.googleapis.com/auth/spreadsheets.currentonly',
     'https://www.googleapis.com/auth/userinfo.email'
   ]);
+}
+
+async function checkPortalRuntimeBoundary() {
+  const sandbox = gasSandbox();
+  vm.createContext(sandbox);
+  vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
+  const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
+  assert.equal(bundle.version, 'vnext-portal-1.0.0');
+  assert.equal(bundle.files.length, 4);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
+    ['Portal_Core', 'Portal_CreateSidebar', 'Portal_UX', 'appsscript'].sort()
+  );
+  const sourceDir = path.join(root, 'portal_runtime', 'src');
+  const generated = [];
+  for (const name of (await readdir(sourceDir)).filter(name => /\.(?:js|html|json)$/.test(name)).sort()) {
+    const extension = path.extname(name);
+    generated.push({
+      name: path.basename(name, extension),
+      type: extension === '.html' ? 'HTML' : extension === '.json' ? 'JSON' : 'SERVER_JS',
+      source: await readFile(path.join(sourceDir, name), 'utf8')
+    });
+  }
+  const hash = createHash('sha256').update(
+    generated.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
+  ).digest('hex');
+  assert.deepEqual(JSON.parse(JSON.stringify(bundle.files)), generated,
+    'Portal GAS bundle must exactly match isolated portal runtime sources');
+  assert.equal(bundle.sha256, hash);
+  const manifest = JSON.parse(generated.find(file => file.name === 'appsscript').source);
+  assert.deepEqual(manifest.oauthScopes.slice().sort(), [
+    'https://www.googleapis.com/auth/script.container.ui',
+    'https://www.googleapis.com/auth/spreadsheets.currentonly',
+    'https://www.googleapis.com/auth/userinfo.email'
+  ].sort());
+  const portalSandbox = gasSandbox();
+  vm.createContext(portalSandbox);
+  vm.runInContext(await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8'), portalSandbox);
+  assert.equal(portalSandbox.vNextPortalNormalizeClientName_('株式会社 テスト'), 'テスト');
+  assert.equal(portalSandbox.vNextPortalSafeBookUrl_('https://example.com/bad'), '');
+  const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
+  assert.match(adminSidebar, /社員ポータルを準備する/);
+  assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
 }
 
 async function checkAdminRecoveryContracts() {
@@ -408,6 +452,74 @@ async function checkAdminCoverageContracts() {
   assert.equal(queueMetrics.running, 1);
   assert.equal(queueMetrics.oldestQueuedAgeMinutes, 20);
   assert.equal(queueMetrics.staleQueued, 1);
+  assert.equal(sandbox.vNextAdminPortalCanonicalClientKey_({clientName:'株式会社 テスト'}),
+    sandbox.vNextAdminPortalCanonicalClientKey_({clientName:'テスト'}));
+  assert.notEqual(sandbox.vNextAdminPortalCanonicalClientKey_({client_id:'CLIENT-A', client_name:'A'}),
+    sandbox.vNextAdminPortalCanonicalClientKey_({client_id:'CLIENT-B', client_name:'B'}),
+    'BOOK_REGISTRY snake_case rows must produce distinct Portal directory keys');
+  assert.equal(sandbox.vNextAdminNormalizeDomain_('@Example.COM'), 'example.com');
+
+  const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
+  const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;
+  sandbox.DriveApp = { getFileById: id => ({ id }) };
+  sandbox.vNextAdminSpreadsheetAccessible_ = () => true;
+  sandbox.vNextAdminAssertEmployeeFileSharing_ = () => true;
+  try {
+    assert.equal(sandbox.vNextAdminPortalExistingBookAccess_(
+      {employeeDomain:'example.com'},
+      {spreadsheet_id:'SHEET-1', access_policy:'PRIVATE', internal_domain:'example.com'}
+    ).reusable, false, 'A private existing Client must not be returned as a completed Portal URL');
+    assert.equal(sandbox.vNextAdminPortalExistingBookAccess_(
+      {employeeDomain:'example.com'},
+      {spreadsheet_id:'SHEET-1', access_policy:'INTERNAL_OPEN', internal_domain:'example.com'}
+    ).reusable, true, 'An already verified employee-open Client may be reused');
+  } finally {
+    sandbox.vNextAdminSpreadsheetAccessible_ = originalAccessible;
+    sandbox.vNextAdminAssertEmployeeFileSharing_ = originalSharingAssert;
+  }
+
+  const originalPortalHarvest = sandbox.vNextAdminHarvestPortalRequests_;
+  const originalReadTableForPortal = sandbox.vNextAdminReadTable_;
+  const originalAppendExceptionForPortal = sandbox.vNextAdminAppendException_;
+  let isolatedPortalExceptions = 0;
+  sandbox.vNextAdminHarvestPortalRequests_ = () => { throw new Error('portal-offline'); };
+  sandbox.vNextAdminReadTable_ = () => ({rows:[]});
+  sandbox.vNextAdminAppendException_ = () => { isolatedPortalExceptions++; };
+  try {
+    const isolated = sandbox.vNextAdminHarvestPortalRequestsSafely_({});
+    assert.equal(isolated.queued, 0);
+    assert.match(isolated.isolatedError, /portal-offline/);
+    assert.equal(isolatedPortalExceptions, 1,
+      'A Portal harvest failure must be isolated and surfaced without throwing out of the scheduler');
+  } finally {
+    sandbox.vNextAdminHarvestPortalRequests_ = originalPortalHarvest;
+    sandbox.vNextAdminReadTable_ = originalReadTableForPortal;
+    sandbox.vNextAdminAppendException_ = originalAppendExceptionForPortal;
+  }
+
+  const originalReadTableForLease = sandbox.vNextAdminReadTable_;
+  const originalUpdateForLease = sandbox.vNextAdminUpdateTableRow_;
+  const originalMarkPortalFailed = sandbox.vNextAdminMarkPortalJobFailed_;
+  const originalAppendExceptionForLease = sandbox.vNextAdminAppendException_;
+  let exhaustedPortalFailures = 0;
+  sandbox.vNextAdminReadTable_ = (_hub, name) => ({rows: name === 'JOB_QUEUE' ? [{
+    _rowNumber:2, job_id:'JOB-PORTAL', job_type:'PORTAL_PROVISION_CLIENT', target_book_id:'REQ-1',
+    status:'RUNNING', attempts:3, locked_at:'2000-01-01T00:00:00.000Z', request_json:'{}'
+  }] : []});
+  sandbox.vNextAdminUpdateTableRow_ = () => {};
+  sandbox.vNextAdminMarkPortalJobFailed_ = () => { exhaustedPortalFailures++; return true; };
+  sandbox.vNextAdminAppendException_ = () => {};
+  try {
+    const recovery = sandbox.vNextAdminRecoverStaleLeases_({}, 20);
+    assert.equal(recovery.failedJobs, 1);
+    assert.equal(exhaustedPortalFailures, 1,
+      'An exhausted Portal lease must append a terminal Portal failure event');
+  } finally {
+    sandbox.vNextAdminReadTable_ = originalReadTableForLease;
+    sandbox.vNextAdminUpdateTableRow_ = originalUpdateForLease;
+    sandbox.vNextAdminMarkPortalJobFailed_ = originalMarkPortalFailed;
+    sandbox.vNextAdminAppendException_ = originalAppendExceptionForLease;
+  }
 
   for (const contract of [
     'function vNextAdminRollbackAiEvidence(', "case 'AI_ROLLBACK_FORECAST'",
@@ -422,7 +534,35 @@ async function checkAdminCoverageContracts() {
     "TEMPLATE_JOURNAL: 'TEMPLATE_RELEASE_JOURNAL'", 'VNEXT_TEMPLATE_UI_V2',
     'function vNextAdminCopyAndVerifyTemplateUi_(', 'function vNextAdminAssertPrivateAdminFile_(',
     'function vNextAdminApprovePilotCanary(', 'function vNextAdminPrepareClientDestinationFolder_('
+    , 'function vNextAdminProvisionSharedPortal(', 'function vNextAdminHarvestPortalRequests_('
+    , "case 'PORTAL_PROVISION_CLIENT'", 'function vNextAdminRefreshPortalDirectory_('
+    , 'function vNextAdminApplyEmployeeFileSharing_(', 'function vNextAdminAssertEmployeeFileSharing_('
   ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
+  const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
+  const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
+  const provision = source.slice(provisionStart, provisionEnd);
+  const duplicateStart = provision.indexOf('const existing = vNextAdminFindRegistryRow_');
+  const duplicateEnd = provision.indexOf('if (existing)', duplicateStart);
+  assert.equal(provision.slice(duplicateStart, duplicateEnd).includes('template_release_id'), false,
+    'Client/FY duplicate identity must not include Template release');
+  assert.ok(source.includes('portalRequests: vNextAdminHarvestPortalRequestsSafely_(hub)') &&
+    source.includes("jobType: 'PORTAL_PROVISION_CLIENT'") &&
+    source.includes("'PORTAL_PROVISION|' + vNextAdminPortalCanonicalClientKey_"),
+    'Portal request harvest must enqueue idempotent async provisioning during scheduled maintenance');
+  const portalDirectoryStart = source.indexOf('function vNextAdminRefreshPortalDirectory_');
+  const portalDirectoryEnd = source.indexOf('function vNextAdminPortalNextAction_', portalDirectoryStart);
+  assert.ok(source.slice(portalDirectoryStart, portalDirectoryEnd)
+    .includes("String(row.status || '').toUpperCase() === 'ACTIVE'"),
+    'Portal directory must expose only ACTIVE Client books');
+  assert.ok(source.includes('function vNextAdminPortalExistingBookAccess_(') &&
+    source.includes("detailCode: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED')"),
+    'Private or mismatched existing duplicates must require Admin action instead of returning a completed URL');
+  assert.ok(source.includes("String(job.job_type || '') === 'PORTAL_PROVISION_CLIENT'") &&
+    source.includes("vNextAdminMarkPortalJobFailed_(hub, job, 'Lease expired after 3 attempts.')"),
+    'Exhausted Portal jobs must publish a terminal FAILED event');
+  assert.ok(source.includes("targetMode: 'CLIENT', accessPolicy: accessPolicy") &&
+    source.includes("targetMode: 'PORTAL', accessPolicy: 'INTERNAL_OPEN'"),
+    'Domain sharing must be explicitly limited to employee-facing Client and Portal files');
   assert.ok(source.includes("['FORECAST_REQUEST', 'AI_ROLLBACK_FORECAST']"),
     'Lease exhaustion recovery must include AI rollback forecast jobs');
   const harvestStart = source.indexOf('function vNextAdminHarvestClientRequests_');

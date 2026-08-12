@@ -1,0 +1,95 @@
+# Forecast vNext Shared Portal Runtime
+
+全社員がクライアント別年度計画を探し、存在しなければ作成依頼を送るための、Spreadsheet-bound最小runtimeです。個別クライアントの予測計算や外部データ取得は行いません。
+
+## 社員画面
+
+- `ホーム`: 作成依頼の受付・作成中・完成・要確認を一覧表示
+- `FYyyyy`: 1行を「1クライアント × 1年度」とする年度別一覧
+- メニュー（3項目のみ）: `ホームに戻る` / `新しい年度計画を作る` / `使い方・困ったとき`
+
+専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。Forecast Ownerは権限ではなく作業分担です。
+
+## Request API
+
+社員向け公開関数:
+
+- `vNextPortalGetCreateModel()`
+- `vNextPortalPreviewCreation(input)`
+- `vNextPortalSubmitCreationRequest(input)`
+- `vNextPortalGoHome()`
+- `vNextPortalOpenCreateSidebar()`
+- `vNextPortalOpenHelp()`
+
+`vNextPortalPreviewCreation`は次のexact keysだけを受け入れます。
+
+```text
+clientId, clientName, fiscalYear, forecastOwnerEmail, relatedMembersText
+```
+
+`vNextPortalSubmitCreationRequest`は次のexact keysだけを受け入れます。
+
+```text
+clientId, clientName, confirmSimilarDuplicates, duplicateCheckHash,
+fiscalYear, forecastOwnerEmail, relatedMembersText
+```
+
+候補確認hashは、同じFYの`PORTAL_DIRECTORY`と処理中のローカル依頼を再読込して生成します。送信時にロック内で再計算し、候補が増減していれば再確認を要求します。同一IDまたは正規化名の完全一致は送信を止め、類似名は社員の明示確認を必須にします。
+
+## `VN_PORTAL_REQUEST` contract
+
+列順は固定です。
+
+```text
+request_event_id, request_id, event_type, status, request_hash, request_json,
+fiscal_year, client_id, client_name, forecast_owner_email,
+related_member_emails_json, requested_at, requested_by, related_book_id,
+related_book_url, detail_code, detail_message, created_at, created_by
+```
+
+runtimeは`REQUESTED / PENDING`だけをappendします。`request_json`は次のexact payloadをcanonical JSON化したもの、`request_hash`はそのUTF-8 SHA-256です。
+
+```text
+clientId, clientName, fiscalYear, forecastOwnerEmail, relatedMemberEmails,
+requestId, requestType, requestedAt, requestedBy, schemaVersion
+```
+
+固定値:
+
+- `requestType = CREATE_CLIENT_FY_BOOK`
+- `schemaVersion = vnext-portal-request-1`
+
+非同期処理側は同じ`request_id`と`request_hash`を使い、同じテーブルへ状態イベントをappendします。推奨ペア:
+
+| event_type | status | 意味 |
+|---|---|---|
+| `VALIDATION_STARTED` | `VALIDATING` | 内容確認中 |
+| `CREATION_STARTED` | `CREATING` | 専用ブック作成中 |
+| `COMPLETED` | `COMPLETED` | URL利用可能 |
+| `FAILED` | `FAILED` | 再試行可能な失敗 |
+| `REJECTED` | `REJECTED` | 重複等の人による確認が必要 |
+
+`COMPLETED`では`related_book_id`と`related_book_url`を設定します。失敗・差戻し理由は`detail_code`と社員向け`detail_message`へ入れます。元の`REQUESTED`行は更新しません。
+非`REQUESTED`イベントの`request_json`は空欄にします。runtimeはevent/statusペア、元requestと同じhash、URL形式を検証し、不正な状態行を表示へ採用しません。
+
+## `PORTAL_DIRECTORY` contract
+
+列順は固定です。
+
+```text
+directory_event_id, directory_key, fiscal_year, client_id, client_name,
+forecast_owner_email, related_member_emails_json, state, center_forecast,
+adopted_forecast, final_budget, next_action, client_book_url, request_id,
+updated_at, updated_by
+```
+
+同じ`directory_key`の最終行を現在値として表示するappend projectionです。URLはGoogle SpreadsheetのHTTPS URLだけをリンク化します。
+
+## Build and verification
+
+```bash
+cd portal_runtime
+npm run check
+```
+
+生成物`../VNext_PortalRuntimeBundle.js`は、検証済み4ファイルだけを`VNEXT_PORTAL_RUNTIME_BUNDLE_`として保持します。runtime manifestは`container.ui`、`spreadsheets.currentonly`、`userinfo.email`の3 scopeだけです。

@@ -20,6 +20,12 @@ var VNEXT_CLIENT_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
+var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
+  Portal_Core: 'SERVER_JS',
+  Portal_CreateSidebar: 'HTML',
+  Portal_UX: 'SERVER_JS',
+  appsscript: 'JSON'
+});
 var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   Forecast_Agent: 'SERVER_JS',
   VNext_AI: 'SERVER_JS',
@@ -32,11 +38,45 @@ var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   VNext_HelpSidebar: 'HTML',
   VNext_InputSidebar: 'HTML',
   VNext_PlanSidebar: 'HTML',
+  VNext_PortalRuntimeBundle: 'SERVER_JS',
   VNext_ReviewSidebar: 'HTML',
   VNext_Tests: 'SERVER_JS',
   VNext_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
+
+/** Creates a clean employee Portal Spreadsheet with only the portal-safe runtime. */
+function vNextPortalRuntimeCreateBoundSpreadsheet_(request) {
+  try {
+    vNextClientRuntimeRequireConfigurator_();
+    var req = request || {};
+    var title = String(req.title || '').trim();
+    if (!title || title.length > 200) throw new Error('title is required and must be 200 characters or fewer.');
+    var bundle = vNextPortalRuntimeVerifiedBundle_();
+    var spreadsheet = SpreadsheetApp.create(title);
+    var file = DriveApp.getFileById(spreadsheet.getId());
+    if (req.folderId) file.moveTo(DriveApp.getFolderById(String(req.folderId)));
+    try {
+      var project = vNextClientRuntimeApiRequest_('/projects', 'post', {
+        title: title + ' Employee Portal Runtime', parentId: spreadsheet.getId()
+      });
+      if (!project || !project.scriptId) throw new Error('Apps Script API did not return scriptId.');
+      vNextClientRuntimePutContent_(project.scriptId, bundle);
+      vNextClientRuntimeAssertBoundParent_(project.scriptId, spreadsheet.getId());
+      return {
+        spreadsheetId: spreadsheet.getId(), spreadsheetUrl: spreadsheet.getUrl(),
+        scriptId: project.scriptId, runtimeVersion: bundle.version, bundleSha256: bundle.sha256
+      };
+    } catch (installError) {
+      try { file.setName('[SETUP FAILED] ' + title); } catch (ignoredRename) {}
+      throw new Error('Portal runtimeのbindingに失敗しました。spreadsheetId=' + spreadsheet.getId() +
+        '; cause=' + vNextClientRuntimeErrorText_(installError));
+    }
+  } catch (error) {
+    Logger.log('[vNext Portal Runtime] create failed: ' + vNextClientRuntimeErrorText_(error));
+    throw error;
+  }
+}
 
 /**
  * Creates a new blank Master Template container with a client-only bound script.
@@ -264,7 +304,7 @@ function vNextAdminRuntimeVerifyScriptContent_(content, expectedScriptId) {
 function vNextAdminRuntimeValidateFiles_(files) {
   var expectedNames = Object.keys(VNEXT_ADMIN_RUNTIME_FILE_TYPES_).sort();
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
-    throw new Error('Admin runtime must contain exactly the 15 clasp-target files.');
+    throw new Error('Admin runtime must contain exactly the ' + expectedNames.length + ' clasp-target files.');
   }
   var byName = {};
   files.forEach(function (file) {
@@ -376,6 +416,38 @@ function vNextClientRuntimeValidateManifest_(source) {
     throw new Error('Client runtime manifest OAuth scopes do not match the minimal allowlist.');
   }
   return manifest;
+}
+
+function vNextPortalRuntimeValidateFiles_(files) {
+  var expectedNames = Object.keys(VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
+  if (!Array.isArray(files) || files.length !== expectedNames.length) {
+    throw new Error('Portal runtime must contain exactly three portal files and one manifest.');
+  }
+  var byName = {};
+  files.forEach(function (file) {
+    var name = String(file && file.name || '');
+    if (!Object.prototype.hasOwnProperty.call(VNEXT_PORTAL_RUNTIME_FILE_TYPES_, name) || byName[name]) {
+      throw new Error('Portal runtime file allowlist mismatch: ' + name);
+    }
+    if (String(file.type || '') !== VNEXT_PORTAL_RUNTIME_FILE_TYPES_[name] || typeof file.source !== 'string') {
+      throw new Error('Portal runtime file contract mismatch: ' + name);
+    }
+    byName[name] = { name: name, type: String(file.type), source: file.source };
+  });
+  var ordered = expectedNames.map(function (name) {
+    if (!byName[name]) throw new Error('Portal runtime file is missing: ' + name);
+    return byName[name];
+  });
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source);
+  var combined = ordered.map(function (file) { return file.source; }).join('\n');
+  [
+    /VNext_Admin|VNext_Engine|vNextRunForecast_|DriveApp|UrlFetchApp|SpreadsheetApp\.openById/,
+    /FORECAST_SOURCE_SPREADSHEET_ID|VNEXT_ZAC_SOURCE_SPREADSHEET_ID|VERTEX_[A-Z_]+/,
+    /PropertiesService|ScriptApp|auth\/drive|auth\/script\.projects|auth\/cloud-platform/
+  ].forEach(function (pattern) {
+    if (pattern.test(combined)) throw new Error('Portal runtime contains a forbidden capability: ' + pattern);
+  });
+  return ordered;
 }
 
 function vNextClientRuntimeRejectForbiddenContent_(files) {
@@ -588,6 +660,15 @@ function vNextClientRuntimeVerifiedBundle_() {
   var files = vNextClientRuntimeValidateFiles_(bundle.files || []);
   var digest = vNextClientRuntimeFilesSha256_(files);
   if (digest !== String(bundle.sha256 || '')) throw new Error('Client runtime bundle hash mismatch.');
+  return bundle;
+}
+
+function vNextPortalRuntimeVerifiedBundle_() {
+  if (typeof VNEXT_PORTAL_RUNTIME_BUNDLE_ === 'undefined') throw new Error('VNext_PortalRuntimeBundle.js is not deployed.');
+  var bundle = VNEXT_PORTAL_RUNTIME_BUNDLE_;
+  var files = vNextPortalRuntimeValidateFiles_(bundle.files || []);
+  var digest = vNextClientRuntimeFilesSha256_(files);
+  if (digest !== String(bundle.sha256 || '')) throw new Error('Portal runtime bundle hash mismatch.');
   return bundle;
 }
 

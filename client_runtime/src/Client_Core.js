@@ -181,6 +181,10 @@ function vNextGetBookContext_(options) {
     if (owners.length !== 1) throw new Error('Forecast Ownerは1名である必要があります。');
     var team = vNextClientJsonArray_(meta.team_member_emails_json).map(vNextClientNormalizeEmail_).filter(Boolean);
     owners.forEach(function (owner) { if (team.indexOf(owner) < 0) team.push(owner); });
+    var accessPolicy = String(config.access_policy || '').trim().toUpperCase();
+    var internalDomain = vNextClientNormalizeDomain_(config.internal_domain);
+    var isInternalUser = accessPolicy === 'INTERNAL_OPEN' &&
+      Boolean(internalDomain) && vNextClientEmailDomain_(userEmail) === internalDomain;
     var inputRoundCutoff = vNextClientLatestInputRoundCutoff_(metas);
     var evidence = vNextReadRecords_('EVIDENCE_EVENT', { spreadsheet: ss }).filter(function (row) {
       return String(row.book_id || '') === bookId &&
@@ -193,7 +197,10 @@ function vNextGetBookContext_(options) {
     var answered = team.filter(function (email) { return Boolean(latestByActor[email]); }).length;
     var latestResponses = team.map(function (email) { return latestByActor[email] && String(latestByActor[email].response_type || '').toUpperCase(); }).filter(Boolean);
     var isTeamMember = team.indexOf(userEmail) >= 0;
-    var role = owners.indexOf(userEmail) >= 0 ? 'FORECAST_OWNER' : (isTeamMember ? 'MEMBER' : 'VIEWER');
+    var canContribute = isTeamMember || isInternalUser;
+    var role = owners.indexOf(userEmail) >= 0
+      ? 'FORECAST_OWNER'
+      : (isTeamMember ? 'MEMBER' : (isInternalUser ? 'INTERNAL_CONTRIBUTOR' : 'VIEWER'));
     var ownEvidence = latestByActor[userEmail] || null;
     return {
       mode: 'CLIENT_BOOK',
@@ -207,6 +214,8 @@ function vNextGetBookContext_(options) {
       role: role,
       isForecastOwner: role === 'FORECAST_OWNER',
       isTeamMember: isTeamMember,
+      isInternalUser: isInternalUser,
+      canContribute: canContribute,
       forecastOwnerEmails: owners,
       userEmail: userEmail,
       inputStatus: {
@@ -259,7 +268,7 @@ function vNextAppendEvidence_(payload, options) {
     var opt = options || {};
     var ss = opt.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
     var context = vNextGetBookContext_({ spreadsheet: ss, bookId: payload && payload.bookId });
-    if (!context.isTeamMember) throw new Error('登録された情報提供メンバーだけが回答できます。');
+    if (!context.canContribute) throw new Error('登録メンバー、または社内アカウントだけが回答できます。');
     if (['INPUT_OPEN', 'READY_TO_RUN'].indexOf(context.state) < 0) throw new Error('現在は回答期間ではありません。');
     var responseType = vNextClientResponseType_(payload && payload.responseType);
     var direction = responseType === 'CHANGE' ? vNextClientDirection_(payload.direction) : 'NEUTRAL';
@@ -511,6 +520,17 @@ function vNextClientEmails_(value) {
 }
 
 function vNextClientNormalizeEmail_(value) { return String(value || '').trim().toLowerCase(); }
+
+function vNextClientEmailDomain_(value) {
+  var email = vNextClientNormalizeEmail_(value);
+  var separator = email.lastIndexOf('@');
+  return separator > 0 && separator < email.length - 1 ? email.slice(separator + 1) : '';
+}
+
+function vNextClientNormalizeDomain_(value) {
+  var domain = String(value || '').trim().toLowerCase().replace(/^@/, '');
+  return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) && domain.indexOf('.') > 0 ? domain : '';
+}
 
 function vNextClientJsonArray_(value) {
   if (Array.isArray(value)) return value.slice();
