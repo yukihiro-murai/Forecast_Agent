@@ -1416,8 +1416,8 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       canary: {
         status: 'PASS',
         basis: 'CLIENT_AND_PORTAL_RUNTIME_CONTRACT_TESTS',
-        clientRuntimeTests: 12,
-        portalRuntimeTests: 7,
+        clientRuntimeTests: 10,
+        portalRuntimeTests: 11,
         integrationContractTests: 'PASS',
         reviewedBy: vNextAdminActor_(),
         evidenceArtifact: vNextAdminRequiredText_(req.evidenceArtifact, 'evidenceArtifact')
@@ -1494,13 +1494,18 @@ function vNextAdminPrepareEmployeePortalPilotForManualTest() {
   const answer = ui.alert(
     '社員ポータルPilotを準備',
     '次の検証結果を確認したうえで実行します。\n\n' +
-      '・Client runtime behavior: 12件 PASS\n' +
-      '・Portal runtime behavior: 7件 PASS\n' +
+      '・Client runtime behavior: 10 suites PASS\n' +
+      '・Portal runtime behavior: 11 suites PASS\n' +
       '・vNext統合契約test: PASS\n\n' +
       '現在の予測Engine・parameterは変更しません。続行しますか？',
     ui.ButtonSet.YES_NO
   );
   if (answer !== ui.Button.YES) return { ok: false, cancelled: true };
+  return vNextAdminPrepareEmployeeUxReleaseForManualTest();
+}
+
+/** No-UI editor fallback that publishes and activates the currently verified employee UX release. */
+function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
   const clientBundle = vNextClientRuntimeVerifiedBundle_();
   const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
     ? vNextPortalRuntimeVerifiedBundle_()
@@ -1509,10 +1514,10 @@ function vNextAdminPrepareEmployeePortalPilotForManualTest() {
     attestationConfirmed: true,
     evidenceArtifact: vNextAdminCanonicalJson_({
       verifiedAt: '2026-08-12',
-      clientRuntimeTests: 12,
+      clientRuntimeTests: 10,
       clientRuntimeVersion: clientBundle.version,
       clientRuntimeSha256: clientBundle.sha256,
-      portalRuntimeTests: 7,
+      portalRuntimeTests: 11,
       portalRuntimeVersion: portalBundle.version,
       portalRuntimeSha256: portalBundle.sha256,
       integrationContractTests: 'PASS'
@@ -4814,6 +4819,57 @@ function vNextAdminRecoverPortalProvisionForManualTest() {
     return vNextAdminRequeueKnownPilotFailures_(hub);
   });
   return { retries: retries, jobs: vNextAdminProcessJobsForHub_(hub, 5) };
+}
+
+/**
+ * No-UI editor fallback for the live Pilot. It applies the dedicated empty-book
+ * upgrade only when exactly one registered Client passes the full read-only
+ * eligibility check; ambiguous or non-empty books fail closed.
+ */
+function vNextAdminUpgradeOnlyEligibleEmptyPilotForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const pair = vNextAdminReadActiveReleasePair_(hub);
+  const candidates = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.state || '').toUpperCase() === 'INPUT_OPEN' &&
+      !String(row.current_official_id || '') &&
+      String(row.template_release_id || '') !== pair.releaseId;
+  });
+  const eligible = [];
+  candidates.forEach(function (row) {
+    try {
+      eligible.push(vNextAdminUpgradeEmptyPilotClient({
+        bookId: String(row.book_id || ''), dryRun: true,
+        reason: 'Apps Script editorから従業員テスト前の安全条件を確認'
+      }));
+    } catch (ignoredIneligible) {
+      Logger.log('Empty Pilot candidate skipped book=%s reason=%s', String(row.book_id || ''),
+        String(ignoredIneligible && ignoredIneligible.message || ignoredIneligible));
+    }
+  });
+  if (eligible.length !== 1) {
+    throw new Error('安全条件を満たす空のPilot Clientが1冊に確定しませんでした: ' + eligible.length + '冊');
+  }
+  return vNextAdminUpgradeEmptyPilotClient({
+    bookId: eligible[0].bookId, dryRun: false,
+    reason: '従業員テスト開始前のUI・操作性改善'
+  });
+}
+
+/** Recovers only when exactly one empty-Pilot migration is unfinished. */
+function vNextAdminRecoverOnlyEmptyPilotForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+    return /^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase());
+  });
+  if (rows.length !== 1) {
+    throw new Error('復旧対象の空Pilot更新が1件に確定しませんでした: ' + rows.length + '件');
+  }
+  return vNextAdminRecoverEmptyPilotClientUpgrade({
+    bookId: String(rows[0].book_id || ''), migrationId: String(rows[0].migration_id || ''),
+    reason: 'Apps Script editorから中断した空Pilot更新を復旧'
+  });
 }
 
 function vNextAdminMenuOpenRegistry() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.REGISTRY); }

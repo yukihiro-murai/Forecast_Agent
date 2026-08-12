@@ -85,6 +85,10 @@ function checkRetryJournalSafety() {
     'migration phase updates must target the latest matching journal row');
   assert.match(source, /unfinishedEmptyUpgradesByBook/,
     'the Admin model must surface unfinished upgrades even after registry commit');
+  assert.match(source, /function vNextAdminUpgradeOnlyEligibleEmptyPilotForManualTest\(\)/,
+    'a no-UI, uniquely eligible Pilot fallback must remain available for editor execution');
+  assert.match(source, /function vNextAdminRecoverOnlyEmptyPilotForManualTest\(\)/,
+    'an interrupted Pilot update must have a no-UI recovery fallback');
 }
 
 function repairSandbox(input) {

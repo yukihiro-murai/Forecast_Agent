@@ -72,7 +72,7 @@ function vNextAdminContinueEmployeePortalPilotRecoveryForManualTest() {
   if (!existing) {
     const answer = ui.alert(
       '社員ポータルPilot（段階実行）',
-      'Client runtime 12件、Portal runtime 7件、統合契約test PASSを確認しましたか？\n\n' +
+      'Client runtime 10 suites、Portal runtime 11 suites、統合契約test PASSを確認しましたか？\n\n' +
         '1回につき1段階だけ進めます。完了まで同じメニューを繰り返し選択してください。',
       ui.ButtonSet.YES_NO
     );
@@ -83,10 +83,10 @@ function vNextAdminContinueEmployeePortalPilotRecoveryForManualTest() {
       attestationConfirmed: true,
       evidenceArtifact: vNextAdminCanonicalJson_({
         verifiedAt: '2026-08-12',
-        clientRuntimeTests: 12,
+        clientRuntimeTests: 10,
         clientRuntimeVersion: clientBundle.version,
         clientRuntimeSha256: clientBundle.sha256,
-        portalRuntimeTests: 7,
+        portalRuntimeTests: 11,
         portalRuntimeVersion: portalBundle.version,
         portalRuntimeSha256: portalBundle.sha256,
         integrationContractTests: 'PASS'
@@ -839,7 +839,7 @@ function vNextAdminPortalPilotRecoveryChecks_(state) {
     },
     canary: {
       status: 'PASS', basis: 'CLIENT_AND_PORTAL_RUNTIME_CONTRACT_TESTS',
-      clientRuntimeTests: 12, portalRuntimeTests: 7, integrationContractTests: 'PASS',
+      clientRuntimeTests: 10, portalRuntimeTests: 11, integrationContractTests: 'PASS',
       reviewedBy: state.actor, evidenceArtifact: state.evidenceArtifact
     }
   };

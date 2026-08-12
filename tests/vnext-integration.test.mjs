@@ -251,8 +251,8 @@ async function checkPortalRuntimeBoundary() {
   'The first Portal pilot needs an idempotent Admin-only path that also works outside Spreadsheet UI context');
   assert.ok(adminSource.includes('function vNextAdminPrepareEmployeePortalPilotForManualTest()') &&
     adminSource.includes("answer !== ui.Button.YES") &&
-    adminSource.includes('clientRuntimeTests: 12') &&
-    adminSource.includes('portalRuntimeTests: 7'),
+    adminSource.includes('clientRuntimeTests: 10') &&
+    adminSource.includes('portalRuntimeTests: 11'),
   'The manual Sheet-macro entry must require explicit Admin attestation and record the tested runtime identities');
   const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
