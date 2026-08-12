@@ -60,6 +60,11 @@
         <label>Admin Hub Spreadsheet ID<input id="recoveryHubId"></label>
         <label>Master Template Spreadsheet ID<input id="recoveryTemplateId"></label>
         <button class="warn" onclick="recoverBootstrap()">既存2冊から初期設定を再開</button>
+        <h2>生成Hubの必要APIを有効化</h2>
+        <p class="muted">Hubのエラーに表示された数字だけのCloud project番号を使い、Apps Script APIだけを有効化します。</p>
+        <label>Admin Hub Spreadsheet ID<input id="apiRecoveryHubId"></label>
+        <label>Hub Cloud project番号<input id="apiRecoveryProjectNumber" inputmode="numeric"></label>
+        <button class="warn" onclick="enableGeneratedHubApi()">生成HubのApps Script APIを有効化</button>
       </details>
     </div>
 
@@ -412,6 +417,17 @@
         setBusy(true); showStatus('生成済み2冊を検証し、未完了のRelease登録から再開しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminRecoverIncompleteBootstrap({hubSpreadsheetId, templateSpreadsheetId});
+      }
+      function enableGeneratedHubApi() {
+        const hubSpreadsheetId = value('apiRecoveryHubId');
+        const cloudProjectNumber = value('apiRecoveryProjectNumber');
+        if (!hubSpreadsheetId || !/^\d{6,20}$/.test(cloudProjectNumber)) {
+          showStatus('Admin HubのSpreadsheet IDと、エラーに表示された数字だけのCloud project番号を入力してください。', true);
+          return;
+        }
+        setBusy(true); showStatus('中央プロジェクトから生成HubのApps Script APIだけを有効化しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
+          .withFailureHandler(onFailure).vNextAdminEnableGeneratedHubAppsScriptApi({hubSpreadsheetId, cloudProjectNumber});
       }
       function provisionClient() {
         setBusy(true); showStatus('Client bookを生成しています…');

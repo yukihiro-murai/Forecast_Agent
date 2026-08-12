@@ -510,6 +510,78 @@ function vNextClientRuntimeEnableRequiredAppsScriptApi_() {
   }
 }
 
+/**
+ * Enable the fixed Apps Script API in a generated runtime's standard Cloud
+ * project from the already-authorized central source project. This breaks the
+ * first-run circular dependency where the generated project cannot call
+ * Service Usage because Service Usage itself is disabled there.
+ */
+function vNextClientRuntimeEnableAppsScriptApiForProjectNumber_(projectNumber) {
+  vNextClientRuntimeRequireConfigurator_();
+  var normalized = String(projectNumber || '').trim();
+  if (!/^\d{6,20}$/.test(normalized)) throw new Error('Cloud project number must contain 6-20 digits.');
+  var token = ScriptApp.getOAuthToken();
+  var serviceResourceUrl = 'https://serviceusage.googleapis.com/v1/projects/' + normalized +
+    '/services/script.googleapis.com';
+  var stateResponse = UrlFetchApp.fetch(serviceResourceUrl, {
+    method: 'get', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+  });
+  if (stateResponse.getResponseCode() >= 200 && stateResponse.getResponseCode() < 300) {
+    var stateBody = {};
+    try { stateBody = JSON.parse(stateResponse.getContentText() || '{}'); }
+    catch (ignoredStateJson) { stateBody = {}; }
+    if (String(stateBody.state || '').toUpperCase() === 'ENABLED') {
+      return { ok: true, alreadyEnabled: true, service: 'script.googleapis.com', projectNumber: normalized };
+    }
+  } else if (stateResponse.getResponseCode() !== 404) {
+    throw new Error('Generated Cloud project service state could not be verified status=' +
+      stateResponse.getResponseCode() + '; response=' + stateResponse.getContentText().slice(0, 800));
+  }
+  var enableResponse = UrlFetchApp.fetch(serviceResourceUrl + ':enable', {
+    method: 'post', contentType: 'application/json; charset=utf-8',
+    headers: { Authorization: 'Bearer ' + token }, payload: '{}', muteHttpExceptions: true
+  });
+  var enableStatus = enableResponse.getResponseCode();
+  if (enableStatus < 200 || enableStatus >= 300) {
+    throw new Error('Generated Cloud project Apps Script API enablement failed status=' + enableStatus +
+      '; response=' + enableResponse.getContentText().slice(0, 800));
+  }
+  var operation = {};
+  try { operation = JSON.parse(enableResponse.getContentText() || '{}'); }
+  catch (ignoredEnableJson) { operation = {}; }
+  if (operation.name && /^[A-Za-z0-9_\/-]{5,300}$/.test(String(operation.name))) {
+    var operationUrl = 'https://serviceusage.googleapis.com/v1/' + String(operation.name).replace(/^\//, '');
+    for (var operationAttempt = 0; operationAttempt < 15; operationAttempt++) {
+      var operationResponse = UrlFetchApp.fetch(operationUrl, {
+        method: 'get', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+      });
+      if (operationResponse.getResponseCode() >= 200 && operationResponse.getResponseCode() < 300) {
+        var operationBody = {};
+        try { operationBody = JSON.parse(operationResponse.getContentText() || '{}'); }
+        catch (ignoredOperationJson) { operationBody = {}; }
+        if (operationBody.error) throw new Error('Generated Cloud project API enablement operation failed.');
+        if (operationBody.done === true) break;
+      }
+      Utilities.sleep(1500);
+    }
+  }
+  for (var verifyAttempt = 0; verifyAttempt < 15; verifyAttempt++) {
+    var verifyResponse = UrlFetchApp.fetch(serviceResourceUrl, {
+      method: 'get', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+    });
+    if (verifyResponse.getResponseCode() >= 200 && verifyResponse.getResponseCode() < 300) {
+      var verifyBody = {};
+      try { verifyBody = JSON.parse(verifyResponse.getContentText() || '{}'); }
+      catch (ignoredVerifyJson) { verifyBody = {}; }
+      if (String(verifyBody.state || '').toUpperCase() === 'ENABLED') {
+        return { ok: true, alreadyEnabled: false, service: 'script.googleapis.com', projectNumber: normalized };
+      }
+    }
+    Utilities.sleep(2000);
+  }
+  throw new Error('Generated Cloud project API enablement was accepted but did not reach ENABLED state.');
+}
+
 function vNextClientRuntimeVerifiedBundle_() {
   if (typeof VNEXT_CLIENT_RUNTIME_BUNDLE_ === 'undefined') throw new Error('VNext_ClientRuntimeBundle.js is not deployed.');
   var bundle = VNEXT_CLIENT_RUNTIME_BUNDLE_;

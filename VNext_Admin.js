@@ -348,6 +348,47 @@ function vNextAdminEnableAppsScriptApi() {
   });
 }
 
+/** Enable script.googleapis.com for a clean generated Hub from the source project. */
+function vNextAdminEnableGeneratedHubAppsScriptApi(request) {
+  return vNextAdminGuard_('vNextAdminEnableGeneratedHubAppsScriptApi', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const source = SpreadsheetApp.getActiveSpreadsheet();
+    const sourceMode = vNextDetectBookMode_(source);
+    if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
+      throw new Error('Generated Hub API recovery must run from the registered source workbook.');
+    }
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const projectNumber = vNextAdminRequiredText_(req.cloudProjectNumber, 'cloudProjectNumber');
+    if (!/^\d{6,20}$/.test(projectNumber)) throw new Error('cloudProjectNumber must contain 6-20 digits.');
+    const hub = SpreadsheetApp.openById(hubId);
+    const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    if (String(hubConfig.mode || '').toUpperCase() !== 'ADMIN' ||
+        String(hubConfig.admin_hub_spreadsheet_id || '') !== hubId ||
+        String(hubConfig.admin_source_script_id || '') !== ScriptApp.getScriptId()) {
+      throw new Error('The supplied spreadsheet is not a Hub created by this central source script.');
+    }
+    const targetScriptId = vNextAdminRequiredText_(hubConfig.admin_hub_script_id, 'admin_hub_script_id');
+    if (typeof vNextAdminRuntimeAssertBoundParent_ === 'function') {
+      vNextAdminRuntimeAssertBoundParent_(targetScriptId, hubId);
+    }
+    if (typeof vNextClientRuntimeEnableAppsScriptApiForProjectNumber_ !== 'function') {
+      throw new Error('Generated runtime API recovery helper is not installed.');
+    }
+    const result = vNextClientRuntimeEnableAppsScriptApiForProjectNumber_(projectNumber);
+    vNextAdminWriteSystemConfig_(hub, {
+      admin_cloud_project_number: projectNumber,
+      admin_apps_script_api_enabled_at: new Date().toISOString(),
+      admin_apps_script_api_enabled_by: vNextAdminActor_()
+    });
+    vNextAdminWriteAudit_(hub, 'ENABLE_GENERATED_HUB_API', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
+      hubSpreadsheetId: hubId, cloudProjectNumber: projectNumber,
+      service: 'script.googleapis.com', alreadyEnabled: result.alreadyEnabled === true
+    });
+    return result;
+  });
+}
+
 /** Consumes TEMPLATE onOpen so it can never fall through to the legacy operation menu. */
 function vNextBuildTemplateMenu_() {
   try {

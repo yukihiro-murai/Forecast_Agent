@@ -166,6 +166,18 @@ async function checkAdminRecoveryContracts() {
   assert.ok(source.includes('function vNextAdminEnableAppsScriptApi()') &&
     source.includes('vNextClientRuntimeEnableRequiredAppsScriptApi_()'),
     'The admin menu must expose the fixed-service Apps Script API enablement helper');
+  assert.ok(source.includes('function vNextAdminEnableGeneratedHubAppsScriptApi(request)') &&
+    source.includes('vNextClientRuntimeEnableAppsScriptApiForProjectNumber_(projectNumber)') &&
+    source.includes("service: 'script.googleapis.com'"),
+    'A clean generated Hub must have a source-authorized, fixed-service API recovery path');
+  const provisioning = await readFile(path.join(root, 'VNext_ClientRuntimeProvisioning.js'), 'utf8');
+  const generatedApiStart = provisioning.indexOf('function vNextClientRuntimeEnableAppsScriptApiForProjectNumber_(');
+  const generatedApiEnd = provisioning.indexOf('function vNextClientRuntimeVerifiedBundle_', generatedApiStart);
+  const generatedApi = provisioning.slice(generatedApiStart, generatedApiEnd);
+  assert.ok(generatedApi.includes("'/services/script.googleapis.com'") &&
+    generatedApi.includes("String(verifyBody.state || '').toUpperCase() === 'ENABLED'") &&
+    !generatedApi.includes('req.service'),
+    'Generated runtime recovery must enable and verify only script.googleapis.com');
   const evidenceStart = source.indexOf('function vNextAdminValidateClientEvidenceRows_');
   const evidenceEnd = source.indexOf('function vNextAdminValidateClientStateRows_', evidenceStart);
   const evidenceFunction = source.slice(evidenceStart, evidenceEnd);
