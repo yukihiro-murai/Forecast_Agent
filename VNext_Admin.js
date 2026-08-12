@@ -685,6 +685,143 @@ function vNextAdminBootstrapFromCurrent(request) {
   });
 }
 
+/**
+ * Resume a bootstrap that reached the clean Hub/Template creation phase but
+ * was interrupted by the Apps Script execution limit before release records
+ * and canonical pointers were committed. The supplied IDs are mandatory so a
+ * similarly named Drive file can never be selected by accident.
+ */
+function vNextAdminRecoverIncompleteBootstrap(request) {
+  return vNextAdminGuard_('vNextAdminRecoverIncompleteBootstrap', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const source = SpreadsheetApp.getActiveSpreadsheet();
+    const sourceMode = vNextDetectBookMode_(source);
+    if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
+      throw new Error('Incomplete bootstrap recovery is allowed only from the source LEGACY/TEMPLATE workbook.');
+    }
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const templateId = vNextAdminRequiredText_(req.templateSpreadsheetId, 'templateSpreadsheetId');
+    if (hubId === templateId || hubId === source.getId() || templateId === source.getId()) {
+      throw new Error('Source, Hub and Template must be three different spreadsheets.');
+    }
+    return vNextAdminWithScriptLock_('recover-incomplete-bootstrap', function () {
+      const hub = SpreadsheetApp.openById(hubId);
+      const template = SpreadsheetApp.openById(templateId);
+      const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      const hubRouting = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_BOOK_CONFIG_SHEET);
+      const templateRouting = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
+      const templateConfig = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+      if (String(hubConfig.mode || '').toUpperCase() !== 'ADMIN' ||
+          String(hubConfig.admin_hub_spreadsheet_id || '') !== hubId ||
+          String(hubConfig.template_spreadsheet_id || '') !== templateId) {
+        throw new Error('The supplied Hub does not contain the expected bootstrap routing identity.');
+      }
+      if (String(hubRouting.book_id || '') !== String(hubConfig.book_id || '') ||
+          String(templateRouting.mode || '').toUpperCase() !== 'TEMPLATE' ||
+          String(templateConfig.mode || '').toUpperCase() !== 'TEMPLATE' ||
+          String(templateRouting.book_id || '') !== String(templateConfig.book_id || '')) {
+        throw new Error('Hub/Template BOOK_META identity is inconsistent.');
+      }
+      const releaseId = vNextAdminRequiredText_(templateRouting.version || hubConfig.active_release_id, 'releaseId');
+      const modelReleaseId = vNextAdminRequiredText_(hubConfig.active_model_release_id, 'modelReleaseId');
+      if (String(hubConfig.active_release_id || '') !== releaseId || modelReleaseId === releaseId) {
+        throw new Error('Hub and Template release identities are inconsistent.');
+      }
+      const runtime = vNextGetRuntimeConfig_();
+      const actualSourceId = vNextAdminRequiredText_(
+        hubConfig.source_spreadsheet_id || runtime.VNEXT_ZAC_SOURCE_SPREADSHEET_ID || runtime.FORECAST_SOURCE_SPREADSHEET_ID,
+        'sourceSpreadsheetId'
+      );
+      if (!vNextAdminSpreadsheetAccessible_(actualSourceId)) {
+        throw new Error('Configured forecast source spreadsheet is not accessible.');
+      }
+      const actor = vNextAdminActor_();
+      const adminEmails = vNextAdminMergeEmails_(hubConfig.admin_emails, runtime.VNEXT_ADMIN_EMAILS, actor);
+      if (adminEmails.indexOf(String(actor || '').toLowerCase()) < 0) {
+        throw new Error('Only a registered Hub Admin can resume bootstrap.');
+      }
+      const adminSourceScriptId = vNextAdminRequiredText_(hubConfig.admin_source_script_id, 'admin_source_script_id');
+      const adminHubScriptId = vNextAdminRequiredText_(hubConfig.admin_hub_script_id, 'admin_hub_script_id');
+      if (adminSourceScriptId !== ScriptApp.getScriptId()) {
+        throw new Error('Recovery must run from the central source script used to create this Hub.');
+      }
+      if (typeof vNextAdminRuntimeAssertBoundParent_ === 'function') {
+        vNextAdminRuntimeAssertBoundParent_(adminHubScriptId, hubId);
+      }
+      const now = new Date();
+      const hubBookId = vNextAdminRequiredText_(hubRouting.book_id, 'hubBookId');
+      const templateBookId = vNextAdminRequiredText_(templateRouting.book_id, 'templateBookId');
+      const clientRuntimeVersion = vNextAdminRequiredText_(templateRouting.client_runtime_version, 'clientRuntimeVersion');
+      const clientRuntimeSha256 = vNextAdminRequiredText_(templateRouting.client_runtime_bundle_sha256, 'clientRuntimeSha256');
+      const templateScriptId = vNextAdminRequiredText_(hubConfig.template_script_id, 'template_script_id');
+      const adminRuntimeSha256 = vNextAdminRequiredText_(hubConfig.admin_runtime_sha256, 'admin_runtime_sha256');
+      vNextAdminRegisterBook_(hub, {
+        book_id: hubBookId, mode: 'ADMIN', client_id: '', client_name: '', fiscal_year: '',
+        spreadsheet_id: hubId, spreadsheet_url: hub.getUrl(), template_release_id: releaseId,
+        admin_script_id: adminHubScriptId, admin_runtime_sha256: adminRuntimeSha256,
+        schema_version: VN_ADMIN_SCHEMA_VERSION, state: 'ACTIVE', status: 'ACTIVE',
+        health_status: 'OK', health_code: 'BOOTSTRAP_RECOVERED', last_health_at: now,
+        forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
+        created_at: hubRouting.created_at || now, created_by: hubRouting.created_by || actor,
+        updated_at: now, note: 'Admin Hub; incomplete bootstrap recovered'
+      });
+      vNextAdminRegisterBook_(hub, {
+        book_id: templateBookId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
+        spreadsheet_id: templateId, spreadsheet_url: template.getUrl(), template_release_id: releaseId,
+        client_script_id: templateScriptId, client_runtime_version: clientRuntimeVersion,
+        client_runtime_sha256: clientRuntimeSha256, schema_version: vNextAdminClientSchemaVersion_(),
+        state: 'TEMPLATE_READY', status: 'ACTIVE', health_status: 'OK',
+        health_code: 'BOOTSTRAP_RECOVERED', last_health_at: now,
+        forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
+        created_at: templateRouting.created_at || now, created_by: templateRouting.created_by || actor,
+        updated_at: now, note: 'Master Template; incomplete bootstrap recovered'
+      });
+      const templateHash = vNextAdminTemplateUiManifestHash_(template);
+      vNextAdminRegisterRelease_(hub, {
+        release_id: releaseId, release_name: releaseId, status: 'ACTIVE',
+        template_spreadsheet_id: templateId, schema_version: vNextAdminClientSchemaVersion_(),
+        engine_version: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : '',
+        admin_version: VN_ADMIN_SCHEMA_VERSION, client_runtime_version: clientRuntimeVersion,
+        client_runtime_sha256: clientRuntimeSha256, template_content_sha256: templateHash,
+        template_manifest_schema: VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA, template_script_id: templateScriptId,
+        created_at: templateRouting.created_at || now, created_by: templateRouting.created_by || actor,
+        activated_at: now, note: 'Initial bootstrap release; recovered after execution limit'
+      });
+      const initialModelRelease = vNextAdminEnsureInitialModelRelease_(hub, {
+        modelReleaseId: modelReleaseId,
+        modelVersion: typeof VNEXT_ENGINE !== 'undefined' ? VNEXT_ENGINE.VERSION : 'vnext-initial',
+        templateVersion: releaseId, parameters: {}, actor: actor, now: now
+      });
+      vNextAdminWriteCanonicalReleasePair_(hub, releaseId, modelReleaseId, templateId);
+      const initialTemplateRelease = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (row) {
+        return String(row.release_id || '') === releaseId;
+      });
+      vNextAdminWriteActiveReleasePairCaches_(hub, initialTemplateRelease, initialModelRelease);
+      PropertiesService.getScriptProperties().setProperties({
+        FORECAST_SOURCE_SPREADSHEET_ID: actualSourceId,
+        VNEXT_ZAC_SOURCE_SPREADSHEET_ID: actualSourceId,
+        VNEXT_ADMIN_HUB_SPREADSHEET_ID: hubId,
+        VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID: templateId,
+        VNEXT_ACTIVE_RELEASE_ID: releaseId,
+        VNEXT_ACTIVE_MODEL_RELEASE_ID: modelReleaseId
+      }, false);
+      vNextAdminWriteAudit_(hub, 'BOOTSTRAP_RECOVERY', 'WORKBOOK_SET', hubBookId, 'SUCCESS', {
+        sourceSpreadsheetId: source.getId(), forecastSourceSpreadsheetId: actualSourceId,
+        templateSpreadsheetId: templateId, releaseId: releaseId, modelReleaseId: modelReleaseId
+      });
+      vNextAdminRefreshTodayExceptions_(hub);
+      vNextAdminRefreshHome_(hub);
+      SpreadsheetApp.flush();
+      return {
+        recovered: true, hubId: hubId, hubUrl: hub.getUrl(), templateId: templateId,
+        templateUrl: template.getUrl(), releaseId: releaseId, modelReleaseId: modelReleaseId,
+        nextStep: 'Admin Hubを開いて権限を許可し、自動運用を有効化してください。'
+      };
+    });
+  });
+}
+
 /** Re-run the idempotent Hub initialization in an already copied workbook. */
 function vNextAdminActivateCurrentHub(request) {
   return vNextAdminGuard_('vNextAdminActivateCurrentHub', function () {

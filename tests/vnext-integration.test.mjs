@@ -191,6 +191,20 @@ async function checkAdminRecoveryContracts() {
     'Bootstrap must create clean, known-script Admin and Client runtime containers');
   assert.equal(bootstrap.includes('.makeCopy('), false,
     'Bootstrap must never copy the legacy bound script into the Admin Hub or Template');
+  const recoveryStart = source.indexOf('function vNextAdminRecoverIncompleteBootstrap(');
+  const recoveryEnd = source.indexOf('/** Re-run the idempotent Hub initialization', recoveryStart);
+  const recovery = source.slice(recoveryStart, recoveryEnd);
+  assert.ok(recoveryStart >= 0 &&
+    recovery.includes("vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId')") &&
+    recovery.includes("vNextAdminRequiredText_(req.templateSpreadsheetId, 'templateSpreadsheetId')") &&
+    recovery.includes('adminSourceScriptId !== ScriptApp.getScriptId()') &&
+    recovery.includes('vNextAdminRegisterRelease_(') &&
+    recovery.includes('vNextAdminWriteCanonicalReleasePair_('),
+    'Interrupted bootstrap recovery must use explicit IDs, validate the central script, and resume immutable release/pointer commits');
+  const sidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
+  assert.ok(sidebar.includes('onclick="recoverBootstrap()"') &&
+    sidebar.includes('vNextAdminRecoverIncompleteBootstrap({hubSpreadsheetId, templateSpreadsheetId})'),
+    'Legacy Admin UI must expose the explicit-ID incomplete bootstrap recovery path');
   assert.ok(source.includes('function vNextAdminUpdateHubRuntimeFromSource('),
     'Generated Admin Hubs need a centrally managed runtime update path');
   assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&

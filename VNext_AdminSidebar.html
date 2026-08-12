@@ -54,6 +54,13 @@
         </details>
         <button onclick="bootstrapBooks()">2冊を作成</button>
       </div>
+      <details class="card">
+        <summary>作成途中で時間切れになった場合</summary>
+        <p class="muted">新しいbookを増やさず、すでに作成されたclean Hub／TemplateのIDを確認して残りの登録だけを再開します。</p>
+        <label>Admin Hub Spreadsheet ID<input id="recoveryHubId"></label>
+        <label>Master Template Spreadsheet ID<input id="recoveryTemplateId"></label>
+        <button class="warn" onclick="recoverBootstrap()">既存2冊から初期設定を再開</button>
+      </details>
     </div>
 
     <div id="adminPanel" class="hidden">
@@ -394,6 +401,17 @@
         };
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminBootstrapFromCurrent(req);
+      }
+      function recoverBootstrap() {
+        const hubSpreadsheetId = value('recoveryHubId');
+        const templateSpreadsheetId = value('recoveryTemplateId');
+        if (!hubSpreadsheetId || !templateSpreadsheetId) {
+          showStatus('生成済みのAdmin HubとMaster TemplateのSpreadsheet IDを入力してください。', true);
+          return;
+        }
+        setBusy(true); showStatus('生成済み2冊を検証し、未完了のRelease登録から再開しています…');
+        google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
+          .withFailureHandler(onFailure).vNextAdminRecoverIncompleteBootstrap({hubSpreadsheetId, templateSpreadsheetId});
       }
       function provisionClient() {
         setBusy(true); showStatus('Client bookを生成しています…');
