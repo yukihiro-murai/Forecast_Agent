@@ -740,6 +740,9 @@ async function checkAdminCoverageContracts() {
   assert.ok(portalMigration.includes('const needsV2HeaderExpansion = !vNextAdminPortalUsesV2Tables_') &&
     portalMigration.includes('if (needsV2HeaderExpansion) {'),
   'Portal v1.1 to v1.2 must preserve the already-expanded v2 table headers');
+  assert.ok(portalMigration.includes('[VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)') &&
+    portalMigration.includes('.indexOf(portal.runtimeVersion) < 0'),
+  'Portal migration must allow a verified same-version runtime SHA update');
 
   const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
   const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;

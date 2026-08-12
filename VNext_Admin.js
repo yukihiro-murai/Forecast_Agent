@@ -4068,7 +4068,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           message: '社員ポータルは最新版です。ZACクライアント候補だけを更新しました。'
         };
       }
-      if (VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS.indexOf(portal.runtimeVersion) < 0) {
+      if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
+          .indexOf(portal.runtimeVersion) < 0) {
         throw new Error('Portal runtime migration source version is not allowlisted: ' + portal.runtimeVersion);
       }
       const project = vNextClientRuntimeAssertBoundParent_(portal.scriptId, portal.spreadsheetId);
