@@ -36,6 +36,32 @@ function vNextPortalGoHome() {
   }
 }
 
+/** Refreshes only Home after a creation request, avoiding a full FY-tab rebuild. */
+function vNextPortalShowRequestOnHome(requestId) {
+  try {
+    var id = vNextPortalNormalizeRequestId_(requestId);
+    var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    var home = spreadsheet.getSheetByName(VNEXT_PORTAL.HOME_SHEET);
+    if (!home) throw new Error('ホームが準備されていません。管理担当者へ連絡してください。');
+    var data = vNextPortalGetLocalViewData_(spreadsheet);
+    var request = null;
+    data.requests.some(function (item) {
+      if (item.requestId !== id) return false;
+      request = item;
+      return true;
+    });
+    if (!request) throw new Error('受付済みの依頼をホームで確認できませんでした。');
+    vNextPortalRenderHome_(home, data);
+    spreadsheet.setActiveSheet(home);
+    home.getRange('A1').activate();
+    spreadsheet.toast('受付済みです。ホームに最新状況を表示しました。', VNEXT_PORTAL.MENU_NAME, 4);
+    return vNextPortalRequestProgressModel_(request);
+  } catch (error) {
+    vNextPortalLog_('vNextPortalShowRequestOnHome failed', error);
+    throw error;
+  }
+}
+
 function vNextPortalOpenCreateSidebar() {
   try {
     var html = HtmlService.createTemplateFromFile('Portal_CreateSidebar').evaluate()
@@ -96,6 +122,9 @@ function vNextPortalRenderHome_(sheet, data) {
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124')
     .setNote('依頼後は、受付済み→内容確認中→ブック作成中→利用できます、の順で進みます。');
+  sheet.getRange('E3').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
+  sheet.getRange('F3').setValue(vNextPortalDisplayDateTime_(new Date()))
+    .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
 
   var headers = ['状態', 'クライアント', '年度', '次の案内', '更新', '開く'];
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
@@ -106,9 +135,10 @@ function vNextPortalRenderHome_(sheet, data) {
       .setFontColor('#5f6368').setFontStyle('italic');
   } else {
     var rows = requests.map(function (request) {
+      var progress = vNextPortalRequestProgressModel_(request);
       return [
         request.statusLabel, vNextPortalCellText_(request.clientName), 'FY' + request.fiscalYear,
-        vNextPortalStatusNextAction_(request.status, request.detailMessage, Boolean(request.url)),
+        vNextPortalCellText_(progress.nextAction),
         vNextPortalDisplayDateTime_(request.updatedAt), request.url ? '開く' : '準備中'
       ];
     });
@@ -119,17 +149,18 @@ function vNextPortalRenderHome_(sheet, data) {
       sheet.getRange(row, 2).setNote(
         '受付番号: ' + request.requestId + '\n' +
         '作成担当: ' + (request.forecastOwnerEmail || request.requestedBy || '確認中') + '\n' +
-        '受付日時: ' + vNextPortalDisplayDateTime_(request.requestedAt)
+        '受付日時: ' + vNextPortalDisplayDateTime_(request.requestedAt) +
+        (request.detailMessage ? '\n案内: ' + request.detailMessage : '')
       );
       if (request.url) vNextPortalWriteLink_(sheet.getRange(row, 6), request.url, '開く');
     });
-    sheet.getRange(4, 1, rows.length + 1, headers.length)
-      .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
     try { sheet.getRange(4, 1, rows.length + 1, headers.length).createFilter(); }
     catch (error) { vNextPortalLog_('Home filter creation skipped', error); }
   }
+  sheet.getRange(4, 1, Math.max(1, requests.length + 1), headers.length)
+    .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
-  sheet.setHiddenGridlines(true);
+  sheet.setHiddenGridlines(false);
   [118, 210, 76, 330, 124, 72].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
   sheet.setRowHeight(2, 24);
@@ -143,6 +174,9 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
   sheet.getRange('A2').setValue('クライアントを選び、「開く」から専用ブックへ進んでください。')
     .setFontSize(10).setFontColor('#5f6368');
+  sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
+  sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
+    .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
   var headers = ['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'];
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
@@ -159,14 +193,15 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
       if (entry.forecastOwnerEmail) people.push(entry.forecastOwnerEmail);
       var related = entry.relatedMemberNames.length ? entry.relatedMemberNames : entry.relatedMemberEmails;
       if (related.length) people.push(related.join('、'));
+      var actualShortage = /(?:実績|データ).{0,8}不足/.test(String(entry.nextAction || ''));
       return [
         entry.statusLabel,
         vNextPortalCellText_(entry.clientName),
-        entry.centerForecast,
-        entry.adoptedForecast,
-        entry.finalBudget,
+        vNextPortalDisplayPlanningValue_(entry.centerForecast, actualShortage ? '実績不足' : '未算出'),
+        vNextPortalDisplayPlanningValue_(entry.adoptedForecast, '未設定'),
+        vNextPortalDisplayPlanningValue_(entry.finalBudget, '未設定'),
         people.join(' ／ '),
-        entry.nextAction,
+        vNextPortalCellText_(entry.nextAction),
         vNextPortalDisplayDate_(entry.updatedAt),
         entry.url ? '開く' : '準備中'
       ];
@@ -175,11 +210,12 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
     sheet.getRange(5, 3, rows.length, 3).setNumberFormat('¥#,##0;[Red]-¥#,##0;―');
     entries.forEach(function (entry, index) {
       var row = 5 + index;
-      sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(entry.statusLabel)).setFontWeight('bold');
+      sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(entry.status || entry.state || entry.statusLabel)).setFontWeight('bold');
+      if (/FAILED|REJECTED|作成できません|確認が必要/i.test(String(entry.status || entry.statusLabel))) {
+        sheet.getRange(row, 7).setNote('処理を続けるには、この案内を確認してください。');
+      }
       if (entry.url) vNextPortalWriteLink_(sheet.getRange(row, 9), entry.url, '開く');
     });
-    sheet.getRange(4, 1, rows.length + 1, headers.length)
-      .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
     try {
       var existingFilter = sheet.getFilter();
       if (existingFilter) existingFilter.remove();
@@ -188,9 +224,11 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
       vNextPortalLog_('FY filter creation skipped', error);
     }
   }
+  sheet.getRange(4, 1, Math.max(1, entries.length + 1), headers.length)
+    .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
-  sheet.setHiddenGridlines(true);
-  [112, 210, 112, 112, 112, 240, 300, 106, 72].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
+  sheet.setHiddenGridlines(false);
+  [106, 190, 104, 104, 104, 210, 260, 100, 68].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
   sheet.setRowHeight(2, 24);
   vNextPortalProtectWarningOnly_(sheet, '自動生成画面（各計画の入力は専用ブックで行います）');
@@ -204,6 +242,8 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
     entries.push({
       clientId: item.clientId,
       clientName: item.clientName,
+      state: item.state,
+      status: item.state,
       statusLabel: vNextPortalDirectoryStateLabel_(item.state),
       centerForecast: item.centerForecast,
       adoptedForecast: item.adoptedForecast,
@@ -222,6 +262,7 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
     entries.push({
       clientId: request.clientId,
       clientName: request.clientName,
+      status: request.status,
       statusLabel: request.statusLabel,
       centerForecast: null,
       adoptedForecast: null,
@@ -258,6 +299,10 @@ function vNextPortalStatusColor_(value) {
   if (/COMPLETED|利用できます|OFFICIAL|正式/.test(text)) return '#137333';
   if (/PENDING|VALIDATING|CREATING|受付済み|確認中|作成中/.test(text)) return '#1a73e8';
   return '#3c4043';
+}
+
+function vNextPortalDisplayPlanningValue_(value, emptyLabel) {
+  return typeof value === 'number' && isFinite(value) ? value : String(emptyLabel || '―');
 }
 
 function vNextPortalWriteLink_(range, url, label) {

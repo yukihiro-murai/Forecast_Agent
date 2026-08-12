@@ -42,8 +42,9 @@ testRequestRowProjection();
 testStatusEventValidation();
 testAppendRequestContract();
 testCreateModel();
+testRequestProgress();
 await testStaticUxContracts();
-process.stdout.write('PASS portal runtime behavior tests (10)\n');
+process.stdout.write('PASS portal runtime behavior tests (11)\n');
 
 function v2Payload(overrides = {}) {
   return {
@@ -275,6 +276,57 @@ function testCreateModel() {
   }
 }
 
+function testRequestProgress() {
+  const pending = sandbox.vNextPortalRequestProgressModel_({
+    requestId: 'PORTAL-REQ-12345678-test', clientName: 'テスト株式会社', fiscalYear: 2027,
+    status: 'PENDING', requestedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    detailMessage: '受付済み', url: ''
+  });
+  assert.equal(pending.phase, 1);
+  assert.equal(pending.isTerminal, false);
+  assert.equal(pending.isStale, false);
+  assert.match(pending.waitMessage, /5分ごと/);
+
+  const completed = sandbox.vNextPortalRequestProgressModel_({
+    requestId: 'PORTAL-REQ-12345678-test', clientName: 'テスト株式会社', fiscalYear: 2027,
+    status: 'COMPLETED', updatedAt: new Date().toISOString(),
+    url: 'https://docs.google.com/spreadsheets/d/12345678901234567890/edit'
+  });
+  assert.equal(completed.phase, 4);
+  assert.equal(completed.isTerminal, true);
+  assert.equal(completed.isSuccess, true);
+  assert.match(completed.nextAction, /「開く」/);
+
+  const failed = sandbox.vNextPortalRequestProgressModel_({
+    requestId: 'PORTAL-REQ-12345678-test', clientName: 'テスト株式会社', fiscalYear: 2027,
+    status: 'FAILED', updatedAt: new Date().toISOString(), detailMessage: '管理担当者へ連絡してください。', url: ''
+  });
+  assert.equal(failed.isTerminal, true);
+  assert.equal(failed.isSuccess, false);
+  assert.equal(failed.phase, 3);
+  assert.equal(failed.nextAction, '管理担当者へ連絡してください。');
+  const stale = sandbox.vNextPortalRequestProgressModel_({
+    requestId: 'PORTAL-REQ-12345678-test', clientName: 'テスト株式会社', fiscalYear: 2027,
+    status: 'PENDING', updatedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString(), url: ''
+  });
+  assert.equal(stale.isStale, true);
+  assert.match(stale.nextAction, /15分以上/);
+  assert.throws(() => sandbox.vNextPortalNormalizeRequestId_('invalid'), /受付番号が不正/);
+
+  const originalRead = sandbox.vNextPortalReadRequestModels_;
+  sandbox.vNextPortalReadRequestModels_ = () => [{
+    requestId: 'PORTAL-REQ-12345678-test', clientName: 'テスト株式会社', fiscalYear: 2027,
+    status: 'VALIDATING', updatedAt: new Date().toISOString(), detailMessage: '', url: ''
+  }];
+  try {
+    const endpoint = sandbox.vNextPortalGetRequestProgress('PORTAL-REQ-12345678-test');
+    assert.equal(endpoint.status, 'VALIDATING');
+    assert.equal(endpoint.phase, 2);
+  } finally {
+    sandbox.vNextPortalReadRequestModels_ = originalRead;
+  }
+}
+
 async function testStaticUxContracts() {
   const core = await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8');
   const ux = await readFile(path.join(sourceDir, 'Portal_UX.js'), 'utf8');
@@ -301,6 +353,25 @@ async function testStaticUxContracts() {
   assert.match(ux, /dataRange\.getMergedRanges\(\)/);
   assert.doesNotMatch(ux, /sheet\.clear\(\)/,
     'View refresh must clear only the authored range, not the entire sheet');
-  assert.match(html, /vNextPortalGoHome\(\)/,
+  assert.match(html, /vNextPortalShowRequestOnHome\(result\.requestId\)/,
     'A successful request must refresh Home without asking for another button click');
+  assert.match(core, /function vNextPortalGetRequestProgress\(requestId\)/,
+    'Sidebar polling must use a lightweight request-only endpoint');
+  assert.match(ux, /function vNextPortalShowRequestOnHome\(requestId\)/,
+    'Successful submission must project the accepted request onto Home immediately');
+  assert.match(html, /POLL_DELAYS_MS = \[20000, 70000, 210000\]/,
+    'Automatic status checks must be sparse and bounded');
+  assert.match(html, /if \(busy \|\| submitted/,
+    'Client-side submission must synchronously guard double clicks');
+  assert.match(html, /id="clientSearch" type="search"/,
+    'Client selection must support local catalog filtering');
+  const filterBody = html.slice(html.indexOf('function filterClients()'), html.indexOf('function normalizeSearchText'));
+  assert.doesNotMatch(filterBody, /google\.script\.run/,
+    'Client search must stay local and must not create RPC traffic');
+  assert.match(html, /meta name="viewport"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.match(html, /prefers-reduced-motion/);
+  assert.equal((html.match(/id="memberRow[1-5]"/g) || []).length, 5);
+  assert.match(ux, /vNextPortalDisplayPlanningValue_\(entry\.centerForecast, actualShortage \? '実績不足' : '未算出'\)/,
+    'Empty and insufficient forecast values must be explained, not shown as zero');
 }

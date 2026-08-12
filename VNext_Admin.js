@@ -4,7 +4,7 @@
  */
 
 const VN_ADMIN_SCHEMA_VERSION = 'vnext-admin-1';
-const VN_ADMIN_MENU_NAME = 'Forecast vNext Admin';
+const VN_ADMIN_MENU_NAME = '年度計画 管理';
 const VN_ADMIN_META_SHEET = 'BOOK_META';
 const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
 const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
@@ -321,19 +321,12 @@ function vNextBuildAdminMenu_() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) return false;
     SpreadsheetApp.getUi().createMenu(VN_ADMIN_MENU_NAME)
-      .addItem('Admin Hubを開く', 'vNextAdminOpenSidebar')
+      .addItem('管理画面を開く', 'vNextAdminOpenSidebar')
       .addSeparator()
-      .addItem('今日の例外を更新', 'vNextAdminMenuRefreshExceptions')
-      .addItem('全bookの状態を確認', 'vNextAdminMenuRunHealthScan')
-      .addItem('待機中の処理を実行', 'vNextAdminMenuProcessJobs')
+      .addItem('受付・処理を今すぐ確認', 'vNextAdminMenuRunOperationalCycle')
+      .addItem('全年度計画の状態を確認', 'vNextAdminMenuRunHealthScan')
       .addSeparator()
-      .addItem('社員ポータルPilotを1段階進める', 'vNextAdminContinueEmployeePortalPilotRecoveryForManualTest')
-      .addItem('ZACクライアント候補を更新', 'vNextAdminMenuRefreshZacClientCatalog')
-      .addItem('社員ポータルを最新版へ更新', 'vNextAdminMenuUpdatePortalRuntime')
-      .addSeparator()
-      .addItem('Book一覧を開く', 'vNextAdminMenuOpenRegistry')
-      .addItem('承認一覧を開く', 'vNextAdminMenuOpenApprovals')
-      .addItem('リリース一覧を開く', 'vNextAdminMenuOpenReleases')
+      .addItem('年度計画一覧を開く', 'vNextAdminMenuOpenRegistry')
       .addToUi();
     return true;
   } catch (err) {
@@ -468,7 +461,7 @@ function vNextAdminOpenSidebar() {
       vNextAdminAssertHubAdmin_(active, false);
     }
     const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
-      .setTitle('Forecast vNext Admin');
+      .setTitle('年度計画 管理');
     SpreadsheetApp.getUi().showSidebar(html);
     return true;
   });
@@ -490,9 +483,22 @@ function vNextAdminGetSidebarModel() {
         vertex: !!runtime.VERTEX_PROJECT_ID
       },
       automationInstalled: false,
-      counts: { exceptions: 0, queuedJobs: 0, pendingApprovals: 0, clients: 0 },
+      counts: {
+        exceptions: 0, queuedJobs: 0, runningJobs: 0, failedJobs: 0,
+        pendingApprovals: 0, clients: 0, actualDataIssues: 0,
+        portalAttention: 0, attention: 0
+      },
       topExceptions: [],
       pendingApprovals: [],
+      recentJobs: [],
+      portalRequests: {
+        configured: false, unavailable: false, spreadsheetUrl: '',
+        counts: { waiting: 0, processing: 0, failed: 0, completed: 0 },
+        attention: []
+      },
+      attention: {
+        status: 'LOADING', label: '確認中', guidance: '', safeRetryCandidates: 0
+      },
       activeTemplateReleaseId: '',
       templateRuntimeVersion: '',
       adminRuntimeSha256: '',
@@ -508,6 +514,7 @@ function vNextAdminGetSidebarModel() {
       modelReleases: [],
       templateDrafts: [],
       stagedTemplateReleases: [],
+      emptyPilotUpgradeCandidates: [],
       operations: {},
       pilot: {}
     };
@@ -515,15 +522,41 @@ function vNextAdminGetSidebarModel() {
       if (!vNextAdminIsRegisteredHub_(ss)) throw new Error('Admin Hubの登録情報を確認できません。');
       vNextAdminAssertHubAdmin_(ss, false);
       model.automationInstalled = vNextAdminAutomationInstalled_();
-      model.counts.exceptions = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.EXCEPTIONS, 'status', 'OPEN');
-      model.counts.queuedJobs = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.JOBS, 'status', 'QUEUED');
-      model.counts.pendingApprovals = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.APPROVALS, 'status', 'PENDING');
-      model.counts.clients = vNextAdminCountRowsBy_(ss, VN_ADMIN_SHEETS.REGISTRY, 'mode', 'CLIENT');
-      model.operations = vNextAdminOperationalMetrics_(ss, model.automationInstalled);
+      // The sidebar is opened frequently. Read each operational table once and
+      // derive every card from those snapshots instead of repeatedly scanning
+      // the same ranges through helper calls.
+      const exceptionRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.EXCEPTIONS).rows;
+      const jobRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.JOBS).rows;
+      const approvalRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.APPROVALS).rows;
+      const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
+      const openExceptions = exceptionRows.filter(function (row) {
+        return String(row.status || 'OPEN').toUpperCase() === 'OPEN' &&
+          String(row.exception_type || '').toUpperCase() !== 'APPROVAL_PENDING';
+      });
+      const pendingApprovals = approvalRows.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'PENDING';
+      });
+      model.counts.exceptions = openExceptions.length;
+      model.counts.queuedJobs = jobRows.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'QUEUED';
+      }).length;
+      model.counts.runningJobs = jobRows.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'RUNNING';
+      }).length;
+      model.counts.failedJobs = jobRows.filter(function (row) {
+        return String(row.status || '').toUpperCase() === 'FAILED';
+      }).length;
+      model.counts.pendingApprovals = pendingApprovals.length;
+      model.counts.clients = registryRows.filter(function (row) {
+        return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+          String(row.status || '').toUpperCase() !== 'ARCHIVED';
+      }).length;
+      model.operations = vNextAdminOperationalMetrics_(ss, model.automationInstalled, jobRows);
       model.pilot = vNextAdminPilotStatus_(ss);
       const severityRank = { ERROR: 0, WARN: 1, INFO: 2 };
-      model.topExceptions = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.EXCEPTIONS).rows
-        .filter(function (row) { return String(row.status || 'OPEN').toUpperCase() === 'OPEN'; })
+      const registryByBook = {};
+      registryRows.forEach(function (row) { if (row.book_id) registryByBook[String(row.book_id)] = row; });
+      model.topExceptions = openExceptions
         .sort(function (a, b) {
           const aKey = String(a.severity || '').toUpperCase();
           const bKey = String(b.severity || '').toUpperCase();
@@ -531,18 +564,50 @@ function vNextAdminGetSidebarModel() {
             (Object.prototype.hasOwnProperty.call(severityRank, bKey) ? severityRank[bKey] : 9);
           return rank || new Date(b.detected_at || 0).getTime() - new Date(a.detected_at || 0).getTime();
         }).slice(0, 8).map(function (row) {
-          return {
-            bookId: String(row.book_id || ''), clientName: String(row.client_name || ''),
-            fiscalYear: row.fiscal_year || '', severity: String(row.severity || ''),
-            category: String(row.exception_type || ''), message: String(row.title || row.detail || ''),
-            detail: String(row.detail || ''), actionGuidance: String(row.recommended_action || '')
-          };
+          return vNextAdminExceptionForSidebar_(row, registryByBook, jobRows);
         });
-      model.pendingApprovals = vNextAdminListPendingApprovals_(ss).slice(0, 20);
+      model.pendingApprovals = vNextAdminListPendingApprovals_(ss, approvalRows).sort(function (a, b) {
+        return new Date(a.requestedAt || 0).getTime() - new Date(b.requestedAt || 0).getTime();
+      }).slice(0, 20);
+      model.recentJobs = vNextAdminJobsForSidebar_(jobRows).slice(0, 8);
+      model.portalRequests = vNextAdminPortalRequestsForSidebar_(ss);
+      model.counts.portalAttention = Number(model.portalRequests.counts.failed || 0);
+      model.counts.actualDataIssues = openExceptions.filter(vNextAdminIsActualDataIssue_).length;
+      const safeRetryCandidates = jobRows.filter(vNextAdminIsKnownSafeRetryCandidate_).length;
+      model.counts.attention = model.counts.exceptions + model.counts.pendingApprovals +
+        model.counts.portalAttention;
+      model.attention = vNextAdminAttentionSummary_(model, safeRetryCandidates);
       const activeTemplate = vNextAdminResolveRelease_(ss,
         vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id || '');
       model.activeTemplateReleaseId = String(activeTemplate.release_id || '');
       model.templateRuntimeVersion = String(activeTemplate.client_runtime_version || '');
+      const unfinishedEmptyUpgradesByBook = {};
+      vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.MIGRATIONS).rows.forEach(function (row) {
+        if (/^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase())) {
+          unfinishedEmptyUpgradesByBook[String(row.book_id || '')] = row;
+        }
+      });
+      model.emptyPilotUpgradeCandidates = registryRows.filter(function (row) {
+        const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
+        return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+          String(row.status || '').toUpperCase() === 'ACTIVE' &&
+          String(row.state || '').toUpperCase() === 'INPUT_OPEN' &&
+          !String(row.current_official_id || '') &&
+          (String(row.template_release_id || '') !== String(activeTemplate.release_id || '') || !!unfinished);
+      }).map(function (row) {
+        const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
+        return {
+          bookId: String(row.book_id || ''), clientName: String(row.client_name || ''),
+          fiscalYear: Number(row.fiscal_year || 0), spreadsheetUrl: String(row.spreadsheet_url || ''),
+          currentReleaseId: String(row.template_release_id || ''),
+          targetReleaseId: String(activeTemplate.release_id || ''),
+          recoveryRequired: !!unfinished,
+          migrationId: unfinished ? String(unfinished.migration_id || '') : '',
+          migrationStatus: unfinished ? String(unfinished.status || '') : ''
+        };
+      }).sort(function (a, b) {
+        return a.clientName.localeCompare(b.clientName, 'ja') || a.fiscalYear - b.fiscalYear;
+      });
       const hubConfig = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET);
       model.adminRuntimeSha256 = String(hubConfig.admin_runtime_sha256 || '');
       model.adminRuntimeUpdatable = Boolean(
@@ -582,6 +647,224 @@ function vNextAdminGetSidebarModel() {
     }
     return vNextAdminJsonSafe_(model);
   });
+}
+
+/** Converts internal exception codes into a short, decision-oriented Admin card. */
+function vNextAdminExceptionForSidebar_(row, registryByBook, jobRows) {
+  const source = row || {};
+  const bookId = String(source.book_id || '');
+  const category = String(source.exception_type || 'GENERAL').toUpperCase();
+  const registry = registryByBook && registryByBook[bookId] || {};
+  const actualIssue = vNextAdminIsActualDataIssue_(source);
+  const categoryLabels = {
+    BOOK_HEALTH: actualIssue ? '実績データの確認' : '年度計画の状態確認',
+    JOB_FAILED: actualIssue ? '実績データ不足' : '自動処理を完了できませんでした',
+    JOB_QUEUE_STALE: '処理に時間がかかっています',
+    SCHEDULER_STALE: '自動更新が止まっている可能性があります',
+    PORTAL_PROVISION_FAILED: '年度計画を作成できませんでした',
+    CLIENT_PROVISION_FAILED: '年度計画を作成できませんでした',
+    OFFICIAL_CLIENT_SYNC_FAILED: '正式計画の反映が未完了です',
+    OFFICIAL_COPY_FAILED: '正式計画の反映が未完了です',
+    PORTAL_REQUEST_REJECTED: '社員からの作成依頼を確認してください'
+  };
+  // A JOB_FAILED exception must only control its own durable job. Falling
+  // through to an older failed job for the same book can attach the wrong
+  // retry action to an otherwise unrelated exception.
+  const sourceRef = String(source.source_ref || '');
+  const matchingJob = sourceRef ? (jobRows || []).find(function (job) {
+    return String(job.job_id || '') === sourceRef;
+  }) : null;
+  const jobPayload = matchingJob ? vNextAdminParseJson_(matchingJob.request_json, {}) : {};
+  let actionType = 'DETAILS';
+  if (['OFFICIAL_CLIENT_SYNC_FAILED', 'OFFICIAL_COPY_FAILED'].indexOf(category) >= 0 && bookId) {
+    actionType = 'RETRY_OFFICIAL_SYNC';
+  } else if (category === 'SCHEDULER_STALE' || category === 'JOB_QUEUE_STALE' ||
+      (matchingJob && vNextAdminIsKnownSafeRetryCandidate_(matchingJob))) {
+    actionType = 'RUN_NOW';
+  } else if (registry.spreadsheet_url) {
+    actionType = 'OPEN_BOOK';
+  }
+  let guidance = String(source.recommended_action || '要確認一覧で詳細を確認してください。');
+  if (actualIssue) guidance = 'ZACの確定実績が必要年数・対象月を満たしているか確認してください。';
+  if (category === 'JOB_FAILED' && actionType !== 'RUN_NOW') {
+    guidance = '同じ操作を新しく作り直さず、失敗内容を確認してください。';
+  }
+  if (category === 'SCHEDULER_STALE') {
+    guidance = 'まず「受付・処理を今すぐ確認」を実行し、続く場合は自動運用の権限を確認してください。';
+  }
+  return {
+    bookId: bookId,
+    bookUrl: vNextAdminSidebarSpreadsheetUrl_(registry.spreadsheet_url),
+    clientName: String(source.client_name || registry.client_name || jobPayload.clientName || ''),
+    fiscalYear: source.fiscal_year || registry.fiscal_year || jobPayload.fiscalYear || '',
+    severity: String(source.severity || 'WARN').toUpperCase(),
+    category: category,
+    categoryLabel: categoryLabels[category] || '確認が必要です',
+    message: categoryLabels[category] || String(source.title || source.detail || '確認が必要です'),
+    detail: String(source.detail || source.title || ''),
+    actionGuidance: guidance,
+    actionType: actionType,
+    actualDataIssue: actualIssue
+  };
+}
+
+function vNextAdminIsActualDataIssue_(row) {
+  const text = [row && row.exception_type, row && row.title, row && row.detail,
+    row && row.recommended_action, row && row.error].join(' ').toUpperCase();
+  return /HISTORY|ACTUAL|確定実績|実績データ|AT LEAST 5 FISCAL YEARS|ZERO_ACTUAL|MISSING_MONTHS/.test(text);
+}
+
+function vNextAdminIsKnownSafeRetryCandidate_(job) {
+  if (!job || String(job.status || '').toUpperCase() !== 'FAILED' || Number(job.attempts || 0) >= 3) return false;
+  const type = String(job.job_type || '').toUpperCase();
+  const error = String(job.error || '');
+  return (type === 'PORTAL_PROVISION_CLIENT' && /^Requested release is not ACTIVE: [-A-Za-z0-9._]+$/.test(error)) ||
+    (type === 'FORECAST_REQUEST' && error === 'A matching valid pending forecast request was not found.');
+}
+
+function vNextAdminJobsForSidebar_(rows) {
+  const labels = {
+    PORTAL_PROVISION_CLIENT: '年度計画の作成',
+    FORECAST_REQUEST: '売上予測の計算',
+    AI_ROLLBACK_FORECAST: 'AI反映取消後の再計算',
+    AI_RESEARCH: '外部情報の確認',
+    HEALTH_SCAN: '年度計画の状態確認',
+    REFRESH_CLIENT_VIEW: '画面の更新',
+    MIGRATION: '年度計画の版更新'
+  };
+  const statusLabels = {
+    QUEUED: '受付済み', RUNNING: '処理中', FAILED: '要確認', SUCCEEDED: '完了'
+  };
+  return (rows || []).filter(function (row) {
+    return ['QUEUED', 'RUNNING', 'FAILED'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+  }).sort(function (a, b) {
+    const rank = { FAILED: 0, RUNNING: 1, QUEUED: 2 };
+    const aStatus = String(a.status || '').toUpperCase();
+    const bStatus = String(b.status || '').toUpperCase();
+    const statusRank = (Object.prototype.hasOwnProperty.call(rank, aStatus) ? rank[aStatus] : 9) -
+      (Object.prototype.hasOwnProperty.call(rank, bStatus) ? rank[bStatus] : 9);
+    return statusRank || new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  }).map(function (row) {
+    const type = String(row.job_type || '').toUpperCase();
+    const status = String(row.status || '').toUpperCase();
+    return {
+      jobId: String(row.job_id || ''),
+      targetBookId: String(row.target_book_id || ''),
+      taskLabel: labels[type] || 'バックグラウンド処理',
+      status: status,
+      statusLabel: statusLabels[status] || status,
+      createdAt: row.created_at || '',
+      updatedAt: row.updated_at || '',
+      errorSummary: status === 'FAILED'
+        ? (vNextAdminIsActualDataIssue_(row) ? '確定実績の不足を確認してください。' : '管理者の確認が必要です。')
+        : '',
+      safeRetryCandidate: vNextAdminIsKnownSafeRetryCandidate_(row)
+    };
+  });
+}
+
+/** Best-effort Portal projection. A Portal outage must not hide Hub decisions. */
+function vNextAdminPortalRequestsForSidebar_(hub) {
+  const output = {
+    configured: false, unavailable: false, spreadsheetUrl: '',
+    counts: { waiting: 0, processing: 0, failed: 0, completed: 0 }, attention: []
+  };
+  let portal;
+  try { portal = vNextAdminResolvePortal_(hub); }
+  catch (error) {
+    if (!/not configured/i.test(String(error && error.message || error))) output.unavailable = true;
+    return output;
+  }
+  output.configured = true;
+  output.spreadsheetUrl = vNextAdminSidebarSpreadsheetUrl_(portal.spreadsheet.getUrl());
+  try {
+    const grouped = {};
+    const validEventStatusPairs = {
+      REQUESTED: 'PENDING', VALIDATION_STARTED: 'VALIDATING',
+      CREATION_STARTED: 'CREATING', COMPLETED: 'COMPLETED',
+      FAILED: 'FAILED', REJECTED: 'REJECTED'
+    };
+    vNextAdminReadTable_(portal.spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET).rows.forEach(function (row) {
+      const id = String(row.request_id || '');
+      const eventType = String(row.event_type || '').toUpperCase();
+      const status = String(row.status || '').toUpperCase();
+      // Employee editors may append REQUESTED rows, so the projection must
+      // fail closed and never trust a status that is inconsistent with its
+      // append-only event type.
+      if (id && validEventStatusPairs[eventType] === status) grouped[id] = row;
+    });
+    const labels = {
+      PENDING: '受付済み', VALIDATING: '内容確認中', CREATING: '作成中',
+      FAILED: '作成できませんでした', REJECTED: '内容確認が必要', COMPLETED: '利用できます'
+    };
+    Object.keys(grouped).forEach(function (id) {
+      const row = grouped[id];
+      const status = String(row.status || '').toUpperCase();
+      if (status === 'PENDING') output.counts.waiting++;
+      else if (status === 'VALIDATING' || status === 'CREATING') output.counts.processing++;
+      else if (status === 'FAILED' || status === 'REJECTED') output.counts.failed++;
+      else if (status === 'COMPLETED') output.counts.completed++;
+      if (['PENDING', 'VALIDATING', 'CREATING', 'FAILED', 'REJECTED'].indexOf(status) < 0) return;
+      output.attention.push({
+        requestId: id, clientName: String(row.client_name || ''), fiscalYear: Number(row.fiscal_year || 0),
+        status: status, statusLabel: labels[status] || '確認中',
+        detailMessage: String(row.detail_message || ''), updatedAt: row.created_at || row.requested_at || '',
+        bookUrl: vNextAdminSidebarSpreadsheetUrl_(row.related_book_url)
+      });
+    });
+    output.attention.sort(function (a, b) {
+      const rank = { FAILED: 0, REJECTED: 1, CREATING: 2, VALIDATING: 3, PENDING: 4 };
+      const aRank = Object.prototype.hasOwnProperty.call(rank, a.status) ? rank[a.status] : 9;
+      const bRank = Object.prototype.hasOwnProperty.call(rank, b.status) ? rank[b.status] : 9;
+      return aRank - bRank ||
+        new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+    });
+    output.attention = output.attention.slice(0, 8);
+  } catch (error) {
+    output.unavailable = true;
+    output.attention = [];
+  }
+  return output;
+}
+
+function vNextAdminSidebarSpreadsheetUrl_(value) {
+  const url = String(value || '').trim();
+  return /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+(?:\/|$)/.test(url) ? url : '';
+}
+
+function vNextAdminAttentionSummary_(model, safeRetryCandidates) {
+  const counts = model.counts || {};
+  const operations = model.operations || {};
+  const retryCount = Number(safeRetryCandidates || 0);
+  if (!model.automationInstalled) {
+    return { status: 'SETUP', label: '自動更新を有効にしてください',
+      guidance: '最初に1回だけ「自動運用を有効化」を実行します。', safeRetryCandidates: retryCount };
+  }
+  if (operations.schedulerStale) {
+    return { status: 'ERROR', label: '自動更新を確認してください',
+      guidance: '受付処理を今すぐ実行し、解消しない場合は権限と実行ログを確認します。', safeRetryCandidates: retryCount };
+  }
+  if (operations.queueStale) {
+    return { status: 'ERROR', label: '処理が長時間止まっています',
+      guidance: '「受付・処理を今すぐ確認」を実行し、要確認事項を確認してください。', safeRetryCandidates: retryCount };
+  }
+  if (model.portalRequests && model.portalRequests.unavailable) {
+    return { status: 'ATTENTION', label: '社員ポータルの状態を確認できません',
+      guidance: '他の判断項目は表示できています。続く場合はポータルの権限を確認します。', safeRetryCandidates: retryCount };
+  }
+  if (Number(counts.pendingApprovals || 0) || Number(counts.exceptions || 0) ||
+      Number(counts.portalAttention || 0)) {
+    return { status: 'ATTENTION', label: '確認が必要な項目があります',
+      guidance: '上から順に承認待ちと要確認事項を確認してください。', safeRetryCandidates: retryCount };
+  }
+  const portalCounts = model.portalRequests && model.portalRequests.counts || {};
+  if (Number(counts.queuedJobs || 0) || Number(counts.runningJobs || 0) ||
+      Number(portalCounts.waiting || 0) || Number(portalCounts.processing || 0)) {
+    return { status: 'PROCESSING', label: '自動処理が進行中です',
+      guidance: '操作は不要です。通常は5分以内に状態が更新されます。', safeRetryCandidates: retryCount };
+  }
+  return { status: 'OK', label: '現在、管理者の対応はありません',
+    guidance: '自動更新は正常です。', safeRetryCandidates: retryCount };
 }
 
 /**
@@ -2139,6 +2422,54 @@ function vNextAdminProcessJobQueue(limit) {
   });
 }
 
+/**
+ * Bounded, idempotent Admin action for the normal "check now" workflow.
+ * It harvests employee requests, recovers only explicitly allowlisted failures,
+ * and claims durable jobs through the ordinary queue. It never creates a second
+ * request or changes an approval decision.
+ */
+function vNextAdminRunOperationalCycle() {
+  return vNextAdminGuard_('vNextAdminRunOperationalCycle', function () {
+    const hub = vNextAdminRequireHub_();
+    const startedAt = Date.now();
+    const maintenance = vNextAdminWithScriptLock_('admin-run-operational-cycle', function () {
+      return {
+        leases: vNextAdminRecoverStaleLeases_(hub, 20),
+        portalRequests: vNextAdminHarvestPortalRequestsSafely_(hub),
+        safeRetries: vNextAdminRequeueKnownPilotFailures_(hub)
+      };
+    });
+    const jobs = vNextAdminProcessJobsForHub_(hub, 4, startedAt + 240000);
+    let portalDirectoryUpdated = false;
+    try {
+      vNextAdminRefreshPortalDirectory_(hub);
+      portalDirectoryUpdated = true;
+    } catch (portalRefreshError) {
+      Logger.log('Admin operational-cycle Portal refresh skipped: %s',
+        String(portalRefreshError && portalRefreshError.stack || portalRefreshError));
+    }
+    const result = {
+      ok: true,
+      message: jobs.processed
+        ? '受付内容を確認し、' + Number(jobs.processed || 0) + '件の処理を実行しました。'
+        : '最新状態を確認しました。新しく実行する処理はありません。',
+      maintenance: maintenance,
+      jobs: jobs,
+      portalDirectoryUpdated: portalDirectoryUpdated,
+      elapsedMs: Date.now() - startedAt
+    };
+    vNextAdminWriteAudit_(hub, 'RUN_OPERATIONAL_CYCLE', 'ADMIN_OPERATION',
+      'ADMIN-CYCLE-' + Utilities.getUuid(), 'SUCCESS', {
+        processedJobs: Number(jobs.processed || 0),
+        requeuedJobs: Number(maintenance.safeRetries && maintenance.safeRetries.requeuedJobs || 0),
+        harvestedPortalRequests: Number(maintenance.portalRequests && maintenance.portalRequests.queued || 0),
+        portalDirectoryUpdated: portalDirectoryUpdated,
+        elapsedMs: result.elapsedMs
+      });
+    return vNextAdminJsonSafe_(result);
+  });
+}
+
 function vNextAdminRunHealthScan() {
   return vNextAdminGuard_('vNextAdminRunHealthScan', function () {
     const hub = vNextAdminRequireHub_();
@@ -3067,6 +3398,596 @@ function vNextAdminEnqueueMigration(request) {
   });
 }
 
+/**
+ * One-purpose in-place upgrade for a completely unused Pilot Client book.
+ *
+ * Generic migration APPLY intentionally remains disabled. This path is
+ * narrower: it accepts only an ACTIVE CLIENT that has never received an
+ * answer, request, forecast, plan, approval, official record or evaluation,
+ * and whose Hub/Client/runtime pins still exactly match the source release.
+ * The registry pointer is committed last. Every earlier mutation can be
+ * reconstructed from one of the two immutable Template releases.
+ */
+function vNextAdminUpgradeEmptyPilotClient(request) {
+  return vNextAdminGuard_('vNextAdminUpgradeEmptyPilotClient', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('upgrade-empty-pilot-client', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const dryRun = req.dryRun !== false;
+      const reason = dryRun ? (vNextAdminText_(req.reason) || '実行前の安全条件確認')
+        : vNextAdminRequiredText_(req.reason, 'reason');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry) throw new Error('対象のClient BookがBOOK_REGISTRYにありません。');
+
+      const pair = vNextAdminReadActiveReleasePair_(hub);
+      const targetReleaseId = vNextAdminText_(req.targetReleaseId) || pair.releaseId;
+      if (targetReleaseId !== pair.releaseId) {
+        throw new Error('空のPilot更新先は現在のcanonical ACTIVE Template Releaseだけです。');
+      }
+      const targetRelease = vNextAdminEmptyPilotRelease_(hub, targetReleaseId, ['ACTIVE']);
+      if (String(targetRelease.template_spreadsheet_id || '') !== pair.templateSpreadsheetId) {
+        throw new Error('更新先Templateがcanonical ACTIVE pairと一致しません。');
+      }
+      const targetModel = vNextAdminEmptyPilotModel_(hub, pair.modelReleaseId, targetRelease);
+      const sourceReleaseId = vNextAdminRequiredText_(registry.template_release_id,
+        'registry.template_release_id');
+
+      const previous = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+        return String(row.book_id || '') === bookId &&
+          String(row.to_release_id || '') === targetReleaseId &&
+          /^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase());
+      }).slice(-1)[0];
+      if (previous) {
+        throw new Error('未完了の空Pilot更新があります。vNextAdminRecoverEmptyPilotClientUpgradeで復旧してください。migrationId=' +
+          String(previous.migration_id || ''));
+      }
+      if (sourceReleaseId === targetReleaseId) {
+        const succeeded = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+          return String(row.book_id || '') === bookId && String(row.to_release_id || '') === targetReleaseId &&
+            String(row.status || '').toUpperCase() === 'SUCCEEDED';
+        }).slice(-1)[0];
+        if (!succeeded) throw new Error('Clientは更新先releaseを参照していますが、完了journalがありません。復旧を実行してください。');
+        const client = SpreadsheetApp.openById(String(registry.spreadsheet_id || ''));
+        vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, targetRelease, targetModel, false);
+        return { ok: true, reused: true, migrationId: succeeded.migration_id,
+          bookId: bookId, releaseId: targetReleaseId };
+      }
+
+      const sourceRelease = vNextAdminEmptyPilotRelease_(hub, sourceReleaseId, ['ACTIVE', 'RETIRED']);
+      if (String(sourceRelease.schema_version || '') !== String(targetRelease.schema_version || '') ||
+          String(targetRelease.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+        throw new Error('空のPilot更新は同一Client Core schema間だけで実行できます。');
+      }
+      const client = SpreadsheetApp.openById(vNextAdminRequiredText_(registry.spreadsheet_id,
+        'registry.spreadsheet_id'));
+      const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+      const sourceModel = vNextAdminEmptyPilotModel_(hub,
+        vNextAdminRequiredText_(routing.model_release_id, 'client.model_release_id'), sourceRelease);
+      const sourceMeta = vNextAdminAssertEmptyPilotUpgradeEligibility_(
+        hub, client, registry, sourceRelease, sourceModel
+      );
+      vNextAdminAssertEmptyPilotReleaseAssets_(sourceRelease);
+      vNextAdminAssertEmptyPilotReleaseAssets_(targetRelease);
+
+      const basis = {
+        eligible: true, readOnly: dryRun, bookId: bookId,
+        clientName: String(registry.client_name || ''), fiscalYear: Number(registry.fiscal_year || 0),
+        spreadsheetId: String(registry.spreadsheet_id || ''),
+        spreadsheetUrl: String(registry.spreadsheet_url || ''), sameUrl: true,
+        currentReleaseId: sourceReleaseId, targetReleaseId: targetReleaseId,
+        currentRuntimeSha256: String(sourceRelease.client_runtime_sha256 || ''),
+        targetRuntimeSha256: String(targetRelease.client_runtime_sha256 || ''),
+        targetModelReleaseId: String(targetModel.model_release_id || ''),
+        schemaVersion: String(targetRelease.schema_version || ''),
+        safeguards: [
+          'ACTIVEかつINPUT_OPEN', '回答・依頼・予測・計画・承認・公式・評価なし',
+          'Hub/Client/Apps Scriptのsource pinとSHA-256一致',
+          '同一schema', '更新先はcanonical ACTIVE pair', 'registryは最後に更新'
+        ]
+      };
+      if (dryRun) return basis;
+
+      const migrationId = 'EMPTY-UPG-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        bookId: bookId, spreadsheetId: registry.spreadsheet_id,
+        fromReleaseId: sourceReleaseId, toReleaseId: targetReleaseId,
+        attemptId: Utilities.getUuid()
+      })).slice(0, 24).toUpperCase();
+      const plan = {
+        kind: 'EMPTY_PILOT_CLIENT_UPGRADE_V1', bookId: bookId,
+        spreadsheetId: String(registry.spreadsheet_id || ''),
+        clientScriptId: String(registry.client_script_id || ''),
+        sourceReleaseId: sourceReleaseId, sourceModelReleaseId: String(sourceModel.model_release_id || ''),
+        sourceMetaRecordId: String(sourceMeta.record_id || ''),
+        targetReleaseId: targetReleaseId, targetModelReleaseId: String(targetModel.model_release_id || ''),
+        schemaVersion: String(targetRelease.schema_version || ''), reason: reason,
+        migrationId: migrationId
+      };
+      const now = new Date();
+      vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.MIGRATIONS, {
+        migration_id: migrationId, book_id: bookId, spreadsheet_id: registry.spreadsheet_id,
+        from_release_id: sourceReleaseId, to_release_id: targetReleaseId,
+        status: 'EMPTY_PILOT_VALIDATED', dry_run: 0,
+        plan_json: vNextAdminCanonicalJson_(plan), result_json: '',
+        started_at: now, finished_at: '', actor: vNextAdminActor_(), error: ''
+      });
+
+      try {
+        vNextAdminFreezeEmptyPilotClient_(hub, client, migrationId);
+        vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, 'EMPTY_PILOT_FROZEN');
+        const applied = vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan,
+          targetRelease, targetModel, 'TARGET', function (phase, detail) {
+            vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, phase, detail);
+          });
+        vNextAdminPatchLatestMigration_(hub, migrationId, {
+          status: 'SUCCEEDED', finished_at: new Date(), error: '',
+          result_json: vNextAdminCanonicalJson_({ phase: 'COMPLETED', direction: 'TARGET',
+            healthStatus: applied.health.healthStatus, healthCode: applied.health.healthCode })
+        });
+        vNextAdminWriteAudit_(hub, 'UPGRADE_EMPTY_PILOT_CLIENT', 'BOOK', bookId, 'SUCCESS', {
+          migrationId: migrationId, fromReleaseId: sourceReleaseId,
+          toReleaseId: targetReleaseId, reason: reason
+        });
+        return { ok: true, reused: false, migrationId: migrationId, bookId: bookId,
+          fromReleaseId: sourceReleaseId, toReleaseId: targetReleaseId,
+          spreadsheetId: registry.spreadsheet_id, spreadsheetUrl: registry.spreadsheet_url,
+          health: applied.health };
+      } catch (upgradeError) {
+        const originalMessage = String(upgradeError && upgradeError.message || upgradeError);
+        try {
+          vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, 'EMPTY_PILOT_ROLLBACK_STARTED', {
+            cause: originalMessage.slice(0, 500)
+          });
+          const currentRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+            return String(row.book_id || '') === bookId;
+          }) || registry;
+          vNextAdminApplyEmptyPilotRelease_(hub, client, currentRegistry, plan,
+            sourceRelease, sourceModel, 'SOURCE', function (phase, detail) {
+              vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, phase, detail);
+            });
+          vNextAdminPatchLatestMigration_(hub, migrationId, {
+            status: 'ROLLED_BACK', finished_at: new Date(), error: originalMessage,
+            result_json: vNextAdminCanonicalJson_({ phase: 'ROLLED_BACK_TO_SOURCE',
+              sourceReleaseId: sourceReleaseId })
+          });
+          vNextAdminWriteAudit_(hub, 'UPGRADE_EMPTY_PILOT_CLIENT', 'BOOK', bookId, 'ROLLED_BACK', {
+            migrationId: migrationId, cause: originalMessage, sourceReleaseId: sourceReleaseId
+          });
+        } catch (rollbackError) {
+          const rollbackMessage = String(rollbackError && rollbackError.message || rollbackError);
+          vNextAdminPatchLatestMigration_(hub, migrationId, {
+            status: 'RECOVERY_REQUIRED', error: originalMessage + '; rollback=' + rollbackMessage,
+            result_json: vNextAdminCanonicalJson_({ phase: 'RECOVERY_REQUIRED',
+              originalError: originalMessage.slice(0, 500), rollbackError: rollbackMessage.slice(0, 500) })
+          });
+          vNextAdminAppendException_(hub, {
+            severity: 'ERROR', exception_type: 'EMPTY_PILOT_UPGRADE_RECOVERY_REQUIRED',
+            book_id: bookId, client_name: registry.client_name, fiscal_year: registry.fiscal_year,
+            title: '空のPilot Client更新に復旧が必要です',
+            detail: originalMessage + '; rollback=' + rollbackMessage,
+            recommended_action: 'vNextAdminRecoverEmptyPilotClientUpgradeを実行', source_ref: migrationId
+          });
+          throw new Error('更新と自動rollbackの両方が完了しませんでした。migrationId=' + migrationId +
+            '; cause=' + originalMessage + '; rollback=' + rollbackMessage);
+        }
+        throw upgradeError;
+      }
+    });
+  });
+}
+
+/**
+ * Recovers a journaled empty-Pilot upgrade after an execution timeout or an
+ * Apps Script API response loss. Registry is the commit marker: a target pin
+ * is completed to target; otherwise the book is reconstructed from source.
+ */
+function vNextAdminRecoverEmptyPilotClientUpgrade(request) {
+  return vNextAdminGuard_('vNextAdminRecoverEmptyPilotClientUpgrade', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('recover-empty-pilot-client', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const migrationRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+        return String(row.book_id || '') === bookId &&
+          (!req.migrationId || String(row.migration_id || '') === String(req.migrationId));
+      });
+      const migration = migrationRows.slice(-1)[0];
+      if (!migration) throw new Error('復旧対象のMIGRATION_LOGがありません。');
+      const plan = vNextAdminParseJson_(migration.plan_json, null);
+      if (!plan || String(plan.kind || '') !== 'EMPTY_PILOT_CLIENT_UPGRADE_V1' ||
+          String(plan.bookId || '') !== bookId ||
+          String(plan.spreadsheetId || '') !== String(migration.spreadsheet_id || '')) {
+        throw new Error('復旧journalのidentityが不正です。');
+      }
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry || String(registry.status || '').toUpperCase() !== 'ACTIVE' ||
+          String(registry.spreadsheet_id || '') !== String(plan.spreadsheetId || '')) {
+        throw new Error('復旧対象のACTIVE Client registry identityが一致しません。');
+      }
+      const client = SpreadsheetApp.openById(String(plan.spreadsheetId || ''));
+      vNextAdminAssertEmptyPilotNoBusinessData_(hub, client, registry, false);
+      const sourceRelease = vNextAdminEmptyPilotRelease_(hub, plan.sourceReleaseId, ['ACTIVE', 'RETIRED']);
+      const sourceModel = vNextAdminEmptyPilotModel_(hub, plan.sourceModelReleaseId, sourceRelease);
+      let direction = String(registry.template_release_id || '') === String(plan.targetReleaseId || '')
+        ? 'TARGET' : 'SOURCE';
+      let release = sourceRelease;
+      let model = sourceModel;
+      if (direction === 'TARGET') {
+        try {
+          const pair = vNextAdminReadActiveReleasePair_(hub);
+          if (pair.releaseId !== String(plan.targetReleaseId || '') ||
+              pair.modelReleaseId !== String(plan.targetModelReleaseId || '')) {
+            throw new Error('Target pair is no longer canonical ACTIVE.');
+          }
+          release = vNextAdminEmptyPilotRelease_(hub, plan.targetReleaseId, ['ACTIVE']);
+          model = vNextAdminEmptyPilotModel_(hub, plan.targetModelReleaseId, release);
+        } catch (targetUnavailable) {
+          direction = 'SOURCE';
+          release = sourceRelease;
+          model = sourceModel;
+        }
+      } else if (String(registry.template_release_id || '') !== String(plan.sourceReleaseId || '')) {
+        throw new Error('Registry is pinned to neither the journal source nor target release. 自動復旧を停止しました。');
+      }
+      vNextAdminAssertEmptyPilotReleaseAssets_(release);
+      vNextAdminFreezeEmptyPilotClient_(hub, client, migration.migration_id);
+      const applied = vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan,
+        release, model, direction, function (phase, detail) {
+          vNextAdminSetEmptyPilotUpgradePhase_(hub, migration.migration_id, phase, detail);
+        });
+      const finalStatus = direction === 'TARGET' ? 'SUCCEEDED' : 'ROLLED_BACK';
+      vNextAdminPatchLatestMigration_(hub, migration.migration_id, {
+        status: finalStatus, finished_at: new Date(), error: '',
+        result_json: vNextAdminCanonicalJson_({ phase: 'RECOVERED_' + direction,
+          direction: direction, healthStatus: applied.health.healthStatus,
+          healthCode: applied.health.healthCode })
+      });
+      vNextAdminWriteAudit_(hub, 'RECOVER_EMPTY_PILOT_CLIENT_UPGRADE', 'BOOK', bookId, finalStatus, {
+        migrationId: migration.migration_id, direction: direction,
+        releaseId: release.release_id, reason: vNextAdminText_(req.reason)
+      });
+      return { ok: true, migrationId: migration.migration_id, bookId: bookId,
+        direction: direction, releaseId: release.release_id, health: applied.health };
+    });
+  });
+}
+
+function vNextAdminAssertEmptyPilotUpgradeEligibility_(hub, client, registry, release, model) {
+  vNextAdminAssertEmptyPilotNoBusinessData_(hub, client, registry, true);
+  return vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release, model, true);
+}
+
+function vNextAdminAssertEmptyPilotNoBusinessData_(hub, client, registry, initialOnly) {
+  if (String(registry.mode || '') !== 'CLIENT' || String(registry.status || '').toUpperCase() !== 'ACTIVE' ||
+      String(registry.state || '').toUpperCase() !== 'INPUT_OPEN' || String(registry.current_official_id || '')) {
+    throw new Error('空のPilot更新はACTIVE / INPUT_OPEN / 正式計画なしのClientだけが対象です。');
+  }
+  const bookId = String(registry.book_id || '');
+  ['EVIDENCE_EVENT', 'FORECAST_RUN', 'PLAN_VERSION', 'EVALUATION'].forEach(function (sheetName) {
+    const hubRows = vNextAdminReadCoreRows_(hub, sheetName).filter(function (row) {
+      return String(row.book_id || '') === bookId;
+    });
+    const clientRows = vNextAdminReadCoreRows_(client, sheetName).filter(function (row) {
+      return String(row.book_id || '') === bookId;
+    });
+    if (hubRows.length || clientRows.length) {
+      throw new Error('空のPilot更新を停止しました。' + sheetName + 'に既存recordがあります。');
+    }
+  });
+  const stateRows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  }).concat(vNextAdminReadCoreRows_(client, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  }));
+  if (stateRows.length) throw new Error('空のPilot更新はSTATE_EVENTが未作成のbookだけが対象です。');
+
+  const requestRows = vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.filter(function (row) {
+    return !row.book_id || String(row.book_id || '') === bookId;
+  }).concat(vNextAdminReadTable_(hub, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  }));
+  if (requestRows.length) throw new Error('空のPilot更新は予測依頼が一度もないbookだけが対象です。');
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.some(function (row) {
+    return String(row.book_id || '') === bookId;
+  })) throw new Error('空のPilot更新は承認recordがないbookだけが対象です。');
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.some(function (row) {
+    return String(row.book_id || '') === bookId;
+  })) throw new Error('空のPilot更新は公式recordがないbookだけが対象です。');
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.some(function (row) {
+    return String(row.target_book_id || '') === bookId &&
+      ['QUEUED', 'RUNNING'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+  })) throw new Error('対象bookにQUEUED/RUNNING jobがあるため更新を停止しました。');
+  const officialCopy = client.getSheetByName(VN_ADMIN_OFFICIAL_COPY_SHEET);
+  if (officialCopy && officialCopy.getLastRow() > 1) {
+    throw new Error('Clientに公式snapshotがあるため更新を停止しました。');
+  }
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (String(routing.state || '').toUpperCase() !== 'INPUT_OPEN' ||
+      Number(routing.input_submitted || 0) !== 0 ||
+      Number(routing.input_answered_count || 0) !== 0) {
+    throw new Error('Client入力状態が未使用のINPUT_OPENではありません。');
+  }
+  if (initialOnly) {
+    const hubMetas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+      return String(row.book_id || '') === bookId;
+    });
+    const clientMetas = vNextAdminReadCoreRows_(client, 'BOOK_META').filter(function (row) {
+      return String(row.book_id || '') === bookId;
+    });
+    if (hubMetas.length !== 1 || clientMetas.length !== 1) {
+      throw new Error('空のPilot更新は初期BOOK_METAが1件だけのbookに限定されます。');
+    }
+  }
+  return true;
+}
+
+function vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release, model, requireSingleMeta) {
+  const bookId = String(registry.book_id || '');
+  const releaseId = String(release.release_id || '');
+  if (String(registry.spreadsheet_id || '') !== String(client.getId()) ||
+      String(registry.template_release_id || '') !== releaseId ||
+      String(registry.schema_version || '') !== String(release.schema_version || '') ||
+      String(registry.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(registry.client_runtime_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
+    throw new Error('BOOK_REGISTRYのsource release pinが一致しません。');
+  }
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const system = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  if (String(routing.mode || '').toUpperCase() !== 'CLIENT' || String(routing.book_id || '') !== bookId ||
+      String(routing.state || '').toUpperCase() !== 'INPUT_OPEN' ||
+      String(routing.version || '') !== releaseId || String(routing.template_release_id || '') !== releaseId ||
+      String(routing.schema_version || '') !== String(release.schema_version || '') ||
+      String(routing.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(routing.client_runtime_bundle_sha256 || '') !== String(release.client_runtime_sha256 || '') ||
+      String(routing.model_release_id || '') !== String(model.model_release_id || '')) {
+    throw new Error('Client VN_BOOK_CONFIGのrelease/model/runtime pinが一致しません。');
+  }
+  if (String(system.mode || '').toUpperCase() !== 'CLIENT' || String(system.book_id || '') !== bookId ||
+      String(system.active_release_id || '') !== releaseId ||
+      String(system.schema_version || '') !== String(release.schema_version || '')) {
+    throw new Error('Client VN_SYSTEM_CONFIGのrelease pinが一致しません。');
+  }
+  vNextClientRuntimeAssertBoundParent_(String(registry.client_script_id || ''), String(client.getId()));
+  vNextClientRuntimeVerifyScriptContent_(
+    vNextClientRuntimeGetContent_(String(registry.client_script_id || '')),
+    String(registry.client_script_id || ''), String(release.client_runtime_sha256 || '')
+  );
+  const hubMetas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const clientMetas = vNextAdminReadCoreRows_(client, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  if (!hubMetas.length || !clientMetas.length || (requireSingleMeta &&
+      (hubMetas.length !== 1 || clientMetas.length !== 1))) {
+    throw new Error('Hub/Client BOOK_METAが空Pilot条件を満たしません。');
+  }
+  const hubMeta = hubMetas[hubMetas.length - 1];
+  const clientMeta = clientMetas[clientMetas.length - 1];
+  if (String(hubMeta.record_id || '') !== String(clientMeta.record_id || '') ||
+      String(hubMeta.state || '').toUpperCase() !== 'INPUT_OPEN' ||
+      String(clientMeta.state || '').toUpperCase() !== 'INPUT_OPEN' ||
+      String(hubMeta.template_version || '') !== releaseId ||
+      String(clientMeta.template_version || '') !== releaseId ||
+      String(hubMeta.model_release_id || '') !== String(model.model_release_id || '') ||
+      String(clientMeta.model_release_id || '') !== String(model.model_release_id || '') ||
+      String(hubMeta.schema_version || '') !== String(release.schema_version || '') ||
+      String(clientMeta.schema_version || '') !== String(release.schema_version || '')) {
+    throw new Error('Hub/Client BOOK_METAのsource pinsが一致しません。');
+  }
+  if (vNextAdminLatestClientState_(hub, bookId, hubMeta.state) !== 'INPUT_OPEN' ||
+      vNextAdminLatestClientState_(client, bookId, clientMeta.state) !== 'INPUT_OPEN') {
+    throw new Error('Hub/Clientのappend-only stateがINPUT_OPENではありません。');
+  }
+  vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  return hubMeta;
+}
+
+function vNextAdminEmptyPilotRelease_(hub, releaseId, statuses) {
+  const id = vNextAdminRequiredText_(releaseId, 'releaseId');
+  const allowed = (statuses || []).map(function (value) { return String(value).toUpperCase(); });
+  const row = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows.find(function (item) {
+    return String(item.release_id || '') === id;
+  });
+  if (!row || allowed.indexOf(String(row.status || '').toUpperCase()) < 0) {
+    throw new Error('空Pilot更新で利用できないTemplate Releaseです: ' + id);
+  }
+  return row;
+}
+
+function vNextAdminEmptyPilotModel_(hub, modelReleaseId, release) {
+  const id = vNextAdminRequiredText_(modelReleaseId, 'modelReleaseId');
+  const model = vNextAdminLatestModelRelease_(hub, id);
+  if (!model || String(model.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('空Pilot更新には過去にACTIVE化済みのMODEL_RELEASEが必要です: ' + id);
+  }
+  vNextAdminAssertModelReleaseChecksPassed_(model);
+  vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  return model;
+}
+
+function vNextAdminAssertEmptyPilotReleaseAssets_(release) {
+  const templateId = vNextAdminRequiredText_(release.template_spreadsheet_id,
+    'release.template_spreadsheet_id');
+  const scriptId = vNextAdminRequiredText_(release.template_script_id, 'release.template_script_id');
+  const template = SpreadsheetApp.openById(templateId);
+  if (vNextDetectBookMode_(template) !== 'TEMPLATE') throw new Error('Immutable Template modeが不正です。');
+  vNextAdminAssertReleaseTemplateManifest_(release, template);
+  vNextClientRuntimeAssertBoundParent_(scriptId, templateId);
+  vNextClientRuntimeVerifyScriptContent_(vNextClientRuntimeGetContent_(scriptId), scriptId,
+    vNextAdminRequiredText_(release.client_runtime_sha256, 'release.client_runtime_sha256'));
+  const config = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (String(config.version || '') !== String(release.release_id || '') ||
+      String(config.schema_version || '') !== String(release.schema_version || '') ||
+      String(config.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(config.client_runtime_bundle_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
+    throw new Error('Immutable Template local pinsがRELEASESと一致しません。');
+  }
+  return template;
+}
+
+function vNextAdminFreezeEmptyPilotClient_(hub, client, migrationId) {
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const protectedNames = [VN_ADMIN_BOOK_CONFIG_SHEET, VN_ADMIN_SYSTEM_CONFIG_SHEET,
+    VN_ADMIN_CLIENT_REQUEST_SHEET].concat(typeof VNEXT_CORE !== 'undefined'
+    ? Object.keys(VNEXT_CORE.INTERNAL_SHEETS) : []);
+  vNextAdminProtectInternalSheets_(client,
+    vNextAdminMergeEmails_(hubConfig.admin_emails, vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS,
+      vNextAdminActor_()), protectedNames);
+  vNextAdminWriteBookConfig_(client, {
+    maintenance_mode: 'EMPTY_PILOT_UPGRADE', maintenance_operation_id: migrationId,
+    updated_at: new Date(), updated_by: vNextAdminActor_()
+  });
+  return true;
+}
+
+function vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan, release, model, direction, phaseCallback) {
+  const callback = typeof phaseCallback === 'function' ? phaseCallback : function () {};
+  const expectedDirection = String(direction || '').toUpperCase();
+  if (['SOURCE', 'TARGET'].indexOf(expectedDirection) < 0) throw new Error('Invalid empty-Pilot recovery direction.');
+  const template = vNextAdminAssertEmptyPilotReleaseAssets_(release);
+  const bookId = String(plan.bookId || '');
+  const scriptId = vNextAdminRequiredText_(plan.clientScriptId, 'plan.clientScriptId');
+  if (String(client.getId()) !== String(plan.spreadsheetId || '') ||
+      String(registry.book_id || '') !== bookId) throw new Error('Upgrade journal target identity changed.');
+
+  const copied = vNextClientRuntimeCopyScriptContent_(String(release.template_script_id || ''),
+    scriptId, String(release.client_runtime_sha256 || ''));
+  callback('EMPTY_PILOT_RUNTIME_WRITTEN', { direction: expectedDirection,
+    runtimeSha256: copied.bundleSha256 });
+
+  vNextAdminCopyTemplateUiToClient_(template, client);
+  SpreadsheetApp.flush();
+  // Verify the copied employee assets before client-specific labels are added.
+  vNextAdminAssertReleaseTemplateManifest_(release, client);
+  vNextAdminEnsureUiShell_(client, { clientName: registry.client_name, fiscalYear: registry.fiscal_year });
+  vNextAdminApplyVisibility_(client, VN_ADMIN_DEFAULT_CLIENT_VISIBLE);
+  callback('EMPTY_PILOT_UI_WRITTEN', { direction: expectedDirection,
+    templateContentSha256: release.template_content_sha256 });
+
+  vNextAdminWriteBookConfig_(client, {
+    mode: 'CLIENT', book_id: bookId, state: 'INPUT_OPEN',
+    version: release.release_id, template_release_id: release.release_id,
+    model_release_id: model.model_release_id, schema_version: release.schema_version,
+    client_runtime_version: release.client_runtime_version,
+    client_runtime_bundle_sha256: release.client_runtime_sha256,
+    maintenance_mode: 'EMPTY_PILOT_UPGRADE', maintenance_operation_id: String(plan.migrationId || ''),
+    updated_at: new Date(), updated_by: vNextAdminActor_()
+  });
+  vNextAdminWriteSystemConfig_(client, {
+    mode: 'CLIENT', book_id: bookId, active_release_id: release.release_id,
+    schema_version: release.schema_version
+  });
+  callback('EMPTY_PILOT_CONFIG_WRITTEN', { direction: expectedDirection,
+    releaseId: release.release_id, modelReleaseId: model.model_release_id });
+
+  const meta = vNextAdminAppendEmptyPilotRepairMeta_(hub, client, plan, release, model, expectedDirection);
+  callback('EMPTY_PILOT_META_APPENDED', { direction: expectedDirection, recordId: meta.record_id });
+
+  if (expectedDirection === 'TARGET') {
+    const pair = vNextAdminReadActiveReleasePair_(hub);
+    if (pair.releaseId !== String(release.release_id || '') ||
+        pair.modelReleaseId !== String(model.model_release_id || '') ||
+        pair.templateSpreadsheetId !== String(release.template_spreadsheet_id || '')) {
+      throw new Error('Registry commit直前にcanonical ACTIVE pairが変更されました。');
+    }
+  }
+  // Commit marker: no Client release identity is published centrally before
+  // runtime, UI, config and both append-only BOOK_META mirrors are durable.
+  vNextAdminPatchRegistryByBookId_(hub, bookId, {
+    template_release_id: release.release_id, schema_version: release.schema_version,
+    client_runtime_version: release.client_runtime_version,
+    client_runtime_sha256: release.client_runtime_sha256,
+    state: 'INPUT_OPEN', status: 'ACTIVE', health_status: 'PENDING',
+    health_code: expectedDirection === 'TARGET' ? 'EMPTY_PILOT_UPGRADED' : 'EMPTY_PILOT_ROLLED_BACK',
+    updated_at: new Date()
+  });
+  callback('EMPTY_PILOT_REGISTRY_COMMITTED', { direction: expectedDirection,
+    releaseId: release.release_id });
+
+  vNextAdminWriteBookConfig_(client, {
+    maintenance_mode: '', maintenance_operation_id: '',
+    updated_at: new Date(), updated_by: vNextAdminActor_()
+  });
+  vNextAdminProtectClientInternalSheets_(client, [VN_ADMIN_BOOK_CONFIG_SHEET,
+    VN_ADMIN_SYSTEM_CONFIG_SHEET, VN_ADMIN_CLIENT_REQUEST_SHEET].concat(
+      typeof VNEXT_CORE !== 'undefined' ? Object.keys(VNEXT_CORE.INTERNAL_SHEETS) : []
+    ));
+  const committedRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, committedRegistry, release, model, false);
+  const health = vNextAdminScanOneBook_(hub, committedRegistry);
+  if (String(health.healthStatus || '').toUpperCase() !== 'OK') {
+    throw new Error('更新後health scanがOKではありません: ' + health.healthCode + ' ' + health.detail);
+  }
+  callback('EMPTY_PILOT_HEALTH_VERIFIED', { direction: expectedDirection,
+    healthStatus: health.healthStatus, healthCode: health.healthCode });
+  return { meta: meta, health: health };
+}
+
+function vNextAdminAppendEmptyPilotRepairMeta_(hub, client, plan, release, model, direction) {
+  const bookId = String(plan.bookId || '');
+  const hubMetas = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  let clientMetas = vNextAdminReadCoreRows_(client, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  if (!hubMetas.length || !clientMetas.length) throw new Error('BOOK_META repair source is missing.');
+  const hubIds = new Set(hubMetas.map(function (row) { return String(row.record_id || ''); }));
+  const untrustedClientOnly = clientMetas.filter(function (row) {
+    return !hubIds.has(String(row.record_id || ''));
+  });
+  if (untrustedClientOnly.length) {
+    throw new Error('Client-only BOOK_METAが見つかったため自動復旧を停止しました。');
+  }
+  // Hub is authoritative. If execution stopped after the Hub append but
+  // before the Client append, mirror the missing trusted records first so the
+  // next supersedes_record_id never points to a record absent from Client.
+  vNextAdminAppendMissingCoreRows_(client, 'BOOK_META', 'record_id', hubMetas);
+  clientMetas = vNextAdminReadCoreRows_(client, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const latestHub = hubMetas[hubMetas.length - 1];
+  const latestClient = clientMetas[clientMetas.length - 1];
+  if (String(latestHub.record_id || '') === String(latestClient.record_id || '') &&
+      String(latestHub.template_version || '') === String(release.release_id || '') &&
+      String(latestHub.model_release_id || '') === String(model.model_release_id || '')) return latestHub;
+  const original = hubMetas.find(function (row) {
+    return String(row.record_id || '') === String(plan.sourceMetaRecordId || '');
+  });
+  if (!original) throw new Error('Journal source BOOK_META is missing.');
+  const recordId = 'EMPTY-META-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+    bookId: bookId, releaseId: release.release_id, modelReleaseId: model.model_release_id,
+    direction: direction, predecessor: latestHub.record_id
+  })).slice(0, 24).toUpperCase();
+  const record = Object.assign({}, original, {
+    record_id: recordId, state: 'INPUT_OPEN', template_version: release.release_id,
+    schema_version: release.schema_version, model_release_id: model.model_release_id,
+    event_type: direction === 'TARGET' ? 'EMPTY_PILOT_UPGRADED' : 'EMPTY_PILOT_UPGRADE_ROLLED_BACK',
+    supersedes_record_id: String(latestHub.record_id || ''),
+    recorded_at: new Date().toISOString(), recorded_by: vNextAdminActor_().toLowerCase()
+  });
+  vNextAdminAppendMissingCoreRows_(hub, 'BOOK_META', 'record_id', [record]);
+  vNextAdminAppendMissingCoreRows_(client, 'BOOK_META', 'record_id', [record]);
+  return record;
+}
+
+function vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, phase, detail) {
+  vNextAdminPatchLatestMigration_(hub, migrationId, {
+    status: String(phase || ''),
+    result_json: vNextAdminCanonicalJson_({ phase: String(phase || ''), detail: detail || {},
+      updatedAt: new Date().toISOString() })
+  });
+}
+
 function vNextAdminRegisterRelease(request) {
   return vNextAdminPublishTemplateRelease(request);
 }
@@ -3827,6 +4748,14 @@ function vNextAdminMenuRefreshExceptions() {
   });
 }
 
+function vNextAdminMenuRunOperationalCycle() {
+  const result = vNextAdminRunOperationalCycle();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    String(result && result.message || '最新状態を確認しました。'), VN_ADMIN_MENU_NAME, 5
+  );
+  return result;
+}
+
 function vNextAdminMenuRunHealthScan() {
   const out = vNextAdminRunHealthScan();
   SpreadsheetApp.getActiveSpreadsheet().toast('全bookの状態確認を完了しました。', VN_ADMIN_MENU_NAME, 5);
@@ -4544,9 +5473,11 @@ function vNextAdminQueueAgeMetrics_(rows, nowMs) {
   };
 }
 
-function vNextAdminOperationalMetrics_(hub, automationInstalled) {
+function vNextAdminOperationalMetrics_(hub, automationInstalled, optionalJobRows) {
   const now = Date.now();
-  const queue = vNextAdminQueueAgeMetrics_(vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows, now);
+  const jobRows = Array.isArray(optionalJobRows)
+    ? optionalJobRows : vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows;
+  const queue = vNextAdminQueueAgeMetrics_(jobRows, now);
   const props = PropertiesService.getScriptProperties();
   const succeededAt = String(props.getProperty('VNEXT_LAST_SWEEP_SUCCEEDED_AT') || '');
   const successMs = new Date(succeededAt || 0).getTime();
@@ -8318,10 +9249,18 @@ function vNextAdminRefreshTodayExceptions_(hub) {
   });
   const jobs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows;
   jobs.filter(function (row) { return String(row.status) === 'FAILED'; }).slice(-100).forEach(function (row) {
+    const actualDataIssue = vNextAdminIsActualDataIssue_(row);
+    const safeRetry = vNextAdminIsKnownSafeRetryCandidate_(row);
     exceptions.push(vNextAdminExceptionObject_({
       severity: 'ERROR', exception_type: 'JOB_FAILED', book_id: row.target_book_id,
-      title: 'Job failed: ' + row.job_type, detail: row.error,
-      recommended_action: '原因を確認し、新しいidempotency keyで再投入', source_ref: row.job_id
+      title: actualDataIssue ? '予測に必要な確定実績が不足' : '自動処理を完了できませんでした',
+      detail: row.error,
+      recommended_action: safeRetry
+        ? 'サイドバーの「受付・処理を今すぐ確認」で、同じ処理を安全に再開'
+        : actualDataIssue
+          ? 'ZACの確定実績が5年度以上あるか確認。新しい処理を重複登録しない'
+          : 'JOB_QUEUEの元処理を確認。新しい処理を重複登録しない',
+      source_ref: row.job_id
     }));
   });
   const operations = vNextAdminOperationalMetrics_(hub, vNextAdminAutomationInstalled_());
@@ -8380,33 +9319,73 @@ function vNextAdminResolveOpenExceptions_(hub, bookId, types, sourceRef) {
 
 function vNextAdminRefreshHome_(hub) {
   const sheet = vNextAdminGetOrCreateSheet_(hub, VN_ADMIN_SHEETS.HOME);
+  try { sheet.getDataRange().breakApart(); } catch (ignoredBreakApart) {}
   sheet.clear();
-  const clientCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.REGISTRY, 'mode', 'CLIENT');
-  const exceptionCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.EXCEPTIONS, 'status', 'OPEN');
-  const queuedCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.JOBS, 'status', 'QUEUED');
-  const approvalCount = vNextAdminCountRowsBy_(hub, VN_ADMIN_SHEETS.APPROVALS, 'status', 'PENDING');
-  const operations = vNextAdminOperationalMetrics_(hub, vNextAdminAutomationInstalled_());
+  const registryRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
+  const exceptionRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.EXCEPTIONS).rows.filter(function (row) {
+    return String(row.status || 'OPEN').toUpperCase() === 'OPEN' &&
+      String(row.exception_type || '').toUpperCase() !== 'APPROVAL_PENDING';
+  });
+  const jobRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows;
+  const approvalRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows;
+  const clientCount = registryRows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() !== 'ARCHIVED';
+  }).length;
+  const queuedCount = jobRows.filter(function (row) {
+    return String(row.status || '').toUpperCase() === 'QUEUED';
+  }).length;
+  const runningCount = jobRows.filter(function (row) {
+    return String(row.status || '').toUpperCase() === 'RUNNING';
+  }).length;
+  const failedCount = jobRows.filter(function (row) {
+    return String(row.status || '').toUpperCase() === 'FAILED';
+  }).length;
+  const approvalCount = approvalRows.filter(function (row) {
+    return String(row.status || '').toUpperCase() === 'PENDING';
+  }).length;
+  const actualIssueCount = exceptionRows.filter(vNextAdminIsActualDataIssue_).length;
+  const automationInstalled = vNextAdminAutomationInstalled_();
+  const operations = vNextAdminOperationalMetrics_(hub, automationInstalled, jobRows);
   const pilot = vNextAdminPilotStatus_(hub);
+  let overall = '対応なし';
+  if (!automationInstalled) overall = '初期設定が必要';
+  else if (operations.schedulerStale || operations.queueStale) overall = '自動処理を確認';
+  else if (approvalCount || exceptionRows.length) overall = '管理者の確認あり';
+  else if (queuedCount || runningCount) overall = '自動処理中';
   const rows = [
-    ['Forecast vNext Admin Hub', ''],
-    ['更新日時', new Date()],
-    ['登録client book', clientCount],
-    ['今日の例外', exceptionCount],
-    ['処理待ちjob', queuedCount],
-    ['承認待ちplan', approvalCount],
-    ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊（' + pilot.phase + '）'],
-    ['最長job待機', operations.oldestQueuedAgeMinutes + '分'],
-    ['自動運用最終成功', operations.lastSweepSucceededAt || '未実行'],
+    ['年度計画 管理', overall],
+    ['最終確認', new Date()],
     ['', ''],
-    ['通常運用', 'サイドバーまたはAdminメニューから、例外確認 → health scan → job処理 → plan承認を実行します。'],
-    ['不変条件', 'OFFICIAL_RUNSはappend-only。訂正はamendmentとして新しいofficial recordを発行します。']
+    ['今日、判断すること', approvalCount + exceptionRows.length + '件'],
+    ['承認待ち', approvalCount + '件'],
+    ['要確認', exceptionRows.length + '件'],
+    ['うち実績データの確認', actualIssueCount + '件'],
+    ['', ''],
+    ['自動処理', runningCount ? runningCount + '件を処理中' : queuedCount ? queuedCount + '件が受付済み' : '待機なし'],
+    ['処理失敗（累計）', failedCount + '件'],
+    ['自動更新', !automationInstalled ? '未設定' : operations.schedulerStale ? '要確認' : '正常'],
+    ['最終自動更新', operations.lastSweepSucceededAt || '未実行'],
+    ['', ''],
+    ['登録済み年度計画', clientCount + '冊'],
+    ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
+    ['', ''],
+    ['次の操作', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」から管理画面を開いてください。'],
+    ['正式計画', '確定済みの計画は上書きせず、訂正履歴を追加します。']
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-  sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#d9ead3');
+  sheet.setHiddenGridlines(true);
+  sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setFontSize(15)
+    .setBackground('#1f2937').setFontColor('#ffffff');
   sheet.getRange(2, 2).setNumberFormat('yyyy/MM/dd HH:mm');
-  sheet.setColumnWidth(1, 190);
-  sheet.setColumnWidth(2, 620);
-  sheet.setFrozenRows(1);
+  [4, 9, 14, 17].forEach(function (rowNumber) {
+    sheet.getRange(rowNumber, 1, 1, 2).setFontWeight('bold').setBackground('#eef2f7');
+  });
+  sheet.getRange(1, 1, rows.length, 2).setVerticalAlignment('middle');
+  sheet.getRange(1, 1, rows.length, 1).setFontWeight('bold');
+  sheet.setColumnWidth(1, 210);
+  sheet.setColumnWidth(2, 520);
+  sheet.setFrozenRows(2);
 }
 
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
@@ -9331,8 +10310,10 @@ function vNextAdminFindApproval_(hub, predicate) {
   return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.find(predicate) || null;
 }
 
-function vNextAdminListPendingApprovals_(hub) {
-  return vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows
+function vNextAdminListPendingApprovals_(hub, optionalApprovalRows) {
+  const rows = Array.isArray(optionalApprovalRows)
+    ? optionalApprovalRows : vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows;
+  return rows
     .filter(function (row) { return String(row.status) === 'PENDING'; })
     .map(function (row) {
       const snapshot = vNextAdminParseJson_(row.snapshot_json, {});
@@ -9572,7 +10553,9 @@ function vNextAdminCountRowsBy_(ss, sheetName, key, expected) {
 
 function vNextAdminPatchLatestMigration_(hub, migrationId, patch) {
   const table = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS);
-  const row = table.rows.find(function (item) { return String(item.migration_id) === String(migrationId); });
+  const row = table.rows.filter(function (item) {
+    return String(item.migration_id) === String(migrationId);
+  }).slice(-1)[0];
   if (row) vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.MIGRATIONS, row._rowNumber, patch);
 }
 

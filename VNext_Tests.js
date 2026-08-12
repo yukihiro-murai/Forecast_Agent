@@ -155,6 +155,11 @@ function vNextTestHistoryGuard_() {
   var prior = vNextBuildContinuityPrior_(sufficient, 2025, vNextCutoffFromAsOf_('2025-02-01'));
   vNextAssertTrue_(prior.fiscalYears.length >= 5 && prior.fiscalYears.length <= 8, 'History must use 5-8 fiscal years.');
   vNextAssertNear_(vNextSum_(prior.seasonalShares), 1, 1e-9, 'Seasonal shares must sum to one.');
+  var failure = vNextForecastFailureInfo_(new Error('At least 5 fiscal years of confirmed actual history are required; found 4.'));
+  vNextAssertEqual_(failure.code, 'INSUFFICIENT_CONFIRMED_HISTORY', 'Insufficient history has a stable employee-facing code.');
+  vNextAssertTrue_(failure.userMessage.indexOf('必要5年度') >= 0 && failure.userMessage.indexOf('4年度') >= 0,
+    'Insufficient history explains the required and observed years in Japanese.');
+  vNextAssertTrue_(!failure.retryRecommended, 'Missing confirmed history must not encourage a blind retry.');
 }
 
 function vNextTestStateTransitions_() {
@@ -266,6 +271,15 @@ function vNextTestExplanationAndInformationRanking_() {
   });
   vNextAssertEqual_(reasons.length, 3, 'The three largest prior-run changes are explained.');
   vNextAssertTrue_(reasons[0].indexOf('契約・案件') >= 0, 'Largest change is explained first.');
+  var readiness = vNextBuildPublicEvidenceReadiness_({
+    missingResponseRate: 0.5, informationGapRate: 0.25,
+    evidenceResponseCounts: { change: 1, noChange: 1, unknown: 1 }, aiUnavailable: false
+  }, { fiscalYears: [2019, 2020, 2021, 2022, 2023, 2024] }, { p10: 500, p50: 1000, p90: 1600 });
+  vNextAssertEqual_(readiness.level, 'NEEDS_ATTENTION', 'Large evidence gaps must be visible without a false accuracy score.');
+  vNextAssertTrue_(readiness.issues.length <= 3 && readiness.historyYearCount === 6,
+    'Employee readiness keeps the three most useful facts and history coverage.');
+  vNextAssertTrue_(JSON.stringify(readiness).indexOf('confidence') < 0,
+    'Evidence readiness must not be mislabeled as statistical confidence.');
 }
 
 function vNextTestUnknownSpotLens_() {

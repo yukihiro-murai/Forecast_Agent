@@ -1,41 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
   <head>
     <base target="_top">
     <meta charset="utf-8">
     <style>
-      :root { --green:#188038; --blue:#1a73e8; --red:#b3261e; --amber:#b06000; --line:#dadce0; --soft:#f8f9fa; }
-      body { font: 13px/1.45 Arial, sans-serif; color:#202124; margin:0; padding:14px; }
-      h1 { font-size:18px; margin:0 0 4px; }
-      h2 { font-size:14px; margin:18px 0 8px; }
-      .muted { color:#5f6368; }
-      .badge { display:inline-block; padding:2px 8px; border-radius:12px; background:#e8f0fe; color:#174ea6; font-weight:700; }
-      .card { border:1px solid var(--line); border-radius:8px; padding:10px; margin:10px 0; background:white; }
-      .metrics { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-      .metric { background:var(--soft); border-radius:6px; padding:8px; }
-      .metric b { display:block; font-size:18px; }
+      :root { --green:#137333; --blue:#1769aa; --red:#b3261e; --amber:#9a4f00; --ink:#1f2937; --muted:#64748b; --line:#e2e8f0; --soft:#f6f8fb; --panel:#ffffff; }
+      * { box-sizing:border-box; }
+      body { font: 13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); margin:0; padding:16px; background:#fbfcfe; }
+      h1 { font-size:19px; letter-spacing:-.2px; margin:0 0 2px; }
+      h2 { font-size:14px; margin:0 0 8px; }
+      p { margin:6px 0; }
+      .muted { color:var(--muted); }
+      .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#e8f0fe; color:#174ea6; font-size:11px; font-weight:700; }
+      .card { border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; background:var(--panel); box-shadow:0 1px 2px rgba(15,23,42,.04); }
+      .metrics { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+      .metric { background:var(--soft); border-radius:9px; padding:9px; color:var(--muted); }
+      .metric b { display:block; margin-top:2px; font-size:20px; line-height:1.15; color:var(--ink); }
+      .overview { border-left:4px solid var(--green); }
+      .overview.attention { border-left-color:var(--amber); }
+      .overview.error { border-left-color:var(--red); background:#fff8f7; }
+      .overview.processing { border-left-color:var(--blue); }
+      .overview-title { font-size:15px; font-weight:750; }
+      .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+      .count-pill { min-width:24px; padding:1px 7px; border-radius:999px; text-align:center; background:#eef2f7; font-weight:700; }
       label { display:block; font-weight:700; margin-top:8px; }
       input, textarea, select { box-sizing:border-box; width:100%; margin-top:3px; padding:7px; border:1px solid var(--line); border-radius:4px; font:inherit; }
       textarea { min-height:58px; resize:vertical; }
-      button { border:0; border-radius:4px; padding:8px 10px; margin:8px 4px 0 0; background:var(--blue); color:white; font-weight:700; cursor:pointer; }
+      button { border:0; border-radius:7px; padding:9px 11px; margin:8px 4px 0 0; background:var(--blue); color:white; font-weight:700; cursor:pointer; }
       button.secondary { background:#5f6368; }
       button.good { background:var(--green); }
       button.warn { background:var(--amber); }
       button.danger { background:var(--red); }
       button:disabled { opacity:.55; cursor:default; }
       .hidden { display:none !important; }
-      .status { white-space:pre-wrap; padding:8px; border-radius:5px; margin-top:10px; background:var(--soft); max-height:180px; overflow:auto; }
+      .status { white-space:pre-wrap; padding:9px; border-radius:7px; margin-top:8px; background:var(--soft); max-height:180px; overflow:auto; }
       .status.error { color:var(--red); background:#fce8e6; }
-      .approval { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
-      .exception { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
+      .approval, .exception, .work-item { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
+      .approval:first-child, .exception:first-child, .work-item:first-child { border-top:0; padding-top:0; margin-top:0; }
+      .item-label { font-weight:700; }
+      .item-meta { color:var(--muted); font-size:12px; }
+      .item-error { color:var(--red); }
       details { margin-top:10px; }
-      summary { cursor:pointer; color:#3c4043; font-weight:700; }
+      summary { cursor:pointer; color:#334155; font-weight:700; }
       .money { font-variant-numeric:tabular-nums; }
       a { color:var(--blue); }
+      pre { white-space:pre-wrap; word-break:break-word; font:11px/1.45 ui-monospace,SFMono-Regular,monospace; color:#475569; }
     </style>
   </head>
   <body>
-    <h1>Forecast vNext Admin</h1>
+    <h1>年度計画 管理</h1>
     <div><span id="mode" class="badge">loading</span></div>
     <div id="book" class="muted"></div>
 
@@ -77,44 +90,48 @@
     </div>
 
     <div id="adminPanel" class="hidden">
+      <div id="attentionOverview" class="card overview">
+        <div id="attentionLabel" class="overview-title">最新状態を確認しています</div>
+        <div id="attentionGuidance" class="muted">少しお待ちください。</div>
+      </div>
+
       <div class="card metrics">
-        <div class="metric">例外<b id="exceptionCount">0</b></div>
-        <div class="metric">待機job<b id="jobCount">0</b></div>
         <div class="metric">承認待ち<b id="approvalCount">0</b></div>
-        <div class="metric">Client books<b id="clientCount">0</b></div>
+        <div class="metric">要確認<b id="exceptionCount">0</b></div>
+        <div class="metric">自動処理中<b id="jobCount">0</b></div>
+        <div class="metric">年度計画<b id="clientCount">0</b></div>
       </div>
 
       <div class="card">
-        <h2>Pilot展開状況</h2>
-        <div id="pilotStatus" class="status">確認中…</div>
-        <div id="pilotCanaryApproval" class="hidden">
-          <label>3冊の確認結果・Canaryへ進む理由<textarea id="pilotCanaryReason"></textarea></label>
-          <button class="warn" onclick="approvePilotCanary()">4〜5冊目のCanaryを承認</button>
-        </div>
+        <div class="row"><h2>確認・承認待ち</h2><span id="approvalPill" class="count-pill">0</span></div>
+        <div id="approvals" class="muted">ありません</div>
       </div>
 
       <div class="card">
-        <h2>自動運用</h2>
-        <div id="automationStatus" class="muted"></div>
-        <div id="operationsStatus" class="status">運用メトリクスを確認中…</div>
+        <div class="row"><h2>要確認事項</h2><span id="exceptionPill" class="count-pill">0</span></div>
+        <div id="exceptions" class="muted">ありません</div>
+        <button class="secondary" onclick="callSimple('vNextAdminMenuOpenExceptions')">一覧シートを開く</button>
+      </div>
+
+      <div class="card">
+        <h2>申請・自動処理</h2>
+        <div id="automationStatus" class="muted">確認中…</div>
+        <div id="operationsStatus" class="status">最新状態を確認中…</div>
+        <div id="portalRequests" class="muted"></div>
+        <div id="recentJobs" class="muted"></div>
         <button id="installAutomation" class="good" onclick="callSimple('vNextAdminInstallAutomation')">自動運用を有効化</button>
+        <button id="runOperationalCycle" onclick="runOperationalCycle()">受付・処理を今すぐ確認</button>
         <details>
-          <summary>手動で更新する</summary>
-          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全bookの状態を確認</button>
-          <button class="secondary" onclick="callSimple('vNextAdminProcessJobQueue', 5)">待機中の処理を実行</button>
-          <button class="secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認事項を更新</button>
+          <summary>個別の状態確認</summary>
+          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全年度計画を確認</button>
+          <button class="secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認一覧だけ更新</button>
         </details>
       </div>
 
-      <div class="card">
-        <h2>いま確認が必要なこと</h2>
-        <div id="exceptions" class="muted">ありません</div>
-        <button class="secondary" onclick="callSimple('vNextAdminMenuOpenExceptions')">要確認一覧を開く</button>
-      </div>
-
-      <div class="card">
+      <details class="card">
+        <summary>社員ポータルの設定・更新</summary>
         <h2>社員向け年度計画ポータル</h2>
-        <p class="muted">社員が年度別のClient bookを探し、未作成のclient×FYを申請する共通入口です。Admin Hubは共有しません。</p>
+        <p class="muted">社員が年度計画を探し、未作成のクライアント・年度を申請する共通入口です。</p>
         <label>会社ドメイン（空欄は管理者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
         <label>ポータル名（任意）<input id="portalTitle" placeholder="年度計画ポータル"></label>
         <button class="good" onclick="provisionSharedPortal()">社員ポータルを準備する</button>
@@ -133,13 +150,19 @@
           <label><input id="portalPilotAttestation" type="checkbox"> 上記のClient runtime 12件、Portal runtime 7件、統合契約test PASSを管理者として確認した</label>
           <button class="warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button>
         </details>
-      </div>
+        <div id="pilotStatus" class="status">Pilot展開状況を確認中…</div>
+        <div id="pilotCanaryApproval" class="hidden">
+          <label>3冊の確認結果・次へ進む理由<textarea id="pilotCanaryReason"></textarea></label>
+          <button class="warn" onclick="approvePilotCanary()">4〜5冊目のテストを承認</button>
+        </div>
+      </details>
 
-      <div class="card">
-        <h2>クライアント年度bookを作成</h2>
+      <details class="card">
+        <summary>個別に年度計画を作る（例外対応）</summary>
+        <p class="muted">通常は社員ポータルから依頼します。管理者が代理作成する場合だけ使用してください。</p>
         <label>クライアント名<input id="clientName"></label>
         <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
-        <label>Forecast Owner（1名のメール）<input id="ownerEmails" type="email"></label>
+        <label>作成担当者（1名のメール）<input id="ownerEmails" type="email"></label>
         <details>
           <summary>詳細設定</summary>
           <label>Client ID（空欄は自動採番）<input id="clientId"></label>
@@ -149,12 +172,20 @@
           <label>Release ID（空欄は現行版）<input id="clientReleaseId"></label>
           <label>保存先folder ID（任意）<input id="clientFolderId"></label>
         </details>
-        <button onclick="provisionClient()">年度bookを作成</button>
-      </div>
+        <button onclick="provisionClient()">年度計画を作成</button>
+      </details>
 
-      <div class="card">
-        <h2>確認・承認待ち</h2>
-        <div id="approvals" class="muted">ありません</div>
+      <div id="emptyPilotUpgradeCard" class="card hidden">
+        <h2>テスト前の年度計画を最新版へ更新</h2>
+        <p class="muted">まだ誰も回答していないテスト用bookだけを、同じURLのまま現在の正式版へ更新します。最初に安全条件を自動確認します。</p>
+        <label>更新する年度計画
+          <select id="emptyPilotBookSelect" onchange="resetEmptyPilotBasis()"></select>
+        </label>
+        <div id="emptyPilotBasis" class="status">対象を選び、「安全条件を確認」を押してください。</div>
+        <label>更新理由<input id="emptyPilotUpgradeReason" value="従業員テスト開始前のUI・操作性改善"></label>
+        <button class="secondary" onclick="checkEmptyPilotUpgrade()">安全条件を確認</button>
+        <button id="applyEmptyPilotUpgradeButton" class="good" onclick="applyEmptyPilotUpgrade()" disabled>同じURLのまま最新版へ更新</button>
+        <button id="recoverEmptyPilotUpgradeButton" class="warn hidden" onclick="recoverEmptyPilotUpgrade()">中断した更新を安全に復旧</button>
       </div>
 
       <details class="card">
@@ -250,7 +281,6 @@
         <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">計画だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
         <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
         <button class="secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button>
-        <button class="warn" onclick="enqueueMigration(false)">検証済み改修版を適用</button>
         <h2>年度の振り返り・終了</h2>
         <label>Book ID<input id="reviewBookId"></label>
         <label>実績確認日（年度末翌月以降）<input id="reviewAsOf" placeholder="2027/04/01"></label>
@@ -268,11 +298,16 @@
     </div>
 
     <div id="status" class="status">初期化中…</div>
+    <details id="statusTechnical" class="hidden">
+      <summary>管理者向け詳細</summary>
+      <pre id="statusTechnicalText"></pre>
+    </details>
 
     <script>
       let sidebarModel = null;
       let amendmentBasis = null;
       let aiRollbackBasis = null;
+      let emptyPilotUpgradeBasis = null;
       const $ = id => document.getElementById(id);
       const value = id => $(id).value.trim();
 
@@ -280,12 +315,33 @@
         document.querySelectorAll('button').forEach(b => b.disabled = busy);
       }
       function showStatus(message, isError) {
-        $('status').textContent = typeof message === 'string' ? message : JSON.stringify(message, null, 2);
+        let display = '';
+        let technical = '';
+        if (typeof message === 'string') {
+          display = message;
+        } else {
+          technical = JSON.stringify(message, null, 2);
+          display = message && message.message ? String(message.message) : '処理が完了しました。';
+        }
+        $('status').textContent = display;
         $('status').classList.toggle('error', !!isError);
+        $('statusTechnicalText').textContent = technical;
+        $('statusTechnical').classList.toggle('hidden', !technical);
       }
       function onFailure(error) {
         setBusy(false);
-        showStatus((error && error.message) || String(error), true);
+        const raw = (error && error.message) || String(error);
+        let friendly = '処理を完了できませんでした。要確認事項と詳細を確認してください。';
+        if (/Another .* operation is running|別の処理|running:/i.test(raw)) {
+          friendly = '別の処理を実行中です。少し待ってから最新状態を確認してください。';
+        } else if (/At least 5 fiscal years|confirmed actual history/i.test(raw)) {
+          friendly = '予測に必要な確定実績が5年度未満です。ZACの実績範囲を確認してください。';
+        } else if (/Requested release is not ACTIVE/i.test(raw)) {
+          friendly = '使用する年度計画の版に不整合がありました。「受付・処理を今すぐ確認」から安全な再開を試してください。';
+        }
+        showStatus(friendly, true);
+        $('statusTechnicalText').textContent = raw;
+        $('statusTechnical').classList.remove('hidden');
       }
       function load() {
         google.script.run.withSuccessHandler(render).withFailureHandler(onFailure).vNextAdminGetSidebarModel();
@@ -293,21 +349,32 @@
       function render(model) {
         setBusy(false);
         sidebarModel = model;
-        $('mode').textContent = model.mode;
+        $('mode').textContent = model.mode === 'ADMIN' ? '管理者用' : model.mode;
         $('book').textContent = model.spreadsheetName;
         $('legacyPanel').classList.toggle('hidden', model.mode !== 'LEGACY');
         $('adminPanel').classList.toggle('hidden', model.mode !== 'ADMIN');
         $('nonAdminPanel').classList.toggle('hidden', model.mode === 'LEGACY' || model.mode === 'ADMIN');
         if (model.mode === 'ADMIN') {
           $('exceptionCount').textContent = model.counts.exceptions || 0;
-          $('jobCount').textContent = model.counts.queuedJobs || 0;
+          $('jobCount').textContent = Number(model.counts.queuedJobs || 0) + Number(model.counts.runningJobs || 0);
           $('approvalCount').textContent = model.counts.pendingApprovals || 0;
           $('clientCount').textContent = model.counts.clients || 0;
-          $('automationStatus').textContent = model.automationInstalled ? '有効です（5分ごとに確認）' : '未設定です。最初に1回だけ有効化してください。';
+          $('approvalPill').textContent = model.counts.pendingApprovals || 0;
+          $('exceptionPill').textContent = model.counts.exceptions || 0;
+          const attention = model.attention || {};
+          $('attentionLabel').textContent = attention.label || '最新状態を確認しました';
+          $('attentionGuidance').textContent = attention.guidance || '';
+          $('attentionOverview').classList.toggle('attention', attention.status === 'ATTENTION' || attention.status === 'SETUP');
+          $('attentionOverview').classList.toggle('error', attention.status === 'ERROR');
+          $('attentionOverview').classList.toggle('processing', attention.status === 'PROCESSING');
+          $('automationStatus').textContent = model.automationInstalled ? '自動更新：有効（5分ごと）' : '自動更新：未設定';
           const operations = model.operations || {};
-          $('operationsStatus').textContent =
-            `最長job待機：${operations.oldestQueuedAgeMinutes || 0}分（待機 ${operations.queued || 0}件 / 実行中 ${operations.running || 0}件）\n` +
-            `自動運用最終成功：${operations.lastSweepSucceededAt || '未実行'}`;
+          $('operationsStatus').textContent = operations.schedulerStale
+            ? `自動更新の成功記録が古くなっています。\n受付済み ${operations.queued || 0}件 / 処理中 ${operations.running || 0}件`
+            : operations.queueStale
+              ? `受付済みの処理が長時間進んでいません。\n受付済み ${operations.queued || 0}件 / 処理中 ${operations.running || 0}件`
+              : `受付済み ${operations.queued || 0}件 / 処理中 ${operations.running || 0}件\n` +
+                `最終自動更新：${operations.lastSweepSucceededAt || 'まだ実行されていません'}`;
           $('operationsStatus').classList.toggle('error', !!(operations.schedulerStale || operations.queueStale));
           const pilot = model.pilot || {};
           $('pilotStatus').textContent =
@@ -319,6 +386,8 @@
           $('installAutomation').classList.toggle('hidden', !!model.automationInstalled);
           renderExceptions(model.topExceptions || []);
           renderApprovals(model.pendingApprovals || []);
+          renderPortalRequests(model.portalRequests || {});
+          renderRecentJobs(model.recentJobs || []);
           const drafts = (model.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
           const staged = (model.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
           $('activeTemplateRelease').textContent =
@@ -340,8 +409,9 @@
           $('updatePortalRuntimeButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           renderModelReleases(model);
+          renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
         }
-        showStatus('準備完了');
+        if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
       }
       function renderModelReleases(model) {
         const active = model.activeModelReleaseId || '未設定';
@@ -352,6 +422,115 @@
         });
         $('activeModelRelease').textContent = lines.join('\n');
       }
+
+      function renderEmptyPilotUpgradeCandidates(rows) {
+        const card = $('emptyPilotUpgradeCard');
+        const select = $('emptyPilotBookSelect');
+        const previous = select.value;
+        select.innerHTML = '';
+        (rows || []).forEach(row => {
+          const option = document.createElement('option');
+          option.value = row.bookId;
+          option.textContent = row.recoveryRequired
+            ? `${row.clientName || row.bookId} / FY${row.fiscalYear}（中断した更新を復旧）`
+            : `${row.clientName || row.bookId} / FY${row.fiscalYear}（${row.currentReleaseId} → 現行版）`;
+          option.dataset.url = row.spreadsheetUrl || '';
+          option.dataset.recoveryRequired = row.recoveryRequired ? '1' : '';
+          option.dataset.migrationId = row.migrationId || '';
+          select.appendChild(option);
+        });
+        if (previous && [...select.options].some(option => option.value === previous)) select.value = previous;
+        card.classList.toggle('hidden', !rows.length);
+        resetEmptyPilotBasis();
+      }
+
+      function resetEmptyPilotBasis() {
+        emptyPilotUpgradeBasis = null;
+        $('applyEmptyPilotUpgradeButton').disabled = true;
+        $('recoverEmptyPilotUpgradeButton').classList.add('hidden');
+        const selected = $('emptyPilotBookSelect').selectedOptions[0];
+        if (selected && selected.dataset.recoveryRequired === '1') {
+          $('emptyPilotBasis').textContent = '前回の更新が中断されています。新しく更新せず、記録済みjournalから安全に復旧してください。';
+          $('emptyPilotBasis').classList.add('error');
+          $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
+        } else if ($('emptyPilotBookSelect').options.length) {
+          $('emptyPilotBasis').textContent = '対象を選び、「安全条件を確認」を押してください。';
+          $('emptyPilotBasis').classList.remove('error');
+        }
+      }
+
+      function checkEmptyPilotUpgrade() {
+        const bookId = value('emptyPilotBookSelect');
+        if (!bookId) { showStatus('更新候補を選んでください。', true); return; }
+        const selected = $('emptyPilotBookSelect').selectedOptions[0];
+        if (selected && selected.dataset.recoveryRequired === '1') {
+          $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
+          showStatus('中断した更新があります。「中断した更新を安全に復旧」を実行してください。', true);
+          return;
+        }
+        setBusy(true); showStatus('回答や予測が一度もなく、安全に更新できるか確認しています…');
+        google.script.run.withSuccessHandler(basis => {
+          setBusy(false);
+          emptyPilotUpgradeBasis = basis;
+          $('emptyPilotBasis').textContent =
+            `${basis.clientName} / FY${basis.fiscalYear}\n` +
+            `${basis.currentReleaseId} → ${basis.targetReleaseId}\n` +
+            `URLは維持：はい\n` +
+            `確認済み：${(basis.safeguards || []).join('／')}`;
+          $('emptyPilotBasis').classList.remove('error');
+          $('applyEmptyPilotUpgradeButton').disabled = false;
+          showStatus('安全条件をすべて確認できました。内容を確認して更新してください。');
+        }).withFailureHandler(error => {
+          emptyPilotUpgradeBasis = null;
+          const raw = (error && error.message) || String(error);
+          if (/未完了の空Pilot更新|migrationId=|RECOVERY_REQUIRED/i.test(raw)) {
+            $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
+          }
+          $('emptyPilotBasis').textContent = 'このbookは自動更新の安全条件を満たしません。管理者向け詳細を確認してください。';
+          $('emptyPilotBasis').classList.add('error');
+          onFailure(error);
+          $('applyEmptyPilotUpgradeButton').disabled = true;
+        }).vNextAdminUpgradeEmptyPilotClient({ bookId, dryRun:true });
+      }
+
+      function applyEmptyPilotUpgrade() {
+        const bookId = value('emptyPilotBookSelect');
+        const reason = value('emptyPilotUpgradeReason');
+        if (!emptyPilotUpgradeBasis || emptyPilotUpgradeBasis.bookId !== bookId) {
+          showStatus('先に「安全条件を確認」を実行してください。', true); return;
+        }
+        if (!reason) { showStatus('更新理由を入力してください。', true); return; }
+        if (!window.confirm('選択したテスト用年度計画を、同じURLのまま現在の正式版へ更新します。続行しますか？')) return;
+        setBusy(true); showStatus('同じURLを維持したまま最新版へ更新しています。画面を閉じずにお待ちください…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); emptyPilotUpgradeBasis = null;
+          $('applyEmptyPilotUpgradeButton').disabled = true;
+          showStatus(`更新しました。URLは変わりません。\n${result.spreadsheetUrl || ''}`);
+          load();
+        }).withFailureHandler(error => {
+          const raw = (error && error.message) || String(error);
+          if (/RECOVERY_REQUIRED|自動rollbackの両方|migrationId=/i.test(raw)) {
+            $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
+          }
+          onFailure(error);
+        }).vNextAdminUpgradeEmptyPilotClient({ bookId, dryRun:false, reason });
+      }
+
+      function recoverEmptyPilotUpgrade() {
+        const bookId = value('emptyPilotBookSelect');
+        if (!bookId) { showStatus('復旧する年度計画を選んでください。', true); return; }
+        setBusy(true); showStatus('記録済みjournalから、旧版または新版の整合した状態へ復旧しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false);
+          $('recoverEmptyPilotUpgradeButton').classList.add('hidden');
+          showStatus(`復旧しました（${result.direction === 'TARGET' ? '最新版を完了' : '旧版へ復元'}）。`);
+          load();
+        }).withFailureHandler(onFailure).vNextAdminRecoverEmptyPilotClientUpgrade({
+          bookId,
+          migrationId: ($('emptyPilotBookSelect').selectedOptions[0] || { dataset:{} }).dataset.migrationId || '',
+          reason:'Admin Sidebarから中断処理を復旧'
+        });
+      }
       function renderExceptions(rows) {
         const root = $('exceptions');
         root.innerHTML = '';
@@ -360,27 +539,99 @@
           const div = document.createElement('div');
           div.className = 'exception';
           const title = document.createElement('b');
-          title.textContent = `${row.severity || 'WARN'}｜${row.clientName || row.bookId || '共通'}${row.fiscalYear ? ` / FY${row.fiscalYear}` : ''}`;
+          title.textContent = `${row.categoryLabel || row.message || '確認が必要です'}｜${row.clientName || '全体'}${row.fiscalYear ? ` / FY${row.fiscalYear}` : ''}`;
           div.appendChild(title);
-          const category = document.createElement('div');
-          category.textContent = `分類：${row.category || 'GENERAL'} / Book：${row.bookId || '-'}`;
-          div.appendChild(category);
-          const message = document.createElement('div');
-          message.textContent = row.message || row.detail || '';
-          div.appendChild(message);
           const action = document.createElement('div');
           action.className = 'muted';
-          action.textContent = `対処：${row.actionGuidance || '要確認一覧で詳細を確認してください。'}`;
+          action.textContent = row.actionGuidance || '詳細を確認してください。';
           div.appendChild(action);
-          if (['OFFICIAL_CLIENT_SYNC_FAILED','OFFICIAL_COPY_FAILED'].includes(String(row.category || '').toUpperCase()) && row.bookId) {
+          if (row.actionType === 'RETRY_OFFICIAL_SYNC' && row.bookId) {
             const retry = document.createElement('button');
             retry.className = 'warn';
-            retry.textContent = '正式計画をClientへ再同期';
+            retry.textContent = '正式計画を再反映';
             retry.onclick = () => retryOfficialSync(row.bookId);
             div.appendChild(retry);
+          } else if (row.actionType === 'RUN_NOW') {
+            const run = document.createElement('button');
+            run.textContent = '受付・処理を今すぐ確認';
+            run.onclick = runOperationalCycle;
+            div.appendChild(run);
+          } else if (row.bookUrl) {
+            const link = document.createElement('a');
+            link.href = row.bookUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = '対象の年度計画を開く';
+            div.appendChild(document.createElement('br'));
+            div.appendChild(link);
+          }
+          const details = document.createElement('details');
+          details.innerHTML = `<summary>詳細</summary><div class="item-meta">${escapeHtml(row.detail || '')}</div>`;
+          div.appendChild(details);
+          root.appendChild(div);
+        });
+      }
+
+      function renderPortalRequests(model) {
+        const root = $('portalRequests');
+        root.innerHTML = '';
+        if (model.unavailable) {
+          const warning = document.createElement('div');
+          warning.className = 'item-label item-error';
+          warning.textContent = '社員ポータルの状態を確認できません。';
+          root.appendChild(warning);
+          return;
+        }
+        if (!model.configured) {
+          root.textContent = '社員ポータルはまだ準備されていません。';
+          return;
+        }
+        const counts = model.counts || {};
+        const summary = document.createElement('div');
+        summary.className = 'item-meta';
+        summary.textContent = `社員からの依頼：受付済み ${counts.waiting || 0}件 / 処理中 ${counts.processing || 0}件 / 要確認 ${counts.failed || 0}件`;
+        root.appendChild(summary);
+        (model.attention || []).slice(0, 5).forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'work-item';
+          const label = document.createElement('div');
+          label.className = row.status === 'FAILED' || row.status === 'REJECTED' ? 'item-label item-error' : 'item-label';
+          label.textContent = `${row.clientName || 'クライアント'} / FY${row.fiscalYear || '-'}｜${row.statusLabel || '確認中'}`;
+          div.appendChild(label);
+          if (row.detailMessage) {
+            const detail = document.createElement('div'); detail.className = 'item-meta';
+            detail.textContent = row.detailMessage; div.appendChild(detail);
           }
           root.appendChild(div);
         });
+        if (model.spreadsheetUrl) {
+          const link = document.createElement('a');
+          link.href = model.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+          link.textContent = '社員ポータルを開く';
+          root.appendChild(document.createElement('br')); root.appendChild(link);
+        }
+      }
+
+      function renderRecentJobs(rows) {
+        const root = $('recentJobs');
+        root.innerHTML = '';
+        if (!rows.length) return;
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = '進行中・失敗した処理を見る';
+        details.appendChild(summary);
+        rows.forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'work-item';
+          const label = document.createElement('div');
+          label.className = row.status === 'FAILED' ? 'item-label item-error' : 'item-label';
+          label.textContent = `${row.taskLabel || '自動処理'}｜${row.statusLabel || row.status}`;
+          div.appendChild(label);
+          if (row.errorSummary) {
+            const error = document.createElement('div'); error.className = 'item-meta';
+            error.textContent = row.errorSummary; div.appendChild(error);
+          }
+          details.appendChild(div);
+        });
+        root.appendChild(details);
       }
       function renderApprovals(rows) {
         const root = $('approvals');
@@ -390,7 +641,8 @@
           const div = document.createElement('div');
           div.className = 'approval';
           const title = document.createElement('b');
-          title.textContent = `${row.clientName || row.bookId} / FY${row.fiscalYear} / ${row.requestType}`;
+          const requestLabel = String(row.requestType || '').toUpperCase() === 'AMENDMENT' ? '正式計画の訂正' : '年度計画の確定';
+          title.textContent = `${row.clientName || row.bookId} / FY${row.fiscalYear}｜${requestLabel}`;
           div.appendChild(title);
           const detail = document.createElement('div');
           detail.className = 'muted';
@@ -400,7 +652,7 @@
               `<div class="money">前回正式予算 ${formatMoney(row.previousFinalBudget)} → 訂正案 ${formatMoney(row.finalBudget)}</div>`
             : '';
           detail.innerHTML = amendmentDetail +
-            `<div class="money">システム推奨 ${formatMoney(row.systemRecommended)}（P10 ${formatMoney(row.p10)} ～ P90 ${formatMoney(row.p90)}）</div>` +
+            `<div class="money">システム推奨 ${formatMoney(row.systemRecommended)}（通常の振れ幅 ${formatMoney(row.p10)} ～ ${formatMoney(row.p90)}）</div>` +
             `<div class="money">採用予測 ${formatMoney(row.adoptedForecast)} ＋ 営業上積み ${formatMoney(row.salesUplift)} ＝ 最終予算 ${formatMoney(row.finalBudget)}</div>` +
             `<div>採用理由：${escapeHtml(row.adoptionReason || '差分なし')}</div>` +
             `<div>上積み理由：${escapeHtml(row.upliftReason || '上積みなし')}</div>`;
@@ -520,6 +772,13 @@
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRefreshZacClientCatalog({force:true});
+      }
+      function runOperationalCycle() {
+        setBusy(true);
+        showStatus('社員からの依頼と自動処理を確認しています。この画面を閉じずにお待ちください。');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); load();
+        }).withFailureHandler(onFailure).vNextAdminRunOperationalCycle();
       }
       function updatePortalRuntime() {
         const reason = value('portalRuntimeReason');
@@ -653,6 +912,12 @@
         if ((decision === 'RETURN' || decision === 'REJECT') && !String(comment || '').trim()) {
           showStatus('差戻し・却下の理由を入力してください。', true); return;
         }
+        const confirmation = decision === 'APPROVE'
+          ? 'この計画を正式計画として確定します。確定後は上書きされません。続行しますか？'
+          : decision === 'RETURN'
+            ? '入力した理由と進め方で差し戻します。続行しますか？'
+            : 'この計画案を却下します。続行しますか？';
+        if (!window.confirm(confirmation)) return;
         setBusy(true);
         google.script.run.withSuccessHandler(result => {
           if (decision === 'RETURN' && bookId && returnRoute) {

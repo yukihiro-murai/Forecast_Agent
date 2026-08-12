@@ -6,29 +6,30 @@
     :root{--blue:#174ea6;--green:#188038;--red:#b3261e;--text:#202124;--muted:#5f6368;--line:#dadce0;--soft:#f8f9fa}
     *{box-sizing:border-box} body{margin:0;padding:16px;color:var(--text);font:14px/1.5 Arial,"Noto Sans JP",sans-serif}
     h1{margin:0 0 4px;font-size:20px} h2{margin:22px 0 8px;font-size:15px}.meta,.hint{color:var(--muted);font-size:12px}
-    .hero{margin:12px 0;padding:14px;border-radius:8px;background:#e8f0fe;text-align:center}.hero strong{display:block;color:var(--blue);font-size:22px}
+    .summary{margin:12px 0;border:1px solid var(--line);border-radius:6px;background:#fff}.summary-row{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 12px;border-top:1px solid var(--line);align-items:center}.summary-row:first-child{border-top:0}.summary-row strong{font-size:17px}.summary-row .hint{grid-column:1/-1}
     .request{margin:12px 0;padding:11px;border-left:4px solid #f9ab00;background:#fef7e0;border-radius:4px}
     label{display:block;margin-top:12px;font-weight:700}input,textarea{width:100%;margin-top:5px;padding:9px;border:1px solid var(--line);border-radius:6px;font:inherit}textarea{min-height:76px;resize:vertical}
-    input:focus,textarea:focus{outline:2px solid #aecbfa;border-color:var(--blue)}.hidden{display:none!important}
+    input:focus,textarea:focus,button:focus-visible{outline:3px solid #aecbfa;outline-offset:1px;border-color:var(--blue)}.hidden{display:none!important}
     .months{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.months label{margin-top:7px;font-size:12px}.months input{text-align:right;padding:7px}
     .quarters{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px}.quarter{padding:8px;background:var(--soft);border-radius:5px;text-align:right}.quarter strong{float:left}
     .preview{margin-top:14px;padding:12px;border-left:4px solid var(--green);background:#e6f4ea;border-radius:4px}.error,.success{margin:10px 0;padding:10px;border-radius:6px}.error{color:var(--red);background:#fce8e6}.success{color:#137333;background:#e6f4ea;font-weight:700}
     .actions{position:sticky;bottom:0;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px -16px -16px;padding:12px 16px 16px;background:#fff;border-top:1px solid var(--line)}
-    button{border:0;border-radius:6px;padding:10px;font-weight:700;cursor:pointer}.primary{color:#fff;background:var(--blue)}.secondary{color:var(--blue);background:#fff;border:1px solid var(--blue)}button:disabled{opacity:.45;cursor:not-allowed}
+    button{min-height:42px;border:0;border-radius:6px;padding:10px;font-weight:700;cursor:pointer}.primary{color:#fff;background:var(--blue)}.secondary{color:var(--blue);background:#fff;border:1px solid var(--blue)}button:disabled{opacity:.45;cursor:not-allowed}
   </style>
 </head>
 <body>
-  <div id="loading">計画案を準備しています…</div>
+  <div id="loading" role="status" aria-live="polite">計画案を準備しています…</div>
   <main id="app" class="hidden">
     <h1>計画案を作成・提出</h1><div id="meta" class="meta"></div>
     <div id="changeRequest" class="request hidden"><strong>差戻し理由</strong><div id="changeRequestText"></div></div>
-    <div class="hero">システム推奨予測<strong id="systemRecommended"></strong><span id="range" class="hint"></span></div>
-    <p class="hint">システム推奨予測は変更できません。判断による差分と営業上積みは、別々に記録します。</p>
+    <div class="summary"><div class="summary-row"><span>システム推奨予測</span><strong id="systemRecommended"></strong><span id="range" class="hint"></span></div></div>
+    <p class="hint">これは現在の情報から見た予測で、営業目標ではありません。採用する見込みと営業上積みを分けて決めます。</p>
 
-    <h2>1. 採用予測を決める</h2>
-    <label>採用判断の差分（円）<input id="adoptionDelta" type="number" step="1" value="0"></label>
-    <label>理由（差分が0円なら任意）<textarea id="adoptionReason" maxlength="1000" placeholder="システム推奨から変更する根拠"></textarea></label>
-    <div class="hero">採用予測<strong id="adoptedForecast"></strong></div>
+    <h2>1. 採用する見込みを決める</h2>
+    <label>採用予測（円）<input id="adoptedAmount" type="number" min="0" step="1" required></label>
+    <p class="hint">システム推奨予測をそのまま採用する場合は、表示された金額を変えません。</p>
+    <label>変更した理由（同額なら任意）<textarea id="adoptionReason" maxlength="1000" placeholder="例：予測時点では未反映だった確認済み契約を加えた"></textarea></label>
+    <div class="summary"><div class="summary-row"><span>システム推奨との差</span><strong id="adoptionDifference"></strong></div></div>
 
     <h2>2. 営業上積みを決める</h2>
     <label>営業上積み（円）<input id="salesUplift" type="number" min="0" step="1" value="0"></label>
@@ -45,11 +46,11 @@
         <div class="quarter"><strong>Q1</strong><span id="q0">¥0</span></div><div class="quarter"><strong>Q2</strong><span id="q1">¥0</span></div>
         <div class="quarter"><strong>Q3</strong><span id="q2">¥0</span></div><div class="quarter"><strong>Q4</strong><span id="q3">¥0</span></div>
       </div>
-      <div class="hero">配分合計<strong id="allocationTotal">¥0</strong></div>
+      <div class="summary"><div class="summary-row"><span>配分合計</span><strong id="allocationTotal">¥0</strong></div></div>
     </section>
-    <div class="hero">最終予算<strong id="finalBudget"></strong></div>
-    <div id="message"></div>
-    <div id="preview" class="preview hidden"><strong>提出内容</strong><div id="previewSummary"></div><div id="previewQuarters"></div></div>
+    <div class="summary"><div class="summary-row"><span>最終予算</span><strong id="finalBudget"></strong><span class="hint">採用予測＋営業上積み</span></div></div>
+    <div id="message" role="alert" aria-live="assertive" tabindex="-1"></div>
+    <div id="preview" class="preview hidden" aria-live="polite"><strong>提出内容</strong><div id="previewSummary"></div><div id="previewQuarters"></div></div>
     <div class="actions"><button id="previewButton" type="button" class="secondary">内容を確認</button><button id="submitButton" type="button" class="primary" disabled>管理者へ提出</button></div>
   </main>
   <script>
@@ -58,12 +59,12 @@
     function number(id){const v=$(id).value;return v===''?0:Number(v)}
     function months(){return [...document.querySelectorAll('.month-value')].map(input=>input.value===''?0:Number(input.value))}
     function invalidate(){previewHash='';$('preview').classList.add('hidden');$('submitButton').disabled=true;$('message').innerHTML='';updateTotals()}
-    function updateTotals(){if(!model)return;const adopted=Number(model.systemRecommended)+number('adoptionDelta'),uplift=number('salesUplift');$('adoptedForecast').textContent=money(adopted);$('finalBudget').textContent=money(adopted+uplift);$('upliftFields').classList.toggle('hidden',!(uplift>0));const values=months();for(let q=0;q<4;q++)$('q'+q).textContent=money(values.slice(q*3,q*3+3).reduce((a,b)=>a+b,0));$('allocationTotal').textContent=money(values.reduce((a,b)=>a+b,0))}
-    function payload(){return{adoptionDelta:number('adoptionDelta'),adoptionReason:$('adoptionReason').value,salesUplift:number('salesUplift'),upliftReason:$('upliftReason').value,upliftOwner:$('upliftOwner').value,upliftAction:$('upliftAction').value,upliftDueDate:$('upliftDueDate').value,monthAllocation:months(),previewHash}}
-    function showError(error){$('previewButton').disabled=false;$('submitButton').disabled=!previewHash;$('message').innerHTML=`<div class="error">${escapeHtml(error&&error.message?error.message:error)}</div>`}
+    function updateTotals(){if(!model)return;const adopted=number('adoptedAmount'),uplift=number('salesUplift'),hasUplift=uplift>0;$('adoptionDifference').textContent=money(adopted-Number(model.systemRecommended));$('finalBudget').textContent=money(adopted+uplift);$('upliftFields').classList.toggle('hidden',!hasUplift);['upliftReason','upliftOwner','upliftAction','upliftDueDate'].forEach(id=>$(id).required=hasUplift);const values=months();for(let q=0;q<4;q++)$('q'+q).textContent=money(values.slice(q*3,q*3+3).reduce((a,b)=>a+b,0));$('allocationTotal').textContent=money(values.reduce((a,b)=>a+b,0))}
+    function payload(){return{adoptionDelta:number('adoptedAmount')-Number(model.systemRecommended),adoptionReason:$('adoptionReason').value,salesUplift:number('salesUplift'),upliftReason:$('upliftReason').value,upliftOwner:$('upliftOwner').value,upliftAction:$('upliftAction').value,upliftDueDate:$('upliftDueDate').value,monthAllocation:months(),previewHash}}
+    function showError(error){$('previewButton').disabled=false;$('submitButton').disabled=!previewHash;$('message').innerHTML=`<div class="error">${escapeHtml(error&&error.message?error.message:error)}</div>`;$('message').focus()}
     function allocate(){const total=Math.max(0,Math.round(number('salesUplift'))),weights=model.monthWeights||new Array(12).fill(1/12);let used=0;document.querySelectorAll('.month-value').forEach((input,i)=>{const value=i===11?total-used:Math.round(total*Number(weights[i]||0));input.value=value;used+=value});invalidate()}
-    function render(data){model=data;$('loading').classList.add('hidden');$('app').classList.remove('hidden');$('meta').textContent=`${data.clientName}｜FY${data.fiscalYear}｜${data.stateLabel}`;$('systemRecommended').textContent=money(data.systemRecommended);$('range').textContent=`通常の振れ幅 ${money(data.range.p10)} ～ ${money(data.range.p90)}`;if(data.changeRequestReason){$('changeRequest').classList.remove('hidden');$('changeRequestText').textContent=data.changeRequestReason}const labels=data.monthLabels||[];$('months').innerHTML=labels.map((label,i)=>`<label>${escapeHtml(label)}<input class="month-value" data-index="${i}" type="number" min="0" step="1" value="0"></label>`).join('');const p=data.previousPlan;if(p){$('adoptionDelta').value=p.adoptionDelta||0;$('adoptionReason').value=p.adoptionReason||'';$('salesUplift').value=p.salesUplift||0;$('upliftReason').value=p.upliftReason||'';$('upliftOwner').value=p.upliftOwner||'';$('upliftAction').value=p.upliftAction||'';$('upliftDueDate').value=(p.upliftDueDate||'').replaceAll('/','-');document.querySelectorAll('.month-value').forEach((input,i)=>input.value=(p.monthAllocation||[])[i]||0)}document.querySelectorAll('input,textarea').forEach(input=>input.addEventListener('input',invalidate));updateTotals()}
-    function preview(){invalidate();$('previewButton').disabled=true;$('previewButton').textContent='確認しています…';google.script.run.withSuccessHandler(result=>{previewHash=result.previewHash;$('previewSummary').textContent=result.summary;$('previewQuarters').textContent='上積みQ配分：'+result.quarterAllocation.map((v,i)=>`Q${i+1} ${money(v)}`).join('／');$('preview').classList.remove('hidden');$('submitButton').disabled=false;$('previewButton').disabled=false;$('previewButton').textContent='内容を確認'}).withFailureHandler(error=>{$('previewButton').textContent='内容を確認';showError(error)}).vNextPreviewPlan(payload())}
+    function render(data){model=data;$('loading').classList.add('hidden');$('app').classList.remove('hidden');$('meta').textContent=`${data.clientName}｜FY${data.fiscalYear}｜${data.stateLabel}`;$('systemRecommended').textContent=money(data.systemRecommended);$('range').textContent=`通常の振れ幅 ${money(data.range.p10)} ～ ${money(data.range.p90)}`;$('adoptedAmount').value=Number(data.systemRecommended)||0;if(data.changeRequestReason){$('changeRequest').classList.remove('hidden');$('changeRequestText').textContent=data.changeRequestReason}const labels=data.monthLabels||[];$('months').innerHTML=labels.map((label,i)=>`<label>${escapeHtml(label)}<input class="month-value" data-index="${i}" type="number" min="0" step="1" value="0" aria-label="${escapeHtml(label)}の営業上積み"></label>`).join('');const p=data.previousPlan;if(p){$('adoptedAmount').value=Number(data.systemRecommended)+Number(p.adoptionDelta||0);$('adoptionReason').value=p.adoptionReason||'';$('salesUplift').value=p.salesUplift||0;$('upliftReason').value=p.upliftReason||'';$('upliftOwner').value=p.upliftOwner||'';$('upliftAction').value=p.upliftAction||'';$('upliftDueDate').value=(p.upliftDueDate||'').replaceAll('/','-');document.querySelectorAll('.month-value').forEach((input,i)=>input.value=(p.monthAllocation||[])[i]||0)}document.querySelectorAll('input,textarea').forEach(input=>input.addEventListener('input',invalidate));updateTotals()}
+    function preview(){invalidate();const required=['adoptedAmount',...(number('salesUplift')>0?['upliftReason','upliftOwner','upliftAction','upliftDueDate']:[])];if(!required.every(id=>$(id).reportValidity()))return;$('previewButton').disabled=true;$('previewButton').textContent='確認しています…';google.script.run.withSuccessHandler(result=>{previewHash=result.previewHash;$('previewSummary').textContent=result.summary;$('previewQuarters').textContent='上積みQ配分：'+result.quarterAllocation.map((v,i)=>`Q${i+1} ${money(v)}`).join('／');$('preview').classList.remove('hidden');$('submitButton').disabled=false;$('previewButton').disabled=false;$('previewButton').textContent='内容を確認'}).withFailureHandler(error=>{$('previewButton').textContent='内容を確認';showError(error)}).vNextPreviewPlan(payload())}
     function submit(){if(!confirm('この計画案を管理者へ提出します。よろしいですか？'))return;$('previewButton').disabled=true;$('submitButton').disabled=true;$('submitButton').textContent='提出しています…';google.script.run.withSuccessHandler(result=>{$('message').innerHTML=`<div class="success">${escapeHtml(result.message)}</div>`;setTimeout(()=>google.script.host.close(),1400)}).withFailureHandler(error=>{$('submitButton').textContent='管理者へ提出';showError(error)}).vNextSubmitPlan(payload())}
     $('previewButton').addEventListener('click',preview);$('submitButton').addEventListener('click',submit);$('autoAllocate').addEventListener('click',allocate);
     google.script.run.withSuccessHandler(render).withFailureHandler(error=>{$('loading').innerHTML=`<div class="error">${escapeHtml(error&&error.message?error.message:error)}</div>`}).vNextGetPlanEditorModel();

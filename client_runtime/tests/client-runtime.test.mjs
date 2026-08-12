@@ -40,7 +40,8 @@ testClientQueue();
 testPlanSubmission();
 await testStableViewSheetHandles();
 await testBlankIdentityStillGetsMenu();
-process.stdout.write('PASS client runtime behavior tests (12)\n');
+await testEmployeeUxContracts();
+process.stdout.write('PASS client runtime behavior tests (10 suites)\n');
 
 function testCanonicalJson() {
   assert.equal(sandbox.vNextCanonicalJson_({ b: 2, a: 1 }), '{"a":1,"b":2}');
@@ -59,13 +60,20 @@ function testStateEventAuthoritative() {
       forecast_owner_email: 'owner@example.com', team_member_emails_json: '["owner@example.com"]',
       state: 'INPUT_OPEN', as_of: '2026-08-09', cutoff: '2026-07-31', schema_version: 'vnext-schema-2'
     }];
-    if (sheetName === 'STATE_EVENT') return [{ book_id: 'BOOK-1', from_state: 'INPUT_OPEN', to_state: 'DRAFT_READY' }];
+    if (sheetName === 'STATE_EVENT') return [{
+      book_id: 'BOOK-1', from_state: 'RUNNING', to_state: 'READY_TO_RUN',
+      reason: 'forecast_failed/INSUFFICIENT_CONFIRMED_HISTORY: 確定実績が不足',
+      related_run_id: 'RUN-FAILED-1', created_at: '2026-08-11T03:04:05Z'
+    }];
     if (sheetName === 'EVIDENCE_EVENT') return [];
     return [];
   };
   try {
     const context = sandbox.vNextGetBookContext_({ spreadsheet: { getId: () => 'SHEET-1' } });
-    assert.equal(context.state, 'DRAFT_READY');
+    assert.equal(context.state, 'READY_TO_RUN');
+    assert.equal(context.stateReason, 'forecast_failed/INSUFFICIENT_CONFIRMED_HISTORY: 確定実績が不足');
+    assert.equal(context.stateChangedAt, '2026-08-11T03:04:05Z');
+    assert.equal(context.relatedRunId, 'RUN-FAILED-1');
     sandbox.vNextActiveUserEmail_ = () => 'viewer@example.com';
     const viewer = sandbox.vNextGetBookContext_({ spreadsheet: { getId: () => 'SHEET-1' } });
     assert.equal(viewer.role, 'VIEWER');
@@ -343,4 +351,49 @@ async function testBlankIdentityStillGetsMenu() {
   sandbox.vNextUxGetBookContext_ = () => { throw new Error('identity unavailable'); };
   assert.equal(sandbox.vNextBuildClientMenu_(), true);
   assert.equal(menuAdded, true);
+}
+
+async function testEmployeeUxContracts() {
+  const uxSource = await readFile(path.join(sourceDir, 'VNext_UX.js'), 'utf8');
+  assert.doesNotMatch(uxSource, /\.merge\s*\(/, 'employee sheets must not create merged cells');
+  assert.match(uxSource, /sheet\.getLastRow\(\)/, 'view cleanup must be bounded to used rows');
+  assert.match(uxSource, /sheet\.getLastColumn\(\)/, 'view cleanup must be bounded to used columns');
+  assert.doesNotMatch(uxSource, /sheet\.clearContents\(\)/, 'view cleanup must not clear the full sheet');
+
+  const issue = sandbox.vNextUxStateIssue_({
+    state: 'READY_TO_RUN',
+    stateReason: 'forecast_failed/INSUFFICIENT_CONFIRMED_HISTORY: raw details'
+  });
+  assert.equal(issue.key, 'HISTORY_SHORTAGE');
+  assert.doesNotMatch(issue.instruction, /raw details|INSUFFICIENT/, 'raw internal failure reason must not reach employees');
+  const action = sandbox.vNextUxGetPrimaryAction_({
+    state: 'READY_TO_RUN', isForecastOwner: true, isTeamMember: true, canContribute: true,
+    stateReason: 'forecast_failed/INSUFFICIENT_CONFIRMED_HISTORY: raw details'
+  });
+  assert.equal(action.key, 'WAIT', 'known failure must block a duplicate forecast request');
+  assert.equal(sandbox.vNextUxGetPrimaryAction_({
+    state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false,
+    canContribute: true, inputStatus: { submitted: false }
+  }).key, 'INPUT', 'an unanswered internal contributor must still be able to respond before the owner runs the forecast');
+  assert.equal(sandbox.vNextUxGetPrimaryAction_({
+    state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false,
+    canContribute: true, inputStatus: { submitted: true }
+  }).key, 'WAIT', 'an answered internal contributor should wait for the Forecast Owner');
+
+  const readiness = sandbox.vNextUxPublicForecast_({
+    annual: { p10: 800, p50: 1000, p90: 1300 },
+    layers: { systemRecommended: 1000 },
+    lenses: { evidenceReadiness: { level: 'NEEDS_ATTENTION', historyYearCount: 4, missingResponseRate: 0.5 } },
+    evidenceSummary: {}
+  }).evidenceCoverage;
+  assert.equal(readiness.label, '確認余地が大きいです');
+  assert.match(readiness.detail, /確定実績 4年度分/);
+
+  for (const name of ['VNext_InputSidebar.html', 'VNext_PlanSidebar.html', 'VNext_ReviewSidebar.html']) {
+    const html = await readFile(path.join(sourceDir, name), 'utf8');
+    assert.match(html, /aria-live=/, `${name} must announce async status changes`);
+  }
+  const planHtml = await readFile(path.join(sourceDir, 'VNext_PlanSidebar.html'), 'utf8');
+  assert.match(planHtml, /id="adoptedAmount"/, 'owner should enter the adopted forecast amount, not calculate a delta');
+  assert.doesNotMatch(planHtml, /class="hero"/, 'plan sidebar must avoid decorative hero cards');
 }

@@ -222,6 +222,76 @@ function vNextPortalSubmitCreationRequest(input) {
   }
 }
 
+/**
+ * Lightweight request-status endpoint for the creation sidebar.
+ * It reads the append-only request log only; it never rebuilds visible sheets.
+ */
+function vNextPortalGetRequestProgress(requestId) {
+  try {
+    var id = vNextPortalNormalizeRequestId_(requestId);
+    var requests = vNextPortalReadRequestModels_(SpreadsheetApp.getActiveSpreadsheet());
+    var request = null;
+    requests.some(function (item) {
+      if (item.requestId !== id) return false;
+      request = item;
+      return true;
+    });
+    if (!request) throw new Error('受付状況を確認できませんでした。ホームを更新して確認してください。');
+    return vNextPortalRequestProgressModel_(request);
+  } catch (error) {
+    vNextPortalLog_('vNextPortalGetRequestProgress failed', error);
+    throw error;
+  }
+}
+
+function vNextPortalRequestProgressModel_(request) {
+  var status = String(request && request.status || 'PENDING').trim().toUpperCase();
+  var terminal = ['COMPLETED', 'FAILED', 'REJECTED'].indexOf(status) >= 0;
+  var phaseByStatus = { PENDING: 1, VALIDATING: 2, REJECTED: 2, CREATING: 3, FAILED: 3, COMPLETED: 4 };
+  var updatedAt = vNextPortalIsoText_(request && request.updatedAt || request && request.requestedAt);
+  var updatedMs = new Date(updatedAt || '').getTime();
+  var stale = !terminal && isFinite(updatedMs) && Date.now() - updatedMs >= 15 * 60 * 1000;
+  var nextAction = vNextPortalStatusNextAction_(status, request && request.detailMessage, Boolean(request && request.url));
+  if (stale) {
+    nextAction = '15分以上状態が変わっていません。受付番号を添えて管理担当者へ連絡してください。';
+  }
+  var waitMessage = '';
+  if (status === 'PENDING') {
+    waitMessage = '管理システムは5分ごとに受付を確認します。通常は次回の自動処理で開始します。';
+  } else if (status === 'VALIDATING') {
+    waitMessage = '入力内容を確認しています。ここで追加操作は必要ありません。';
+  } else if (status === 'CREATING') {
+    waitMessage = '専用ブックを作成しています。通常は数分で完了します。';
+  } else if (status === 'COMPLETED') {
+    waitMessage = '専用ブックを利用できます。';
+  } else {
+    waitMessage = '自動処理は停止しています。表示された案内を確認してください。';
+  }
+  return {
+    ok: true,
+    requestId: String(request.requestId || ''),
+    clientName: String(request.clientName || ''),
+    fiscalYear: Number(request.fiscalYear || 0),
+    status: status,
+    statusLabel: VNEXT_PORTAL.REQUEST_STATUS_LABELS[status] || '処理状況を確認中',
+    nextAction: nextAction,
+    waitMessage: waitMessage,
+    updatedAt: updatedAt,
+    url: vNextPortalSafeBookUrl_(request.url),
+    phase: phaseByStatus[status] || 1,
+    phaseCount: 4,
+    isTerminal: terminal,
+    isSuccess: status === 'COMPLETED',
+    isStale: stale
+  };
+}
+
+function vNextPortalNormalizeRequestId_(value) {
+  var requestId = String(value || '').trim();
+  if (!/^PORTAL-REQ-[A-Za-z0-9_-]{8,}$/.test(requestId)) throw new Error('受付番号が不正です。');
+  return requestId;
+}
+
 function vNextPortalGetLocalViewData_(spreadsheet) {
   spreadsheet = spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
   var directory = vNextPortalReadDirectory_(spreadsheet);
@@ -872,7 +942,7 @@ function vNextPortalDirectoryStateLabel_(state) {
 function vNextPortalStatusNextAction_(status, detail, hasUrl) {
   var key = String(status || '').toUpperCase();
   if (key === 'COMPLETED' && hasUrl) return '「開く」から年度計画を開始してください。';
-  if (key === 'PENDING') return '受付済みです。そのままお待ちください。';
+  if (key === 'PENDING') return '受付済みです。自動処理は5分ごとに開始します。';
   if (key === 'VALIDATING') return '内容を確認しています。操作は不要です。';
   if (key === 'CREATING') return '専用ブックを作成しています。操作は不要です。';
   if (key === 'FAILED') return detail || '内容を確認して、必要ならもう一度依頼してください。';

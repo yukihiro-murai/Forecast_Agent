@@ -25,9 +25,9 @@ Admin 所有 trigger は Hub へ取り込む前に、次をサーバー側で再
 1. Legacy book の所有者が Forecast vNext の初期設定を開き、ZAC 実績元 Spreadsheet ID を入力します。
 2. private な空Spreadsheetへ、中央配備済みのAdmin専用runtimeとClient専用runtimeをそれぞれbindingし、Admin Hubとimmutable Master Templateを生成します。元のLegacy bookやそのbound scriptはコピーしません。
 3. 生成した Admin Hub を開き、「自動運用を有効化」を1回実行します。
-4. クライアント名、FY、Forecast Owner 1名の3項目で年度 book を生成します。
+4. 社員ポータルでFY、ZACクライアント、関与メンバー氏名を指定して年度 book の作成を依頼します。Forecast Ownerは依頼した社内ユーザーへ自動設定されます。
 
-Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み15ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは固定されます。初期pilotではmigration APPLYを停止し、dry-run検査だけを提供します。
+Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み17ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは原則固定されます。汎用migration APPLYは停止したままです。従業員テスト前で回答・依頼・予測・計画等が完全に0件、source pinsとruntime SHAが一致する空のPilot Clientだけは、read-only事前判定後に同じURLのままcanonical ACTIVE pairへ更新でき、途中停止時は専用journalから復旧します。
 
 初回展開は2～3 Client、明示承認後のcanaryでも最大5 Clientです。6冊目は30冊負荷試験とrelease承認が完了するまでserver-sideで拒否します。Client fileはAdmin管理のprivate root配下にだけ生成し、共有境界を確認できないfolderは使用しません。
 

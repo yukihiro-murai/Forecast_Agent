@@ -3,123 +3,309 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    :root { --blue:#1a73e8; --dark:#202124; --muted:#5f6368; --line:#dadce0; --soft:#f8f9fa; --warn:#fef7e0; --bad:#fce8e6; --good:#e6f4ea; }
-    * { box-sizing: border-box; }
-    body { margin:0; padding:18px; font:14px/1.5 Arial,sans-serif; color:var(--dark); }
-    h1 { font-size:19px; margin:0 0 6px; }
-    .lead { color:var(--muted); margin:0 0 18px; }
-    label { display:block; font-weight:bold; margin:14px 0 5px; }
+    :root {
+      --blue:#1a73e8; --blue-soft:#e8f0fe; --dark:#202124; --muted:#5f6368;
+      --line:#dadce0; --soft:#f8f9fa; --warn:#fef7e0; --bad:#fce8e6; --good:#e6f4ea;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:16px; font:14px/1.5 Arial,sans-serif; color:var(--dark); background:#fff; }
+    main { max-width:440px; margin:0 auto; }
+    h1 { font-size:19px; line-height:1.3; margin:0 0 6px; }
+    h2 { font-size:17px; line-height:1.35; margin:4px 0 8px; }
+    p { margin:0; }
+    .lead { color:var(--muted); margin-bottom:14px; }
+    .identity { margin:0 0 14px; padding-bottom:10px; color:var(--muted); border-bottom:1px solid var(--line); }
+    .identity strong { color:var(--dark); font-weight:600; overflow-wrap:anywhere; }
+    label, legend { display:block; font-weight:600; margin:14px 0 5px; }
+    fieldset { min-width:0; margin:14px 0 0; padding:0; border:0; }
+    fieldset legend { margin:0 0 7px; }
     .required::after { content:' 必須'; color:#b3261e; font-size:11px; font-weight:normal; }
-    input, select { width:100%; border:1px solid var(--line); border-radius:6px; padding:9px 10px; font:inherit; background:#fff; }
-    input:focus, select:focus { outline:2px solid #d2e3fc; border-color:var(--blue); }
+    input, select { width:100%; min-height:42px; border:1px solid var(--line); border-radius:5px; padding:9px 10px; font:inherit; color:var(--dark); background:#fff; }
+    input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+      outline:3px solid #aecbfa; outline-offset:2px;
+    }
+    input[type="search"] { appearance:auto; }
     .hint { color:var(--muted); font-size:12px; margin-top:4px; }
-    .actions { display:flex; gap:8px; margin-top:18px; }
-    button { border:0; border-radius:6px; padding:10px 13px; font-weight:bold; cursor:pointer; }
-    button.primary { background:var(--blue); color:#fff; flex:1; }
-    button.secondary { background:#e8f0fe; color:#174ea6; flex:1; }
-    button:disabled { opacity:.5; cursor:not-allowed; }
-    .panel { margin-top:16px; padding:12px; border-radius:8px; background:var(--soft); }
-    .panel.good { background:var(--good); }
-    .panel.warn { background:var(--warn); }
-    .panel.bad { background:var(--bad); }
+    .member-row { margin-top:8px; }
+    .member-row label { margin:0 0 4px; color:var(--muted); font-size:12px; font-weight:normal; }
+    .link-button { margin-top:8px; padding:4px 0; border:0; background:transparent; color:#174ea6; font-weight:600; text-align:left; cursor:pointer; }
+    .actions { display:flex; gap:8px; margin-top:16px; }
+    button, .button-link { min-height:42px; border:0; border-radius:5px; padding:10px 13px; font:inherit; font-weight:600; cursor:pointer; text-align:center; text-decoration:none; }
+    .button-link { display:block; margin-top:14px; }
+    button.primary, .button-link.primary { background:var(--blue); color:#fff; flex:1; }
+    button.secondary, .button-link.secondary { background:var(--blue-soft); color:#174ea6; flex:1; }
+    button.tertiary { border:1px solid var(--line); background:#fff; color:#3c4043; flex:1; }
+    button:disabled { opacity:.52; cursor:not-allowed; }
+    .panel { margin-top:14px; padding:11px 12px; border:1px solid var(--line); border-radius:6px; background:var(--soft); }
+    .panel.good { border-color:#a8dab5; background:var(--good); }
+    .panel.warn { border-color:#f6d775; background:var(--warn); }
+    .panel.bad { border-color:#f3b7b3; background:var(--bad); }
     .candidate { margin-top:9px; padding-top:9px; border-top:1px solid rgba(0,0,0,.12); }
     .candidate:first-of-type { border-top:0; }
-    .candidate a { color:var(--blue); font-weight:bold; }
+    .candidate a { display:inline-block; margin-top:4px; color:var(--blue); font-weight:600; }
     .check { display:flex; align-items:flex-start; gap:8px; margin-top:12px; font-weight:normal; }
-    .check input { width:auto; margin-top:4px; }
-    .identity { margin:10px 0 2px; padding:10px 12px; border-radius:8px; background:#e8f0fe; color:#174ea6; }
-    .member-grid { display:grid; gap:8px; }
-    .member-grid label { margin:0; font-weight:normal; }
-    .hidden { display:none; }
-    .spinner { display:inline-block; width:14px; height:14px; border:2px solid #c5c5c5; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:6px; }
+    .check input { width:auto; min-height:0; margin-top:4px; }
+    .loading { display:flex; align-items:center; gap:8px; margin:12px 0; color:var(--muted); }
+    .spinner { display:inline-block; width:15px; height:15px; flex:0 0 auto; border:2px solid #c5c5c5; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
+    .receipt { margin:12px 0; padding:10px 12px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    .receipt div + div { margin-top:3px; }
+    .eyebrow { color:#137333; font-size:12px; font-weight:700; }
+    .request-status { margin:12px 0 0; }
+    .request-status strong { display:block; margin-bottom:3px; }
+    .timeline { list-style:none; margin:14px 0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
+    .timeline li { position:relative; padding-top:13px; color:var(--muted); font-size:11px; text-align:center; }
+    .timeline li::before { content:''; position:absolute; top:0; left:calc(50% - 4px); width:8px; height:8px; border:2px solid #9aa0a6; border-radius:50%; background:#fff; }
+    .timeline li.done, .timeline li.current { color:var(--dark); font-weight:600; }
+    .timeline li.done::before { border-color:#137333; background:#137333; }
+    .timeline li.current::before { border-color:var(--blue); background:#fff; box-shadow:0 0 0 3px var(--blue-soft); }
+    .status-meta { color:var(--muted); font-size:12px; margin-top:7px; }
+    .hidden { display:none !important; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    @media (max-width:360px) {
+      body { padding:12px; }
+      .actions { flex-direction:column; }
+      .timeline { grid-template-columns:1fr; gap:6px; }
+      .timeline li { padding:0 0 0 18px; text-align:left; }
+      .timeline li::before { top:5px; left:2px; }
+    }
+    @media (pointer:coarse) { input, select { font-size:16px; } }
+    @media (prefers-reduced-motion:reduce) { .spinner { animation:none; } }
   </style>
 </head>
 <body>
-  <h1>新しい年度計画を作る</h1>
-  <p class="lead" id="lead">既存の計画を確認してから、作成を依頼します。</p>
+  <main>
+    <h1>新しい年度計画を作る</h1>
+    <p class="lead" id="lead">ZACのクライアントを選び、関与メンバーを登録します。</p>
 
-  <form id="form" autocomplete="off">
-    <div class="identity">作成担当：<span id="requester">確認中…</span></div>
-
-    <label class="required" for="fiscalYear">対象年度</label>
-    <select id="fiscalYear" required disabled></select>
-    <div class="hint">年度は4月から翌年3月です。</div>
-
-    <label class="required" for="clientKey">クライアント</label>
-    <select id="clientKey" required disabled>
-      <option value="">ZACの一覧を読み込んでいます…</option>
-    </select>
-    <div class="hint" id="catalogInfo">クライアント名とIDの手入力は不要です。</div>
-
-    <label class="required" for="memberName1">関与メンバー</label>
-    <div class="member-grid">
-      <label>1人目<input id="memberName1" maxlength="80" placeholder="氏名" required></label>
-      <label>2人目<input id="memberName2" maxlength="80" placeholder="氏名（任意）"></label>
-      <label>3人目<input id="memberName3" maxlength="80" placeholder="氏名（任意）"></label>
-      <label>4人目<input id="memberName4" maxlength="80" placeholder="氏名（任意）"></label>
-      <label>5人目<input id="memberName5" maxlength="80" placeholder="氏名（任意）"></label>
+    <div id="modelLoading" class="loading" role="status">
+      <span class="spinner" aria-hidden="true"></span><span>作成画面を準備しています…</span>
     </div>
-    <div class="hint">少なくとも1名、最大5名まで入力してください。</div>
+    <div id="modelError" class="panel bad hidden" role="alert" tabindex="-1"></div>
 
-    <div class="actions">
-      <button class="secondary" type="button" id="previewButton" disabled>重複候補を確認</button>
-    </div>
-    <div id="result" class="hidden" role="status" aria-live="polite"></div>
-    <label id="similarConfirmWrap" class="check hidden">
-      <input type="checkbox" id="confirmSimilarDuplicates">
-      <span>表示された候補とは別のクライアントです。</span>
-    </label>
-    <div class="actions">
-      <button class="primary" type="button" id="submitButton" disabled>このクライアントの作成を依頼</button>
-    </div>
-  </form>
+    <form id="form" autocomplete="off" aria-busy="true">
+      <div class="identity">作成担当：<strong id="requester">確認中…</strong></div>
+
+      <label class="required" for="fiscalYear">対象年度</label>
+      <select id="fiscalYear" required disabled aria-describedby="fiscalYearHint"></select>
+      <div class="hint" id="fiscalYearHint">年度は4月から翌年3月です。</div>
+
+      <label for="clientSearch">クライアントを絞り込む</label>
+      <input id="clientSearch" type="search" placeholder="名称の一部を入力" disabled aria-controls="clientKey" aria-describedby="clientCount">
+      <div class="hint" id="clientCount">ZAC一覧を読み込んでいます。</div>
+
+      <label class="required" for="clientKey">クライアント</label>
+      <select id="clientKey" required disabled aria-describedby="catalogInfo">
+        <option value="">ZACの一覧を読み込んでいます…</option>
+      </select>
+      <div class="hint" id="catalogInfo">クライアント名とIDの手入力は不要です。</div>
+
+      <fieldset aria-describedby="memberHint">
+        <legend class="required">関与メンバー</legend>
+        <div class="member-row" id="memberRow1">
+          <label for="memberName1">1人目</label>
+          <input id="memberName1" maxlength="80" placeholder="氏名" required disabled>
+        </div>
+        <div class="member-row hidden" id="memberRow2">
+          <label for="memberName2">2人目</label>
+          <input id="memberName2" maxlength="80" placeholder="氏名" disabled>
+        </div>
+        <div class="member-row hidden" id="memberRow3">
+          <label for="memberName3">3人目</label>
+          <input id="memberName3" maxlength="80" placeholder="氏名" disabled>
+        </div>
+        <div class="member-row hidden" id="memberRow4">
+          <label for="memberName4">4人目</label>
+          <input id="memberName4" maxlength="80" placeholder="氏名" disabled>
+        </div>
+        <div class="member-row hidden" id="memberRow5">
+          <label for="memberName5">5人目</label>
+          <input id="memberName5" maxlength="80" placeholder="氏名" disabled>
+        </div>
+        <button class="link-button" type="button" id="addMemberButton" disabled>＋ 関与メンバーを追加</button>
+        <div class="hint" id="memberHint">1名は必須です。必要な場合だけ最大5名まで追加できます。</div>
+      </fieldset>
+
+      <div class="actions">
+        <button class="secondary" type="button" id="previewButton" disabled>重複候補を確認</button>
+      </div>
+      <div id="result" class="hidden" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></div>
+      <label id="similarConfirmWrap" class="check hidden">
+        <input type="checkbox" id="confirmSimilarDuplicates">
+        <span>表示された候補とは別のクライアントです。</span>
+      </label>
+      <div class="actions">
+        <button class="primary" type="button" id="submitButton" disabled>このクライアントの作成を依頼</button>
+      </div>
+    </form>
+
+    <section id="submission" class="hidden" tabindex="-1" aria-live="polite" aria-atomic="true">
+      <p class="eyebrow">受付完了</p>
+      <h2 id="submissionTitle">作成依頼を受け付けました</h2>
+      <div class="receipt">
+        <div id="submissionTarget"></div>
+        <div id="submissionId"></div>
+      </div>
+      <ol class="timeline" aria-label="作成状況">
+        <li id="phase1">受付済み</li>
+        <li id="phase2">内容確認</li>
+        <li id="phase3">ブック作成</li>
+        <li id="phase4">利用可能</li>
+      </ol>
+      <div class="request-status" id="requestStatus">
+        <strong id="statusLabel">受付済み</strong>
+        <div id="statusAction">作成依頼を保存しました。</div>
+        <div class="status-meta" id="statusWait">管理システムは5分ごとに受付を確認します。</div>
+        <div class="status-meta" id="statusUpdated"></div>
+      </div>
+      <div id="statusCheckNote" class="panel warn hidden" role="status"></div>
+      <a id="openBookLink" class="button-link primary hidden" target="_blank" rel="noopener noreferrer">年度計画を開く</a>
+      <div class="actions">
+        <button class="tertiary" type="button" id="refreshStatusButton">状態を再確認</button>
+        <button class="secondary" type="button" id="showHomeButton">ホームで確認</button>
+      </div>
+    </section>
+  </main>
 
   <script>
     'use strict';
     var latestPreview = null;
     var busy = false;
+    var submitted = false;
     var modelLoaded = false;
+    var visibleMemberCount = 1;
+    var catalogClients = [];
+    var currentRequestId = '';
+    var currentProgress = null;
+    var pollTimer = null;
+    var pollIndex = 0;
+    var polling = false;
+    var POLL_DELAYS_MS = [20000, 70000, 210000];
     var memberIds = ['memberName1','memberName2','memberName3','memberName4','memberName5'];
-    var ids = ['fiscalYear','clientKey'].concat(memberIds);
+    var payloadIds = ['fiscalYear','clientKey'].concat(memberIds);
+    var elementIds = payloadIds.concat([
+      'lead','requester','catalogInfo','clientSearch','clientCount','form','result','modelLoading','modelError',
+      'previewButton','submitButton','addMemberButton','confirmSimilarDuplicates','similarConfirmWrap',
+      'submission','submissionTitle','submissionTarget','submissionId','statusLabel','statusAction',
+      'statusWait','statusUpdated','statusCheckNote','openBookLink','refreshStatusButton','showHomeButton',
+      'phase1','phase2','phase3','phase4'
+    ]);
     var elements = {};
-    ids.concat(['lead','requester','catalogInfo','form','result','previewButton','submitButton','confirmSimilarDuplicates','similarConfirmWrap']).forEach(function(id) {
-      elements[id] = document.getElementById(id);
-    });
+    elementIds.forEach(function(id) { elements[id] = document.getElementById(id); });
 
-    google.script.run.withSuccessHandler(loadModel).withFailureHandler(showFailure).vNextPortalGetCreateModel();
+    loadCreateModel();
     elements.previewButton.addEventListener('click', preview);
     elements.submitButton.addEventListener('click', submit);
-    ids.forEach(function(id) { elements[id].addEventListener('input', invalidatePreview); });
+    elements.addMemberButton.addEventListener('click', addMember);
+    elements.clientSearch.addEventListener('input', filterClients);
     elements.confirmSimilarDuplicates.addEventListener('change', updateSubmitState);
+    elements.refreshStatusButton.addEventListener('click', function() { pollRequestStatus(true); });
+    elements.showHomeButton.addEventListener('click', showHomeAndClose);
+    payloadIds.forEach(function(id) {
+      elements[id].addEventListener('input', function() {
+        invalidatePreview();
+        updatePreviewState();
+      });
+    });
+    window.addEventListener('pagehide', clearPolling);
+
+    function loadCreateModel() {
+      modelLoaded = false;
+      elements.form.setAttribute('aria-busy', 'true');
+      elements.form.classList.remove('hidden');
+      elements.modelError.classList.add('hidden');
+      elements.modelLoading.classList.remove('hidden');
+      elements.result.className = 'hidden';
+      google.script.run.withSuccessHandler(loadModel).withFailureHandler(function(error) {
+        elements.modelLoading.classList.add('hidden');
+        showFailure(error, 'model');
+      }).vNextPortalGetCreateModel();
+    }
 
     function loadModel(model) {
+      if (!model || !Array.isArray(model.fiscalYears) || !model.fiscalYears.length) {
+        showFailure({ message:'対象年度を読み込めませんでした。画面を閉じてもう一度開いてください。' }, 'model');
+        return;
+      }
+      catalogClients = Array.isArray(model.clients) ? model.clients.slice() : [];
+      if (!catalogClients.length) {
+        showFailure({ message:'利用できるZACクライアントがありません。管理担当者へ一覧更新を依頼してください。' }, 'model');
+        return;
+      }
       elements.lead.textContent = model.instructions || elements.lead.textContent;
-      (model.fiscalYears || []).forEach(function(year) {
+      elements.fiscalYear.textContent = '';
+      model.fiscalYears.forEach(function(year) {
         var option = document.createElement('option');
         option.value = year;
         option.textContent = 'FY' + year;
         if (Number(year) === Number(model.defaultFiscalYear)) option.selected = true;
         elements.fiscalYear.appendChild(option);
       });
+      elements.requester.textContent = model.requesterEmail || '確認できません';
+      elements.catalogInfo.textContent = 'ZAC一覧更新：' + displayDateTime(model.catalogSyncedAt);
+      elements.modelLoading.classList.add('hidden');
+      elements.form.setAttribute('aria-busy', 'false');
+      elements.fiscalYear.disabled = false;
+      elements.clientSearch.disabled = false;
+      elements.clientKey.disabled = false;
+      elements.memberName1.disabled = false;
+      elements.addMemberButton.disabled = false;
+      modelLoaded = true;
+      renderClientOptions('');
+      updatePreviewState();
+    }
+
+    function renderClientOptions(query) {
+      var normalizedQuery = normalizeSearchText(query);
+      var selectedKey = elements.clientKey.value;
+      var matches = catalogClients.filter(function(client) {
+        return !normalizedQuery || normalizeSearchText(client.name).indexOf(normalizedQuery) >= 0;
+      });
+      var visible = matches.slice();
+      var selected = catalogClients.filter(function(client) { return client.key === selectedKey; })[0];
+      var selectedMatches = selected && visible.some(function(client) { return client.key === selectedKey; });
       elements.clientKey.textContent = '';
       var placeholder = document.createElement('option');
       placeholder.value = '';
-      placeholder.textContent = '選択してください';
+      placeholder.textContent = matches.length ? '選択してください' : '該当するクライアントはありません';
       elements.clientKey.appendChild(placeholder);
-      (model.clients || []).forEach(function(client) {
+      visible.forEach(function(client) {
         var option = document.createElement('option');
         option.value = client.key;
         option.textContent = client.name;
         elements.clientKey.appendChild(option);
       });
-      elements.requester.textContent = model.requesterEmail || '確認できません';
-      elements.catalogInfo.textContent = 'ZAC一覧更新：' + displayDateTime(model.catalogSyncedAt) + '／' + (model.clients || []).length + '件';
-      elements.fiscalYear.disabled = false;
-      elements.clientKey.disabled = false;
-      modelLoaded = true;
-      elements.previewButton.disabled = false;
+      if (selectedMatches) elements.clientKey.value = selectedKey;
+      elements.clientCount.textContent = normalizedQuery
+        ? matches.length + '件に絞り込み（全' + catalogClients.length + '件）'
+        : 'ZAC登録 ' + catalogClients.length + '件';
+    }
+
+    function filterClients() {
+      if (!modelLoaded || busy || submitted) return;
+      var previous = elements.clientKey.value;
+      renderClientOptions(elements.clientSearch.value);
+      if (elements.clientKey.value !== previous) invalidatePreview();
+      updatePreviewState();
+    }
+
+    function normalizeSearchText(value) {
+      var text = String(value || '');
+      try { text = text.normalize('NFKC'); } catch (ignoredNormalize) {}
+      return text.toLowerCase().replace(/[\s\u3000]+/g, '');
+    }
+
+    function addMember() {
+      if (busy || submitted || visibleMemberCount >= memberIds.length) return;
+      visibleMemberCount++;
+      var id = memberIds[visibleMemberCount - 1];
+      var row = document.getElementById('memberRow' + visibleMemberCount);
+      row.classList.remove('hidden');
+      elements[id].disabled = false;
+      elements[id].focus();
+      if (visibleMemberCount >= memberIds.length) elements.addMemberButton.classList.add('hidden');
     }
 
     function basePayload() {
@@ -131,39 +317,56 @@
     }
 
     function preview() {
-      if (busy || !modelLoaded || !elements.form.reportValidity()) return;
-      setBusy(true, '候補を確認しています…');
+      if (busy || submitted || !modelLoaded || !elements.form.reportValidity()) return;
+      latestPreview = null;
+      setBusy(true, '重複候補を確認しています。通常は数秒で完了します…');
       google.script.run.withSuccessHandler(function(result) {
         setBusy(false);
         latestPreview = result;
         renderPreview(result);
-      }).withFailureHandler(showFailure).vNextPortalPreviewCreation(basePayload());
+      }).withFailureHandler(function(error) { showFailure(error, 'preview'); })
+        .vNextPortalPreviewCreation(basePayload());
     }
 
     function submit() {
-      if (busy || !modelLoaded || !latestPreview || !elements.form.reportValidity()) return;
-      setBusy(true, '作成依頼を送信しています…');
+      if (busy || submitted || !modelLoaded || !latestPreview || !elements.form.reportValidity()) return;
+      submitted = true;
+      setBusy(true, '作成依頼を保存しています。画面を閉じずにお待ちください…');
       var payload = basePayload();
       payload.duplicateCheckHash = latestPreview.duplicateCheckHash;
       payload.confirmSimilarDuplicates = Boolean(elements.confirmSimilarDuplicates.checked);
-      google.script.run.withSuccessHandler(function(result) {
-        elements.form.classList.add('hidden');
-        clearResult('good');
-        appendText(elements.result, result.message);
-        var id = document.createElement('div');
-        id.className = 'candidate';
-        id.textContent = '受付番号：' + result.requestId;
-        elements.result.appendChild(id);
-        appendText(elements.result, 'ホームへ戻り、受付状況を表示します…');
-        google.script.run.withSuccessHandler(function() {
-          google.script.host.close();
-        }).withFailureHandler(function(error) {
-          clearResult('warn');
-          appendText(elements.result, '作成依頼は受付済みです。ホームの自動更新だけを完了できませんでした。');
-          appendText(elements.result, '受付番号：' + result.requestId);
-          appendText(elements.result, error && error.message ? error.message : String(error || 'ホーム更新に失敗しました。'));
-        }).vNextPortalGoHome();
-      }).withFailureHandler(showFailure).vNextPortalSubmitCreationRequest(payload);
+      google.script.run.withSuccessHandler(showSubmission).withFailureHandler(function(error) {
+        submitted = false;
+        latestPreview = null;
+        showFailure(error, 'submit');
+      }).vNextPortalSubmitCreationRequest(payload);
+    }
+
+    function showSubmission(result) {
+      busy = false;
+      submitted = true;
+      currentRequestId = result.requestId;
+      elements.form.classList.add('hidden');
+      elements.submission.classList.remove('hidden');
+      elements.submissionTarget.textContent = latestPreview
+        ? 'FY' + latestPreview.normalized.fiscalYear + '　' + latestPreview.normalized.clientName : '';
+      elements.submissionId.textContent = '受付番号：' + result.requestId;
+      updateProgress({
+        requestId:result.requestId,
+        status:'PENDING', statusLabel:result.statusLabel || '受付済み',
+        nextAction:'作成依頼を保存しました。追加操作は必要ありません。',
+        waitMessage:'管理システムは5分ごとに受付を確認します。通常は次回の自動処理で開始します。',
+        updatedAt:new Date().toISOString(), phase:1, phaseCount:4,
+        isTerminal:false, isSuccess:false, isStale:false, url:''
+      });
+      elements.submission.focus();
+      google.script.run.withSuccessHandler(function(progress) {
+        updateProgress(progress);
+        scheduleNextPoll();
+      }).withFailureHandler(function(error) {
+        showStatusCheckFailure('依頼は受付済みですが、ホームの自動更新だけを完了できませんでした。', error);
+        scheduleNextPoll();
+      }).vNextPortalShowRequestOnHome(result.requestId);
     }
 
     function renderPreview(result) {
@@ -190,12 +393,94 @@
       });
       elements.similarConfirmWrap.classList.toggle('hidden', !result.hasSimilar || result.hasExact);
       elements.confirmSimilarDuplicates.checked = false;
+      elements.result.focus();
       updateSubmitState();
+    }
+
+    function updateProgress(progress) {
+      if (!progress) return;
+      currentProgress = progress;
+      elements.statusLabel.textContent = progress.statusLabel || '処理状況を確認中';
+      elements.statusAction.textContent = progress.nextAction || '';
+      elements.statusWait.textContent = progress.waitMessage || '';
+      elements.statusUpdated.textContent = progress.updatedAt ? '状態更新：' + displayDateTime(progress.updatedAt) : '';
+      elements.submissionTitle.textContent = progress.isSuccess ? '年度計画を利用できます'
+        : progress.isTerminal ? '確認が必要です' : '作成依頼を受け付けました';
+      for (var phase = 1; phase <= 4; phase++) {
+        var item = elements['phase' + phase];
+        item.classList.toggle('done', progress.isSuccess || phase < Number(progress.phase || 1));
+        item.classList.toggle('current', !progress.isSuccess && phase === Number(progress.phase || 1));
+        if (!progress.isSuccess && phase === Number(progress.phase || 1)) item.setAttribute('aria-current', 'step');
+        else item.removeAttribute('aria-current');
+      }
+      elements.statusCheckNote.classList.toggle('hidden', !progress.isStale);
+      if (progress.isStale) elements.statusCheckNote.textContent = progress.nextAction;
+      if (progress.url && progress.isSuccess) {
+        elements.openBookLink.href = progress.url;
+        elements.openBookLink.classList.remove('hidden');
+      } else {
+        elements.openBookLink.removeAttribute('href');
+        elements.openBookLink.classList.add('hidden');
+      }
+      elements.refreshStatusButton.disabled = false;
+      elements.refreshStatusButton.textContent = '状態を再確認';
+      if (progress.isTerminal) clearPolling();
+    }
+
+    function scheduleNextPoll() {
+      clearTimeout(pollTimer);
+      if (!currentRequestId || currentProgress && currentProgress.isTerminal || pollIndex >= POLL_DELAYS_MS.length) return;
+      var delay = POLL_DELAYS_MS[pollIndex++];
+      pollTimer = setTimeout(function() { pollRequestStatus(false); }, delay);
+    }
+
+    function pollRequestStatus(manual) {
+      if (!currentRequestId || polling) return;
+      polling = true;
+      elements.refreshStatusButton.disabled = true;
+      elements.refreshStatusButton.textContent = '確認中…';
+      if (manual) elements.statusCheckNote.classList.add('hidden');
+      google.script.run.withSuccessHandler(function(progress) {
+        polling = false;
+        updateProgress(progress);
+        scheduleNextPoll();
+      }).withFailureHandler(function(error) {
+        polling = false;
+        elements.refreshStatusButton.disabled = false;
+        elements.refreshStatusButton.textContent = '状態を再確認';
+        showStatusCheckFailure('受付は取り消されていません。状態の再確認だけに失敗しました。', error);
+        scheduleNextPoll();
+      }).vNextPortalGetRequestProgress(currentRequestId);
+    }
+
+    function showStatusCheckFailure(message, error) {
+      elements.statusCheckNote.className = 'panel warn';
+      elements.statusCheckNote.textContent = message + ' ' + errorMessage(error);
+    }
+
+    function showHomeAndClose() {
+      if (!currentRequestId) return;
+      elements.showHomeButton.disabled = true;
+      elements.showHomeButton.textContent = 'ホームを更新中…';
+      google.script.run.withSuccessHandler(function() {
+        clearPolling();
+        google.script.host.close();
+      }).withFailureHandler(function(error) {
+        elements.showHomeButton.disabled = false;
+        elements.showHomeButton.textContent = 'ホームで確認';
+        showStatusCheckFailure('依頼は受付済みですが、ホームを更新できませんでした。', error);
+      }).vNextPortalShowRequestOnHome(currentRequestId);
+    }
+
+    function clearPolling() {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
     }
 
     function clearResult(kind) {
       elements.result.textContent = '';
       elements.result.className = 'panel ' + (kind || '');
+      elements.result.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
     }
 
     function appendText(parent, text) {
@@ -213,39 +498,80 @@
       elements.submitButton.disabled = true;
     }
 
+    function updatePreviewState() {
+      var hasRequired = Boolean(elements.clientKey.value && elements.memberName1.value.trim());
+      elements.previewButton.disabled = busy || submitted || !modelLoaded || !hasRequired;
+    }
+
     function updateSubmitState() {
       var canSubmit = latestPreview && latestPreview.canSubmit &&
         (!latestPreview.hasSimilar || elements.confirmSimilarDuplicates.checked);
-      elements.submitButton.disabled = busy || !canSubmit;
+      elements.submitButton.disabled = busy || submitted || !canSubmit;
     }
 
     function setBusy(value, message) {
       busy = value;
-      elements.previewButton.disabled = value || !modelLoaded;
-      elements.submitButton.disabled = value || !latestPreview;
+      elements.form.setAttribute('aria-busy', String(value));
+      setFormControlsDisabled(value);
       if (value) {
         clearResult('');
         var spinner = document.createElement('span');
         spinner.className = 'spinner';
+        spinner.setAttribute('aria-hidden', 'true');
         elements.result.appendChild(spinner);
         elements.result.appendChild(document.createTextNode(message || '処理中…'));
       } else {
+        updatePreviewState();
         updateSubmitState();
       }
     }
 
-    function showFailure(error) {
+    function setFormControlsDisabled(value) {
+      elements.fiscalYear.disabled = value || !modelLoaded;
+      elements.clientSearch.disabled = value || !modelLoaded;
+      elements.clientKey.disabled = value || !modelLoaded;
+      memberIds.forEach(function(id, index) {
+        elements[id].disabled = value || !modelLoaded || index >= visibleMemberCount;
+      });
+      elements.addMemberButton.disabled = value || !modelLoaded || visibleMemberCount >= memberIds.length;
+      elements.confirmSimilarDuplicates.disabled = value;
+      if (value) {
+        elements.previewButton.disabled = true;
+        elements.submitButton.disabled = true;
+      }
+    }
+
+    function showFailure(error, phase) {
       busy = false;
-      elements.previewButton.disabled = !modelLoaded;
+      elements.modelLoading.classList.add('hidden');
+      elements.form.setAttribute('aria-busy', 'false');
+      if (phase === 'model') {
+        elements.form.classList.add('hidden');
+        elements.modelError.textContent = errorMessage(error) + ' 画面を閉じ、しばらくしてからもう一度開いてください。';
+        elements.modelError.classList.remove('hidden');
+        elements.modelError.focus();
+        return;
+      }
+      if (phase === 'submit' || phase === 'preview') invalidatePreview();
+      setFormControlsDisabled(false);
       clearResult('bad');
-      appendText(elements.result, error && error.message ? error.message : String(error || '処理に失敗しました。'));
+      appendText(elements.result, errorMessage(error));
+      if (phase === 'submit') appendText(elements.result, '保存結果が不明な場合の二重依頼を防ぐため、もう一度「重複候補を確認」から進めてください。');
+      elements.result.focus();
+      updatePreviewState();
       updateSubmitState();
+    }
+
+    function errorMessage(error) {
+      return error && error.message ? error.message : String(error || '処理に失敗しました。');
     }
 
     function displayDateTime(value) {
       var date = new Date(value || '');
       if (isNaN(date.getTime())) return '確認中';
-      return date.toLocaleString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+      return date.toLocaleString('ja-JP', {
+        year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
+      });
     }
   </script>
 </body>

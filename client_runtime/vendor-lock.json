@@ -2,29 +2,29 @@
   "version": 1,
   "sources": {
     "VNext_UX.js": {
-      "sourceSha256": "85850e65c7c643a475d6f743cdc1882511ef1d4f6ca2bab0de3c43b30c27e522",
+      "sourceSha256": "7a4a1ecac3be338b9c019f881439e9e54de9fe3ecce6f1b29d3bf5bdf1cb6b10",
       "vendoredFile": "src/VNext_UX.js",
-      "vendoredSha256": "0a809d9a0dd947b0c5102728d8593f69651545b5256bc42b330e684526d1c918"
+      "vendoredSha256": "1f5c5295240d9d065e90f1392746f153e3d7835cbb162f90cca76dca0ea672fa"
     },
     "VNext_InputSidebar.html": {
-      "sourceSha256": "4d3655df5eb47b107b54c09da1aaa70df8780a897d4b65b384faed1774ef7071",
+      "sourceSha256": "433b1652cb6009a75f62fbbebbf35f998ea716b5e88812e9b9ae5becd68c8f0b",
       "vendoredFile": "src/VNext_InputSidebar.html",
-      "vendoredSha256": "4d3655df5eb47b107b54c09da1aaa70df8780a897d4b65b384faed1774ef7071"
+      "vendoredSha256": "433b1652cb6009a75f62fbbebbf35f998ea716b5e88812e9b9ae5becd68c8f0b"
     },
     "VNext_HelpSidebar.html": {
-      "sourceSha256": "083f50071c6671ec13f36e75d5d600ae2ce7ef42c56ae93ab3f4c80e7da4f743",
+      "sourceSha256": "c1c1c57ad1e79c9f00ced7dfc1ff90041e8947582399241e7ec698d230b4703e",
       "vendoredFile": "src/VNext_HelpSidebar.html",
-      "vendoredSha256": "083f50071c6671ec13f36e75d5d600ae2ce7ef42c56ae93ab3f4c80e7da4f743"
+      "vendoredSha256": "c1c1c57ad1e79c9f00ced7dfc1ff90041e8947582399241e7ec698d230b4703e"
     },
     "VNext_PlanSidebar.html": {
-      "sourceSha256": "090a3832c290b7f698e945a14669470aad0358fc5550e917c6cebfc378257508",
+      "sourceSha256": "bc513e90aea4d85aee0ddf1ae980820e8552ecb5207ac9e36344ea3cdca09d91",
       "vendoredFile": "src/VNext_PlanSidebar.html",
-      "vendoredSha256": "090a3832c290b7f698e945a14669470aad0358fc5550e917c6cebfc378257508"
+      "vendoredSha256": "bc513e90aea4d85aee0ddf1ae980820e8552ecb5207ac9e36344ea3cdca09d91"
     },
     "VNext_ReviewSidebar.html": {
-      "sourceSha256": "53d76ce59aa43c2e5e2d334c63296d569eab26f4cba9eabaa0f0aa69b934c6ea",
+      "sourceSha256": "2dd5da9fd6f7262194948180acab210d3f1b13aa9f318c51ae42572c5337d9d8",
       "vendoredFile": "src/VNext_ReviewSidebar.html",
-      "vendoredSha256": "53d76ce59aa43c2e5e2d334c63296d569eab26f4cba9eabaa0f0aa69b934c6ea"
+      "vendoredSha256": "2dd5da9fd6f7262194948180acab210d3f1b13aa9f318c51ae42572c5337d9d8"
     }
   }
 }

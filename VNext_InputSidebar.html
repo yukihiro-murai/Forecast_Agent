@@ -22,7 +22,7 @@
     label.field { display:block; margin-top:13px; font-weight:700; }
     input,select,textarea { width:100%; margin-top:5px; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--text); font:inherit; }
     textarea { min-height:88px; resize:vertical; }
-    input:focus,select:focus,textarea:focus { outline:2px solid #aecbfa; border-color:var(--blue); }
+    input:focus,select:focus,textarea:focus,button:focus-visible { outline:3px solid #aecbfa; outline-offset:1px; border-color:var(--blue); }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .hidden { display:none !important; }
     .band-help { margin-top:7px; padding:9px; border-radius:6px; background:var(--soft); font-size:12px; }
@@ -32,7 +32,7 @@
     .error { margin:10px 0; padding:10px; border-radius:6px; color:var(--red); background:#fce8e6; }
     .success { margin:10px 0; padding:12px; border-radius:6px; color:#137333; background:#e6f4ea; font-weight:700; }
     .actions { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:18px -16px -16px; padding:12px 16px 16px; background:#fff; border-top:1px solid var(--line); }
-    button { border:0; border-radius:6px; padding:10px 12px; font-weight:700; cursor:pointer; }
+    button { min-height:42px; border:0; border-radius:6px; padding:10px 12px; font-weight:700; cursor:pointer; }
     button.primary { color:#fff; background:var(--blue); }
     button.secondary { color:var(--blue); background:#fff; border:1px solid var(--blue); }
     button:disabled { cursor:not-allowed; opacity:.45; }
@@ -42,16 +42,16 @@
   </style>
 </head>
 <body>
-  <div id="loading"><span class="spinner"></span>入力画面を準備しています…</div>
+  <div id="loading" role="status" aria-live="polite"><span class="spinner"></span>入力画面を準備しています…</div>
   <main id="app" class="hidden">
     <h1>自分の情報を入力</h1>
     <div id="bookMeta" class="meta"></div>
-    <div id="state" class="status"></div>
+    <div id="state" class="status" role="status"></div>
 
-    <form id="evidenceForm" novalidate>
+    <form id="evidenceForm">
       <h2>過去実績だけでは表せない、来年度の売上変化を知っていますか？</h2>
       <div class="choices" id="responseChoices">
-        <label class="choice"><input type="radio" name="responseType" value="change"><strong>変化あり</strong><span>増減につながる具体的な情報があります</span></label>
+        <label class="choice"><input type="radio" name="responseType" value="change" required><strong>変化あり</strong><span>増減につながる具体的な情報があります</span></label>
         <label class="choice"><input type="radio" name="responseType" value="no_change"><strong>確認したが変化なし</strong><span>確認した範囲では、特に変化はありません</span></label>
         <label class="choice"><input type="radio" name="responseType" value="unknown"><strong>わからない・情報不足</strong><span>まだ判断できる情報がありません</span></label>
       </div>
@@ -87,8 +87,8 @@
         <label class="field">補足（任意）<textarea id="evidenceNote" maxlength="1000" placeholder="確認した相手や、わからない点を残せます"></textarea></label>
       </section>
 
-      <div id="message"></div>
-      <div id="preview" class="preview hidden"><strong>保存される内容</strong><div id="previewSummary"></div><div id="previewImpact"></div><div id="previewWarning" class="warning"></div></div>
+      <div id="message" role="alert" aria-live="assertive" tabindex="-1"></div>
+      <div id="preview" class="preview hidden" aria-live="polite"><strong>保存される内容</strong><div id="previewSummary"></div><div id="previewImpact"></div><div id="previewWarning" class="warning"></div></div>
     </form>
 
     <section id="override" class="override hidden">
@@ -120,6 +120,7 @@
       setBusy(false);
       const text = error && error.message ? error.message : String(error || '不明なエラー');
       $('message').innerHTML = `<div class="error">${escapeHtml(text)}</div>`;
+      $('message').focus();
     }
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -158,6 +159,9 @@
       const mode = $('amountMode').value;
       $('exactWrap').classList.toggle('hidden', mode !== 'exact');
       $('bandWrap').classList.toggle('hidden', mode !== 'band');
+      ['target','changeKind','period','direction','amountMode','evidenceChange','confidence'].forEach(id => { $(id).required = type === 'change'; });
+      $('amount').required = type === 'change' && mode === 'exact';
+      $('amountBand').required = type === 'change' && mode === 'band';
       invalidatePreview();
     }
     function render(data) {
@@ -165,7 +169,7 @@
       $('loading').classList.add('hidden');
       $('app').classList.remove('hidden');
       $('bookMeta').textContent = `${data.clientName}｜FY${data.fiscalYear}｜実績基準日 ${data.cutoff || '未設定'}`;
-      $('state').textContent = `${data.stateLabel}　／　${data.roleLabel}`;
+      $('state').textContent = `${data.stateLabel}　／　${data.roleLabel}${data.stateNotice ? '　／　' + data.stateNotice.label : ''}`;
       $('bandHelp').innerHTML = (data.amountBands || []).map(b => `<div><strong>${escapeHtml(b.label)}</strong>：${money(b.low)} ～ ${money(b.high)}</div>`).join('');
       $('override').classList.toggle('hidden', !data.canOverrideInput);
       const previous = data.latestOwnEvidence;
@@ -180,6 +184,7 @@
     }
     function preview() {
       invalidatePreview();
+      if (!$('evidenceForm').reportValidity()) return;
       setBusy(true, '確認しています…');
       google.script.run.withSuccessHandler(result => {
         previewHash = result.previewHash;
@@ -214,8 +219,9 @@
       }).withFailureHandler(error => { $('overrideButton').disabled = false; showError(error); }).vNextCloseInputAndProceed(reason);
     }
 
-    document.querySelectorAll('input,select,textarea').forEach(input => input.addEventListener('input', () => { updateConditionalFields(); }));
+    document.querySelectorAll('input,select,textarea').forEach(input => input.addEventListener('input', invalidatePreview));
     document.querySelectorAll('input[name="responseType"]').forEach(input => input.addEventListener('change', updateConditionalFields));
+    $('amountMode').addEventListener('change', updateConditionalFields);
     $('previewButton').addEventListener('click', preview);
     $('saveButton').addEventListener('click', save);
     $('overrideButton').addEventListener('click', overrideInput);

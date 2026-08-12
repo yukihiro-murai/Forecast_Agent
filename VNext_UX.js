@@ -43,8 +43,8 @@ var VNEXT_UX_REVIEW_CAUSES_ = Object.freeze([
   Object.freeze({ key: 'OTHER', label: 'その他', field: '', annual: false })
 ]);
 
-// Small embedded PNG used only as a clickable OverGridImage. It contains no external URL.
-var VNEXT_UX_ACTION_BUTTON_PNG_ = 'iVBORw0KGgoAAAANSUhEUgAAAPAAAAA0CAYAAAC0LLUwAAABzklEQVR4nO3dTU7EMAyA0R6Do3A8bg4rpBGgaUe265i8SG+Zn2byrec4Lo63j/dP4B5XuxQsDCBc+AfEC8OJF4YTMAwmXhhOwDCYgGEwAcNg4oXhBAyDbR9w9rhr7eh3VN5J133vSMCFD6py7eh3VN5J133vSMCFD6py7eh3VN5J133vSMCFD6py7eh3VN5J133vSMCNDyKyd/Tcz+ZXrr3y7zGRgAUs4MEELGABDyZgAQt4MAELWMCDCVjAAh5MwAIW8GACFrCABxNw8ojsvcq5M9eK/h7d72N1Ak4ekb1XOXfmWtHfo/t9rE7AySOy9yrnzlwr+nt0v4/VCTh5RPZe5dyZa0V/j+73sbrtA46KPLiuuWfzz9aujEzArxFwkIAF3EnAQQIWcCcBBwlYwJ0EHLRjwNlnqVprBwIOErCAOwk4SMAC7iTgIAELuNP2AWePyN53zT2bX7l29XftRsDJI7L3XXPP5leuXf1duxFw8ojsfdfcs/mVa1d/124EnDwie98192x+5drV37Wb7QOGyQQMg/mPYBjq+B7dBwFeJ2AYTMAw2PE4ug8DXHf8HN0HAq77FbCIYYY/4xUxrO9pvEKGNV0OV9DQ72qXX+TyyTxx8sbzAAAAAElFTkSuQmCC';
+// Transparent overlay keeps the primary action visually native to the cell while making it clickable.
+var VNEXT_UX_ACTION_BUTTON_PNG_ = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL+WQAAAABJRU5ErkJggg==';
 var VNEXT_UX_ACTION_BUTTON_ALT_ = 'VNEXT_PRIMARY_ACTION_BUTTON';
 
 /** legacy onOpenから呼ぶ安全なrouter。Admin Hubのmenu builderは別moduleへ委譲する。 */
@@ -93,7 +93,7 @@ function vNextBuildClientMenu_() {
     try {
       var context = vNextUxGetBookContext_();
       vNextUxAssertClientBook_(context);
-      vNextRefreshEmployeeViews();
+      vNextRefreshEmployeeViews(context);
       vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
     } catch (refreshError) {
       Logger.log('vNextBuildClientMenu_ initial refresh warning: ' + vNextUxErrorText_(refreshError));
@@ -457,6 +457,7 @@ function vNextGetClientViewModel() {
       latestOwnEvidence: context.latestOwnEvidence || null,
       amountBands: bands,
       primaryAction: action,
+      stateNotice: vNextUxStateIssue_(context),
       forecast: vNextUxPublicForecast_(forecast),
       version: context.version || ''
     };
@@ -583,9 +584,9 @@ function vNextRequestForecast() {
 }
 
 /** 従業員向け3画面を最新の正本レコードから再描画する。 */
-function vNextRefreshEmployeeViews() {
+function vNextRefreshEmployeeViews(optionalContext) {
   try {
-    var context = vNextUxGetBookContext_();
+    var context = optionalContext || vNextUxGetBookContext_();
     vNextUxAssertClientBook_(context);
     var forecast = vNextUxGetLatestForecast_(context);
     vNextUxEnsureClientSheets_(context);
@@ -648,6 +649,9 @@ function vNextUxGetBookContext_() {
     asOf: raw.asOf || raw.as_of || '',
     cutoff: raw.cutoff || '',
     state: state,
+    stateReason: raw.stateReason || raw.state_reason || '',
+    stateChangedAt: raw.stateChangedAt || raw.state_changed_at || '',
+    relatedRunId: raw.relatedRunId || raw.related_run_id || '',
     role: role,
     userEmail: email,
     isForecastOwner: isForecastOwner,
@@ -756,14 +760,19 @@ function vNextUxGetPrimaryAction_(context) {
   var owner = Boolean(context.isForecastOwner);
   var teamMember = Boolean(context.isTeamMember);
   var canContribute = Boolean(context.canContribute) || teamMember || owner;
+  var submitted = Boolean(context.inputStatus && context.inputStatus.submitted);
   var definitions = {
     INPUT_OPEN: canContribute
       ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '過去実績だけでは表せない変化について回答してください。' }
       : { key: 'WAIT', label: '閲覧のみです', instruction: 'このブックの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
-    READY_TO_RUN: owner ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' } : { key: 'WAIT', label: canContribute ? 'Forecast Ownerの操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。Forecast Ownerが予測を依頼します。' : 'Forecast Ownerが予測を依頼します。現在、必要な操作はありません。' },
-    RUNNING: { key: 'WAIT', label: '操作はありません', instruction: '予測を作成しています。完了すると表示が変わります。' },
+    READY_TO_RUN: owner
+      ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' }
+      : canContribute && !submitted
+        ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '予測依頼前であれば、あなたの情報を追加できます。' }
+        : { key: 'WAIT', label: canContribute ? 'Forecast Ownerの操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。Forecast Ownerが予測を依頼します。' : 'Forecast Ownerが予測を依頼します。現在、必要な操作はありません。' },
+    RUNNING: { key: 'WAIT', label: '予測の完成をお待ちください', instruction: '通常は5～10分で完了します。15分以上この表示が変わらない場合は「年度計画」→「ホームに戻る」で更新し、それでも変わらなければ管理担当者へ連絡してください。' },
     DRAFT_READY: { key: owner ? 'EDIT_PLAN' : 'VIEW_PLAN', label: owner ? '予測を確認して計画案を作る' : '予測を見る', instruction: owner ? 'システム推奨予測を確認し、採用判断と営業上積みを分けて入力してください。' : '予測の結論と根拠を確認してください。' },
-    SUBMITTED: { key: 'WAIT', label: '操作はありません', instruction: '管理者が計画案を確認しています。' },
+    SUBMITTED: { key: 'WAIT', label: '管理者の確認をお待ちください', instruction: '計画案は提出済みです。差戻しまたは正式計画の通知まで、操作は不要です。' },
     CHANGES_REQUESTED: { key: owner ? 'EDIT_PLAN' : 'WAIT', label: owner ? '差戻し内容を確認して再提出する' : 'Forecast Ownerの対応待ち', instruction: owner ? '差戻し理由を確認し、計画案を修正して再提出してください。' : 'Forecast Ownerが差戻しに対応します。' },
     OFFICIAL_LOCKED: { key: 'VIEW_PLAN', label: '正式計画を見る', instruction: '承認済みの正式計画を確認できます。' },
     REVIEW_DUE: teamMember
@@ -771,7 +780,50 @@ function vNextUxGetPrimaryAction_(context) {
       : { key: 'VIEW_REVIEW', label: '振り返りを見る', instruction: '確定実績と予測の差を閲覧できます。' },
     YEAR_CLOSED: { key: 'VIEW_REVIEW', label: '年度の振り返りを見る', instruction: '確定した振り返りを閲覧できます。' }
   };
-  return definitions[context.state] || { key: 'WAIT', label: '管理者へ確認してください', instruction: '現在の状態を確認できません。' };
+  var action = definitions[context.state] || { key: 'WAIT', label: '管理者へ確認してください', instruction: '現在の状態を確認できません。' };
+  var issue = vNextUxStateIssue_(context);
+  if (issue) {
+    action = {
+      key: 'WAIT',
+      label: issue.label,
+      instruction: issue.instruction,
+      issueKey: issue.key,
+      issueLabel: issue.label,
+      issueInstruction: issue.instruction
+    };
+  }
+  return action;
+}
+
+/** Convert trusted internal state reasons to a small employee-safe vocabulary. */
+function vNextUxStateIssue_(context) {
+  var reason = String(context && context.stateReason || '').toLowerCase();
+  if (!reason || String(context && context.state || '').toUpperCase() !== 'READY_TO_RUN') return null;
+  if (/insufficient_confirmed_history|at least 5 fiscal years|confirmed actual history|history.*required|found \d+ fiscal|過去実績.*不足|実績.*5年度/.test(reason)) {
+    return {
+      key: 'HISTORY_SHORTAGE', label: '実績期間が不足しています',
+      instruction: '予測に必要な過去実績が5年度分そろっていません。再依頼せず、管理担当者に実績の対象期間を確認してください。'
+    };
+  }
+  if (/zac_schema|source_schema|source schema|schema.*mismatch|required headers|column|header|列構成|列名/.test(reason)) {
+    return {
+      key: 'DATA_SCHEMA', label: '実績データの形式を確認中です',
+      instruction: '元データの列構成を確認する必要があります。再依頼せず、管理担当者の確認をお待ちください。'
+    };
+  }
+  if (/forecast run failed|admin_forecast_job_failed|lease expired|timeout|timed out|temporar|service unavailable|quota|一時的|処理障害/.test(reason)) {
+    return {
+      key: 'TEMPORARY_FAILURE', label: '前回の処理を完了できませんでした',
+      instruction: '一時的な処理障害の可能性があります。繰り返し依頼せず、管理担当者に現在の状態を確認してください。'
+    };
+  }
+  if (/forecast_failed\//.test(reason)) {
+    return {
+      key: 'FORECAST_FAILURE', label: '前回の予測作成を完了できませんでした',
+      instruction: '同じ依頼を繰り返さず、管理担当者にこの画面の状態を伝えてください。原因確認後に管理側から再開します。'
+    };
+  }
+  return null;
 }
 
 function vNextUxActionMenuGuide_(action) {
@@ -1153,6 +1205,7 @@ function vNextUxPublicForecast_(raw) {
   var humanDelta = Number(raw.humanDelta || layers.humanDelta || layers.human_delta || 0);
   var aiDelta = Number(raw.aiDelta || layers.aiDelta || layers.ai_delta || 0);
   var evidenceSummary = raw.evidenceSummary || {};
+  var evidenceCoverage = vNextUxEvidenceCoverage_(raw, evidenceSummary, quantiles);
   var derivedDrivers = [];
   if (historyBaseline) derivedDrivers.push('過去実績から見た継続売上力 ' + vNextUxFormatMoney_(historyBaseline));
   if (objectiveDelta) derivedDrivers.push('確認できる案件・客観情報 ' + vNextUxFormatMoney_(objectiveDelta));
@@ -1201,7 +1254,62 @@ function vNextUxPublicForecast_(raw) {
     drivers: providedDrivers.slice(0, 3),
     nextInformation: providedNextInformation.slice(0, 3),
     changeReasons: providedChangeReasons.slice(0, 3),
+    evidenceCoverage: evidenceCoverage,
     warnings: warnings
+  };
+}
+
+/**
+ * 根拠coverageの説明。的中確率・モデルの信頼度とは呼ばない。
+ * 新runのevidence readinessを優先し、旧runでは同じ公開指標から導出する。
+ */
+function vNextUxEvidenceCoverage_(raw, evidenceSummary, quantiles) {
+  raw = raw || {};
+  evidenceSummary = evidenceSummary || {};
+  quantiles = quantiles || {};
+  var lenses = raw.lenses || {};
+  var readiness = evidenceSummary.readiness || lenses.evidenceReadiness || lenses.evidence_readiness || {};
+  var level = String(readiness.level || '').toUpperCase();
+  var continuity = lenses.continuity || {};
+  var fiscalYears = readiness.historyFiscalYears || continuity.fiscalYears || continuity.fiscal_years || [];
+  if (!Array.isArray(fiscalYears)) fiscalYears = [];
+  var historyYearCount = Number(readiness.historyYearCount);
+  if (!isFinite(historyYearCount)) historyYearCount = fiscalYears.length;
+  var missingRate = Number(readiness.missingResponseRate);
+  if (!isFinite(missingRate)) missingRate = Number(evidenceSummary.missingResponseRate || evidenceSummary.missing_response_rate);
+  var gapRate = Number(readiness.informationGapRate);
+  if (!isFinite(gapRate)) gapRate = Number(evidenceSummary.informationGapRate || evidenceSummary.information_gap_rate);
+  var hasMissingRate = isFinite(missingRate);
+  var hasGapRate = isFinite(gapRate);
+  if (!level) {
+    if ((historyYearCount > 0 && historyYearCount < 5) || (hasMissingRate && missingRate >= 0.5) || (hasGapRate && gapRate >= 0.5)) {
+      level = 'NEEDS_ATTENTION';
+    } else if (!historyYearCount && !hasMissingRate && !hasGapRate) {
+      level = 'REVIEW';
+    } else if ((hasMissingRate && missingRate > 0) || (hasGapRate && gapRate > 0)) {
+      level = 'REVIEW';
+    } else {
+      level = 'READY';
+    }
+  }
+  var labels = {
+    READY: '情報がそろっています',
+    REVIEW: '確認余地があります',
+    NEEDS_ATTENTION: '確認余地が大きいです'
+  };
+  var details = [];
+  if (historyYearCount > 0) details.push('確定実績 ' + historyYearCount + '年度分');
+  if (hasMissingRate) details.push('メンバー回答 ' + Math.max(0, Math.min(100, Math.round((1 - missingRate) * 100))) + '%');
+  if (hasGapRate && gapRate > 0) details.push('情報不足の回答 ' + Math.max(0, Math.min(100, Math.round(gapRate * 100))) + '%');
+  var p10 = Number(raw.p10 || quantiles.p10);
+  var p90 = Number(raw.p90 || quantiles.p90);
+  if (isFinite(p10) && isFinite(p90) && p90 >= p10 && (p10 || p90)) {
+    details.push('通常の振れ幅 ' + vNextUxFormatMoney_(p10) + '～' + vNextUxFormatMoney_(p90));
+  }
+  return {
+    level: labels[level] ? level : 'REVIEW',
+    label: labels[level] || labels.REVIEW,
+    detail: details.length ? details.join('／') : '回答と実績期間を確認しています。'
   };
 }
 
@@ -1220,29 +1328,48 @@ function vNextUxEnsureClientSheets_(context) {
 
 function vNextUxRenderHome_(context, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.HOME_SHEET);
-  vNextUxResetViewSheet_(sheet, 32, 8);
+  vNextUxResetViewSheet_(sheet, 24, 6);
   var action = vNextUxGetPrimaryAction_(context);
   var input = context.inputStatus || {};
-  sheet.getRange('A1:H2').merge().setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度計画').setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#174ea6').setVerticalAlignment('middle');
-  sheet.getRange('A4:B4').merge().setValue('現在の状態').setFontWeight('bold');
-  sheet.getRange('C4:H4').merge().setValue(VNEXT_UX_STATE_LABELS_[context.state] || context.state).setFontWeight('bold').setFontColor('#174ea6').setBackground('#e8f0fe');
-  sheet.getRange('A6:B6').merge().setValue('実績基準日').setFontWeight('bold');
-  sheet.getRange('C6:D6').merge().setValue(vNextUxDateText_(context.cutoff) || '未設定');
-  sheet.getRange('E6:F6').merge().setValue('あなたの役割').setFontWeight('bold');
-  sheet.getRange('G6:H6').merge().setValue(vNextUxRoleLabel_(context));
-  sheet.getRange('A8:B8').merge().setValue('入力状況').setFontWeight('bold');
-  sheet.getRange('C8:H8').merge().setValue(vNextUxInputStatusText_(input));
-  sheet.getRange('A11:H11').merge().setValue('次にすること').setFontWeight('bold').setFontSize(13).setFontColor('#ffffff').setBackground('#188038');
-  sheet.getRange('A12:H14').merge().setValue(action.label).setFontSize(16).setFontWeight('bold').setFontColor('#137333').setBackground('#e6f4ea').setHorizontalAlignment('center').setVerticalAlignment('middle');
-  sheet.getRange('A15:H17').merge().setValue(action.instruction + '\n' + vNextUxActionMenuGuide_(action)).setWrap(true).setHorizontalAlignment('center').setVerticalAlignment('middle');
-  sheet.getRange('A20:H20').merge().setValue('このブックで扱う数字').setFontWeight('bold').setBackground('#f1f3f4');
-  sheet.getRange('A21:H24').merge().setValue('予測は「現在の情報から見込まれる売上」、採用予測は「責任者が判断した見込み」、最終予算は「採用予測＋営業上積み」です。3つを混ぜずに表示します。').setWrap(true).setVerticalAlignment('middle');
-  sheet.getRange('C6').setNote('予測には、この日までに確定した実績だけを使用します。当月・未来・予定日は使用しません。');
-  sheet.getRange('A12').setNote('Master Templateの主ボタンには vNextOpenCurrentAction を割り当てます。状態が変わっても、同じボタンが次の操作を開きます。');
+  sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度計画').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A2').setValue('この画面では、現在の状態と次に必要な作業だけを確認します。').setFontColor('#5f6368');
+  sheet.getRange('A4:B7').setValues([
+    ['現在の状態', VNEXT_UX_STATE_LABELS_[context.state] || context.state],
+    ['実績基準日', vNextUxDateText_(context.cutoff) || '未設定'],
+    ['あなたの役割', vNextUxRoleLabel_(context)],
+    ['回答状況', vNextUxInputStatusText_(input)]
+  ]);
+  sheet.getRange('A4:A7').setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('B4').setFontWeight('bold');
+  vNextUxSetSectionHeader_(sheet, 9, 1, 6, '次にすること');
+  sheet.getRange('A10:B12').setValues([
+    ['操作', action.label],
+    ['説明', action.instruction],
+    ['開き方', vNextUxActionMenuGuide_(action)]
+  ]);
+  sheet.getRange('A10:A12').setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('B10').setFontSize(14).setFontWeight('bold');
+  if (action.key !== 'WAIT') sheet.getRange('B10').setBackground('#1a73e8').setFontColor('#ffffff').setHorizontalAlignment('center');
+  sheet.getRange('B11:B12').setWrap(true);
+  if (action.issueKey) sheet.getRange('A10:B12').setBackground('#fef7e0');
+  vNextUxSetSectionHeader_(sheet, 15, 1, 6, 'このブックで扱う3つの数字');
+  sheet.getRange('A16:B18').setValues([
+    ['システム推奨予測', '現在の情報から見込まれる売上。営業目標ではありません。'],
+    ['採用予測', 'Forecast Ownerが根拠を確認し、計画に採用した見込み。'],
+    ['最終予算', '採用予測に、行動計画を伴う営業上積みを加えた金額。']
+  ]);
+  sheet.getRange('A16:A18').setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('B16:B18').setWrap(true);
+  sheet.getRange('B5').setNote('この日までに確定した実績だけを予測に使用します。当月・未来・予定日は使用しません。');
+  sheet.getRange('B10').setNote('実行する操作は状態ごとに1つです。上部メニュー「年度計画」から、ここに表示された項目を選びます。');
   vNextUxEnsureHomeActionButton_(sheet, action);
   sheet.setFrozenRows(2);
-  sheet.setHiddenGridlines(true);
-  for (var col = 1; col <= 8; col++) sheet.setColumnWidth(col, 118);
+  sheet.setHiddenGridlines(false);
+  sheet.setColumnWidth(1, 170);
+  sheet.setColumnWidth(2, 520);
+  for (var col = 3; col <= 6; col++) sheet.setColumnWidth(col, 88);
+  sheet.setRowHeight(11, 44);
+  sheet.setRowHeight(12, 36);
   vNextUxProtectView_(sheet, context.state === 'YEAR_CLOSED');
 }
 
@@ -1259,19 +1386,18 @@ function vNextUxEnsureHomeActionButton_(sheet, action) {
       return;
     }
     var button = matching.length ? matching[0] : sheet.insertImage(
-      Utilities.newBlob(Utilities.base64Decode(VNEXT_UX_ACTION_BUTTON_PNG_), 'image/png', 'vnext-start.png'),
-      6,
-      12
+      Utilities.newBlob(Utilities.base64Decode(VNEXT_UX_ACTION_BUTTON_PNG_), 'image/png', 'vnext-action-overlay.png'),
+      2,
+      10
     );
-    button.setAnchorCell(sheet.getRange('F12'))
-      .setWidth(200)
-      .setHeight(43)
+    button.setAnchorCell(sheet.getRange('B10'))
+      .setWidth(500)
+      .setHeight(32)
       .setAltTextTitle(VNEXT_UX_ACTION_BUTTON_ALT_)
-      .setAltTextDescription(action.label + '。クリックすると現在の主操作を開始します。')
+      .setAltTextDescription(action.label + '。クリックするとこの操作を開始します。')
       .assignScript('vNextOpenCurrentAction');
   } catch (error) {
-    // The four-item menu remains the accessible fallback when image assignment is unavailable.
-    Logger.log('vNextUxEnsureHomeActionButton_ warning: ' + vNextUxErrorText_(error));
+    Logger.log('vNextUxEnsureHomeActionButton_ cleanup warning: ' + vNextUxErrorText_(error));
   }
 }
 
@@ -1279,21 +1405,31 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
   vNextUxResetViewSheet_(sheet, 60, 13);
   var f = vNextUxPublicForecast_(rawForecast);
-  sheet.getRange('A1:M2').merge().setValue('予測と年度計画').setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#174ea6').setVerticalAlignment('middle');
+  sheet.getRange('A1').setValue('予測と年度計画').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + '｜' + (VNEXT_UX_STATE_LABELS_[context.state] || context.state)).setFontColor('#5f6368');
   if (!rawForecast) {
-    sheet.getRange('A5:M9').merge().setValue('まだ予測は作成されていません。ホームに表示された「次にすること」を進めてください。').setFontSize(14).setWrap(true).setHorizontalAlignment('center').setVerticalAlignment('middle').setBackground('#f8f9fa');
+    vNextUxSetSectionHeader_(sheet, 4, 1, 13, '現在の状況');
+    sheet.getRange('A5').setValue(vNextUxEmptyForecastMessage_(context)).setFontSize(13).setWrap(true);
+    sheet.setRowHeight(5, 58);
     vNextUxFinishPlanFormat_(sheet, context.state === 'YEAR_CLOSED');
     return;
   }
   var official = context.state === 'OFFICIAL_LOCKED' || context.state === 'REVIEW_DUE' || context.state === 'YEAR_CLOSED';
   var headline = vNextUxHeadlineAmount_(official, f);
-  sheet.getRange('A4:M4').merge().setValue(official ? '正式な最終予算' : '今回の中心見込み').setFontWeight('bold').setBackground(official ? '#fef7e0' : '#e8f0fe').setHorizontalAlignment('center');
-  sheet.getRange('A5:M7').merge().setValue(headline).setNumberFormat('¥#,##0').setFontSize(24).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle');
-  sheet.getRange('A8:M8').merge().setValue('通常の振れ幅　' + vNextUxFormatMoney_(f.p10) + ' ～ ' + vNextUxFormatMoney_(f.p90)).setHorizontalAlignment('center');
+  vNextUxSetSectionHeader_(sheet, 4, 1, 13, official ? '正式な年度計画' : '今回の予測');
+  sheet.getRange('A5:B7').setValues([
+    [official ? '正式な最終予算' : '中心見込み', headline],
+    ['通常の振れ幅', vNextUxFormatMoney_(f.p10) + ' ～ ' + vNextUxFormatMoney_(f.p90)],
+    ['根拠のそろい具合', f.evidenceCoverage.label]
+  ]);
+  sheet.getRange('A5:A7').setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('B5').setNumberFormat('¥#,##0').setFontSize(20).setFontWeight('bold');
+  sheet.getRange('B7').setNote('的中確率や信頼度ではありません。予測時点で過去実績と現場回答がどの程度そろっていたかを示します。' + f.evidenceCoverage.detail);
   if (f.warnings.length) {
-    sheet.getRange('A9:M9').merge().setValue('要確認：' + f.warnings.join('／')).setBackground('#fef7e0').setFontColor('#8a4b00').setFontWeight('bold').setWrap(true);
+    sheet.getRange('A8').setValue('要確認').setFontWeight('bold').setBackground('#fef7e0');
+    sheet.getRange('B8').setValue(f.warnings.join('／')).setBackground('#fef7e0').setWrap(true);
   }
-  sheet.getRange('A10:M10').merge().setValue('数字ができるまで').setFontWeight('bold').setBackground('#f1f3f4');
+  vNextUxSetSectionHeader_(sheet, 10, 1, 13, '数字ができるまで');
   var waterfall = [
     ['履歴基準値', f.historyBaseline], ['客観情報の差分', f.objectiveDelta], ['客観予測', f.objectiveForecast],
     ['現場情報の差分', f.humanDelta], ['AI調査の差分', f.aiDelta], ['システム推奨予測', f.systemRecommended]
@@ -1315,9 +1451,9 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   }
   var displayedQuarters = official && f.planQuarters.length ? f.planQuarters : f.quarters;
   var displayedMonths = official && f.planMonths.length ? f.planMonths : f.months;
-  sheet.getRange('A22:M22').merge().setValue(official ? '最終予算の四半期配分' : '四半期の展開').setFontWeight('bold').setBackground('#f1f3f4');
+  vNextUxSetSectionHeader_(sheet, 22, 1, 13, official ? '最終予算の四半期配分' : '中心見込みの四半期展開');
   vNextUxWritePeriodRow_(sheet, 23, displayedQuarters, 4, ['Q1', 'Q2', 'Q3', 'Q4']);
-  sheet.getRange('A26:M26').merge().setValue(official ? '最終予算の12か月配分' : '12か月の展開').setFontWeight('bold').setBackground('#f1f3f4');
+  vNextUxSetSectionHeader_(sheet, 26, 1, 13, official ? '最終予算の12か月配分' : '中心見込みの12か月展開');
   vNextUxWritePeriodRow_(sheet, 27, displayedMonths, 12, ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月']);
   vNextUxWriteListBlock_(sheet, 'A31:F31', 32, 1, 6, '主な根拠', f.drivers, '根拠はまだ登録されていません。');
   vNextUxWriteListBlock_(sheet, 'H31:M31', 32, 8, 6, '次に確認すると有効な情報', f.nextInformation, '追加確認の提案はありません。');
@@ -1330,14 +1466,15 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
 
 function vNextUxRenderReview_(context, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.REVIEW_SHEET);
-  vNextUxResetViewSheet_(sheet, 52, 8);
-  sheet.getRange('A1:H2').merge().setValue('振り返り').setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#174ea6');
+  vNextUxResetViewSheet_(sheet, 48, 4);
+  sheet.getRange('A1').setValue('年度の振り返り').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '')).setFontColor('#5f6368');
   if (VNEXT_UX_CONFIG_.REVIEW_STATES.indexOf(context.state) < 0) {
-    sheet.getRange('A5:H8').merge().setValue('振り返り期間になると、この画面が表示されます。').setWrap(true).setVerticalAlignment('middle');
+    sheet.getRange('A5').setValue('振り返り期間になると、この画面に確定実績との比較が表示されます。現在、操作は不要です。').setWrap(true);
   } else {
     var evaluation = vNextUxGetLatestEvaluation_(context.bookId);
     var review = vNextUxGetLatestOwnReview_(context);
-    sheet.getRange('A4:H4').merge().setValue(context.state === 'YEAR_CLOSED' ? '確定した予実結果' : '今回確認する予実結果').setFontWeight('bold').setBackground('#f1f3f4');
+    vNextUxSetSectionHeader_(sheet, 4, 1, 4, context.state === 'YEAR_CLOSED' ? '確定した予実結果' : '今回確認する予実結果');
     if (evaluation) {
       var rows = [
         ['確定実績', Number(evaluation.actual_total || 0)],
@@ -1348,32 +1485,34 @@ function vNextUxRenderReview_(context, sheet) {
       ];
       sheet.getRange(5, 1, rows.length, 2).setValues(rows);
       sheet.getRange(5, 2, rows.length, 1).setNumberFormat('¥#,##0');
-      sheet.getRange('D5:H9').merge().setValue(
+      sheet.getRange('D5').setValue(
         Number(evaluation.range_contains_actual || 0) === 1
           ? '確定実績は、予測時点の「通常の振れ幅」の中でした。'
           : '確定実績は、予測時点の「通常の振れ幅」の外でした。前提差を確認します。'
-      ).setWrap(true).setVerticalAlignment('middle').setBackground('#f8f9fa');
+      ).setWrap(true).setVerticalAlignment('top').setBackground('#f8f9fa');
+      sheet.setRowHeight(5, 52);
     } else {
-      sheet.getRange('A5:H9').merge().setValue('評価レコードを確認できません。管理者へ連絡してください。').setBackground('#fce8e6');
+      sheet.getRange('A5').setValue('管理側で確定実績の評価を準備しています。評価が表示されるまで入力は不要です。翌営業日も変わらない場合は管理担当者へ連絡してください。').setWrap(true).setBackground('#fef7e0');
     }
-    sheet.getRange('A12:H12').merge().setValue('年度差の要因分解（確認の出発点）').setFontWeight('bold').setBackground('#f1f3f4');
+    vNextUxSetSectionHeader_(sheet, 12, 1, 4, '年度差の要因分解（確認の出発点）');
     if (evaluation) {
       var breakdown = vNextUxEvaluationBreakdown_(evaluation).filter(function(item) { return item.annual; });
+      sheet.getRange('A13:C13').setValues([['要因', '金額', '説明']]).setFontWeight('bold').setBackground('#f8f9fa');
       breakdown.forEach(function(item, index) {
-        var row = 13 + index;
-        sheet.getRange(row, 1, 1, 3).merge().setValue(item.label);
-        sheet.getRange(row, 4, 1, 2).merge().setValue(item.amount).setNumberFormat('¥#,##0');
-        sheet.getRange(row, 6, 1, 3).merge().setValue(item.explanation).setFontColor('#5f6368');
+        var row = 14 + index;
+        sheet.getRange(row, 1, 1, 3).setValues([[item.label, item.amount, item.explanation]]);
+        sheet.getRange(row, 2).setNumberFormat('¥#,##0');
+        sheet.getRange(row, 3).setFontColor('#5f6368').setWrap(true);
       });
-      sheet.getRange('A20:H20').merge().setValue('計算上の分解であり、原因を自動断定するものではありません。下の振り返りで事実と仮説を分けて確認します。').setWrap(true).setFontColor('#5f6368');
+      sheet.getRange('A21').setValue('計算上の分解であり、原因を自動断定するものではありません。事実と仮説を分けて確認します。').setFontColor('#5f6368');
     } else {
-      sheet.getRange('A13:H20').merge().setValue('要因分解は評価レコード確定後に表示されます。').setWrap(true);
+      sheet.getRange('A13').setValue('要因分解は評価レコード確定後に表示されます。');
     }
-    sheet.getRange('A23:H23').merge().setValue('月次で別に確認すること').setFontWeight('bold').setBackground('#f1f3f4');
-    sheet.getRange('A24:H26').merge().setValue('季節配分と売上認識月のずれは、年度合計を変えず月ごとの山谷を動かします。そのため上の年度差へ二重加算せず、月次診断として扱います。').setWrap(true).setVerticalAlignment('middle');
-    sheet.getRange('A29:H29').merge().setValue('振り返りの目的').setFontWeight('bold').setBackground('#f1f3f4');
-    sheet.getRange('A30:H32').merge().setValue('評価するのは人ではなく、どの情報・仮説・入力経路が役に立ったかです。個人の的中率や順位は作りません。').setWrap(true).setVerticalAlignment('middle');
-    sheet.getRange('A35:H35').merge().setValue('あなたが保存した学び').setFontWeight('bold').setBackground('#f1f3f4');
+    vNextUxSetSectionHeader_(sheet, 23, 1, 4, '月次で別に確認すること');
+    sheet.getRange('A24').setValue('季節配分と売上認識月のずれは、年度合計へ二重加算せず月次診断として扱います。').setWrap(false);
+    vNextUxSetSectionHeader_(sheet, 27, 1, 4, '振り返りの目的');
+    sheet.getRange('A28').setValue('人の的中率ではなく、どの情報・仮説・入力経路が役立ったかを学びます。個人の順位は作りません。').setWrap(false);
+    vNextUxSetSectionHeader_(sheet, 31, 1, 4, 'あなたが保存した学び');
     if (review) {
       var learningLines = [];
       var categoryLabels = (review.causeCategories || []).map(function(key) {
@@ -1386,13 +1525,17 @@ function vNextUxRenderReview_(context, sheet) {
       (review.nextInformation || []).slice(0, 3).forEach(function(item, index) {
         learningLines.push('次に確認する情報' + (index + 1) + '：' + item);
       });
-      sheet.getRange('A36:H48').merge().setValue(learningLines.join('\n')).setWrap(true).setVerticalAlignment('top');
+      sheet.getRange('A32').setValue(learningLines.join('\n')).setWrap(true).setVerticalAlignment('top');
+      sheet.setRowHeight(32, Math.min(180, 36 + learningLines.length * 24));
     } else {
-      sheet.getRange('A36:H42').merge().setValue(context.state === 'REVIEW_DUE' ? '上部メニュー「年度計画」→「予測と計画を見る」から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
+      sheet.getRange('A32').setValue(context.state === 'REVIEW_DUE' && evaluation ? '上部メニュー「年度計画」→「予測と計画を見る」から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
     }
   }
-  sheet.setHiddenGridlines(true);
-  for (var col = 1; col <= 8; col++) sheet.setColumnWidth(col, 118);
+  sheet.setHiddenGridlines(false);
+  sheet.setColumnWidth(1, 190);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 360);
+  sheet.setColumnWidth(4, 360);
   vNextUxProtectView_(sheet, context.state === 'YEAR_CLOSED');
 }
 
@@ -1414,28 +1557,32 @@ function vNextUxHeadlineAmount_(official, forecast) {
 }
 
 function vNextUxWriteListBlock_(sheet, headerRange, startRow, startCol, width, title, items, emptyText) {
-  sheet.getRange(headerRange).merge().setValue(title).setFontWeight('bold').setBackground('#f1f3f4');
+  var header = sheet.getRange(headerRange);
+  header.setBackground('#f1f3f4');
+  sheet.getRange(headerRange.split(':')[0]).setValue(title).setFontWeight('bold');
   var lines = (items || []).map(function(item, index) { return (index + 1) + '. ' + vNextUxItemText_(item); });
-  sheet.getRange(startRow, startCol, 5, width).merge().setValue(lines.length ? lines.join('\n') : emptyText).setWrap(true).setVerticalAlignment('top');
+  var values = new Array(5).fill('').map(function(_, index) { return [lines[index] || (index === 0 && !lines.length ? emptyText : '')]; });
+  sheet.getRange(startRow, startCol, 5, 1).setValues(values).setWrap(false).setVerticalAlignment('middle');
 }
 
 function vNextUxWriteAiEvidence_(sheet, items) {
   var evidence = (items || []).slice(0, 3);
-  sheet.getRange('A47:M47').merge().setValue('AI調査で使用した主な外部情報').setFontWeight('bold').setBackground('#f1f3f4');
+  vNextUxSetSectionHeader_(sheet, 47, 1, 13, 'AI調査で使用した主な外部情報');
   if (!evidence.length) {
-    sheet.getRange('A48:M50').merge().setValue('今回、予測へ直接反映したAI外部情報はありません。').setWrap(true).setVerticalAlignment('top');
+    sheet.getRange('A48').setValue('今回、予測へ直接反映したAI外部情報はありません。');
     return;
   }
+  sheet.getRange('A48:G48').setValues([['要因', '方向', '適用額', '出典日', '情報品質', '上限', '出典']]).setFontWeight('bold').setBackground('#f8f9fa');
   evidence.forEach(function(item, index) {
-    var row = 48 + index;
+    var row = 49 + index;
     var direction = String(item.direction || '').toUpperCase() === 'DOWN' ? '減少' : (String(item.direction || '').toUpperCase() === 'UP' ? '増加' : '中立');
-    var detail = (index + 1) + '. ' + String(item.summary || item.target || '外部情報') +
-      '｜' + direction + '｜適用額 ' + vNextUxFormatMoney_(item.appliedAmount || 0) +
-      (item.sourceDate ? '｜出典日 ' + item.sourceDate : '') +
-      (item.evidenceQuality ? '｜品質 ' + item.evidenceQuality : '') +
-      (item.capApplied ? '｜上限適用' : '');
-    sheet.getRange(row, 1, 1, 11).merge().setValue(detail).setWrap(true);
-    var linkRange = sheet.getRange(row, 12, 1, 2).merge();
+    sheet.getRange(row, 1, 1, 6).setValues([[
+      String(item.summary || item.target || '外部情報'), direction, Number(item.appliedAmount || 0),
+      item.sourceDate || '', item.evidenceQuality || '', item.capApplied ? '適用' : 'なし'
+    ]]);
+    sheet.getRange(row, 1).setWrap(true);
+    sheet.getRange(row, 3).setNumberFormat('¥#,##0');
+    var linkRange = sheet.getRange(row, 7);
     var url = String(item.sourceUrl || '');
     if (/^https?:\/\//i.test(url)) {
       var rich = SpreadsheetApp.newRichTextValue().setText('出典を開く').setLinkUrl(url).build();
@@ -1454,15 +1601,37 @@ function vNextUxItemText_(item) {
 
 function vNextUxFinishPlanFormat_(sheet, hardProtection) {
   sheet.setFrozenRows(2);
-  sheet.setHiddenGridlines(true);
+  sheet.setHiddenGridlines(false);
   for (var col = 1; col <= 13; col++) sheet.setColumnWidth(col, 94);
+  sheet.setColumnWidth(1, 160);
+  sheet.setColumnWidth(2, 130);
   vNextUxProtectView_(sheet, Boolean(hardProtection));
 }
 
 function vNextUxResetViewSheet_(sheet, rows, cols) {
-  sheet.getRange(1, 1, Math.max(rows, sheet.getMaxRows()), Math.max(cols, sheet.getMaxColumns())).breakApart();
-  sheet.clearContents().clearFormats().clearNotes();
-  sheet.getRange(1, 1, rows, cols).setFontFamily('Arial').setFontSize(10).setVerticalAlignment('middle');
+  var clearRows = Math.max(1, rows, sheet.getLastRow());
+  var clearCols = Math.max(1, cols, sheet.getLastColumn());
+  var clearRange = sheet.getRange(1, 1, clearRows, clearCols);
+  clearRange.breakApart();
+  clearRange.clearContent().clearFormat().clearNote().clearDataValidations();
+  sheet.getRange(1, 1, rows, cols).setBackground('#ffffff').setFontFamily('Arial').setFontSize(10).setFontColor('#202124').setVerticalAlignment('middle');
+}
+
+function vNextUxSetSectionHeader_(sheet, row, startCol, width, title) {
+  sheet.getRange(row, startCol, 1, width).setBackground('#f1f3f4');
+  sheet.getRange(row, startCol).setValue(title).setFontWeight('bold');
+}
+
+function vNextUxEmptyForecastMessage_(context) {
+  var issue = vNextUxStateIssue_(context);
+  if (issue) return issue.instruction;
+  var state = String(context && context.state || '').toUpperCase();
+  if (state === 'RUNNING') return '予測を作成しています。通常は5～10分で完了します。15分以上変わらない場合はホームを更新し、それでも変わらなければ管理担当者へ連絡してください。';
+  if (state === 'INPUT_OPEN') return 'まだ予測前です。上部メニュー「年度計画」→「自分の情報を入力・更新する」から、来年度の変化を回答してください。';
+  if (state === 'READY_TO_RUN') return context && context.isForecastOwner
+    ? '回答状況を確認後、上部メニュー「年度計画」→「予測と計画を見る」から予測を依頼してください。'
+    : '回答は受け付け済みです。Forecast Ownerが予測を依頼するまでお待ちください。';
+  return 'この年度の予測結果はまだありません。ホームの「次にすること」を確認してください。';
 }
 
 function vNextUxProtectView_(sheet, hardProtection) {
@@ -1499,10 +1668,10 @@ function vNextUxActivateSheet_(name, cell) {
 }
 
 function vNextUxInputStatusText_(input) {
-  if (input.submitted) return '回答済み';
   var answered = Number(input.answeredCount || 0);
   var total = Number(input.totalCount || 0);
-  return total ? 'チーム ' + answered + ' / ' + total + ' 名が回答済み' : '未回答';
+  var own = input.submitted ? 'あなた：回答済み' : 'あなた：未回答';
+  return total ? own + '／チーム：' + answered + ' / ' + total + '名' : own;
 }
 
 function vNextUxSafeText_(value, maxLength, required, label) {
@@ -1636,6 +1805,8 @@ function testVNextUxPlanValidation() {
     }
     if (!internalReviewRejected) throw new Error('社内情報提供メンバーに登録メンバー限定の振り返り保存が開放されています。');
     if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: true, isTeamMember: true, canContribute: true }).key !== 'REQUEST_FORECAST') throw new Error('Forecast Ownerの予測依頼導線が変更されています。');
+    if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false, canContribute: true, inputStatus: { submitted: false } }).key !== 'INPUT') throw new Error('未回答の社内情報提供メンバーが予測依頼前に回答できません。');
+    if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false, canContribute: true, inputStatus: { submitted: true } }).key !== 'WAIT') throw new Error('回答済みの社内情報提供メンバーの待機表示が不正です。');
     Logger.log('PASS testVNextUxPlanValidation');
   } catch (err) {
     Logger.log('FAIL testVNextUxPlanValidation: ' + vNextUxErrorText_(err));

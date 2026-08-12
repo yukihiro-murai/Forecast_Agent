@@ -4,7 +4,7 @@
  */
 
 var VNEXT_CLIENT_CORE = Object.freeze({
-  RUNTIME_VERSION: 'vnext-client-1.0.0',
+  RUNTIME_VERSION: 'vnext-client-1.1.0',
   SCHEMA_VERSION: 'vnext-schema-2',
   CONFIG_SHEET: 'VN_BOOK_CONFIG',
   REQUEST_SHEET: 'VN_CLIENT_REQUEST',
@@ -173,7 +173,8 @@ function vNextGetBookContext_(options) {
       return String(row.book_id || '') === bookId;
     });
     // STATE_EVENT is immutable and authoritative. VN_BOOK_CONFIG.state is only a repairable UI cache.
-    var state = String((states.length && states[states.length - 1].to_state) || config.state || meta.state || 'INPUT_OPEN').toUpperCase();
+    var latestStateEvent = states.length ? states[states.length - 1] : null;
+    var state = String((latestStateEvent && latestStateEvent.to_state) || config.state || meta.state || 'INPUT_OPEN').toUpperCase();
     if (VNEXT_CLIENT_CORE.STATES.indexOf(state) < 0) throw new Error('状態が不正です: ' + state);
     var userEmail = vNextActiveUserEmail_();
     if (!userEmail) throw new Error('ログイン中のメールアドレスを確認できません。会社アカウントで開いてください。');
@@ -211,6 +212,9 @@ function vNextGetBookContext_(options) {
       asOf: vNextClientDateOnly_(meta.as_of || config.as_of),
       cutoff: vNextClientDateOnly_(meta.cutoff || config.cutoff),
       state: state,
+      stateReason: String(latestStateEvent && latestStateEvent.reason || ''),
+      stateChangedAt: String(latestStateEvent && latestStateEvent.created_at || ''),
+      relatedRunId: String(latestStateEvent && latestStateEvent.related_run_id || ''),
       role: role,
       isForecastOwner: role === 'FORECAST_OWNER',
       isTeamMember: isTeamMember,

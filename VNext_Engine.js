@@ -146,6 +146,7 @@ function vNextExecuteForecastRun_(req) {
   } catch (error) {
     vNextLog_('vNextEngineRunForecast failed', error);
     var failureContext = normalized || vNextBuildPreflightFailureContext_(req);
+    var failureInfo = vNextForecastFailureInfo_(error);
     // A deterministic identity conflict must be side-effect free. Likewise, if
     // SUCCESS was already found/appended, leave RUNNING intact so the same job
     // can resume only the DRAFT_READY phase without adding a false FAILED run.
@@ -160,7 +161,7 @@ function vNextExecuteForecastRun_(req) {
         vNextTransitionState_({
           bookId: failureContext.bookId,
           toState: 'READY_TO_RUN',
-          reason: 'Forecast run failed: ' + String(error.message || error),
+          reason: 'forecast_failed/' + failureInfo.code + ': ' + failureInfo.userMessage,
           actorEmail: failureContext.createdBy,
           actorRole: 'SYSTEM',
           internalOperation: 'FORECAST_ENGINE',
@@ -172,6 +173,50 @@ function vNextExecuteForecastRun_(req) {
     }
     throw error;
   }
+}
+
+/**
+ * Converts known technical failures into a stable employee-facing code and next action.
+ * The original message is retained only for Admin audit/debugging.
+ */
+function vNextForecastFailureInfo_(error) {
+  var technical = String(error && error.message ? error.message : error || 'Unknown forecast error').slice(0, 1000);
+  var info = {
+    code: 'FORECAST_PROCESSING_FAILED',
+    userMessage: '予測を完了できませんでした。入力内容は保存されています。管理者が処理状況を確認します。',
+    nextAction: 'しばらくしても状態が変わらない場合は、クライアント名と対象年度を管理者へ連絡してください。',
+    retryRecommended: true,
+    technicalMessage: technical
+  };
+  var history = /At least\s+(\d+)\s+fiscal years[^;]*;\s*found\s+(\d+)/i.exec(technical);
+  if (history) {
+    info.code = 'INSUFFICIENT_CONFIRMED_HISTORY';
+    info.userMessage = '予測に必要な確定実績が不足しています（必要' + history[1] + '年度、確認できた実績' + history[2] + '年度）。';
+    info.nextAction = 'ZACのクライアント表記と確定実績の登録状況を管理者に確認してください。情報入力はそのまま保持されます。';
+    info.retryRecommended = false;
+    return info;
+  }
+  if (/source header mismatch|source schema has blank required headers|planned-date header/i.test(technical)) {
+    info.code = 'ACTUAL_SOURCE_SCHEMA_MISMATCH';
+    info.userMessage = '確定実績データの列構成を確認できないため、予測を停止しました。';
+    info.nextAction = '社員側で再入力する必要はありません。管理者がZAC取込の列名と版を確認します。';
+    info.retryRecommended = false;
+    return info;
+  }
+  if (/plannedDate|dateSource is not actual|is not confirmed|after cutoff|missing actualDate/i.test(technical)) {
+    info.code = 'ACTUAL_DATA_CONTRACT_FAILED';
+    info.userMessage = '予定データまたは締切後データが含まれるため、安全のため予測を停止しました。';
+    info.nextAction = '社員側で再入力する必要はありません。管理者が確定実績と情報締切を確認します。';
+    info.retryRecommended = false;
+    return info;
+  }
+  if (/permission|not have access|access denied|openById/i.test(technical)) {
+    info.code = 'ACTUAL_SOURCE_ACCESS_FAILED';
+    info.userMessage = '確定実績データを読み取れませんでした。';
+    info.nextAction = '管理者がZAC実績元と実行アカウントの権限を確認します。';
+    info.retryRecommended = true;
+  }
+  return info;
 }
 
 function vNextBuildPreflightFailureContext_(request) {
@@ -1447,6 +1492,7 @@ function vNextSimulateForecast_(request) {
   var publicDrivers = vNextBuildPublicDrivers_(layers);
   var nextInformation = vNextRankNextInformation_(request, history, layers, coherent.annual);
   var changeReasons = vNextBuildChangeReasons_(request.previousRunSummary, layers);
+  var evidenceReadiness = vNextBuildPublicEvidenceReadiness_(request, history, coherent.annual);
   return {
     runId: request.runId,
     bookId: request.bookId,
@@ -1480,6 +1526,7 @@ function vNextSimulateForecast_(request) {
       publicDrivers: publicDrivers,
       nextInformation: nextInformation,
       changeReasons: changeReasons,
+      evidenceReadiness: evidenceReadiness,
       versions: {
         core: VNEXT_CORE.VERSION,
         engine: VNEXT_ENGINE.VERSION,
@@ -1551,7 +1598,8 @@ function vNextSimulateForecast_(request) {
       unknown: Number(request.evidenceResponseCounts && request.evidenceResponseCounts.unknown || 0),
       unknownSpotExpectedAnnual: history.unknownSpotModel.expectedAnnual,
       unknownSpotExpectedOccurrences: history.unknownSpotModel.expectedOccurrences,
-      unknownSpotMeanOccurrenceRate: history.unknownSpotModel.meanOccurrenceRate
+      unknownSpotMeanOccurrenceRate: history.unknownSpotModel.meanOccurrenceRate,
+      readiness: evidenceReadiness
     }
   };
 }
@@ -1571,6 +1619,54 @@ function vNextBuildPublicDrivers_(layers) {
     .map(function (item) {
       return item.label + ' ' + vNextEngineMoneyText_(item.amount);
     });
+}
+
+/**
+ * Describes how complete the evidence is without claiming a probability of being correct.
+ * This is intentionally separate from employee confidence classes and model calibration.
+ */
+function vNextBuildPublicEvidenceReadiness_(request, history, annual) {
+  var historyYears = history && Array.isArray(history.fiscalYears) ? history.fiscalYears.slice() : [];
+  var missingRate = vNextClamp_(Number(request && request.missingResponseRate || 0), 0, 1);
+  var gapRate = vNextClamp_(Number(request && request.informationGapRate || 0), 0, 1);
+  var responseCounts = request && request.evidenceResponseCounts || {};
+  var unknownCount = Math.max(0, Number(responseCounts.unknown || 0));
+  var center = Math.abs(Number(annual && annual.p50 || 0));
+  var intervalWidth = Math.max(0, Number(annual && annual.p90 || 0) - Number(annual && annual.p10 || 0));
+  var intervalWidthRate = center > 0 ? intervalWidth / center : (intervalWidth > 0 ? 1 : 0);
+  var issues = [];
+  if (missingRate > 0) issues.push('登録メンバーに未回答があります');
+  if (gapRate > 0 || unknownCount > 0) issues.push('「情報不足」の回答があります');
+  if (historyYears.length === VNEXT_ENGINE.MIN_HISTORY_YEARS) issues.push('利用できる履歴が最低年数です');
+  if (intervalWidthRate >= 1) issues.push('通常の振れ幅が中心見込みと同程度以上です');
+  else if (intervalWidthRate >= 0.55) issues.push('通常の振れ幅が比較的大きい状態です');
+  if (request && request.aiUnavailable === true) issues.push('今回の外部情報調査は未完了です');
+
+  var level = 'READY';
+  var label = '根拠が比較的そろっています';
+  if (missingRate >= 0.34 || gapRate >= 0.34 || intervalWidthRate >= 1) {
+    level = 'NEEDS_ATTENTION';
+    label = '追加確認の効果が大きい状態です';
+  } else if (issues.length) {
+    level = 'REVIEW';
+    label = '確認余地があります';
+  }
+  var summary = level === 'READY'
+    ? historyYears.length + '年度の確定実績と現在の回答をもとにしています。'
+    : issues.slice(0, 2).join('。') + '。';
+  return {
+    level: level,
+    label: label,
+    summary: summary,
+    historyYearCount: historyYears.length,
+    historyFiscalYears: historyYears,
+    missingResponseRate: missingRate,
+    informationGapRate: gapRate,
+    unknownResponseCount: unknownCount,
+    intervalWidth: Math.round(intervalWidth),
+    intervalWidthRate: intervalWidthRate,
+    issues: issues.slice(0, 3)
+  };
 }
 
 /** Rank questions by estimated interval reduction × monetary impact ÷ burden. */
@@ -2227,6 +2323,7 @@ function vNextPersistForecastRun_(result, request) {
 }
 
 function vNextPersistFailedRun_(request, error, started) {
+  var failureInfo = vNextForecastFailureInfo_(error);
   vNextAppendRecord_('FORECAST_RUN', {
     run_id: request.runId,
     book_id: request.bookId,
@@ -2251,7 +2348,8 @@ function vNextPersistFailedRun_(request, error, started) {
         bookSchema: request.bookSchemaVersion || '',
         template: request.templateVersion || '',
         modelReleaseId: request.modelReleaseId || ''
-      }
+      },
+      failure: failureInfo
     }),
     evidence_json: vNextCanonicalJson_({}),
     previous_run_id: request.previousRunId,

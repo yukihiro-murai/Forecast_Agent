@@ -10,6 +10,8 @@
 
 専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。作成担当（Forecast Owner）は入力させず、送信時のログインユーザーを自動設定します。
 
+作成依頼後は、サイドバーに`受付済み → 内容確認 → ブック作成 → 利用可能`の4段階を表示します。状態確認は依頼ログだけを読む軽量APIで、20秒後・約1分半後・約5分後の最大3回に限定します。自動確認後も手動で再確認でき、15分以上状態が変わらない場合は受付番号を添えて管理者へ連絡する案内を表示します。
+
 ## Request API
 
 社員向け公開関数:
@@ -17,6 +19,8 @@
 - `vNextPortalGetCreateModel()`
 - `vNextPortalPreviewCreation(input)`
 - `vNextPortalSubmitCreationRequest(input)`
+- `vNextPortalGetRequestProgress(requestId)`
+- `vNextPortalShowRequestOnHome(requestId)`
 - `vNextPortalGoHome()`
 - `vNextPortalOpenCreateSidebar()`
 - `vNextPortalOpenHelp()`

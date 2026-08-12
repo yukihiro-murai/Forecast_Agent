@@ -118,7 +118,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.0.0',
+    version: 'vnext-client-1.1.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -257,9 +257,8 @@ async function checkPortalRuntimeBoundary() {
   const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
   const adminMenu = adminSource.slice(adminMenuStart, adminMenuEnd);
-  assert.ok(adminMenu.includes(
-    ".addItem('社員ポータルPilotを1段階進める', 'vNextAdminContinueEmployeePortalPilotRecoveryForManualTest')"
-  ), 'The Admin menu must expose the resumable Spreadsheet-context Portal pilot action');
+  assert.ok(!adminMenu.includes('vNextAdminContinueEmployeePortalPilotRecoveryForManualTest'),
+    'One-time Portal bootstrap recovery must stay out of the normal four-item Admin menu');
   assert.ok(!adminMenu.includes("'vNextAdminPrepareEmployeePortalPilotForManualTest'"),
     'The long-running legacy one-shot Portal pilot action must not remain in the Admin menu');
   const recoverySource = await readFile(path.join(root, 'VNext_PortalPilotRecovery.js'), 'utf8');
@@ -409,6 +408,22 @@ async function checkAdminRecoveryContracts() {
   assert.ok(executeJob.indexOf('vNextEngineLookupRunForResume_(') <
     executeJob.lastIndexOf('vNextAdminAuthorizeAiRollbackJob_('),
     'AI rollback must inspect a persisted deterministic SUCCESS before applying the RUNNING-only authorization path');
+  assert.ok(source.includes('function vNextAdminUpgradeEmptyPilotClient(request)') &&
+    source.includes('function vNextAdminRecoverEmptyPilotClientUpgrade(request)') &&
+    source.includes('const dryRun = req.dryRun !== false;'),
+    'A same-URL empty-Pilot upgrade must expose read-only-first apply and durable recovery APIs');
+  const emptyApplyStart = source.indexOf('function vNextAdminApplyEmptyPilotRelease_');
+  const emptyApplyEnd = source.indexOf('function vNextAdminAppendEmptyPilotRepairMeta_', emptyApplyStart);
+  const emptyApply = source.slice(emptyApplyStart, emptyApplyEnd);
+  assert.ok(emptyApply.indexOf('vNextClientRuntimeCopyScriptContent_') <
+    emptyApply.indexOf('vNextAdminCopyTemplateUiToClient_') &&
+    emptyApply.indexOf('vNextAdminAppendEmptyPilotRepairMeta_') <
+    emptyApply.indexOf('vNextAdminPatchRegistryByBookId_'),
+    'Empty-Pilot registry identity must be the last cross-system release commit');
+  assert.ok(sidebar.includes('id="emptyPilotBookSelect"') &&
+    sidebar.includes('vNextAdminUpgradeEmptyPilotClient({ bookId, dryRun:true })') &&
+    sidebar.includes('vNextAdminRecoverEmptyPilotClientUpgrade({'),
+    'Admin Sidebar must select an existing Client without manual Book ID entry, dry-run it, and expose recovery');
 }
 
 async function checkAdminCoverageContracts() {
@@ -522,6 +537,94 @@ async function checkAdminCoverageContracts() {
   assert.equal(queueMetrics.running, 1);
   assert.equal(queueMetrics.oldestQueuedAgeMinutes, 20);
   assert.equal(queueMetrics.staleQueued, 1);
+  const safePortalRetry = {
+    job_type:'PORTAL_PROVISION_CLIENT', status:'FAILED', attempts:1,
+    error:'Requested release is not ACTIVE: vnext-pilot-20260812'
+  };
+  assert.equal(sandbox.vNextAdminIsKnownSafeRetryCandidate_(safePortalRetry), true);
+  assert.equal(sandbox.vNextAdminIsKnownSafeRetryCandidate_({...safePortalRetry, attempts:3}), false,
+    'Admin UX must never offer an exhausted Portal job as an automatic safe retry');
+  assert.equal(sandbox.vNextAdminIsKnownSafeRetryCandidate_({
+    job_type:'FORECAST_REQUEST', status:'FAILED', attempts:1,
+    error:'At least 5 fiscal years of confirmed actual history are required; found 2.'
+  }), false, 'Actual-data failures require a human decision and must not be generically retried');
+  assert.equal(sandbox.vNextAdminIsActualDataIssue_({
+    error:'At least 5 fiscal years of confirmed actual history are required; found 2.'
+  }), true);
+  const sidebarJobs = sandbox.vNextAdminJobsForSidebar_([
+    {...safePortalRetry, job_id:'J1', created_at:'2026-08-12T00:00:00.000Z'},
+    {job_type:'FORECAST_REQUEST',status:'RUNNING',job_id:'J2',created_at:'2026-08-12T00:01:00.000Z'}
+  ]);
+  assert.equal(sidebarJobs[0].status, 'FAILED');
+  assert.equal(sidebarJobs[0].taskLabel, '年度計画の作成');
+  assert.equal(sidebarJobs[0].safeRetryCandidate, true);
+  const mismatchedException = sandbox.vNextAdminExceptionForSidebar_({
+    exception_type:'JOB_FAILED', source_ref:'CURRENT-UNSAFE', book_id:'BOOK-1'
+  }, {
+    'BOOK-1':{spreadsheet_url:'https://docs.google.com/spreadsheets/d/BOOK_1/edit'}
+  }, [
+    {...safePortalRetry, job_id:'OLDER-SAFE', target_book_id:'BOOK-1'},
+    {job_id:'CURRENT-UNSAFE', target_book_id:'BOOK-1', status:'FAILED', attempts:3,
+      job_type:'PORTAL_PROVISION_CLIENT', error:'Unknown failure'}
+  ]);
+  assert.equal(mismatchedException.actionType, 'OPEN_BOOK',
+    'A JOB_FAILED exception must never inherit the safe retry action from another failed job in the same book');
+  assert.equal(sandbox.vNextAdminSidebarSpreadsheetUrl_(
+    'https://docs.google.com/spreadsheets/d/ABC_123/edit'
+  ), 'https://docs.google.com/spreadsheets/d/ABC_123/edit');
+  assert.equal(sandbox.vNextAdminSidebarSpreadsheetUrl_('https://example.com/not-allowed'), '');
+  const originalResolvePortal = sandbox.vNextAdminResolvePortal_;
+  const originalPortalReadTable = sandbox.vNextAdminReadTable_;
+  sandbox.vNextAdminResolvePortal_ = () => ({
+    spreadsheet:{getUrl:() => 'https://docs.google.com/spreadsheets/d/PORTAL_1/edit'}
+  });
+  sandbox.vNextAdminReadTable_ = () => ({rows:[
+    {request_id:'REQ-1',event_type:'REQUESTED',status:'PENDING',client_name:'Client',fiscal_year:2027},
+    {request_id:'REQ-1',event_type:'REQUESTED',status:'COMPLETED',client_name:'Tampered',fiscal_year:2099},
+    {request_id:'REQ-2',event_type:'CREATION_STARTED',status:'CREATING',client_name:'Client 2',fiscal_year:2027}
+  ]});
+  try {
+    const portalProjection = sandbox.vNextAdminPortalRequestsForSidebar_({});
+    assert.equal(portalProjection.counts.waiting, 1);
+    assert.equal(portalProjection.counts.processing, 1);
+    assert.equal(portalProjection.counts.completed, 0,
+      'Portal status projection must ignore a status that is inconsistent with its append-only event type');
+    assert.equal(portalProjection.attention[1].clientName, 'Client');
+  } finally {
+    sandbox.vNextAdminResolvePortal_ = originalResolvePortal;
+    sandbox.vNextAdminReadTable_ = originalPortalReadTable;
+  }
+  assert.equal(sandbox.vNextAdminAttentionSummary_({
+    automationInstalled:true,
+    counts:{exceptions:0,pendingApprovals:0,portalAttention:0,queuedJobs:1,runningJobs:0},
+    operations:{schedulerStale:false}, portalRequests:{counts:{waiting:0,processing:0}}
+  }, 0).status, 'PROCESSING');
+  assert.equal(sandbox.vNextAdminAttentionSummary_({
+    automationInstalled:true,
+    counts:{exceptions:0,pendingApprovals:1,portalAttention:0,queuedJobs:0,runningJobs:0},
+    operations:{schedulerStale:false}, portalRequests:{counts:{waiting:0,processing:0}}
+  }, 0).status, 'ATTENTION');
+  assert.equal(sandbox.vNextAdminAttentionSummary_({
+    automationInstalled:true,
+    counts:{exceptions:0,pendingApprovals:0,portalAttention:0,queuedJobs:1,runningJobs:0},
+    operations:{schedulerStale:false,queueStale:true}, portalRequests:{counts:{waiting:0,processing:0}}
+  }, 0).status, 'ERROR', 'A stale queue must never look like normal in-progress work');
+  assert.equal(sandbox.vNextAdminAttentionSummary_({
+    automationInstalled:true,
+    counts:{exceptions:0,pendingApprovals:0,portalAttention:0,queuedJobs:0,runningJobs:0},
+    operations:{schedulerStale:false,queueStale:false}, portalRequests:{unavailable:true,counts:{}}
+  }, 0).status, 'ATTENTION', 'A configured but unreadable Portal must be visible to the Admin');
+  assert.ok(source.includes('function vNextAdminRunOperationalCycle()') &&
+    source.includes("vNextAdminWithScriptLock_('admin-run-operational-cycle'") &&
+    source.includes('vNextAdminRequeueKnownPilotFailures_(hub)') &&
+    source.includes("vNextAdminWriteAudit_(hub, 'RUN_OPERATIONAL_CYCLE'"),
+    'The Admin one-click cycle must use durable jobs, narrow retries, a lock, and append-only audit');
+  assert.ok(sidebar.includes('<html lang="ja">') && sidebar.includes('id="attentionOverview"') &&
+    sidebar.includes('id="portalRequests"') && sidebar.includes('id="recentJobs"') &&
+    sidebar.includes('vNextAdminRunOperationalCycle') && sidebar.includes('window.confirm(confirmation)'),
+    'The normal Admin view must prioritize decisions, Portal progress, safe processing, and approval confirmation');
+  assert.equal(/<div class="metric">待機job/.test(sidebar), false,
+    'The primary Admin metrics must not expose internal job terminology');
   assert.equal(sandbox.vNextAdminPortalCanonicalClientKey_({clientName:'株式会社 テスト'}),
     sandbox.vNextAdminPortalCanonicalClientKey_({clientName:'テスト'}));
   assert.notEqual(sandbox.vNextAdminPortalCanonicalClientKey_({client_id:'CLIENT-A', client_name:'A'}),

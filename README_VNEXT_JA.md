@@ -29,7 +29,7 @@ Forecast vNext は、未来の売上を一点で「当てる」ものではな�
 
 Admin HubとMaster Templateはいずれもlegacy bookのコピーではありません。bootstrap元の中央projectが空のSpreadsheetを作り、Apps Script APIでAdmin用の完全runtimeまたは[`client_runtime`](./client_runtime/README.md)の最小runtimeだけをbindingします。生成Hubにはsource/target script IDとcanonical runtime SHA-256を管理者専用設定として記録し、以後はAdmin Sidebarの1操作で中央clasp配備版へ更新できます。したがってClient FY BookのApps Script projectには、Admin処理、ZAC source ID、Vertex設定、AI raw、prompt、予測エンジンを含めません。Client側のOAuth scopeも、現在のブック、UI、利用者メールだけに限定します。
 
-年度計画ポータルも空Spreadsheetへ[`portal_runtime`](./portal_runtime/README.md)だけをbindingします。通常表示は`ホーム`と`FYyyyy`タブで、Client名、状態、Forecast Owner、次の対応、専用bookリンクをHub正本から投影します。新規作成は「年度・クライアント・Forecast Owner」を中心としたサイドバーから依頼し、Portal内の追記型stagingをAdmin workerが検証して非同期生成します。同じclient×FYはTemplate releaseが変わっても1冊だけです。
+年度計画ポータルも空Spreadsheetへ[`portal_runtime`](./portal_runtime/README.md)だけをbindingします。通常表示は`ホーム`と`FYyyyy`タブで、Client名、状態、次の対応、専用bookリンクをHub正本から投影します。新規作成は対象年度、ZACから選ぶクライアント、関与メンバー氏名1〜5名だけを入力します。Forecast Ownerは依頼した社内ユーザーへ自動設定されます。Portal内の追記型stagingをAdmin workerが再検証して非同期生成し、送信後は受付・確認・作成・利用可能の進捗を表示します。同じclient×FYはTemplate releaseが変わっても1冊だけです。
 
 公開済みMaster Templateは手編集するworking sheetではなく、immutable release artifactです。社員画面、MEMO、書式をシート上で改訂する場合は、Admin Hubから管理者限定の`TEMPLATE_DRAFT`を作り、その表示3シートだけを編集します。公開操作はdraft（code-only更新時は現ACTIVEの表示3シート）を新しいclean Templateへコピーし、Client runtime・表示内容・版の組を検証してからpointerを切り替えます。表示3シートのvalues/formulas/notes/format/validation等はcanonical hashへ結び付けられ、公開後の直接編集を検出した場合は新規Client生成を停止します。既存Clientはreleaseに固定されます。
 
@@ -49,9 +49,9 @@ Client側に残る追記型イベントは、初期版では**未信頼のステ
 6. 承認runを公式vintageとして凍結する。
 7. 実績確定後は公式runだけを評価し、次年度の情報収集とモデルreleaseへ反映する。
 
-ホームには状態に応じた主操作を1つだけ表示し、同じ「次の作業を始める」ボタンが現在状態に対応する画面を開きます。ボタンが利用できない環境でも、上部の「年度計画」メニュー4項目から同じ操作を行えます。
+ホームには状態に応じた次の操作を1つだけ表示します。操作は上部の「年度計画」メニュー4項目から行い、シート上のセルを直接編集しません。処理待ち状態では操作を増やさず、通常の待ち時間と、停滞時に管理者へ伝える内容を表示します。
 
-Client FY Bookと年度計画ポータルは、会社Workspaceドメイン内のリンク共有を選択できます。これは「誰がForecast Ownerか」とは別の概念です。社内ユーザーは担当登録がなくても閲覧と情報提供ができ、Forecast Ownerだけが予測依頼・計画提出を行います。回答完了判定は、Portal作成時に指定したOwner／関与メンバーの有限集合だけで計算し、自由参加者の未回答で処理を停止しません。Admin Hub、Template、監査folderは引き続きprivateです。
+Client FY Bookと年度計画ポータルは、会社Workspaceドメイン内のリンク共有を選択できます。これは「誰がForecast Ownerか」とは別の概念です。社内ユーザーは担当登録がなくても閲覧と情報提供ができ、Forecast Ownerだけが予測依頼・計画提出を行います。初期版で関与メンバーとして保存する氏名は、関与状況を見やすくする表示情報であり、メール本人確認や回答分母には使いません。メールで同定できるForecast Ownerを必須回答者とし、社内の自由参加者の未回答で処理を停止しません。社員名簿とメールの安全な対応表を導入した段階で、関与メンバーを回答分母へ追加できます。Admin Hub、Template、監査folderは引き続きprivateです。
 
 AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した場合は、失敗をAdmin例外とrun監査へ残し、AI差分を0として継続性・案件・現場情報で予測を完了し、情報不足分だけ通常の振れ幅を広げます。AI取消の比較runは、元runが保存した有効evidence ID集合、非AI入力hash、model/version、as-of、seed、simulation数を再検証します。非AI入力が変わっていればAIだけの反実仮想とは呼ばず、通常の新runを要求します。
 
@@ -87,7 +87,7 @@ AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した
 - 承認時はHubにあるSUCCESS runとSUBMITTED planからsnapshotを再構築し、組合せを検証してから公式vintageを凍結します。
 - 正式計画の訂正は、現在の公式vintageを参照するamendmentとしてだけ発行します。
 - 実績評価は、対象FYの確定実績と現在の公式vintageを検証してから生成します。
-- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、16ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
+- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、17ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
 - Client runtime/UI改修は現行Templateを上書きしません。管理者限定Draft（code-only更新は現ACTIVE UI）から新しいprivate `STAGED` Templateを作り、そのrelease IDへ厳密に結び付いたPASS済みModel candidateとの組だけを有効化します。canonical pair pointerをCASで切り替え、property cache更新後にだけ旧TemplateをRETIREDへ移します。各phaseは追記型journalへ残るため、中断後も同じoperation IDから再開できます。
 - Client FY BookはAdmin管理のprivate root配下へだけ生成します。任意の共有folderや、共有境界を証明できない保存先はfail-closedで拒否します。
 
@@ -96,7 +96,7 @@ AI調査は補助レイヤーです。Vertex/providerが一時的に失敗した
 - 自動更新するのは不確実性、案件確率・月ずれ、季節配分、誤差校正などの状態です。モデル構造や係数releaseはbacktest/canaryのcandidate hashが一致し、管理者が有効化したものだけを使います。
 - 参照クラスpriorは、比較可能なcohortと十分な完了年度がそろうまで`DISABLED`です。全Clientへ同じ絶対金額priorを流用することは拒否します。初期pilotでは、継続性・案件・明示的な客観/現場変化の三者を意味の異なる根拠として保持し、参照クラスはデータ蓄積後のreleaseで有効化します。
 - 最初は2～3 Clientを現行運用と並行runし、操作完了率、所要時間、入力形骸化、区間校正、job所要時間を測定します。管理者がcanary開始を明示承認した場合だけ4～5冊へ進め、6冊目は負荷試験releaseまでserver-sideで拒否します。30冊展開には、30 Client×AI＋forecast、quota、timeout、lease crashを含む負荷試験とSLO承認が必要です。
-- pilot releaseでは既存Clientへのmigrationはdry-runだけを許可し、APPLYはserver-sideで停止します。既存年度bookを変えるより、新FYを新releaseから作ることを優先します。transactional rollbackとmaintenance gateの受入試験が通るまで、公式・振り返り中・終了済みbookのin-place更新は行いません。
+- pilot releaseでは汎用Client migrationのAPPLYをserver-sideで停止し、dry-runだけを許可します。例外として、従業員テスト前で`ACTIVE / INPUT_OPEN`、回答・依頼・予測・計画・承認・公式・評価がすべて0件、source release/model/runtime SHAとHub/Client metadataが完全一致するbookに限り、Admin Sidebarの「テスト前の年度計画を最新版へ更新」を使用できます。この専用処理は最初にread-only判定を行い、同一schemaのcanonical ACTIVE pairへ同じSpreadsheet URLのまま更新し、registryを最後にcommitします。中断時はmigration journalから旧版または新版の整合状態へ復旧します。公式・振り返り中・終了済みbookのin-place更新は行いません。
 - 初期MODEL_RELEASEのbacktest/canary PASSは管理者attestationです。自動評価済みと称しません。本番releaseではdataset snapshot、candidate/code hash、metric、threshold、実行者・時刻を持つsystem生成artifactへ置き換えます。
 - Sheets内のClient stagingは署名境界ではありません。30冊本番または監査保証を強める段階では、Admin所有Web Appを唯一のwrite endpointにする移行をrelease gateとします。
 
