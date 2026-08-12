@@ -214,6 +214,8 @@ async function testStableViewSheetHandles() {
   assert.match(uxSource, /function vNextUxRenderHome_\(context, sheet\)/);
   assert.match(uxSource, /function vNextUxRenderPlan_\(context, rawForecast, sheet\)/);
   assert.match(uxSource, /function vNextUxRenderReview_\(context, sheet\)/);
+  assert.doesNotMatch(uxSource, /setFrozenRows\([^)]*\)\s*\.setHiddenGridlines/,
+    'setFrozenRows returns void in Apps Script and must not be chained');
 }
 
 async function testBlankIdentityStillGetsMenu() {

@@ -1219,7 +1219,8 @@ function vNextUxRenderHome_(context, sheet) {
   sheet.getRange('C6').setNote('予測には、この日までに確定した実績だけを使用します。当月・未来・予定日は使用しません。');
   sheet.getRange('A12').setNote('Master Templateの主ボタンには vNextOpenCurrentAction を割り当てます。状態が変わっても、同じボタンが次の操作を開きます。');
   vNextUxEnsureHomeActionButton_(sheet, action);
-  sheet.setFrozenRows(2).setHiddenGridlines(true);
+  sheet.setFrozenRows(2);
+  sheet.setHiddenGridlines(true);
   for (var col = 1; col <= 8; col++) sheet.setColumnWidth(col, 118);
   vNextUxProtectView_(sheet, context.state === 'YEAR_CLOSED');
 }
@@ -1431,7 +1432,8 @@ function vNextUxItemText_(item) {
 }
 
 function vNextUxFinishPlanFormat_(sheet, hardProtection) {
-  sheet.setFrozenRows(2).setHiddenGridlines(true);
+  sheet.setFrozenRows(2);
+  sheet.setHiddenGridlines(true);
   for (var col = 1; col <= 13; col++) sheet.setColumnWidth(col, 94);
   vNextUxProtectView_(sheet, Boolean(hardProtection));
 }
