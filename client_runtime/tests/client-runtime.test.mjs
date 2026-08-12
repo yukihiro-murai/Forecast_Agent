@@ -37,8 +37,9 @@ testInputRoundBoundary();
 testCommitmentEvidence();
 testClientQueue();
 testPlanSubmission();
+await testStableViewSheetHandles();
 await testBlankIdentityStillGetsMenu();
-process.stdout.write('PASS client runtime behavior tests (10)\n');
+process.stdout.write('PASS client runtime behavior tests (11)\n');
 
 function testCanonicalJson() {
   assert.equal(sandbox.vNextCanonicalJson_({ b: 2, a: 1 }), '{"a":1,"b":2}');
@@ -203,6 +204,16 @@ function testPlanSubmission() {
   assert.equal(result.adopted_forecast, 1100);
   assert.equal(result.final_budget, 1220);
   assert.equal(JSON.parse(result.uplift_allocation_json).length, 12);
+}
+
+async function testStableViewSheetHandles() {
+  const uxSource = await readFile(path.join(sourceDir, 'VNext_UX.js'), 'utf8');
+  assert.match(uxSource, /vNextUxRenderHome_\(context, home\)/);
+  assert.match(uxSource, /vNextUxRenderPlan_\(context, forecast, plan\)/);
+  assert.match(uxSource, /vNextUxRenderReview_\(context, review\)/);
+  assert.match(uxSource, /function vNextUxRenderHome_\(context, sheet\)/);
+  assert.match(uxSource, /function vNextUxRenderPlan_\(context, rawForecast, sheet\)/);
+  assert.match(uxSource, /function vNextUxRenderReview_\(context, sheet\)/);
 }
 
 async function testBlankIdentityStillGetsMenu() {

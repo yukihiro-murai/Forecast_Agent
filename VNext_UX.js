@@ -594,9 +594,13 @@ function vNextRefreshEmployeeViews() {
     var review = ss.getSheetByName(VNEXT_UX_CONFIG_.REVIEW_SHEET);
     // YEAR_CLOSEDの初回表示だけ最終状態を描画し、以後はhard protectionを
     // 解除せず読み取る。これにより閲覧APIは使える一方、確定表示を再生成できない。
-    if (!finalReadOnly || !vNextUxIsHardProtected_(home)) vNextUxRenderHome_(context);
-    if (!finalReadOnly || !vNextUxIsHardProtected_(plan)) vNextUxRenderPlan_(context, forecast);
-    if (!finalReadOnly || !vNextUxIsHardProtected_(review)) vNextUxRenderReview_(context);
+    if (!home || !plan || !review) throw new Error('従業員向け表示シートを準備できませんでした。');
+    // HTML sidebar callbacks can lose SpreadsheetApp's active-spreadsheet handle while a
+    // long server operation is running. Reuse the sheet handles resolved above instead of
+    // calling getActiveSpreadsheet() again inside each renderer.
+    if (!finalReadOnly || !vNextUxIsHardProtected_(home)) vNextUxRenderHome_(context, home);
+    if (!finalReadOnly || !vNextUxIsHardProtected_(plan)) vNextUxRenderPlan_(context, forecast, plan);
+    if (!finalReadOnly || !vNextUxIsHardProtected_(review)) vNextUxRenderReview_(context, review);
     return { ok: true };
   } catch (err) {
     Logger.log('vNextRefreshEmployeeViews error: ' + vNextUxErrorText_(err));
@@ -1193,8 +1197,8 @@ function vNextUxEnsureClientSheets_(context) {
   });
 }
 
-function vNextUxRenderHome_(context) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.HOME_SHEET);
+function vNextUxRenderHome_(context, sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.HOME_SHEET);
   vNextUxResetViewSheet_(sheet, 32, 8);
   var action = vNextUxGetPrimaryAction_(context);
   var input = context.inputStatus || {};
@@ -1249,8 +1253,8 @@ function vNextUxEnsureHomeActionButton_(sheet, action) {
   }
 }
 
-function vNextUxRenderPlan_(context, rawForecast) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
+function vNextUxRenderPlan_(context, rawForecast, sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
   vNextUxResetViewSheet_(sheet, 60, 13);
   var f = vNextUxPublicForecast_(rawForecast);
   sheet.getRange('A1:M2').merge().setValue('予測と年度計画').setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#174ea6').setVerticalAlignment('middle');
@@ -1302,8 +1306,8 @@ function vNextUxRenderPlan_(context, rawForecast) {
   vNextUxFinishPlanFormat_(sheet, context.state === 'YEAR_CLOSED');
 }
 
-function vNextUxRenderReview_(context) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.REVIEW_SHEET);
+function vNextUxRenderReview_(context, sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.REVIEW_SHEET);
   vNextUxResetViewSheet_(sheet, 52, 8);
   sheet.getRange('A1:H2').merge().setValue('振り返り').setFontSize(18).setFontWeight('bold').setFontColor('#ffffff').setBackground('#174ea6');
   if (VNEXT_UX_CONFIG_.REVIEW_STATES.indexOf(context.state) < 0) {
