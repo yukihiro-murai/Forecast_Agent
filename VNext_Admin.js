@@ -292,6 +292,8 @@ function vNextBuildLegacySetupMenu_() {
     // Keep menu construction authorization-free and perform the owner/admin
     // check inside the invoked configuration/bootstrap APIs instead.
     SpreadsheetApp.getUi().createMenu('Forecast vNext 移行')
+      .addItem('初回権限を確認・許可', 'vNextAdminAuthorizeRuntime')
+      .addSeparator()
       .addItem('初期設定を開く', 'vNextAdminOpenSidebar')
       .addToUi();
     return true;
@@ -299,6 +301,30 @@ function vNextBuildLegacySetupMenu_() {
     Logger.log('vNextBuildLegacySetupMenu_ skipped: %s', String(err && err.message || err));
     return false;
   }
+}
+
+/**
+ * Direct menu entry used once after the manifest gains new OAuth scopes.
+ * google.script.run inside a sidebar cannot initiate a new consent flow, so
+ * authorization must begin from a top-level custom-menu invocation.
+ */
+function vNextAdminAuthorizeRuntime() {
+  return vNextAdminGuard_('vNextAdminAuthorizeRuntime', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) throw new Error('Active spreadsheet is required.');
+    // Touch every service family required by bootstrap without changing data.
+    const actor = vNextAdminActor_();
+    const fileId = DriveApp.getFileById(ss.getId()).getId();
+    const scriptId = ScriptApp.getScriptId();
+    const tokenAvailable = !!ScriptApp.getOAuthToken();
+    SpreadsheetApp.getUi().alert(
+      'Forecast vNext 権限確認',
+      '初回権限の確認が完了しました。続けて「Forecast vNext 移行」→「初期設定を開く」を選択してください。',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return { ok: true, actor: actor, spreadsheetId: fileId, scriptId: scriptId, tokenAvailable: tokenAvailable };
+  });
 }
 
 /** Consumes TEMPLATE onOpen so it can never fall through to the legacy operation menu. */
