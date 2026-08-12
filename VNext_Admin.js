@@ -5159,7 +5159,7 @@ function vNextAdminExtractZacClientCatalog_(source) {
 
 function vNextAdminMergeZacCatalogCandidate_(byName, rawName, rawCode, year, fromDefinition) {
   const clientName = vNextAdminSafeCatalogText_(rawName, 120, 'clientName');
-  if (!clientName) return;
+  if (!clientName || clientName === '全体' || clientName === '仮登録') return;
   const nameKey = vNextAdminNormalizeCatalogClientName_(clientName);
   if (!nameKey) return;
   const code = vNextAdminSafeCatalogText_(rawCode, 120, 'clientCode');

@@ -531,12 +531,12 @@ async function checkAdminCoverageContracts() {
   assert.equal(sandbox.vNextAdminSafeCatalogText_('ｱｽﾄﾗｾﾞﾈｶ(株)', 120, 'clientName'), 'ｱｽﾄﾗｾﾞﾈｶ(株)',
     'The ZAC display/client name must preserve the exact AO source text used by the forecast engine');
   const fakeActualSheet = {
-    getName: () => '*2026_actual_value', getLastRow: () => 2, getMaxColumns: () => 66,
+    getName: () => '*2026_actual_value', getLastRow: () => 3, getMaxColumns: () => 66,
     getRange(row, column, rowCount, columnCount) {
       if (row === 1 && column === 40) return {getValue: () => 'クライアントコード'};
       if (row === 1 && column === 41) return {getValue: () => 'クライアント名'};
-      if (row === 2 && column === 40 && rowCount === 1 && columnCount === 2) {
-        return {getDisplayValues: () => [['AZ-001', 'ｱｽﾄﾗｾﾞﾈｶ(株)']]};
+      if (row === 2 && column === 40 && rowCount === 2 && columnCount === 2) {
+        return {getDisplayValues: () => [['AZ-001', 'ｱｽﾄﾗｾﾞﾈｶ(株)'], ['', '仮登録']]};
       }
       throw new Error(`unexpected actual range ${row},${column},${rowCount},${columnCount}`);
     }
