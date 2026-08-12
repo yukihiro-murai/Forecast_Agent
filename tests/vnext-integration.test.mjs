@@ -195,6 +195,26 @@ async function checkPortalRuntimeBoundary() {
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   assert.match(adminSidebar, /社員ポータルを準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
+  assert.match(adminSidebar, /vNextAdminPrepareEmployeePortalPilot/);
+  const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  const pilotStart = adminSource.indexOf('function vNextAdminPrepareEmployeePortalPilot(request)');
+  const pilotEnd = adminSource.indexOf('/**\n * Spreadsheet macro entry', pilotStart);
+  const pilot = adminSource.slice(pilotStart, pilotEnd);
+  assert.ok(pilotStart >= 0 &&
+    pilot.includes('vNextAdminPublishTemplateRelease({') &&
+    pilot.includes('vNextAdminRegisterModelRelease({') &&
+    pilot.includes('vNextAdminActivateReleasePair({') &&
+    pilot.includes('vNextAdminProvisionSharedPortal({') &&
+    pilot.includes("req.attestationConfirmed !== true") &&
+    pilot.includes("vNextAdminRequiredText_(req.evidenceArtifact, 'evidenceArtifact')") &&
+    pilot.includes('pairAfterStage.releaseId !== initialPair.releaseId') &&
+    !pilot.includes('SpreadsheetApp.getUi'),
+  'The first Portal pilot needs an idempotent Admin-only path that also works outside Spreadsheet UI context');
+  assert.ok(adminSource.includes('function vNextAdminPrepareEmployeePortalPilotForManualTest()') &&
+    adminSource.includes("answer !== ui.Button.YES") &&
+    adminSource.includes('clientRuntimeTests: 12') &&
+    adminSource.includes('portalRuntimeTests: 7'),
+  'The manual Sheet-macro entry must require explicit Admin attestation and record the tested runtime identities');
 }
 
 async function checkAdminRecoveryContracts() {

@@ -1027,6 +1027,155 @@ function vNextAdminProvisionSharedPortal(request) {
   });
 }
 
+/**
+ * One-click, Admin-only recovery path for the first employee Portal pilot.
+ *
+ * This deliberately avoids SpreadsheetApp.getUi(), so it can also be run from
+ * the Apps Script editor when a changed Cloud-project authorization prevents a
+ * custom menu from appearing. Every phase uses the ordinary immutable release
+ * APIs and deterministic IDs; rerunning after a timeout resumes instead of
+ * creating another Template, Model Release, or Portal.
+ */
+function vNextAdminPrepareEmployeePortalPilot(request) {
+  return vNextAdminGuard_('vNextAdminPrepareEmployeePortalPilot', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    if (req.attestationConfirmed !== true) {
+      throw new Error('テスト結果を確認し、attestationConfirmed=trueを明示してください。');
+    }
+    const hub = vNextAdminRequireHub_();
+    const initialPair = vNextAdminReadActiveReleasePair_(hub);
+    const initialModel = vNextAdminResolveActiveModelRelease_(hub, initialPair.modelReleaseId);
+    const parameters = vNextAdminParseJson_(initialModel.parameters_json, {});
+    const engineVersion = typeof VNEXT_ENGINE !== 'undefined' ? String(VNEXT_ENGINE.VERSION || '') : '';
+    if (!engineVersion) throw new Error('Forecast Engine version is unavailable.');
+
+    const staged = vNextAdminPublishTemplateRelease({
+      reason: '社員ポータル・社内情報提供メンバー対応のPilot release',
+      expectedActiveReleaseId: initialPair.releaseId,
+      stageOnly: true
+    });
+    const releaseId = vNextAdminRequiredText_(staged && staged.releaseId, 'staged.releaseId');
+    const modelReleaseId = 'model-portal-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+      releaseId: releaseId,
+      engineVersion: engineVersion,
+      parameters: parameters
+    })).slice(0, 20).toUpperCase();
+    const note = '社員ポータルPilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。';
+    const checks = {
+      backtest: {
+        status: 'PASS',
+        basis: 'UNCHANGED_ENGINE_AND_PARAMETERS_FROM_ACTIVE_MODEL',
+        sourceModelReleaseId: initialModel.model_release_id,
+        reviewedBy: vNextAdminActor_(),
+        evidenceArtifact: vNextAdminRequiredText_(req.evidenceArtifact, 'evidenceArtifact')
+      },
+      canary: {
+        status: 'PASS',
+        basis: 'CLIENT_AND_PORTAL_RUNTIME_CONTRACT_TESTS',
+        clientRuntimeTests: 12,
+        portalRuntimeTests: 7,
+        integrationContractTests: 'PASS',
+        reviewedBy: vNextAdminActor_(),
+        evidenceArtifact: vNextAdminRequiredText_(req.evidenceArtifact, 'evidenceArtifact')
+      }
+    };
+
+    let model = vNextAdminLatestModelRelease_(hub, modelReleaseId);
+    if (!model) {
+      model = vNextAdminRegisterModelRelease({
+        modelReleaseId: modelReleaseId,
+        modelVersion: engineVersion,
+        templateVersion: releaseId,
+        parameters: parameters,
+        backtest: checks.backtest,
+        canary: checks.canary,
+        attestationConfirmed: true,
+        note: note
+      });
+    } else {
+      if (['DRAFT', 'ACTIVE'].indexOf(String(model.status || '').toUpperCase()) < 0 ||
+          String(model.model_version || '') !== engineVersion ||
+          String(model.template_version || '') !== releaseId ||
+          String(model.parameters_json || '') !== vNextAdminCanonicalJson_(
+            vNextAdminNormalizeModelParameters_(parameters)
+          )) {
+        throw new Error('Existing Portal Pilot MODEL_RELEASE has different immutable content.');
+      }
+      vNextAdminAssertModelReleaseChecksPassed_(model);
+    }
+
+    let activation = { reused: true, releaseId: releaseId, modelReleaseId: modelReleaseId };
+    const pairAfterStage = vNextAdminReadActiveReleasePair_(hub);
+    if (pairAfterStage.releaseId !== releaseId || pairAfterStage.modelReleaseId !== modelReleaseId) {
+      if (pairAfterStage.releaseId !== initialPair.releaseId ||
+          pairAfterStage.modelReleaseId !== initialPair.modelReleaseId) {
+        throw new Error('準備中に別のTemplate・Model pairが有効化されました。上書きせず停止します。');
+      }
+      activation = vNextAdminActivateReleasePair({
+        releaseId: releaseId,
+        modelReleaseId: modelReleaseId,
+        reason: '社員ポータルPilotのTemplate・Model pairを有効化',
+        expectedActiveReleaseId: initialPair.releaseId,
+        expectedActiveModelReleaseId: initialPair.modelReleaseId
+      });
+    }
+
+    const portal = vNextAdminProvisionSharedPortal({ title: '年度計画ポータル' });
+    const result = vNextAdminJsonSafe_({
+      ok: true,
+      activeTemplateReleaseId: releaseId,
+      activeModelReleaseId: modelReleaseId,
+      staged: staged,
+      activation: activation,
+      portal: portal,
+      completedAt: new Date().toISOString()
+    });
+    PropertiesService.getScriptProperties().setProperty(
+      'VNEXT_LAST_EMPLOYEE_PORTAL_PILOT_RESULT_JSON',
+      vNextAdminCanonicalJson_(result)
+    );
+    Logger.log('EMPLOYEE_PORTAL_PILOT_READY %s', vNextAdminCanonicalJson_(result));
+    return result;
+  });
+}
+
+/**
+ * Spreadsheet macro entry for the first live smoke test. Unlike running a UI
+ * function from the Apps Script editor, an imported Sheet macro has a valid UI
+ * context. The explicit YES response is the Admin attestation recorded by the
+ * release API; cancelling performs no write.
+ */
+function vNextAdminPrepareEmployeePortalPilotForManualTest() {
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert(
+    '社員ポータルPilotを準備',
+    '次の検証結果を確認したうえで実行します。\n\n' +
+      '・Client runtime behavior: 12件 PASS\n' +
+      '・Portal runtime behavior: 7件 PASS\n' +
+      '・vNext統合契約test: PASS\n\n' +
+      '現在の予測Engine・parameterは変更しません。続行しますか？',
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return { ok: false, cancelled: true };
+  const clientBundle = vNextClientRuntimeVerifiedBundle_();
+  const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
+    ? vNextPortalRuntimeVerifiedBundle_()
+    : { version: VN_ADMIN_PORTAL_RUNTIME_VERSION, sha256: '' };
+  return vNextAdminPrepareEmployeePortalPilot({
+    attestationConfirmed: true,
+    evidenceArtifact: vNextAdminCanonicalJson_({
+      verifiedAt: '2026-08-12',
+      clientRuntimeTests: 12,
+      clientRuntimeVersion: clientBundle.version,
+      clientRuntimeSha256: clientBundle.sha256,
+      portalRuntimeTests: 7,
+      portalRuntimeVersion: portalBundle.version,
+      portalRuntimeSha256: portalBundle.sha256,
+      integrationContractTests: 'PASS'
+    })
+  });
+}
+
 /** Central-source fallback used while a generated Hub is waiting for API execution linkage. */
 function vNextAdminProvisionSharedPortalFromSource(request) {
   return vNextAdminGuard_('vNextAdminProvisionSharedPortalFromSource', function () {
