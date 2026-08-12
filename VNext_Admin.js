@@ -288,7 +288,9 @@ function vNextBuildAdminMenu_() {
 function vNextBuildLegacySetupMenu_() {
   try {
     if (vNextDetectBookMode_() !== 'LEGACY') return false;
-    vNextAdminAssertRuntimeConfigurator_();
+    // A simple onOpen trigger cannot call DriveApp before authorization.
+    // Keep menu construction authorization-free and perform the owner/admin
+    // check inside the invoked configuration/bootstrap APIs instead.
     SpreadsheetApp.getUi().createMenu('Forecast vNext 移行')
       .addItem('初期設定を開く', 'vNextAdminOpenSidebar')
       .addToUi();

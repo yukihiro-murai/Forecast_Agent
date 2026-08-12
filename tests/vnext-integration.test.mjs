@@ -150,6 +150,13 @@ async function checkClientBundleBoundary() {
 
 async function checkAdminRecoveryContracts() {
   const source = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  const legacyMenuStart = source.indexOf('function vNextBuildLegacySetupMenu_');
+  const legacyMenuEnd = source.indexOf('/** Consumes TEMPLATE onOpen', legacyMenuStart);
+  const legacyMenu = source.slice(legacyMenuStart, legacyMenuEnd);
+  assert.ok(legacyMenu.includes("createMenu('Forecast vNext 移行')") &&
+    !legacyMenu.includes('vNextAdminAssertRuntimeConfigurator_(') &&
+    !legacyMenu.includes('DriveApp.'),
+    'Legacy bootstrap menu construction must remain safe inside a simple onOpen trigger');
   const evidenceStart = source.indexOf('function vNextAdminValidateClientEvidenceRows_');
   const evidenceEnd = source.indexOf('function vNextAdminValidateClientStateRows_', evidenceStart);
   const evidenceFunction = source.slice(evidenceStart, evidenceEnd);
