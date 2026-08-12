@@ -337,11 +337,12 @@ async function checkAdminCoverageContracts() {
     event_type:'REQUESTED', status:'PENDING', request_hash:sandbox.vNextAdminSha256_(canonical),
     request_json:canonical, requested_at:payload.requestedAt, requested_by:'owner@example.com'
   };
-  sandbox.vNextAdminReadTable_ = () => ({ rows: [requestRow, {
+  const failedRow = {
     request_event_id:'REQEV-2', request_id:'REQ-1', book_id:'BOOK-1',
-    event_type:'HARVESTED', status:'QUEUED', request_hash:requestRow.request_hash,
+    event_type:'FAILED', status:'FAILED', request_hash:requestRow.request_hash,
     request_json:canonical, requested_at:payload.requestedAt, requested_by:'owner@example.com'
-  }] });
+  };
+  sandbox.vNextAdminReadTable_ = () => ({ rows: [requestRow, failedRow] });
   sandbox.vNextAdminValidateClientRequestRow_ = row => ({
     requestId: row.request_id, requestedAtMs: Date.parse(row.requested_at)
   });
@@ -352,7 +353,15 @@ async function checkAdminCoverageContracts() {
       'owner@example.com', Date.parse(payload.requestedAt), 'REQ-1'
     );
     assert.equal(stateRequest.requestId, 'REQ-1',
-      'A HARVESTED/QUEUED latest event must retain its immutable REQUESTED row for first state sync');
+      'A later FAILED event must retain its immutable REQUESTED row for delayed state sync');
+    sandbox.vNextAdminReadTable_ = () => ({ rows: [requestRow, {
+      ...failedRow, request_event_id:'REQEV-3', event_type:'REJECTED', status:'REJECTED'
+    }] });
+    assert.equal(sandbox.vNextAdminLatestValidPendingRequest_(
+      { getSheetByName: () => ({}) },
+      { book_id:'BOOK-1', client_id:'CLIENT-1', client_name:'Client', fiscal_year:2027 },
+      'owner@example.com', Date.parse(payload.requestedAt), 'REQ-1'
+    ), null, 'A REJECTED request must never authorize a state transition');
   } finally {
     sandbox.vNextAdminReadTable_ = originalReadTable;
     sandbox.vNextAdminValidateClientRequestRow_ = originalValidateClientRequestRow;

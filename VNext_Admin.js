@@ -3990,7 +3990,23 @@ function vNextAdminRequeueKnownPilotFailures_(hub) {
         String(row.mode || '') === 'CLIENT';
     });
     if (!registry) return;
-    const authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || '');
+    let authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || '');
+    // The pre-fix failure could append FAILED locally before the Client
+    // RUNNING event reached the Hub. Import that already-audited state chain
+    // first; the strict state/request validators still run and fail closed.
+    if (authoritativeState !== 'RUNNING') {
+      try {
+        const client = SpreadsheetApp.openById(String(registry.spreadsheet_id || ''));
+        if (vNextAdminLatestClientState_(client, registry.book_id, registry.state || '') === 'RUNNING') {
+          vNextAdminSyncClientToHub_(hub, client, registry.book_id);
+          authoritativeState = vNextAdminLatestClientState_(hub, registry.book_id, registry.state || '');
+        }
+      } catch (error) {
+        Logger.log('Known Pilot state reconciliation failed for ' + registry.book_id + ': ' +
+          (error && error.message ? error.message : error));
+        return;
+      }
+    }
     if (authoritativeState !== 'RUNNING') return;
     vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.JOBS, job._rowNumber, {
       status: 'QUEUED', not_before: '', locked_at: '', locked_by: '', started_at: '', finished_at: '',
@@ -6558,14 +6574,18 @@ function vNextAdminLatestValidPendingRequest_(client, registry, owner, eventTime
     if (requestId) latest[requestId] = row;
   });
   const latestForRequest = latest[String(expectedRequestId || '')];
-  if (!latestForRequest ||
-      ['PENDING', 'QUEUED'].indexOf(String(latestForRequest.status || '').toUpperCase()) < 0 ||
-      ['REQUESTED', 'HARVESTED'].indexOf(String(latestForRequest.event_type || '').toUpperCase()) < 0) {
+  const latestPair = String(latestForRequest && latestForRequest.event_type || '').toUpperCase() + '>' +
+    String(latestForRequest && latestForRequest.status || '').toUpperCase();
+  if (!latestForRequest || [
+    'REQUESTED>PENDING', 'HARVESTED>QUEUED', 'FAILED>FAILED', 'COMPLETED>COMPLETED'
+  ].indexOf(latestPair) < 0) {
     return null;
   }
   // HARVESTED is appended before the first Client STATE_EVENT sync. Validate
   // the original immutable REQUESTED/PENDING row, while using the latest row
-  // only to ensure the request has not been rejected or completed.
+  // only to ensure the request was not REJECTED. A later FAILED/COMPLETED event
+  // does not retroactively invalidate the owner-authorized transition that
+  // started the forecast; it remains part of the append-only state history.
   const candidates = rows.filter(function (row) {
     return String(row.request_id || '') === String(expectedRequestId || '') &&
       String(row.event_type || '').toUpperCase() === 'REQUESTED' &&
