@@ -497,7 +497,6 @@
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }
-        if (!confirm('現在の予測Engine・parameterを維持したまま、社員ポータルPilot用の新しいTemplate／Model版を有効化します。続行しますか？')) return;
         setBusy(true); showStatus('Template・Model・社員ポータルを順番に準備しています。数分かかることがあります…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
