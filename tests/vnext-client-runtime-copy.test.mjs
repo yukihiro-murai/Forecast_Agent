@@ -34,6 +34,12 @@ vm.runInContext(
   { filename: 'VNext_ClientRuntimeProvisioning.js' }
 );
 
+assert.match(
+  await readFile(path.join(root, 'VNext_ClientRuntimeProvisioning.js'), 'utf8'),
+  /function vNextClientRuntimeEnableRequiredAppsScriptApi_\(\)[\s\S]*SERVICE_DISABLED[\s\S]*serviceusage\.googleapis\.com\/v1\/projects\/[\s\S]*services\/script\.googleapis\.com:enable/,
+  'API bootstrap must enable only the verified script.googleapis.com service from a SERVICE_DISABLED response'
+);
+
 testValidCopy();
 testIdentityGuards();
 testContentGuards();

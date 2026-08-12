@@ -293,6 +293,7 @@ function vNextBuildLegacySetupMenu_() {
     // check inside the invoked configuration/bootstrap APIs instead.
     SpreadsheetApp.getUi().createMenu('Forecast vNext 移行')
       .addItem('初回権限を確認・許可', 'vNextAdminAuthorizeRuntime')
+      .addItem('必要APIを有効化', 'vNextAdminEnableAppsScriptApi')
       .addSeparator()
       .addItem('初期設定を開く', 'vNextAdminOpenSidebar')
       .addToUi();
@@ -324,6 +325,25 @@ function vNextAdminAuthorizeRuntime() {
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     return { ok: true, actor: actor, spreadsheetId: fileId, scriptId: scriptId, tokenAvailable: tokenAvailable };
+  });
+}
+
+/** Enable only the Apps Script API required to create clean bound runtimes. */
+function vNextAdminEnableAppsScriptApi() {
+  return vNextAdminGuard_('vNextAdminEnableAppsScriptApi', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    if (typeof vNextClientRuntimeEnableRequiredAppsScriptApi_ !== 'function') {
+      throw new Error('Apps Script API setup helper is not installed.');
+    }
+    const result = vNextClientRuntimeEnableRequiredAppsScriptApi_();
+    SpreadsheetApp.getUi().alert(
+      'Forecast vNext API設定',
+      result.alreadyEnabled
+        ? 'Apps Script APIは既に有効です。初期設定を再実行してください。'
+        : 'Apps Script APIを有効化し、利用可能になるまで確認しました。初期設定を再実行してください。',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return result;
   });
 }
 

@@ -439,6 +439,77 @@ function vNextClientRuntimeApiRequest_(path, method, body) {
   throw new Error('Apps Script API request failed without a response.');
 }
 
+/**
+ * Enables only script.googleapis.com for the Cloud project reported by the
+ * service-disabled error. The project number is discovered from Google's
+ * signed API response and is never accepted from employee/client input.
+ */
+function vNextClientRuntimeEnableRequiredAppsScriptApi_() {
+  vNextClientRuntimeRequireConfigurator_();
+  var probePath = '/projects/' + encodeURIComponent(ScriptApp.getScriptId());
+  try {
+    vNextClientRuntimeApiRequest_(probePath, 'get');
+    return { ok: true, alreadyEnabled: true, service: 'script.googleapis.com' };
+  } catch (probeError) {
+    var errorText = vNextClientRuntimeErrorText_(probeError);
+    if (errorText.indexOf('SERVICE_DISABLED') < 0 || errorText.indexOf('script.googleapis.com') < 0) {
+      throw probeError;
+    }
+    var projectMatch = /"consumer"\s*:\s*"projects\/(\d{6,20})"/.exec(errorText) ||
+      /[?&]project=(\d{6,20})/.exec(errorText);
+    if (!projectMatch) throw new Error('Apps Script APIの所属Cloud project番号を検証できませんでした。');
+    var projectNumber = projectMatch[1];
+    var token = ScriptApp.getOAuthToken();
+    var serviceUrl = 'https://serviceusage.googleapis.com/v1/projects/' + projectNumber +
+      '/services/script.googleapis.com:enable';
+    var enableResponse = UrlFetchApp.fetch(serviceUrl, {
+      method: 'post',
+      contentType: 'application/json; charset=utf-8',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: '{}',
+      muteHttpExceptions: true
+    });
+    var enableStatus = enableResponse.getResponseCode();
+    if (enableStatus < 200 || enableStatus >= 300) {
+      throw new Error('Apps Script APIの有効化に失敗しました status=' + enableStatus +
+        '; response=' + enableResponse.getContentText().slice(0, 800));
+    }
+    var operation = {};
+    try { operation = JSON.parse(enableResponse.getContentText() || '{}'); }
+    catch (ignoredJsonError) { operation = {}; }
+    if (operation.name && /^[A-Za-z0-9_\/-]{5,300}$/.test(String(operation.name))) {
+      var operationUrl = 'https://serviceusage.googleapis.com/v1/' + String(operation.name).replace(/^\//, '');
+      for (var operationAttempt = 0; operationAttempt < 15; operationAttempt++) {
+        var operationResponse = UrlFetchApp.fetch(operationUrl, {
+          method: 'get', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+        });
+        if (operationResponse.getResponseCode() >= 200 && operationResponse.getResponseCode() < 300) {
+          var operationBody = {};
+          try { operationBody = JSON.parse(operationResponse.getContentText() || '{}'); }
+          catch (ignoredOperationJson) { operationBody = {}; }
+          if (operationBody.error) throw new Error('Apps Script API有効化operationが失敗しました。');
+          if (operationBody.done === true) break;
+        }
+        Utilities.sleep(1500);
+      }
+    }
+    for (var probeAttempt = 0; probeAttempt < 15; probeAttempt++) {
+      try {
+        vNextClientRuntimeApiRequest_(probePath, 'get');
+        return {
+          ok: true, alreadyEnabled: false, service: 'script.googleapis.com',
+          projectNumber: projectNumber
+        };
+      } catch (retryError) {
+        var retryText = vNextClientRuntimeErrorText_(retryError);
+        if (retryText.indexOf('SERVICE_DISABLED') < 0) throw retryError;
+        Utilities.sleep(2000);
+      }
+    }
+    throw new Error('Apps Script APIの有効化は受け付けられましたが、利用可能になるまで時間がかかっています。1分後に再実行してください。');
+  }
+}
+
 function vNextClientRuntimeVerifiedBundle_() {
   if (typeof VNEXT_CLIENT_RUNTIME_BUNDLE_ === 'undefined') throw new Error('VNext_ClientRuntimeBundle.js is not deployed.');
   var bundle = VNEXT_CLIENT_RUNTIME_BUNDLE_;
