@@ -554,6 +554,35 @@ async function checkAdminCoverageContracts() {
   assert.equal(extractedCatalog.clients.some(item => item.clientName === '新規製薬(株)'), true,
     '*defclients-only clients must also be available in the employee picker');
 
+  const catalogHeaders = vm.runInContext('VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.slice()', sandbox);
+  const existingCatalogRows = [
+    {catalog_key:'A',client_id:'A',client_name:'旧A',normalized_name:'a',is_active:1,
+      first_seen_at:'2025-01-01',catalog_version:'OLD'},
+    {catalog_key:'B',client_id:'B',client_name:'旧B',normalized_name:'b',is_active:1,
+      first_seen_at:'2025-01-02',catalog_version:'OLD'},
+    {catalog_key:'C',client_id:'C',client_name:'旧C',normalized_name:'c',is_active:0,
+      first_seen_at:'2025-01-03',catalog_version:'OLD'}
+  ];
+  const nextCatalogBody = sandbox.vNextAdminBuildZacCatalogBody_(existingCatalogRows, [
+    {catalogKey:'A',clientId:'A',clientCode:'1',clientName:'新A',normalizedName:'a',sourceYears:[2026]},
+    {catalogKey:'C',clientId:'C',clientCode:'3',clientName:'新C',normalizedName:'c',sourceYears:[2026]},
+    {catalogKey:'D',clientId:'D',clientCode:'4',clientName:'新D',normalizedName:'d',sourceYears:[2026]}
+  ], {catalogVersion:'NEW',refreshedAt:'2026-08-12T13:00:00.000Z',sourceSpreadsheetId:'SOURCE'});
+  const nextCatalogRows = nextCatalogBody.map(values => Object.fromEntries(
+    catalogHeaders.map((header,index) => [header,values[index]])));
+  assert.deepEqual(nextCatalogRows.map(row => row.catalog_key), ['A','B','C','D'],
+    'Bulk catalog merge must preserve existing row order and append only new clients');
+  assert.equal(nextCatalogRows[0].first_seen_at, '2025-01-01');
+  assert.equal(nextCatalogRows[1].is_active, 0, 'Missing previously-active client must be deactivated');
+  assert.equal(nextCatalogRows[1].catalog_version, 'NEW');
+  assert.equal(nextCatalogRows[2].is_active, 1, 'An inactive client seen again must reactivate');
+  assert.equal(nextCatalogRows[2].first_seen_at, '2025-01-03');
+  assert.equal(nextCatalogRows[3].first_seen_at, '2026-08-12T13:00:00.000Z');
+  assert.throws(() => sandbox.vNextAdminBuildZacCatalogBody_([
+    {catalog_key:'A'},{catalog_key:'A'}
+  ], [], {catalogVersion:'NEW',refreshedAt:'2026-08-12T13:00:00.000Z',sourceSpreadsheetId:'SOURCE'}),
+  /重複catalog_key/, 'Bulk catalog merge must fail closed on duplicate persisted identities');
+
   const originalPortalConfigRead = sandbox.vNextAdminReadKeyValueSheet_;
   const originalPortalAppend = sandbox.vNextAdminAppendObject_;
   const originalPortalActor = sandbox.vNextAdminActor_;

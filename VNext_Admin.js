@@ -4967,30 +4967,17 @@ function vNextAdminRefreshZacClientCatalogNow_(hub, options) {
         throw portalResolveError;
       }
     }
-    const existingByKey = {};
-    existing.forEach(function (row) { existingByKey[String(row.catalog_key || '')] = row; });
-    const activeKeys = new Set();
     try {
-      extracted.clients.forEach(function (candidate) {
-        activeKeys.add(candidate.catalogKey);
-        const prior = existingByKey[candidate.catalogKey] || {};
-        vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.CATALOG, 'catalog_key', candidate.catalogKey, {
-          catalog_key: candidate.catalogKey, client_id: candidate.clientId,
-          client_code: candidate.clientCode, client_name: candidate.clientName,
-          normalized_name: candidate.normalizedName, is_active: 1,
-          source_years_json: vNextAdminCanonicalJson_(candidate.sourceYears),
-          first_seen_at: prior.first_seen_at || refreshedAt, last_seen_at: refreshedAt,
-          catalog_version: catalogVersion, refreshed_at: refreshedAt,
-          source_spreadsheet_id: sourceId
-        }, VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS);
+      // Build the complete next body in memory and publish it with one bulk
+      // write. Calling the generic upsert helper once per client repeatedly
+      // re-read the full sheet and pushed the 35-row pilot close to GAS's
+      // execution limit. The LKG snapshot above still makes this replace
+      // recoverable when the later Portal projection or pointer commit fails.
+      const nextHubBody = vNextAdminBuildZacCatalogBody_(existing, extracted.clients, {
+        catalogVersion: catalogVersion, refreshedAt: refreshedAt, sourceSpreadsheetId: sourceId
       });
-      existing.forEach(function (row) {
-        const key = String(row.catalog_key || '');
-        if (!key || activeKeys.has(key) || !vNextAdminBool_(row.is_active)) return;
-        vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.CATALOG, row._rowNumber, {
-          is_active: 0, catalog_version: catalogVersion, refreshed_at: refreshedAt
-        });
-      });
+      vNextAdminReplaceExactTableBody_(hub, VN_ADMIN_SHEETS.CATALOG,
+        VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS, nextHubBody);
       const projection = vNextAdminProjectZacClientCatalogToPortal_(hub, {
         catalogVersion: catalogVersion, syncedAt: refreshedAt,
         portalSpreadsheet: portal && portal.spreadsheet
@@ -5045,6 +5032,68 @@ function vNextAdminRefreshZacClientCatalogNow_(hub, options) {
   return options && options.lockHeld
     ? commit()
     : vNextAdminWithScriptLock_('commit-zac-client-catalog', commit);
+}
+
+/** Pure merge used by the catalog refresh before its single bulk setValues. */
+function vNextAdminBuildZacCatalogBody_(existingRows, candidates, metadata) {
+  const meta = metadata || {};
+  const refreshedAt = vNextAdminRequiredText_(meta.refreshedAt, 'catalog refreshedAt');
+  const catalogVersion = vNextAdminRequiredText_(meta.catalogVersion, 'catalog version');
+  const sourceSpreadsheetId = vNextAdminRequiredText_(meta.sourceSpreadsheetId, 'catalog source spreadsheet ID');
+  const records = (Array.isArray(existingRows) ? existingRows : []).map(function (row) {
+    const record = {};
+    VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.forEach(function (header) {
+      record[header] = row && row[header] !== undefined ? row[header] : '';
+    });
+    return record;
+  });
+  const indexByKey = {};
+  records.forEach(function (record, index) {
+    const key = String(record.catalog_key || '');
+    if (!key) return;
+    if (indexByKey[key] !== undefined) throw new Error('ZAC catalogに重複catalog_keyがあります: ' + key);
+    indexByKey[key] = index;
+  });
+  const activeKeys = new Set();
+  (Array.isArray(candidates) ? candidates : []).forEach(function (candidate) {
+    const key = vNextAdminRequiredText_(candidate && candidate.catalogKey, 'candidate.catalogKey');
+    if (activeKeys.has(key)) throw new Error('ZAC候補に重複catalog_keyがあります: ' + key);
+    activeKeys.add(key);
+    const priorIndex = indexByKey[key];
+    const prior = priorIndex === undefined ? {} : records[priorIndex];
+    const next = Object.assign({}, prior, {
+      catalog_key: key,
+      client_id: vNextAdminRequiredText_(candidate.clientId, 'candidate.clientId'),
+      client_code: String(candidate.clientCode || ''),
+      client_name: vNextAdminRequiredText_(candidate.clientName, 'candidate.clientName'),
+      normalized_name: vNextAdminRequiredText_(candidate.normalizedName, 'candidate.normalizedName'),
+      is_active: 1,
+      source_years_json: vNextAdminCanonicalJson_(candidate.sourceYears || []),
+      first_seen_at: prior.first_seen_at || refreshedAt,
+      last_seen_at: refreshedAt,
+      catalog_version: catalogVersion,
+      refreshed_at: refreshedAt,
+      source_spreadsheet_id: sourceSpreadsheetId
+    });
+    if (priorIndex === undefined) {
+      indexByKey[key] = records.length;
+      records.push(next);
+    } else {
+      records[priorIndex] = next;
+    }
+  });
+  records.forEach(function (record) {
+    const key = String(record.catalog_key || '');
+    if (!key || activeKeys.has(key) || !vNextAdminBool_(record.is_active)) return;
+    record.is_active = 0;
+    record.catalog_version = catalogVersion;
+    record.refreshed_at = refreshedAt;
+  });
+  return records.map(function (record) {
+    return VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS.map(function (header) {
+      return record[header] === undefined ? '' : record[header];
+    });
+  });
 }
 
 /** Reads each selected source range once. It never mutates the last-known-good catalog. */
