@@ -649,6 +649,8 @@ async function checkAdminCoverageContracts() {
     publish.includes('vNextAdminResolveTemplateUiSource_(hub, req.templateDraftSpreadsheetId') &&
     publish.includes('vNextAdminCopyAndVerifyTemplateUi_('),
     'Publishing must inherit ACTIVE/draft UI into a clean STAGED template');
+  assert.ok(source.includes('target.moveActiveSheet(index + 1)') && !source.includes('.setIndex('),
+    'Template sheet ordering must use the supported Spreadsheet.moveActiveSheet API');
   assert.equal(publish.indexOf("status: 'RETIRED'"), -1,
     'Staging must not retire the current ACTIVE Template');
   for (const manifestContract of [

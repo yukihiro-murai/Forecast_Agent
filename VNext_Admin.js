@@ -3791,7 +3791,9 @@ function vNextAdminCopyAndVerifyTemplateUi_(source, target) {
     if (!sourceSheet) throw new Error('Template UI source is missing sheet: ' + name);
     const existing = target.getSheetByName(name);
     if (existing) target.deleteSheet(existing);
-    sourceSheet.copyTo(target).setName(name).setIndex(index + 1);
+    const copied = sourceSheet.copyTo(target).setName(name);
+    target.setActiveSheet(copied);
+    target.moveActiveSheet(index + 1);
   });
   target.setActiveSheet(target.getSheetByName(VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE[0]));
   SpreadsheetApp.flush();
