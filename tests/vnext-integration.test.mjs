@@ -224,6 +224,17 @@ async function checkAdminRecoveryContracts() {
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
     source.includes("workerMode: 'CENTRAL_SOURCE_FALLBACK'"),
     'Pilot recovery must support central-source Client provisioning and scheduled processing without duplicating business logic');
+  const provisioningStart = source.indexOf('function vNextAdminProvisionClientInHub_');
+  const provisioningEnd = source.indexOf('/** Install the five-minute Pilot worker', provisioningStart);
+  const provisioningFlow = source.slice(provisioningStart, provisioningEnd);
+  assert.ok(provisioningFlow.includes("String(existing.status || '').toUpperCase() === 'PROVISIONING'") &&
+    provisioningFlow.includes('vNextAdminResumeProvisioningClient_(') &&
+    source.includes("vNextAdminWriteAudit_(hub, 'RESUME_PROVISION_CLIENT'"),
+    'A verified PROVISIONING artifact must resume post-initialization phases without creating another Client');
+  const stateRowsStart = source.indexOf('function vNextAdminValidateClientStateRows_');
+  const stateRowsEnd = source.indexOf('function vNextAdminIsTrustedRejectedStateMarker_', stateRowsStart);
+  assert.ok(source.slice(stateRowsStart, stateRowsEnd).includes('if (!rows || !rows.length) return [];'),
+    'Empty Client STATE_EVENT validation must preserve the sourceRows array contract');
   const manifestStart = source.indexOf('function vNextAdminTemplateSheetManifest_(');
   const manifestEnd = source.indexOf('function vNextAdminSerializeValidation_', manifestStart);
   const manifestFunction = source.slice(manifestStart, manifestEnd);

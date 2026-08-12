@@ -1013,6 +1013,27 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       if (String(release.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
         throw new Error('Selected release schema is not supported by this Client runtime.');
       }
+
+      // A prior provision attempt may have completed the expensive immutable
+      // Template verification and clean bound-runtime creation before a later
+      // Hub sync or ACL step failed. Resolve that durable staging record before
+      // re-reading the legacy V2 full-grid manifest, and resume only after all
+      // pinned identities are revalidated from Hub-owned metadata.
+      const existing = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.mode) === 'CLIENT' && String(row.client_id) === clientId &&
+          String(row.fiscal_year) === String(fiscalYear) && String(row.template_release_id) === String(release.release_id) &&
+          String(row.status) !== 'ARCHIVED';
+      });
+      if (existing) {
+        if (String(existing.status || '').toUpperCase() === 'ACTIVE' && vNextAdminSpreadsheetAccessible_(existing.spreadsheet_id)) {
+          return { reused: true, bookId: existing.book_id, spreadsheetId: existing.spreadsheet_id, spreadsheetUrl: existing.spreadsheet_url };
+        }
+        if (String(existing.status || '').toUpperCase() === 'PROVISIONING' && vNextAdminSpreadsheetAccessible_(existing.spreadsheet_id)) {
+          return vNextAdminResumeProvisioningClient_(hub, existing, req, release, modelRelease, runtime);
+        }
+        throw new Error('同じclient/FY/releaseの生成途中bookがあります。BOOK_REGISTRYのPROVISIONING例外を解消してから再実行してください。bookId=' + existing.book_id);
+      }
+
       const template = SpreadsheetApp.openById(templateId);
       if (vNextDetectBookMode_(template) !== 'TEMPLATE') throw new Error('Configured template is not mode=TEMPLATE.');
       const templateConfig = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
@@ -1024,18 +1045,6 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       vNextAdminAssertReleaseTemplateManifest_(release, template);
 
       const idempotencyKey = vNextAdminText_(req.idempotencyKey) || ['PROVISION', clientId, fiscalYear, release.release_id].join('|');
-      const existing = vNextAdminFindRegistryRow_(hub, function (row) {
-        return String(row.mode) === 'CLIENT' && String(row.client_id) === clientId &&
-          String(row.fiscal_year) === String(fiscalYear) && String(row.template_release_id) === String(release.release_id) &&
-          String(row.status) !== 'ARCHIVED';
-      });
-      if (existing) {
-        if (String(existing.status || '').toUpperCase() === 'ACTIVE' && vNextAdminSpreadsheetAccessible_(existing.spreadsheet_id)) {
-          return { reused: true, bookId: existing.book_id, spreadsheetId: existing.spreadsheet_id, spreadsheetUrl: existing.spreadsheet_url };
-        }
-        throw new Error('同じclient/FY/releaseの生成途中bookがあります。BOOK_REGISTRYのPROVISIONING例外を解消してから再実行してください。bookId=' + existing.book_id);
-      }
-
       const name = vNextAdminText_(req.bookName) || ('Forecast ' + clientName + ' FY' + fiscalYear);
       const bookId = 'CLIENT-' + Utilities.getUuid();
       const actor = vNextAdminActor_();
@@ -1195,6 +1204,78 @@ function vNextAdminProvisionClientInHub_(hub, request) {
         state: 'INPUT_OPEN'
       };
     });
+}
+
+/**
+ * Resume only a Hub-registered, Admin-private provisioning artifact. No new
+ * Spreadsheet or script project is created, so retries are idempotent and do
+ * not repeat the legacy full-grid Template manifest read.
+ */
+function vNextAdminResumeProvisioningClient_(hub, registry, request, release, modelRelease, runtime) {
+  const req = request && typeof request === 'object' ? request : {};
+  const bookId = vNextAdminRequiredText_(registry.book_id, 'registry.book_id');
+  const spreadsheetId = vNextAdminRequiredText_(registry.spreadsheet_id, 'registry.spreadsheet_id');
+  const scriptId = vNextAdminRequiredText_(registry.client_script_id, 'registry.client_script_id');
+  const client = SpreadsheetApp.openById(spreadsheetId);
+  const file = DriveApp.getFileById(spreadsheetId);
+  const config = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const expectedOwners = vNextAdminParseList_(registry.forecast_owner_emails);
+  const requestedOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
+  if (requestedOwners.length && vNextAdminCanonicalJson_(requestedOwners.slice().sort()) !==
+      vNextAdminCanonicalJson_(expectedOwners.slice().sort())) {
+    throw new Error('生成再開時にForecast Ownerを変更することはできません。');
+  }
+  if (String(config.mode || '').toUpperCase() !== 'CLIENT' ||
+      String(config.book_id || '') !== bookId ||
+      String(config.client_id || '') !== String(registry.client_id || '') ||
+      Number(config.fiscal_year) !== Number(registry.fiscal_year) ||
+      String(config.template_release_id || config.version || '') !== String(release.release_id || '') ||
+      String(config.model_release_id || '') !== String(modelRelease.model_release_id || '') ||
+      String(config.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(config.client_runtime_bundle_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
+    throw new Error('生成途中Clientの固定identityがHub正本と一致しないため再開を停止しました。');
+  }
+  if (String(registry.client_runtime_version || '') !== String(release.client_runtime_version || '') ||
+      String(registry.client_runtime_sha256 || '') !== String(release.client_runtime_sha256 || '')) {
+    throw new Error('生成途中Clientのruntime pinがACTIVE releaseと一致しません。');
+  }
+  vNextClientRuntimeAssertBoundParent_(scriptId, spreadsheetId);
+  const parents = file.getParents();
+  if (!parents.hasNext()) throw new Error('生成途中Clientのprivate保存先を確認できません。');
+  const folder = parents.next();
+  const adminEmails = vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, vNextAdminActor_());
+  vNextAdminPreparePrivateBootstrapFolder_(folder.getId(), folder.getName(), adminEmails);
+  vNextAdminEnforcePrivateFileAcl_(file, adminEmails);
+
+  // Re-run only the idempotent post-initialization phases that did not finish.
+  vNextAdminSyncClientToHub_(hub, client, bookId);
+  const editors = vNextAdminParseList_(registry.editor_emails);
+  const viewers = vNextAdminParseList_(registry.viewer_emails);
+  vNextAdminApplyFileAcl_(file, editors, viewers, []);
+  vNextAdminAssertClientFileAcl_(file, editors, viewers);
+  vNextAdminPreparePrivateBootstrapFolder_(folder.getId(), folder.getName(), adminEmails);
+  vNextAdminPatchRegistryByBookId_(hub, bookId, {
+    status: 'ACTIVE', health_status: 'PENDING', health_code: 'PROVISION_RESUMED', updated_at: new Date()
+  });
+  vNextAdminSetTeamStatus_(hub, bookId, 'ACTIVE');
+  vNextAdminEnqueueJobInternal_(hub, {
+    jobType: 'HEALTH_SCAN', targetBookId: bookId, targetSpreadsheetId: spreadsheetId,
+    request: { bookId: bookId, spreadsheetId: spreadsheetId },
+    idempotencyKey: 'HEALTH|' + bookId + '|' + VN_ADMIN_SCHEMA_VERSION, priority: 20
+  });
+  vNextAdminWriteAudit_(hub, 'RESUME_PROVISION_CLIENT', 'BOOK', bookId, 'SUCCESS', {
+    spreadsheetId: spreadsheetId, releaseId: release.release_id,
+    modelReleaseId: modelRelease.model_release_id, clientScriptId: scriptId
+  });
+  vNextAdminRefreshTodayExceptions_(hub);
+  vNextAdminRefreshHome_(hub);
+  SpreadsheetApp.flush();
+  return {
+    reused: true, resumed: true, bookId: bookId, spreadsheetId: spreadsheetId,
+    spreadsheetUrl: client.getUrl(), clientName: registry.client_name,
+    fiscalYear: Number(registry.fiscal_year), releaseId: release.release_id,
+    modelReleaseId: modelRelease.model_release_id, state: String(config.state || 'INPUT_OPEN').toUpperCase()
+  };
 }
 
 /** Install the five-minute Pilot worker in the central source project. */
@@ -6255,7 +6336,9 @@ function vNextAdminValidateClientPlanRows_(hub, bookId, rows) {
 }
 
 function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
-  if (!rows || !rows.length) return true;
+  // The caller replaces sourceRows with this return value before appending.
+  // Returning a boolean for an empty first sync breaks that array contract.
+  if (!rows || !rows.length) return [];
   const registry = vNextAdminFindRegistryRow_(hub, function (row) {
     return String(row.book_id || '') === String(bookId) && String(row.mode || '') === 'CLIENT';
   });
