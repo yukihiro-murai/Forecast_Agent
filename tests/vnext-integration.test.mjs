@@ -739,6 +739,9 @@ async function checkAdminCoverageContracts() {
   assert.ok(source.includes('function vNextAdminPortalExistingBookAccess_(') &&
     source.includes("detailCode: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED')"),
     'Private or mismatched existing duplicates must require Admin action instead of returning a completed URL');
+  assert.ok(source.includes('function vNextAdminUpdateSharedPortalRuntimeForManualTest()') &&
+    source.includes('function vNextAdminRecoverPortalProvisionForManualTest()'),
+    'The Pilot must retain non-UI editor fallbacks for Portal runtime update and verified job recovery');
   assert.ok(source.includes("String(job.job_type || '') === 'PORTAL_PROVISION_CLIENT'") &&
     source.includes("vNextAdminMarkPortalJobFailed_(hub, job, 'Lease expired after 3 attempts.')"),
     'Exhausted Portal jobs must publish a terminal FAILED event');

@@ -3866,6 +3866,26 @@ function vNextAdminMenuUpdatePortalRuntime() {
   return result;
 }
 
+/**
+ * Spreadsheet-bound editor fallback for Pilot recovery. Unlike the menu
+ * wrapper, this function never calls getUi(), so it can be invoked from the
+ * Apps Script editor when a custom menu has not appeared yet.
+ */
+function vNextAdminUpdateSharedPortalRuntimeForManualTest() {
+  return vNextAdminUpdateSharedPortalRuntime({
+    reason: 'Pilot Admin approved Portal v1.2 runtime and simplified UI update'
+  });
+}
+
+/** Requeue only verified known Pilot failures, then process the same durable jobs. */
+function vNextAdminRecoverPortalProvisionForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const retries = vNextAdminWithScriptLock_('manual-portal-provision-recovery', function () {
+    return vNextAdminRequeueKnownPilotFailures_(hub);
+  });
+  return { retries: retries, jobs: vNextAdminProcessJobsForHub_(hub, 5) };
+}
+
 function vNextAdminMenuOpenRegistry() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.REGISTRY); }
 function vNextAdminMenuOpenExceptions() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.EXCEPTIONS); }
 function vNextAdminMenuOpenApprovals() { return vNextAdminOpenHubSheet_(VN_ADMIN_SHEETS.APPROVALS); }
