@@ -8065,7 +8065,10 @@ function vNextAdminAssertClientFileAcl_(file, editors, viewers) {
   const allowed = new Set(vNextAdminMergeEmails_(owner, expectedEditors, expectedViewers));
   const actualEditors = file.getEditors().map(function (user) { return String(user.getEmail() || '').toLowerCase(); });
   const actualViewers = file.getViewers().map(function (user) { return String(user.getEmail() || '').toLowerCase(); });
-  const actual = actualEditors.concat(actualViewers);
+  // Drive does not return the owner from getEditors(), although the owner has
+  // full edit rights. Treat ownership as satisfying an expected editor/viewer
+  // grant so a single-admin Pilot file does not fail its exact ACL check.
+  const actual = vNextAdminMergeEmails_(owner, actualEditors, actualViewers);
   const missing = expectedEditors.concat(expectedViewers).filter(function (email) { return actual.indexOf(email) < 0; });
   const unexpected = actual.filter(function (email) { return email && !allowed.has(email); });
   if (missing.length || unexpected.length) {

@@ -235,6 +235,10 @@ async function checkAdminRecoveryContracts() {
   const stateRowsEnd = source.indexOf('function vNextAdminIsTrustedRejectedStateMarker_', stateRowsStart);
   assert.ok(source.slice(stateRowsStart, stateRowsEnd).includes('if (!rows || !rows.length) return [];'),
     'Empty Client STATE_EVENT validation must preserve the sourceRows array contract');
+  const aclStart = source.indexOf('function vNextAdminAssertClientFileAcl_');
+  const aclEnd = source.indexOf('function vNextAdminPreparePrivateBootstrapFolder_', aclStart);
+  assert.ok(source.slice(aclStart, aclEnd).includes("const actual = vNextAdminMergeEmails_(owner, actualEditors, actualViewers);"),
+    'Drive ownership must satisfy the expected editor ACL because getEditors excludes the owner');
   const manifestStart = source.indexOf('function vNextAdminTemplateSheetManifest_(');
   const manifestEnd = source.indexOf('function vNextAdminSerializeValidation_', manifestStart);
   const manifestFunction = source.slice(manifestStart, manifestEnd);
