@@ -38,6 +38,7 @@ var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   VNext_HelpSidebar: 'HTML',
   VNext_InputSidebar: 'HTML',
   VNext_PlanSidebar: 'HTML',
+  VNext_PortalPilotRecovery: 'SERVER_JS',
   VNext_PortalRuntimeBundle: 'SERVER_JS',
   VNext_ReviewSidebar: 'HTML',
   VNext_Tests: 'SERVER_JS',

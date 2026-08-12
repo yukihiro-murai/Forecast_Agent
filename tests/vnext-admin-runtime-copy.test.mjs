@@ -20,6 +20,7 @@ const contract = [
   ['VNext_HelpSidebar', 'HTML', 'VNext_HelpSidebar.html'],
   ['VNext_InputSidebar', 'HTML', 'VNext_InputSidebar.html'],
   ['VNext_PlanSidebar', 'HTML', 'VNext_PlanSidebar.html'],
+  ['VNext_PortalPilotRecovery', 'SERVER_JS', 'VNext_PortalPilotRecovery.js'],
   ['VNext_PortalRuntimeBundle', 'SERVER_JS', 'VNext_PortalRuntimeBundle.js'],
   ['VNext_ReviewSidebar', 'HTML', 'VNext_ReviewSidebar.html'],
   ['VNext_Tests', 'SERVER_JS', 'VNext_Tests.js'],
@@ -101,7 +102,7 @@ function testAdminCopy() {
   const result = sandbox.vNextAdminRuntimeCopyScriptContent_(sourceId, targetId, spreadsheetId);
   assert.equal(result.ok, true);
   assert.equal(result.adminRuntimeSha256, expectedSha);
-  assert.equal(result.fileCount, 16);
+  assert.equal(result.fileCount, 17);
   assert.equal(result.targetProject.parentId, spreadsheetId);
   assert.equal(result.updateResult.verificationSource, 'UPDATE_RESPONSE');
   assert.equal(calls[0].apiPath, `/projects/${encodeURIComponent(targetId)}`, 'parent binding is checked before source content is read');
@@ -141,7 +142,7 @@ function testAdminGuards() {
 
   assert.throws(
     () => sandbox.vNextAdminRuntimeValidateFiles_([...clone(files), { name: 'Extra', type: 'SERVER_JS', source: '' }]),
-    /exactly the 16 clasp-target files/
+    /exactly the 17 clasp-target files/
   );
   const wrongType = clone(files);
   wrongType.find(file => file.name === 'VNext_Admin').type = 'HTML';
@@ -181,7 +182,7 @@ function testAdminCreate() {
   assert.equal(result.scriptId, targetId);
   assert.equal(result.sourceScriptId, sourceId, 'omitted sourceScriptId uses the current full Admin project');
   assert.equal(result.adminRuntimeSha256, expectedSha);
-  assert.equal(result.fileCount, 16);
+  assert.equal(result.fileCount, 17);
   assert.equal(movedFolder, folderId);
   assert.equal(renamed, '');
   assert.equal(calls[0].apiPath, '/projects');
