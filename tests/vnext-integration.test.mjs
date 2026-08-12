@@ -215,6 +215,11 @@ async function checkPortalRuntimeBoundary() {
     adminSource.includes('clientRuntimeTests: 12') &&
     adminSource.includes('portalRuntimeTests: 7'),
   'The manual Sheet-macro entry must require explicit Admin attestation and record the tested runtime identities');
+  const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
+  const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
+  assert.ok(adminSource.slice(adminMenuStart, adminMenuEnd).includes(
+    ".addItem('社員ポータルPilotを準備', 'vNextAdminPrepareEmployeePortalPilotForManualTest')"
+  ), 'The Admin menu must expose a Spreadsheet-context Portal pilot recovery action');
 }
 
 async function checkAdminRecoveryContracts() {
