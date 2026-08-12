@@ -3316,11 +3316,17 @@ function vNextAdminAssertTemplateSheetHasNoForbiddenAssets_(template, sheet) {
 }
 
 function vNextAdminTemplateSheetManifest_(template, sheet) {
-  const rows = sheet.getMaxRows();
-  const columns = sheet.getMaxColumns();
+  const maxRows = sheet.getMaxRows();
+  const maxColumns = sheet.getMaxColumns();
+  const rows = Math.max(1, sheet.getLastRow());
+  const columns = Math.max(1, sheet.getLastColumn());
   if (rows * columns > 200000) {
     throw new Error(sheet.getName() + ' exceeds the 200,000-cell Template UI manifest limit.');
   }
+  // Hash every attribute inside the used UI envelope and keep the complete
+  // grid dimensions separately. Scanning row height/visibility for thousands
+  // of untouched default rows requires one remote GAS call per row and can
+  // exceed the six-minute execution limit during bootstrap.
   const range = sheet.getRange(1, 1, rows, columns);
   const validations = [];
   range.getDataValidations().forEach(function (row, rowIndex) {
@@ -3359,7 +3365,8 @@ function vNextAdminTemplateSheetManifest_(template, sheet) {
     if (sheet.isRowHiddenByUser(row)) hiddenRows.push(row);
   }
   return {
-    name: sheet.getName(), maxRows: rows, maxColumns: columns,
+    name: sheet.getName(), maxRows: maxRows, maxColumns: maxColumns,
+    usedRows: rows, usedColumns: columns,
     frozenRows: sheet.getFrozenRows(), frozenColumns: sheet.getFrozenColumns(),
     hiddenGridlines: typeof sheet.hasHiddenGridlines === 'function' ? sheet.hasHiddenGridlines() : false,
     rightToLeft: typeof sheet.isRightToLeft === 'function' ? sheet.isRightToLeft() : false,

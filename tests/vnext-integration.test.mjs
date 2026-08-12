@@ -207,6 +207,14 @@ async function checkAdminRecoveryContracts() {
     'Legacy Admin UI must expose the explicit-ID incomplete bootstrap recovery path');
   assert.ok(source.includes('function vNextAdminUpdateHubRuntimeFromSource('),
     'Generated Admin Hubs need a centrally managed runtime update path');
+  const manifestStart = source.indexOf('function vNextAdminTemplateSheetManifest_(');
+  const manifestEnd = source.indexOf('function vNextAdminSerializeValidation_', manifestStart);
+  const manifestFunction = source.slice(manifestStart, manifestEnd);
+  assert.ok(manifestFunction.includes('const maxRows = sheet.getMaxRows();') &&
+    manifestFunction.includes('const rows = Math.max(1, sheet.getLastRow());') &&
+    manifestFunction.includes('usedRows: rows') &&
+    !manifestFunction.includes('const rows = sheet.getMaxRows();'),
+    'Template UI manifests must hash the used envelope while retaining full grid dimensions to stay within GAS limits');
   assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&
     source.includes("exception_type: 'AI_RESEARCH_UNAVAILABLE'"),
     'Terminal AI research failures must degrade explicitly rather than block the forecast');
