@@ -4434,7 +4434,7 @@ function vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release
   const clientMeta = clientMetas[clientMetas.length - 1];
   if (String(hubMeta.record_id || '') !== String(clientMeta.record_id || '') ||
       String(hubMeta.state || '').toUpperCase() !== String(clientMeta.state || '').toUpperCase() ||
-      [expectedState, 'INPUT_OPEN'].indexOf(String(hubMeta.state || '').toUpperCase()) < 0 ||
+      VN_ADMIN_CLIENT_STATES.indexOf(String(hubMeta.state || '').toUpperCase()) < 0 ||
       String(hubMeta.template_version || '') !== releaseId ||
       String(clientMeta.template_version || '') !== releaseId ||
       String(hubMeta.model_release_id || '') !== String(model.model_release_id || '') ||
