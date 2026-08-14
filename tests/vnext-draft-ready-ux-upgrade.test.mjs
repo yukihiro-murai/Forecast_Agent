@@ -14,6 +14,8 @@ const resolve = isolate('vNextAdminResolveDraftReadyPilotUxUpgrade_',
   'vNextAdminAssertDraftReadyPilotUxBoundary_');
 const boundary = isolate('vNextAdminAssertDraftReadyPilotUxBoundary_',
   'vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest');
+const manual = isolate('vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest',
+  'vNextAdminRecoverDraftReadyPilotUxUpgrade');
 const recover = isolate('vNextAdminRecoverDraftReadyPilotUxUpgrade',
   'vNextAdminRecoverOnlyDraftReadyPilotUxForManualTest');
 
@@ -39,6 +41,10 @@ assert.match(boundary, /related_run_id/);
 assert.match(boundary, /String\(hubRun\.status[\s\S]*'SUCCESS'/);
 assert.match(boundary, /input_data_hash/);
 assert.match(boundary, /Number\(hubRun\.p50/);
+
+assert.match(manual, /access_policy[\s\S]*INTERNAL_OPEN/,
+  'the zero-input live helper must exclude legacy PRIVATE DRAFT_READY books');
+assert.match(manual, /template_release_id[\s\S]*pair\.releaseId/);
 
 assert.match(recover, /DRAFT_READY_PILOT_UX_UPGRADE_V1/);
 assert.match(recover, /registry\.template_release_id[\s\S]*plan\.targetReleaseId/);

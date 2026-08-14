@@ -4235,6 +4235,7 @@ function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
     return String(row.mode || '').toUpperCase() === 'CLIENT' &&
       String(row.status || '').toUpperCase() === 'ACTIVE' &&
       String(row.state || '').toUpperCase() === 'DRAFT_READY' &&
+      String(row.access_policy || '').toUpperCase() === 'INTERNAL_OPEN' &&
       String(row.template_release_id || '') !== pair.releaseId;
   });
   if (candidates.length !== 1) throw new Error('更新候補のDRAFT_READY Pilotが1冊に確定しません: ' +
