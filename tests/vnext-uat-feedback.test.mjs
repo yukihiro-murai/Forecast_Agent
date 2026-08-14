@@ -34,6 +34,14 @@ function checkEvidenceMonthNormalization() {
   const gasDate = vm.runInContext("new Date('2027-04-01T00:00:00Z')", sandbox);
   assert.equal(sandbox.vNextAdminNormalizeEvidenceMonth_(gasDate,
     'target_start_month'), '2027-04');
+  const accepted = sandbox.vNextAdminCanonicalEvidenceForComparison_({
+    evidence_id: 'ev-1', target_start_month: gasDate, target_end_month: '2028-03'
+  });
+  const submitted = sandbox.vNextAdminCanonicalEvidenceForComparison_({
+    evidence_id: 'ev-1', target_start_month: '2027-04', target_end_month: '2028-03'
+  });
+  assert.equal(JSON.stringify(accepted), JSON.stringify(submitted),
+    'Hub Date values and Client YYYY-MM strings must compare as identical evidence');
   assert.throws(() => sandbox.vNextAdminNormalizeEvidenceMonth_('April 2027',
     'target_start_month'), /invalid evidence month/);
   const validator = functionSource(admin, 'vNextAdminValidateClientEvidenceRows_',
@@ -41,6 +49,8 @@ function checkEvidenceMonthNormalization() {
   assert.ok(validator.indexOf('vNextAdminNormalizeEvidenceMonth_') <
     validator.indexOf("/^\\d{4}-\\d{2}$/"),
   'Sheets Date coercion must be normalized before the strict evidence-month check');
+  assert.match(validator, /vNextAdminCanonicalEvidenceForComparison_\(existingById\.get\(evidenceId\)\)/,
+    'already accepted Hub evidence must receive the same lossless month normalization');
 }
 
 function checkSafeLivePilotUpgrade() {

@@ -9249,7 +9249,9 @@ function vNextAdminValidateClientEvidenceRows_(hub, bookId, rows) {
       }
       seenIds.add(evidenceId);
       if (existingById.has(evidenceId)) {
-        if (vNextAdminCanonicalJson_(existingById.get(evidenceId)) !== vNextAdminCanonicalJson_(row)) {
+        const accepted = vNextAdminCanonicalEvidenceForComparison_(existingById.get(evidenceId));
+        const submitted = vNextAdminCanonicalEvidenceForComparison_(row);
+        if (vNextAdminCanonicalJson_(accepted) !== vNextAdminCanonicalJson_(submitted)) {
           throw new Error('Client evidence differs from the already accepted Hub record: ' + evidenceId);
         }
         return;
@@ -9343,6 +9345,16 @@ function vNextAdminNormalizeEvidenceMonth_(value, fieldName) {
   const text = String(value || '').trim();
   if (/^\d{4}-\d{2}$/.test(text)) return text;
   throw new Error('invalid evidence month: ' + fieldName);
+}
+
+/** Normalizes only known lossless Sheets coercions before immutable equality checks. */
+function vNextAdminCanonicalEvidenceForComparison_(row) {
+  const normalized = {};
+  Object.keys(row || {}).forEach(function (key) { normalized[key] = row[key]; });
+  ['target_start_month', 'target_end_month'].forEach(function (key) {
+    normalized[key] = vNextAdminNormalizeEvidenceMonth_(normalized[key], key);
+  });
+  return normalized;
 }
 
 function vNextAdminValidateClientEvidenceAmount_(row) {
