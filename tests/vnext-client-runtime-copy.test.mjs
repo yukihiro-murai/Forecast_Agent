@@ -29,6 +29,11 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(
+  await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'),
+  sandbox,
+  { filename: 'VNext_PortalRuntimeBundle.js' }
+);
+vm.runInContext(
   await readFile(path.join(root, 'VNext_ClientRuntimeProvisioning.js'), 'utf8'),
   sandbox,
   { filename: 'VNext_ClientRuntimeProvisioning.js' }
@@ -41,10 +46,17 @@ assert.match(
 );
 
 testValidCopy();
+testPortalManifestContract();
 testPinnedHistoricalCopy();
 testIdentityGuards();
 testContentGuards();
-process.stdout.write('PASS vNext client runtime copy tests (4 groups)\n');
+process.stdout.write('PASS vNext client runtime copy tests (5 groups)\n');
+
+function testPortalManifestContract() {
+  const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();
+  assert.equal(verified.files.length, 4);
+  assert.match(verified.version, /^vnext-portal-\d+\.\d+\.\d+$/);
+}
 
 function testValidCopy() {
   const calls = [];

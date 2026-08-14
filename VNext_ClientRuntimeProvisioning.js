@@ -47,6 +47,11 @@ var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
   Portal_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
+var VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
+  'https://www.googleapis.com/auth/script.container.ui',
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/userinfo.email'
+]);
 var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   Forecast_Agent: 'SERVER_JS',
   VNext_AI: 'SERVER_JS',
@@ -570,7 +575,8 @@ function vNextPortalRuntimeValidateFiles_(files) {
     if (!byName[name]) throw new Error('Portal runtime file is missing: ' + name);
     return byName[name];
   });
-  vNextClientRuntimeValidateManifest_(byName.appsscript.source);
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source,
+    VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_);
   var combined = ordered.map(function (file) { return file.source; }).join('\n');
   [
     /VNext_Admin|VNext_Engine|vNextRunForecast_|DriveApp|UrlFetchApp|SpreadsheetApp\.openById/,
