@@ -1719,7 +1719,8 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       // cutoff is an invariant: always the last day of the month before asOf.
       // It cannot be overridden from provisioning or employee UI.
       const cutoff = vNextAdminCutoffFromAsOf_(asOf);
-      const annualSalesScale = vNextAdminResolveClientAnnualSalesScale_(hub, clientName, fiscalYear, cutoff);
+      const annualSalesScale = vNextAdminResolveClientAnnualSalesScale_(
+        hub, clientName, fiscalYear, asOf, cutoff);
       const defaultDue = new Date(now.getTime());
       defaultDue.setDate(defaultDue.getDate() + 7);
       const dueDate = vNextAdminText_(req.inputDueDate) ||
@@ -5316,7 +5317,7 @@ function vNextAdminInitializeTemplate_(ss, opt) {
  * into yen. The median of the latest three completed positive fiscal years is
  * stable across one-off spikes and keeps differently sized clients comparable.
  */
-function vNextAdminResolveClientAnnualSalesScale_(hub, clientName, fiscalYear, cutoff) {
+function vNextAdminResolveClientAnnualSalesScale_(hub, clientName, fiscalYear, asOf, cutoff) {
   try {
     if (typeof vNextFetchActualRecordsBridge_ !== 'function' ||
         typeof vNextFiscalYearForDate_ !== 'function') {
@@ -5330,8 +5331,8 @@ function vNextAdminResolveClientAnnualSalesScale_(hub, clientName, fiscalYear, c
     const records = vNextFetchActualRecordsBridge_(clientName, {
       sourceSpreadsheetId: sourceSpreadsheetId,
       fiscalYear: Number(fiscalYear),
-      asOf: cutoff,
-      cutoff: cutoff
+      asOf: asOf || new Date(),
+      cutoff: cutoff || vNextAdminCutoffFromAsOf_(asOf || new Date())
     });
     const totals = {};
     (records || []).forEach(function (record) {
@@ -5362,7 +5363,8 @@ function vNextAdminRefreshClientAnnualSalesScale_(hub, registry) {
   const client = SpreadsheetApp.openById(String(registry.spreadsheet_id || ''));
   const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
   const scale = vNextAdminResolveClientAnnualSalesScale_(hub, registry.client_name,
-    Number(registry.fiscal_year), routing.cutoff || new Date());
+    Number(registry.fiscal_year), routing.as_of || new Date(),
+    routing.cutoff || vNextAdminCutoffFromAsOf_(routing.as_of || new Date()));
   vNextAdminWriteBookConfig_(client, {
     annual_sales_baseline: scale.amount,
     annual_sales_baseline_basis: scale.basis

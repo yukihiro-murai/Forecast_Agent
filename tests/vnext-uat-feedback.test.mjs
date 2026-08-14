@@ -122,6 +122,11 @@ function checkEmployeeInteractionContract() {
   assert.equal((input.match(/id=["']saveButton["']/g) || []).length, 1);
   assert.match(ux, /vNextUxAutoOpenGuidance_/,
     'A state-aware sidebar must open automatically for passive employees');
+  const scaleResolver = functionSource(admin, 'vNextAdminResolveClientAnnualSalesScale_',
+    'vNextAdminRefreshClientAnnualSalesScale_');
+  assert.match(scaleResolver, /asOf:\s*asOf \|\| new Date\(\)/,
+    'relative bands must validate actuals against the forecast as-of, not treat cutoff as a new as-of');
+  assert.match(scaleResolver, /cutoff:\s*cutoff \|\| vNextAdminCutoffFromAsOf_/);
 }
 
 function functionSource(source, name, nextName) {
