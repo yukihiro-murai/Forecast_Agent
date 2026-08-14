@@ -21,6 +21,7 @@ await checkPortalRuntimeBoundary();
 await checkAdminRecoveryContracts();
 await checkAdminCoverageContracts();
 await checkEmployeeResearchUxContracts();
+await checkVertexAiGroundingBudgetContracts();
 checkSourceContract();
 
 process.stdout.write('PASS vNext integration contract tests\n');
@@ -1036,4 +1037,23 @@ function checkSourceContract() {
   }
   assert.equal(expected.actualDate[0], 'BE');
   assert.notEqual(expected.actualDate[0], 'BD');
+}
+
+async function checkVertexAiGroundingBudgetContracts() {
+  const legacy = await readFile(path.join(root, 'Forecast_Agent.js'), 'utf8');
+  const groundedStart = legacy.indexOf('function callVertexGeminiGrounded_');
+  const groundedEnd = legacy.indexOf('function callVertexSearchRAG_', groundedStart);
+  const grounded = legacy.slice(groundedStart, groundedEnd);
+  assert.ok(grounded.includes('maxOutputTokens: 8192') &&
+    grounded.includes("thinkingLevel: 'LOW'") &&
+    grounded.includes("/^gemini-3(?:\\.|-|$)/i"),
+    'Gemini 3 grounded research must use bounded LOW thinking and enough output budget to return citations');
+  const structuredStart = legacy.indexOf('function callVertexGeminiStructured_');
+  const structuredEnd = legacy.indexOf('function buildWebResearchPrompt_', structuredStart);
+  assert.ok(legacy.slice(structuredStart, structuredEnd).includes("thinkingLevel: 'LOW'"),
+    'Gemini 3 evidence structuring must use the same bounded thinking policy');
+  const usageStart = legacy.indexOf('function extractGeminiUsage_');
+  const usageEnd = legacy.indexOf('function extractGeminiFinishReason_', usageStart);
+  assert.ok(legacy.slice(usageStart, usageEnd).includes('thoughtsTokenCount'),
+    'AI audit usage must expose thought tokens for MAX_TOKENS diagnosis');
 }

@@ -7238,10 +7238,18 @@ function callVertexGeminiGrounded_(prompt, opt) {
   const runWithTool = toolKey => {
     const tool = {};
     tool[toolKey] = {};
+    const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
+    // Gemini 3 Pro can spend most of a request on internal thinking. For this
+    // bounded evidence-retrieval task, LOW is enough and prevents a
+    // MAX_TOKENS finish before groundingChunks are attached to the response.
+    // Older models don't accept thinkingLevel, so only send it to Gemini 3.
+    if (/^gemini-3(?:\.|-|$)/i.test(String(cfg.geminiModel || ''))) {
+      generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+    }
     const payload = {
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
       tools: [tool],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+      generationConfig
     };
     const res = vertexPostJson_(endpoint, payload);
     if (!res.ok) {
@@ -7300,14 +7308,18 @@ function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
   const cfg = (opt && opt.config) || readVertexConfig_();
   const endpoint = `${vertexHost_(cfg.location)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.location)}/publishers/google/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
   const attempt = (temperature) => {
+    const generationConfig = {
+      temperature: temperature,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json'
+    };
+    if (/^gemini-3(?:\.|-|$)/i.test(String(cfg.geminiModel || ''))) {
+      generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+    }
     const payload = {
       systemInstruction: { parts: [{ text: String(systemInstruction || '') }] },
       contents: [{ role: 'user', parts: [{ text: String(userContent || '') }] }],
-      generationConfig: {
-        temperature: temperature,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
-      }
+      generationConfig
     };
     const res = vertexPostJson_(endpoint, payload);
     if (!res.ok) {
@@ -7587,6 +7599,7 @@ function extractGeminiUsage_(json) {
   return {
     promptTokens: Number(u.promptTokenCount || 0),
     candidatesTokens: Number(u.candidatesTokenCount || 0),
+    thoughtsTokens: Number(u.thoughtsTokenCount || 0),
     totalTokens: Number(u.totalTokenCount || 0)
   };
 }
