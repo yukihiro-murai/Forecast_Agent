@@ -4017,6 +4017,306 @@ function vNextAdminRecoverOnlyFailedPreflightPilotForManualTest() {
   });
 }
 
+/**
+ * Same-URL UI/runtime upgrade for a Pilot book whose forecast is complete but
+ * whose plan has not yet been created. Forecast/evidence/state records remain
+ * immutable; only the deployed employee shell and release pins are advanced.
+ */
+function vNextAdminUpgradeDraftReadyPilotUx(request) {
+  return vNextAdminGuard_('vNextAdminUpgradeDraftReadyPilotUx', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('upgrade-draft-ready-pilot-ux', function () {
+      const resolved = vNextAdminResolveDraftReadyPilotUxUpgrade_(hub, req);
+      if (req.dryRun !== false) return resolved.basis;
+      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const migrationId = 'DRAFT-UX-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        bookId: resolved.registry.book_id, fromReleaseId: resolved.sourceRelease.release_id,
+        toReleaseId: resolved.targetRelease.release_id, attemptId: Utilities.getUuid()
+      })).slice(0, 24).toUpperCase();
+      const plan = {
+        kind: 'DRAFT_READY_PILOT_UX_UPGRADE_V1', migrationId: migrationId,
+        bookId: String(resolved.registry.book_id || ''),
+        spreadsheetId: String(resolved.registry.spreadsheet_id || ''),
+        clientScriptId: String(resolved.registry.client_script_id || ''),
+        sourceReleaseId: String(resolved.sourceRelease.release_id || ''),
+        sourceModelReleaseId: String(resolved.sourceModel.model_release_id || ''),
+        sourceMetaRecordId: String(resolved.sourceMeta.record_id || ''),
+        targetReleaseId: String(resolved.targetRelease.release_id || ''),
+        targetModelReleaseId: String(resolved.targetModel.model_release_id || ''),
+        schemaVersion: String(resolved.targetRelease.schema_version || ''),
+        preservedState: 'DRAFT_READY', sourceForecastRunId: resolved.sourceForecastRunId,
+        reason: reason
+      };
+      vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.MIGRATIONS, {
+        migration_id: migrationId, book_id: plan.bookId, spreadsheet_id: plan.spreadsheetId,
+        from_release_id: plan.sourceReleaseId, to_release_id: plan.targetReleaseId,
+        status: 'DRAFT_READY_UX_VALIDATED', dry_run: 0,
+        plan_json: vNextAdminCanonicalJson_(plan), result_json: '', started_at: new Date(),
+        finished_at: '', actor: vNextAdminActor_(), error: ''
+      });
+      try {
+        vNextAdminFreezeEmptyPilotClient_(hub, resolved.client, migrationId);
+        vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, 'DRAFT_READY_UX_FROZEN');
+        const applied = vNextAdminApplyEmptyPilotRelease_(hub, resolved.client, resolved.registry,
+          plan, resolved.targetRelease, resolved.targetModel, 'TARGET', function (phase, detail) {
+            vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId,
+              String(phase || '').replace(/^EMPTY_PILOT_/, 'DRAFT_READY_UX_'), detail);
+          });
+        vNextAdminPatchLatestMigration_(hub, migrationId, {
+          status: 'SUCCEEDED', finished_at: new Date(), error: '',
+          result_json: vNextAdminCanonicalJson_({ phase: 'COMPLETED', direction: 'TARGET',
+            sourceForecastRunId: plan.sourceForecastRunId,
+            healthStatus: applied.health.healthStatus, healthCode: applied.health.healthCode })
+        });
+        vNextAdminWriteAudit_(hub, 'UPGRADE_DRAFT_READY_PILOT_UX', 'BOOK', plan.bookId,
+          'SUCCESS', { migrationId: migrationId, sourceForecastRunId: plan.sourceForecastRunId,
+            fromReleaseId: plan.sourceReleaseId, toReleaseId: plan.targetReleaseId, reason: reason });
+        return { ok: true, migrationId: migrationId, bookId: plan.bookId,
+          spreadsheetId: plan.spreadsheetId, spreadsheetUrl: resolved.registry.spreadsheet_url,
+          fromReleaseId: plan.sourceReleaseId, toReleaseId: plan.targetReleaseId,
+          sourceForecastRunId: plan.sourceForecastRunId, health: applied.health };
+      } catch (upgradeError) {
+        const originalMessage = String(upgradeError && upgradeError.message || upgradeError);
+        try {
+          vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId, 'DRAFT_READY_UX_ROLLBACK_STARTED', {
+            cause: originalMessage.slice(0, 500)
+          });
+          const currentRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+            return String(row.book_id || '') === plan.bookId;
+          }) || resolved.registry;
+          vNextAdminApplyEmptyPilotRelease_(hub, resolved.client, currentRegistry, plan,
+            resolved.sourceRelease, resolved.sourceModel, 'SOURCE', function (phase, detail) {
+              vNextAdminSetEmptyPilotUpgradePhase_(hub, migrationId,
+                String(phase || '').replace(/^EMPTY_PILOT_/, 'DRAFT_READY_UX_ROLLBACK_'), detail);
+            });
+          vNextAdminPatchLatestMigration_(hub, migrationId, {
+            status: 'ROLLED_BACK', finished_at: new Date(), error: originalMessage,
+            result_json: vNextAdminCanonicalJson_({ phase: 'ROLLED_BACK_TO_SOURCE',
+              sourceReleaseId: plan.sourceReleaseId })
+          });
+        } catch (rollbackError) {
+          const rollbackMessage = String(rollbackError && rollbackError.message || rollbackError);
+          vNextAdminPatchLatestMigration_(hub, migrationId, {
+            status: 'RECOVERY_REQUIRED', error: originalMessage + '; rollback=' + rollbackMessage,
+            result_json: vNextAdminCanonicalJson_({ phase: 'RECOVERY_REQUIRED',
+              originalError: originalMessage.slice(0, 500), rollbackError: rollbackMessage.slice(0, 500) })
+          });
+          vNextAdminAppendException_(hub, {
+            severity: 'ERROR', exception_type: 'DRAFT_READY_UX_UPGRADE_RECOVERY_REQUIRED',
+            book_id: plan.bookId, client_name: resolved.registry.client_name,
+            fiscal_year: resolved.registry.fiscal_year,
+            title: '予測作成済みPilotの画面更新に復旧が必要です',
+            detail: originalMessage + '; rollback=' + rollbackMessage,
+            recommended_action: 'vNextAdminRecoverDraftReadyPilotUxUpgradeを実行',
+            source_ref: migrationId
+          });
+          throw new Error('画面更新と自動rollbackが完了しませんでした。migrationId=' + migrationId +
+            '; cause=' + originalMessage + '; rollback=' + rollbackMessage);
+        }
+        throw upgradeError;
+      }
+    });
+  });
+}
+
+function vNextAdminResolveDraftReadyPilotUxUpgrade_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+  const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+    return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+  });
+  if (!registry || String(registry.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('対象のACTIVE Client BookがBOOK_REGISTRYにありません。');
+  }
+  const pair = vNextAdminReadActiveReleasePair_(hub);
+  if (String(registry.template_release_id || '') === pair.releaseId) {
+    throw new Error('対象Clientはすでに現在のemployee releaseです。');
+  }
+  const unfinished = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+    const plan = vNextAdminParseJson_(row.plan_json, {});
+    return String(row.book_id || '') === bookId &&
+      String(plan.kind || '') === 'DRAFT_READY_PILOT_UX_UPGRADE_V1' &&
+      /^DRAFT_READY_UX_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase());
+  }).slice(-1)[0];
+  if (unfinished) throw new Error('未完了の画面更新があります。復旧してください。migrationId=' +
+    String(unfinished.migration_id || ''));
+  const targetRelease = vNextAdminEmptyPilotRelease_(hub, pair.releaseId, ['ACTIVE']);
+  const targetModel = vNextAdminEmptyPilotModel_(hub, pair.modelReleaseId, targetRelease, ['ACTIVE']);
+  const sourceRelease = vNextAdminEmptyPilotRelease_(hub, registry.template_release_id,
+    ['ACTIVE', 'RETIRED']);
+  if (String(sourceRelease.schema_version || '') !== String(targetRelease.schema_version || '') ||
+      String(targetRelease.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+    throw new Error('画面更新は同一Client Core schema間だけで実行できます。');
+  }
+  const client = SpreadsheetApp.openById(vNextAdminRequiredText_(registry.spreadsheet_id,
+    'registry.spreadsheet_id'));
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  const sourceModel = vNextAdminEmptyPilotModel_(hub,
+    vNextAdminRequiredText_(routing.model_release_id, 'client.model_release_id'), sourceRelease,
+    ['ACTIVE', 'RETIRED']);
+  const sourceMeta = vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry,
+    sourceRelease, sourceModel, false, 'DRAFT_READY');
+  const boundary = vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry);
+  vNextAdminAssertEmptyPilotReleaseAssets_(sourceRelease);
+  vNextAdminAssertEmptyPilotReleaseAssets_(targetRelease);
+  return { registry: registry, client: client, sourceRelease: sourceRelease,
+    sourceModel: sourceModel, sourceMeta: sourceMeta, targetRelease: targetRelease,
+    targetModel: targetModel, sourceForecastRunId: boundary.runId,
+    basis: { eligible: true, readOnly: req.dryRun !== false, bookId: bookId,
+      clientName: String(registry.client_name || ''), fiscalYear: Number(registry.fiscal_year || 0),
+      spreadsheetId: String(registry.spreadsheet_id || ''),
+      spreadsheetUrl: String(registry.spreadsheet_url || ''), sameUrl: true,
+      currentReleaseId: String(sourceRelease.release_id || ''),
+      targetReleaseId: String(targetRelease.release_id || ''),
+      targetModelReleaseId: String(targetModel.model_release_id || ''),
+      sourceForecastRunId: boundary.runId, preservedState: 'DRAFT_READY',
+      safeguards: ['予測SUCCESS・DRAFT_READY・計画未作成だけ', '予測と入力は変更しない',
+        '同一schema', '同じSpreadsheet URL', '失敗時は旧releaseへ自動rollback'] }
+  };
+}
+
+function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry) {
+  const bookId = String(registry.book_id || '');
+  if (String(registry.state || '').toUpperCase() !== 'DRAFT_READY' ||
+      String(registry.current_official_id || '')) {
+    throw new Error('画面更新はDRAFT_READY / 正式計画なしだけが対象です。');
+  }
+  ['PLAN_VERSION', 'EVALUATION'].forEach(function (sheetName) {
+    const count = vNextAdminReadCoreRows_(hub, sheetName).concat(
+      vNextAdminReadCoreRows_(client, sheetName)).filter(function (row) {
+        return String(row.book_id || '') === bookId;
+      }).length;
+    if (count) throw new Error('計画・評価作成後はこの画面更新を実行できません: ' + sheetName);
+  });
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.some(function (row) {
+    return String(row.book_id || '') === bookId;
+  }) || vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.some(function (row) {
+    return String(row.book_id || '') === bookId;
+  })) throw new Error('承認または公式recordがあるため画面更新を停止しました。');
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.some(function (row) {
+    return String(row.target_book_id || '') === bookId &&
+      ['QUEUED', 'RUNNING'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+  })) throw new Error('対象bookにQUEUED/RUNNING jobがあるため画面更新を停止しました。');
+  const hubStates = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const clientStates = vNextAdminReadCoreRows_(client, 'STATE_EVENT').filter(function (row) {
+    return String(row.book_id || '') === bookId;
+  });
+  const hubState = hubStates[hubStates.length - 1];
+  const clientState = clientStates[clientStates.length - 1];
+  const runId = String(hubState && hubState.related_run_id || '');
+  if (!hubState || !clientState || String(hubState.to_state || '').toUpperCase() !== 'DRAFT_READY' ||
+      String(clientState.to_state || '').toUpperCase() !== 'DRAFT_READY' || !runId ||
+      String(clientState.related_run_id || '') !== runId) {
+    throw new Error('Hub/Clientの最新DRAFT_READYと予測run lineageが一致しません。');
+  }
+  const hubRun = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').find(function (row) {
+    return String(row.book_id || '') === bookId && String(row.run_id || '') === runId;
+  });
+  const clientRun = vNextAdminReadCoreRows_(client, 'FORECAST_RUN').find(function (row) {
+    return String(row.book_id || '') === bookId && String(row.run_id || '') === runId;
+  });
+  if (!hubRun || !clientRun || String(hubRun.status || '').toUpperCase() !== 'SUCCESS' ||
+      String(clientRun.status || '').toUpperCase() !== 'SUCCESS' ||
+      String(hubRun.input_data_hash || '') !== String(clientRun.input_data_hash || '') ||
+      Number(hubRun.p50 || 0) !== Number(clientRun.p50 || 0)) {
+    throw new Error('Hub/ClientのSUCCESS予測recordが一致しません。');
+  }
+  return { runId: runId };
+}
+
+function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const pair = vNextAdminReadActiveReleasePair_(hub);
+  const candidates = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.state || '').toUpperCase() === 'DRAFT_READY' &&
+      String(row.template_release_id || '') !== pair.releaseId;
+  });
+  if (candidates.length !== 1) throw new Error('更新候補のDRAFT_READY Pilotが1冊に確定しません: ' +
+    candidates.length + '冊');
+  return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
+    dryRun: false, reason: '予測recordを保持したまま社員案内を現在版へ更新' });
+}
+
+function vNextAdminRecoverDraftReadyPilotUxUpgrade(request) {
+  return vNextAdminGuard_('vNextAdminRecoverDraftReadyPilotUxUpgrade', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    return vNextAdminWithScriptLock_('recover-draft-ready-pilot-ux', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const migration = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+        const plan = vNextAdminParseJson_(row.plan_json, {});
+        return String(row.book_id || '') === bookId &&
+          String(plan.kind || '') === 'DRAFT_READY_PILOT_UX_UPGRADE_V1' &&
+          (!req.migrationId || String(row.migration_id || '') === String(req.migrationId));
+      }).slice(-1)[0];
+      if (!migration) throw new Error('復旧対象のDRAFT_READY画面更新journalがありません。');
+      const plan = vNextAdminParseJson_(migration.plan_json, {});
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry || String(registry.spreadsheet_id || '') !== String(plan.spreadsheetId || '')) {
+        throw new Error('復旧対象のClient registry identityが一致しません。');
+      }
+      const client = SpreadsheetApp.openById(String(plan.spreadsheetId || ''));
+      vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry);
+      const sourceRelease = vNextAdminEmptyPilotRelease_(hub, plan.sourceReleaseId,
+        ['ACTIVE', 'RETIRED']);
+      const sourceModel = vNextAdminEmptyPilotModel_(hub, plan.sourceModelReleaseId, sourceRelease,
+        ['ACTIVE', 'RETIRED']);
+      let direction = String(registry.template_release_id || '') === String(plan.targetReleaseId || '')
+        ? 'TARGET' : 'SOURCE';
+      let release = sourceRelease;
+      let model = sourceModel;
+      if (direction === 'TARGET') {
+        const pair = vNextAdminReadActiveReleasePair_(hub);
+        if (pair.releaseId !== String(plan.targetReleaseId || '') ||
+            pair.modelReleaseId !== String(plan.targetModelReleaseId || '')) direction = 'SOURCE';
+        else {
+          release = vNextAdminEmptyPilotRelease_(hub, plan.targetReleaseId, ['ACTIVE']);
+          model = vNextAdminEmptyPilotModel_(hub, plan.targetModelReleaseId, release, ['ACTIVE']);
+        }
+      } else if (String(registry.template_release_id || '') !== String(plan.sourceReleaseId || '')) {
+        throw new Error('Registryがjournalのsource/target以外を参照しています。');
+      }
+      vNextAdminFreezeEmptyPilotClient_(hub, client, migration.migration_id);
+      const applied = vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan, release, model,
+        direction, function (phase, detail) {
+          vNextAdminSetEmptyPilotUpgradePhase_(hub, migration.migration_id,
+            'DRAFT_READY_UX_RECOVERY_' + String(phase || '').replace(/^EMPTY_PILOT_/, ''), detail);
+        });
+      const finalStatus = direction === 'TARGET' ? 'SUCCEEDED' : 'ROLLED_BACK';
+      vNextAdminPatchLatestMigration_(hub, migration.migration_id, {
+        status: finalStatus, finished_at: new Date(), error: '',
+        result_json: vNextAdminCanonicalJson_({ phase: 'RECOVERED_' + direction,
+          sourceForecastRunId: plan.sourceForecastRunId,
+          healthStatus: applied.health.healthStatus, healthCode: applied.health.healthCode })
+      });
+      return { ok: true, migrationId: migration.migration_id, bookId: bookId,
+        direction: direction, releaseId: release.release_id, health: applied.health };
+    });
+  });
+}
+
+function vNextAdminRecoverOnlyDraftReadyPilotUxForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.filter(function (row) {
+    const plan = vNextAdminParseJson_(row.plan_json, {});
+    return String(plan.kind || '') === 'DRAFT_READY_PILOT_UX_UPGRADE_V1' &&
+      /^DRAFT_READY_UX_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase());
+  });
+  if (rows.length !== 1) throw new Error('復旧対象のDRAFT_READY画面更新が1件に確定しません: ' +
+    rows.length + '件');
+  return vNextAdminRecoverDraftReadyPilotUxUpgrade({ bookId: String(rows[0].book_id || ''),
+    migrationId: String(rows[0].migration_id || ''), reason: '中断した画面更新を安全に復旧' });
+}
+
 function vNextAdminAssertEmptyPilotUpgradeEligibility_(hub, client, registry, release, model) {
   vNextAdminAssertEmptyPilotNoBusinessData_(hub, client, registry, true);
   return vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release, model, true);
