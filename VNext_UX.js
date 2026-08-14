@@ -10,6 +10,7 @@ var VNEXT_UX_CONFIG_ = Object.freeze({
   REVIEW_SHEET: '3_振り返り',
   META_SHEET: 'BOOK_META',
   INPUT_HTML: 'VNext_InputSidebar',
+  GUIDANCE_HTML: 'VNext_GuidanceSidebar',
   HELP_HTML: 'VNext_HelpSidebar',
   INPUT_STATES: ['INPUT_OPEN', 'READY_TO_RUN'],
   REVIEW_STATES: ['REVIEW_DUE', 'YEAR_CLOSED'],
@@ -42,10 +43,6 @@ var VNEXT_UX_REVIEW_CAUSES_ = Object.freeze([
   Object.freeze({ key: 'TIMING', label: '売上認識月のずれ', field: 'timing_error', annual: false }),
   Object.freeze({ key: 'OTHER', label: 'その他', field: '', annual: false })
 ]);
-
-// Transparent overlay keeps the primary action visually native to the cell while making it clickable.
-var VNEXT_UX_ACTION_BUTTON_PNG_ = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL+WQAAAABJRU5ErkJggg==';
-var VNEXT_UX_ACTION_BUTTON_ALT_ = 'VNEXT_PRIMARY_ACTION_BUTTON';
 
 /** legacy onOpenから呼ぶ安全なrouter。Admin Hubのmenu builderは別moduleへ委譲する。 */
 function vNextHandleOnOpen_() {
@@ -84,7 +81,7 @@ function vNextBuildClientMenu_() {
     // Simple onOpen triggers may not expose user identity. Always render the recovery menu first;
     // identity and role are required only after the user invokes an authorized action.
     SpreadsheetApp.getUi().createMenu(VNEXT_UX_CONFIG_.MENU_NAME)
-      .addItem('ホームに戻る', 'vNextGoHome')
+      .addItem('ホーム・案内を表示', 'vNextGoHomeAndShowGuidance')
       .addItem('自分の情報を入力・更新する', 'vNextOpenInputSidebar')
       .addItem('予測と計画を見る', 'vNextOpenForecastPlanOrCurrentAction')
       .addItem('使い方・困ったとき', 'vNextOpenHelpSidebar')
@@ -95,6 +92,7 @@ function vNextBuildClientMenu_() {
       vNextUxAssertClientBook_(context);
       vNextRefreshEmployeeViews(context);
       vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
+      vNextUxAutoOpenGuidance_(context);
     } catch (refreshError) {
       Logger.log('vNextBuildClientMenu_ initial refresh warning: ' + vNextUxErrorText_(refreshError));
     }
@@ -126,6 +124,44 @@ function vNextGoHome() {
   } catch (err) {
     Logger.log('vNextGoHome error: ' + vNextUxErrorText_(err));
     vNextUxAlertError_('ホームを開けませんでした。', err);
+  }
+}
+
+function vNextGoHomeAndShowGuidance() {
+  try {
+    vNextRefreshEmployeeViews();
+    vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
+    vNextUxAutoOpenGuidance_(vNextUxGetBookContext_(), true);
+  } catch (err) {
+    Logger.log('vNextGoHomeAndShowGuidance error: ' + vNextUxErrorText_(err));
+    vNextUxAlertError_('ホームと案内を開けませんでした。', err);
+  }
+}
+
+function vNextOpenGuidanceSidebar() {
+  try {
+    var html = HtmlService.createTemplateFromFile(VNEXT_UX_CONFIG_.GUIDANCE_HTML).evaluate()
+      .setTitle('次にすること')
+      .setWidth(400);
+    SpreadsheetApp.getUi().showSidebar(html);
+  } catch (err) {
+    Logger.log('vNextOpenGuidanceSidebar error: ' + vNextUxErrorText_(err));
+    vNextUxAlertError_('案内を開けませんでした。', err);
+  }
+}
+
+function vNextUxAutoOpenGuidance_(context, forceGuidance) {
+  try {
+    var model = vNextGetClientViewModel();
+    if (!forceGuidance && model.canInput && !(model.inputStatus && model.inputStatus.submitted)) {
+      vNextOpenInputSidebar();
+      return true;
+    }
+    vNextOpenGuidanceSidebar();
+    return true;
+  } catch (error) {
+    Logger.log('vNextUxAutoOpenGuidance_ skipped: ' + vNextUxErrorText_(error));
+    return false;
   }
 }
 
@@ -435,7 +471,7 @@ function vNextGetClientViewModel() {
     vNextUxAssertClientBook_(context);
     var forecast = vNextUxGetLatestForecast_(context);
     var action = vNextUxGetPrimaryAction_(context);
-    var bands = vNextUxBuildAmountBands_(forecast);
+    var bands = vNextUxBuildAmountBands_(forecast, context);
     return {
       ok: true,
       bookId: context.bookId || '',
@@ -456,6 +492,9 @@ function vNextGetClientViewModel() {
       canOverrideInput: vNextUxCanOverrideInput_(context),
       latestOwnEvidence: context.latestOwnEvidence || null,
       amountBands: bands,
+      amountBandBasis: bands.length && bands[0].available
+        ? 'このクライアントの年間売上基準 ' + vNextUxFormatMoney_(bands[0].basisAmount)
+        : '年間売上基準を確認できないため、金額入力を選んでください。',
       primaryAction: action,
       stateNotice: vNextUxStateIssue_(context),
       forecast: vNextUxPublicForecast_(forecast),
@@ -474,7 +513,7 @@ function vNextPreviewEvidence(payload) {
     vNextUxAssertInputAllowed_(context);
     var normalized = vNextUxNormalizeEvidence_(payload);
     var forecast = vNextUxGetLatestForecast_(context);
-    var bands = vNextUxBuildAmountBands_(forecast);
+    var bands = vNextUxBuildAmountBands_(forecast, context);
     var impact = vNextUxCalculateImpact_(normalized, bands);
     var canonical = vNextUxCanonicalEvidence_(normalized);
     return {
@@ -493,19 +532,15 @@ function vNextPreviewEvidence(payload) {
   }
 }
 
-/** preview済みの内容だけをappend-only evidenceとして保存する。 */
+/** 入力をserver側で検証し、append-only evidenceとして1回で保存する。 */
 function vNextSaveEvidence(payload) {
   try {
     var context = vNextUxGetBookContext_();
     vNextUxAssertInputAllowed_(context);
     var normalized = vNextUxNormalizeEvidence_(payload);
     var canonical = vNextUxCanonicalEvidence_(normalized);
-    var expectedHash = vNextUxSha256_(JSON.stringify(canonical));
-    if (!payload || String(payload.previewHash || '') !== expectedHash) {
-      throw new Error('保存前に「内容を確認」を押してください。確認後に内容を変えた場合は、もう一度確認が必要です。');
-    }
     if (typeof vNextAppendEvidence_ !== 'function') throw new Error('保存先が未設定です。管理者へ連絡してください。');
-    var bands = vNextUxBuildAmountBands_(vNextUxGetLatestForecast_(context));
+    var bands = vNextUxBuildAmountBands_(vNextUxGetLatestForecast_(context), context);
     var impact = vNextUxCalculateImpact_(normalized, bands);
     var record = vNextUxBuildEvidenceSaveRecord_(canonical, context, impact);
     var saved = vNextAppendEvidence_(record, { spreadsheet: SpreadsheetApp.getActiveSpreadsheet() });
@@ -662,6 +697,8 @@ function vNextUxGetBookContext_() {
     inputStatus: input,
     canProceed: raw.canProceed === true || raw.can_proceed === true,
     latestOwnEvidence: latestOwnEvidence,
+    annualSalesBaseline: Number(raw.annualSalesBaseline || raw.annual_sales_baseline || 0),
+    annualSalesBaselineBasis: raw.annualSalesBaselineBasis || raw.annual_sales_baseline_basis || '',
     version: raw.version || ''
   };
 }
@@ -827,12 +864,12 @@ function vNextUxStateIssue_(context) {
 }
 
 function vNextUxActionMenuGuide_(action) {
-  if (!action) return '上部メニュー：年度計画 → ホームに戻る';
+  if (!action) return '上部メニュー：年度計画 → ホーム・案内を表示';
   if (action.key === 'INPUT') return '上部メニュー：年度計画 → 自分の情報を入力・更新する';
   if (['REQUEST_FORECAST', 'EDIT_PLAN', 'REVIEW', 'VIEW_PLAN', 'VIEW_REVIEW'].indexOf(action.key) >= 0) {
     return '上部メニュー：年度計画 → 予測と計画を見る';
   }
-  return '現在、操作は不要です。最新状態を確認する場合：年度計画 → ホームに戻る';
+  return '現在、操作は不要です。最新状態を確認する場合：年度計画 → ホーム・案内を表示';
 }
 
 function vNextUxAssertClientBook_(context) {
@@ -1111,14 +1148,16 @@ function vNextUxCanonicalEvidence_(value) {
   };
 }
 
-function vNextUxBuildAmountBands_(forecast) {
+function vNextUxBuildAmountBands_(forecast, context) {
   var publicForecast = vNextUxPublicForecast_(forecast);
-  var base = Math.abs(Number(publicForecast.systemRecommended || publicForecast.center || 0));
-  if (!base) base = 100000000;
+  var forecastBase = Math.abs(Number(publicForecast.systemRecommended || publicForecast.center || 0));
+  var historyBase = Math.abs(Number(context && context.annualSalesBaseline || 0));
+  var base = forecastBase || historyBase;
+  var available = isFinite(base) && base > 0;
   return [
-    { key: 'small', label: '小', low: vNextUxRoundMoney_(base * 0.005), high: vNextUxRoundMoney_(base * 0.02) },
-    { key: 'medium', label: '中', low: vNextUxRoundMoney_(base * 0.02), high: vNextUxRoundMoney_(base * 0.05) },
-    { key: 'large', label: '大', low: vNextUxRoundMoney_(base * 0.05), high: vNextUxRoundMoney_(base * 0.10) }
+    { key: 'small', label: '小（年間売上の0.5〜2%）', low: available ? vNextUxRoundMoney_(base * 0.005) : null, high: available ? vNextUxRoundMoney_(base * 0.02) : null, basisAmount: base, available: available },
+    { key: 'medium', label: '中（年間売上の2〜5%）', low: available ? vNextUxRoundMoney_(base * 0.02) : null, high: available ? vNextUxRoundMoney_(base * 0.05) : null, basisAmount: base, available: available },
+    { key: 'large', label: '大（年間売上の5〜10%）', low: available ? vNextUxRoundMoney_(base * 0.05) : null, high: available ? vNextUxRoundMoney_(base * 0.10) : null, basisAmount: base, available: available }
   ];
 }
 
@@ -1129,7 +1168,9 @@ function vNextUxCalculateImpact_(evidence, bands) {
   if (evidence.amountMode === 'exact') low = high = Number(evidence.amount);
   else {
     var band = bands.filter(function(item) { return item.key === evidence.amountBand; })[0];
-    if (!band) throw new Error('影響の大きさを確認できません。');
+    if (!band || !band.available || band.low === null || band.high === null) {
+      throw new Error('このクライアントの年間売上基準を確認できないため、「金額がわかる」を選んで影響額を入力してください。');
+    }
     low = band.low; high = band.high;
   }
   if (evidence.direction === 'decrease') return { low: -high, high: -low };
@@ -1328,11 +1369,12 @@ function vNextUxEnsureClientSheets_(context) {
 
 function vNextUxRenderHome_(context, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.HOME_SHEET);
-  vNextUxResetViewSheet_(sheet, 24, 6);
+  vNextUxResetViewSheet_(sheet, 15, 6);
+  vNextUxRemoveLegacyImages_(sheet);
   var action = vNextUxGetPrimaryAction_(context);
   var input = context.inputStatus || {};
   sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度計画').setFontSize(18).setFontWeight('bold');
-  sheet.getRange('A2').setValue('この画面では、現在の状態と次に必要な作業だけを確認します。').setFontColor('#5f6368');
+  sheet.getRange('A2').setValue('現在の状態と、次の1つの作業を確認できます。').setFontColor('#5f6368');
   sheet.getRange('A4:B7').setValues([
     ['現在の状態', VNEXT_UX_STATE_LABELS_[context.state] || context.state],
     ['実績基準日', vNextUxDateText_(context.cutoff) || '未設定'],
@@ -1342,62 +1384,33 @@ function vNextUxRenderHome_(context, sheet) {
   sheet.getRange('A4:A7').setFontWeight('bold').setBackground('#f8f9fa');
   sheet.getRange('B4').setFontWeight('bold');
   vNextUxSetSectionHeader_(sheet, 9, 1, 6, '次にすること');
-  sheet.getRange('A10:B12').setValues([
+  sheet.getRange('A10:B11').setValues([
     ['操作', action.label],
-    ['説明', action.instruction],
-    ['開き方', vNextUxActionMenuGuide_(action)]
+    ['案内', action.instruction]
   ]);
-  sheet.getRange('A10:A12').setFontWeight('bold').setBackground('#f8f9fa');
-  sheet.getRange('B10').setFontSize(14).setFontWeight('bold');
-  if (action.key !== 'WAIT') sheet.getRange('B10').setBackground('#1a73e8').setFontColor('#ffffff').setHorizontalAlignment('center');
-  sheet.getRange('B11:B12').setWrap(true);
-  if (action.issueKey) sheet.getRange('A10:B12').setBackground('#fef7e0');
-  vNextUxSetSectionHeader_(sheet, 15, 1, 6, 'このブックで扱う3つの数字');
-  sheet.getRange('A16:B18').setValues([
-    ['システム推奨予測', '現在の情報から見込まれる売上。営業目標ではありません。'],
-    ['採用予測', 'Forecast Ownerが根拠を確認し、計画に採用した見込み。'],
-    ['最終予算', '採用予測に、行動計画を伴う営業上積みを加えた金額。']
-  ]);
-  sheet.getRange('A16:A18').setFontWeight('bold').setBackground('#f8f9fa');
-  sheet.getRange('B16:B18').setWrap(true);
-  sheet.getRange('B5').setNote('この日までに確定した実績だけを予測に使用します。当月・未来・予定日は使用しません。');
-  sheet.getRange('B10').setNote('実行する操作は状態ごとに1つです。上部メニュー「年度計画」から、ここに表示された項目を選びます。');
-  vNextUxEnsureHomeActionButton_(sheet, action);
+  sheet.getRange('A10:A11').setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('B10').setFontSize(13).setFontWeight('bold')
+    .setBackground(action.key === 'WAIT' ? '#f8f9fa' : '#e8f0fe')
+    .setFontColor(action.key === 'WAIT' ? '#3c4043' : '#174ea6');
+  sheet.getRange('B11').setWrap(true);
+  if (action.issueKey) sheet.getRange('A10:B11').setBackground('#fef7e0');
+  sheet.getRange('A13').setValue('上部メニュー「年度計画」→「ホーム・案内を表示」で、案内サイドバーを再表示できます。')
+    .setFontColor('#5f6368').setFontSize(9);
   sheet.setFrozenRows(2);
   sheet.setHiddenGridlines(false);
   sheet.setColumnWidth(1, 170);
   sheet.setColumnWidth(2, 520);
   for (var col = 3; col <= 6; col++) sheet.setColumnWidth(col, 88);
   sheet.setRowHeight(11, 44);
-  sheet.setRowHeight(12, 36);
   vNextUxProtectView_(sheet, context.state === 'YEAR_CLOSED');
 }
 
-function vNextUxEnsureHomeActionButton_(sheet, action) {
+function vNextUxRemoveLegacyImages_(sheet) {
   try {
     var images = sheet.getImages ? sheet.getImages() : [];
-    var matching = images.filter(function (image) {
-      try { return String(image.getAltTextTitle() || '') === VNEXT_UX_ACTION_BUTTON_ALT_; }
-      catch (error) { return false; }
-    });
-    matching.slice(1).forEach(function (image) { try { image.remove(); } catch (removeError) {} });
-    if (!action || action.key === 'WAIT') {
-      if (matching.length) matching[0].remove();
-      return;
-    }
-    var button = matching.length ? matching[0] : sheet.insertImage(
-      Utilities.newBlob(Utilities.base64Decode(VNEXT_UX_ACTION_BUTTON_PNG_), 'image/png', 'vnext-action-overlay.png'),
-      2,
-      10
-    );
-    button.setAnchorCell(sheet.getRange('B10'))
-      .setWidth(500)
-      .setHeight(32)
-      .setAltTextTitle(VNEXT_UX_ACTION_BUTTON_ALT_)
-      .setAltTextDescription(action.label + '。クリックするとこの操作を開始します。')
-      .assignScript('vNextOpenCurrentAction');
+    images.forEach(function (image) { try { image.remove(); } catch (removeError) {} });
   } catch (error) {
-    Logger.log('vNextUxEnsureHomeActionButton_ cleanup warning: ' + vNextUxErrorText_(error));
+    Logger.log('vNextUxRemoveLegacyImages_ warning: ' + vNextUxErrorText_(error));
   }
 }
 
@@ -1424,7 +1437,6 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   ]);
   sheet.getRange('A5:A7').setFontWeight('bold').setBackground('#f8f9fa');
   sheet.getRange('B5').setNumberFormat('¥#,##0').setFontSize(20).setFontWeight('bold');
-  sheet.getRange('B7').setNote('的中確率や信頼度ではありません。予測時点で過去実績と現場回答がどの程度そろっていたかを示します。' + f.evidenceCoverage.detail);
   if (f.warnings.length) {
     sheet.getRange('A8').setValue('要確認').setFontWeight('bold').setBackground('#fef7e0');
     sheet.getRange('B8').setValue(f.warnings.join('／')).setBackground('#fef7e0').setWrap(true);
@@ -1447,7 +1459,6 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
       ['採用予測', '未決定'], ['最終予算', '未決定']
     ]).setBackground('#f8f9fa');
     sheet.getRange('B18:B19').setHorizontalAlignment('center').setFontColor('#5f6368').setFontWeight('bold');
-    sheet.getRange('A18').setNote('採用予測と最終予算は、Forecast Ownerが計画案を作成するまで未決定です。');
   }
   var displayedQuarters = official && f.planQuarters.length ? f.planQuarters : f.quarters;
   var displayedMonths = official && f.planMonths.length ? f.planMonths : f.months;
@@ -1459,8 +1470,6 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   vNextUxWriteListBlock_(sheet, 'H31:M31', 32, 8, 6, '次に確認すると有効な情報', f.nextInformation, '追加確認の提案はありません。');
   vNextUxWriteListBlock_(sheet, 'A39:M39', 40, 1, 13, '前回から変わった理由', f.changeReasons, '初回の予測です。');
   vNextUxWriteAiEvidence_(sheet, f.aiEvidence);
-  sheet.getRange('A5').setNote('中心見込みは、情報締切時点の条件付き予測です。必ず達成する目標を意味しません。');
-  sheet.getRange('A8').setNote('P10～P90を平易に表した範囲です。悲観・楽観シナリオではありません。');
   vNextUxFinishPlanFormat_(sheet, context.state === 'YEAR_CLOSED');
 }
 

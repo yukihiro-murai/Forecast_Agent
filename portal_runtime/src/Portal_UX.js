@@ -120,8 +120,7 @@ function vNextPortalRenderHome_(sheet, data) {
   sheet.getRange('A2').setValue('既存の計画はFYタブから確認できます。新規作成と状態更新は上部メニュー「年度計画ポータル」から行います。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
-    .setFontSize(11).setFontWeight('bold').setFontColor('#202124')
-    .setNote('依頼後は、受付済み→内容確認中→ブック作成中→利用できます、の順で進みます。');
+    .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
   sheet.getRange('E3').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('F3').setValue(vNextPortalDisplayDateTime_(new Date()))
     .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
@@ -146,12 +145,6 @@ function vNextPortalRenderHome_(sheet, data) {
     requests.forEach(function (request, index) {
       var row = 5 + index;
       sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(request.status)).setFontWeight('bold');
-      sheet.getRange(row, 2).setNote(
-        '受付番号: ' + request.requestId + '\n' +
-        '作成担当: ' + (request.forecastOwnerEmail || request.requestedBy || '確認中') + '\n' +
-        '受付日時: ' + vNextPortalDisplayDateTime_(request.requestedAt) +
-        (request.detailMessage ? '\n案内: ' + request.detailMessage : '')
-      );
       if (request.url) vNextPortalWriteLink_(sheet.getRange(row, 6), request.url, '開く');
     });
     try { sheet.getRange(4, 1, rows.length + 1, headers.length).createFilter(); }
@@ -180,10 +173,6 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   var headers = ['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'];
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
-  sheet.getRange('C4').setNote('システムが算出した条件付き予測の中心値です。営業目標ではありません。');
-  sheet.getRange('D4').setNote('予測を確認したうえで、計画に採用した金額です。');
-  sheet.getRange('E4').setNote('採用予測に営業上積みを加えた正式な予算です。');
-  sheet.getRange('F4').setNote('作成担当と、依頼時に登録された関与メンバーです。アクセス権限そのものではありません。');
   if (!entries.length) {
     sheet.getRange('A5').setValue('この年度の計画はまだありません。上部メニューから新しく作成できます。')
       .setFontColor('#5f6368').setFontStyle('italic');
@@ -211,9 +200,6 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
     entries.forEach(function (entry, index) {
       var row = 5 + index;
       sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(entry.status || entry.state || entry.statusLabel)).setFontWeight('bold');
-      if (/FAILED|REJECTED|作成できません|確認が必要/i.test(String(entry.status || entry.statusLabel))) {
-        sheet.getRange(row, 7).setNote('処理を続けるには、この案内を確認してください。');
-      }
       if (entry.url) vNextPortalWriteLink_(sheet.getRange(row, 9), entry.url, '開く');
     });
     try {
@@ -289,7 +275,7 @@ function vNextPortalResetViewSheet_(sheet, rows, columns) {
   dataRange.getMergedRanges().forEach(function (range) { range.breakApart(); });
   var clearRows = Math.max(rows, sheet.getLastRow(), 1);
   var clearColumns = Math.max(columns, sheet.getLastColumn(), 1);
-  sheet.getRange(1, 1, clearRows, clearColumns).clear();
+  sheet.getRange(1, 1, clearRows, clearColumns).clear().clearNote();
   sheet.getRange(1, 1, rows, columns).setFontFamily('Arial').setFontSize(10).setVerticalAlignment('middle');
 }
 

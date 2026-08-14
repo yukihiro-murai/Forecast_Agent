@@ -327,10 +327,7 @@ async function testBlankIdentityStillGetsMenu() {
     sandbox.vNextAppendEvidence_ = record => { appended = record; return { evidenceId: `E-${responseType}` }; };
     sandbox.vNextUxMaybeAdvanceInputState_ = () => {};
     sandbox.vNextRefreshEmployeeViews = () => {};
-    const normalized = sandbox.vNextUxNormalizeEvidence_({ responseType, evidence: '' });
-    const canonical = sandbox.vNextUxCanonicalEvidence_(normalized);
-    const previewHash = sandbox.vNextUxSha256_(JSON.stringify(canonical));
-    const result = sandbox.vNextSaveEvidence({ responseType, evidence: '', previewHash });
+    const result = sandbox.vNextSaveEvidence({ responseType, evidence: '' });
     assert.equal(result.ok, true, `${responseType} must save successfully`);
     assert.equal(appended.evidenceType, 'CHECK_IN');
     assert.deepEqual(JSON.parse(JSON.stringify(appended.period)), { start: '', end: '' });
@@ -359,6 +356,17 @@ async function testEmployeeUxContracts() {
   assert.match(uxSource, /sheet\.getLastRow\(\)/, 'view cleanup must be bounded to used rows');
   assert.match(uxSource, /sheet\.getLastColumn\(\)/, 'view cleanup must be bounded to used columns');
   assert.doesNotMatch(uxSource, /sheet\.clearContents\(\)/, 'view cleanup must not clear the full sheet');
+  assert.doesNotMatch(uxSource, /insertImage\(|assignScript\(/,
+    'employee home must not use an over-grid image as the primary action');
+  assert.match(uxSource, /vNextUxAutoOpenGuidance_/,
+    'employee open must provide a state-aware sidebar without waiting for a cell click');
+
+  const scaleBands = sandbox.vNextUxBuildAmountBands_(null, { annualSalesBaseline: 200000000 });
+  assert.equal(scaleBands.find(item => item.key === 'medium').low, 4000000);
+  assert.equal(scaleBands.find(item => item.key === 'medium').high, 10000000);
+  assert.match(scaleBands.find(item => item.key === 'medium').label, /2〜5%/);
+  assert.equal(sandbox.vNextUxBuildAmountBands_(null, {})[0].available, false,
+    'S/M/L must not fall back to a fixed yen amount when client scale is unknown');
 
   const issue = sandbox.vNextUxStateIssue_({
     state: 'READY_TO_RUN',
@@ -396,4 +404,11 @@ async function testEmployeeUxContracts() {
   const planHtml = await readFile(path.join(sourceDir, 'VNext_PlanSidebar.html'), 'utf8');
   assert.match(planHtml, /id="adoptedAmount"/, 'owner should enter the adopted forecast amount, not calculate a delta');
   assert.doesNotMatch(planHtml, /class="hero"/, 'plan sidebar must avoid decorative hero cards');
+  const inputHtml = await readFile(path.join(sourceDir, 'VNext_InputSidebar.html'), 'utf8');
+  assert.doesNotMatch(inputHtml, /id="previewButton"|内容を確認/,
+    'employee evidence input must save in one server-validated operation');
+  assert.match(inputHtml, /vNextSaveEvidence\(payload\(\)\)/);
+  const coreSource = await readFile(path.join(sourceDir, 'Client_Core.js'), 'utf8');
+  assert.match(coreSource, /target_start_month[\s\S]*setNumberFormat\('@'\)/,
+    'evidence month columns must be formatted as text before append');
 }

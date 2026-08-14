@@ -8,6 +8,7 @@ var VNEXT_CLIENT_RUNTIME_FILE_TYPES_ = Object.freeze({
   Client_Bridge: 'SERVER_JS',
   Client_Core: 'SERVER_JS',
   Client_Entry: 'SERVER_JS',
+  VNext_GuidanceSidebar: 'HTML',
   VNext_HelpSidebar: 'HTML',
   VNext_InputSidebar: 'HTML',
   VNext_PlanSidebar: 'HTML',
@@ -35,6 +36,7 @@ var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   VNext_ClientRuntimeProvisioning: 'SERVER_JS',
   VNext_Core: 'SERVER_JS',
   VNext_Engine: 'SERVER_JS',
+  VNext_GuidanceSidebar: 'HTML',
   VNext_HelpSidebar: 'HTML',
   VNext_InputSidebar: 'HTML',
   VNext_PlanSidebar: 'HTML',
@@ -383,7 +385,7 @@ function vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expec
 function vNextClientRuntimeValidateFiles_(files) {
   var expectedNames = Object.keys(VNEXT_CLIENT_RUNTIME_FILE_TYPES_);
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
-    throw new Error('Client runtime must contain exactly eight client files and one manifest.');
+    throw new Error('Client runtime must contain exactly ' + (expectedNames.length - 1) + ' client files and one manifest.');
   }
   var byName = {};
   files.forEach(function (file) {

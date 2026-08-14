@@ -61,14 +61,14 @@ function testValidCopy() {
   assert.equal(result.sourceScriptId, sourceId);
   assert.equal(result.targetScriptId, targetId);
   assert.equal(result.bundleSha256, bundle.sha256);
-  assert.equal(result.fileCount, 9);
+  assert.equal(result.fileCount, 10);
   assert.equal(result.updateResult.verificationSource, 'UPDATE_RESPONSE');
   assert.equal(calls.length, 2);
   assert.equal(calls[0].apiPath, `/projects/${encodeURIComponent(sourceId)}/content`);
   assert.equal(calls[0].method, 'get');
   assert.equal(
     JSON.stringify(calls[1].body.files.map(file => file.name)),
-    JSON.stringify(['Client_Bridge', 'Client_Core', 'Client_Entry', 'VNext_HelpSidebar', 'VNext_InputSidebar', 'VNext_PlanSidebar', 'VNext_ReviewSidebar', 'VNext_UX', 'appsscript'])
+    JSON.stringify(['Client_Bridge', 'Client_Core', 'Client_Entry', 'VNext_GuidanceSidebar', 'VNext_HelpSidebar', 'VNext_InputSidebar', 'VNext_PlanSidebar', 'VNext_ReviewSidebar', 'VNext_UX', 'appsscript'])
   );
 }
 
@@ -91,7 +91,7 @@ function testIdentityGuards() {
 }
 
 function testContentGuards() {
-  assertSourceRejected([...clone(bundle.files), { name: 'Unexpected', type: 'SERVER_JS', source: '' }], bundle.sha256, /exactly eight client files/);
+  assertSourceRejected([...clone(bundle.files), { name: 'Unexpected', type: 'SERVER_JS', source: '' }], bundle.sha256, /exactly 9 client files/);
 
   const wrongType = clone(bundle.files);
   wrongType.find(file => file.name === 'Client_Core').type = 'HTML';

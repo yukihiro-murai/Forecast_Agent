@@ -118,7 +118,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.1.0',
+    version: 'vnext-client-1.2.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -129,10 +129,10 @@ async function checkClientBundleBoundary() {
     generatedBundle,
     'The GAS provisioning bundle must exactly match the verified client runtime build'
   );
-  assert.equal(bundle.files.length, 9);
+  assert.equal(bundle.files.length, 10);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
-    ['Client_Bridge', 'Client_Core', 'Client_Entry', 'VNext_HelpSidebar', 'VNext_InputSidebar', 'VNext_PlanSidebar', 'VNext_ReviewSidebar', 'VNext_UX', 'appsscript'].sort()
+    ['Client_Bridge', 'Client_Core', 'Client_Entry', 'VNext_GuidanceSidebar', 'VNext_HelpSidebar', 'VNext_InputSidebar', 'VNext_PlanSidebar', 'VNext_ReviewSidebar', 'VNext_UX', 'appsscript'].sort()
   );
   const joined = bundle.files.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0');
   assert.equal(createHash('sha256').update(joined).digest('hex'), bundle.sha256);
@@ -159,7 +159,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.2.0');
+  assert.equal(bundle.version, 'vnext-portal-1.3.0');
   assert.equal(bundle.files.length, 4);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),

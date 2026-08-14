@@ -19,6 +19,7 @@ if (!update) {
 const files = [
   ['VNext_UX.js', 'VNext_UX.js'],
   ['VNext_InputSidebar.html', 'VNext_InputSidebar.html'],
+  ['VNext_GuidanceSidebar.html', 'VNext_GuidanceSidebar.html'],
   ['VNext_HelpSidebar.html', 'VNext_HelpSidebar.html'],
   ['VNext_PlanSidebar.html', 'VNext_PlanSidebar.html'],
   ['VNext_ReviewSidebar.html', 'VNext_ReviewSidebar.html']

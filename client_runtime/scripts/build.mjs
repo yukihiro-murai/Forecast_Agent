@@ -54,7 +54,7 @@ for (const name of (await readdir(distDir)).sort()) {
   });
 }
 const bundleHash = sha256(files.map((file) => `${file.name}\0${file.type}\0${file.source}`).join('\0'));
-const bundle = { version: 'vnext-client-1.1.0', sha256: bundleHash, files };
+const bundle = { version: 'vnext-client-1.2.0', sha256: bundleHash, files };
 await writeFile(path.join(generatedDir, 'client-runtime-bundle.json'), `${JSON.stringify(bundle, null, 2)}\n`, 'utf8');
 
 const emitArg = readArg('--emit-gas-bundle');

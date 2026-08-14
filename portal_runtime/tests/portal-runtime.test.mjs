@@ -270,7 +270,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.2.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.3.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -346,6 +346,8 @@ async function testStaticUxContracts() {
   assert.match(core, /CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG'/);
   assert.doesNotMatch(ux, /\.merge\(/,
     'Portal view rendering must not create merged cells');
+  assert.doesNotMatch(ux, /\.setNote\(/,
+    'Portal views must not leave hidden note popups or stale memo markers');
   assert.match(ux, /var headers = \['状態', 'クライアント', '年度', '次の案内', '更新', '開く'\]/,
     'Home must expose the compact six-column employee view');
   assert.match(ux, /var headers = \['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'\]/,

@@ -13,7 +13,7 @@ const targetDir = directoryArg ? path.resolve(process.cwd(), directoryArg) : pat
 
 const expectedFiles = [
   'Client_Entry.js', 'Client_Core.js', 'Client_Bridge.js', 'VNext_UX.js',
-  'VNext_InputSidebar.html', 'VNext_HelpSidebar.html', 'VNext_PlanSidebar.html',
+  'VNext_InputSidebar.html', 'VNext_GuidanceSidebar.html', 'VNext_HelpSidebar.html', 'VNext_PlanSidebar.html',
   'VNext_ReviewSidebar.html', 'appsscript.json'
 ].sort();
 
@@ -61,8 +61,11 @@ const requiredFunctions = [
 ];
 const missingFunctions = requiredFunctions.filter((name) => !serverFunctions.has(name));
 if (missingFunctions.length) throw new Error(`必要なserver functionがありません: ${missingFunctions.join(', ')}`);
-if (!/assignScript\(['"]vNextOpenCurrentAction['"]\)/.test(contents['VNext_UX.js'])) {
-  throw new Error('ホームの主操作にclick可能なOverGridImage script assignmentがありません。');
+if (/insertImage\(|assignScript\(/.test(contents['VNext_UX.js'])) {
+  throw new Error('ホームに壊れやすい画像ボタンを置かないでください。');
+}
+if (!/vNextGoHomeAndShowGuidance/.test(contents['VNext_UX.js']) || !contents['VNext_GuidanceSidebar.html']) {
+  throw new Error('ホームから再表示できる状態別案内サイドバーがありません。');
 }
 if (!/officialVintageId:\s*String\(evaluation\.official_vintage_id/.test(contents['VNext_UX.js']) ||
     !/evaluationId:\s*String\(evaluation\.evaluation_id/.test(contents['VNext_UX.js'])) {

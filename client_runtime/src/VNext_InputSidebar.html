@@ -26,12 +26,10 @@
     .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .hidden { display:none !important; }
     .band-help { margin-top:7px; padding:9px; border-radius:6px; background:var(--soft); font-size:12px; }
-    .preview { margin-top:14px; padding:12px; border-left:4px solid var(--blue); background:#e8f0fe; border-radius:4px; }
-    .preview strong { display:block; margin-bottom:4px; }
     .warning { color:#8a4f00; margin-top:5px; }
     .error { margin:10px 0; padding:10px; border-radius:6px; color:var(--red); background:#fce8e6; }
     .success { margin:10px 0; padding:12px; border-radius:6px; color:#137333; background:#e6f4ea; font-weight:700; }
-    .actions { position:sticky; bottom:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:18px -16px -16px; padding:12px 16px 16px; background:#fff; border-top:1px solid var(--line); }
+    .actions { position:sticky; bottom:0; display:grid; grid-template-columns:1fr; gap:8px; margin:18px -16px -16px; padding:12px 16px 16px; background:#fff; border-top:1px solid var(--line); }
     button { min-height:42px; border:0; border-radius:6px; padding:10px 12px; font-weight:700; cursor:pointer; }
     button.primary { color:#fff; background:var(--blue); }
     button.secondary { color:var(--blue); background:#fff; border:1px solid var(--blue); }
@@ -74,7 +72,7 @@
         </label>
         <label id="exactWrap" class="field hidden">影響額（円）<input id="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="例：30000000"></label>
         <label id="bandWrap" class="field hidden">影響の大きさ
-          <select id="amountBand"><option value="">選択してください</option><option value="small">小</option><option value="medium">中</option><option value="large">大</option></select>
+          <select id="amountBand"><option value="">選択してください</option></select>
           <div id="bandHelp" class="band-help"></div>
         </label>
         <label class="field">根拠<input id="evidenceChange" maxlength="1000" placeholder="例：8月5日の定例会で顧客担当者が更新方針を確認"></label>
@@ -88,7 +86,6 @@
       </section>
 
       <div id="message" role="alert" aria-live="assertive" tabindex="-1"></div>
-      <div id="preview" class="preview hidden" aria-live="polite"><strong>保存される内容</strong><div id="previewSummary"></div><div id="previewImpact"></div><div id="previewWarning" class="warning"></div></div>
     </form>
 
     <section id="override" class="override hidden">
@@ -99,22 +96,17 @@
     </section>
 
     <div class="actions">
-      <button id="previewButton" type="button" class="secondary">内容を確認</button>
-      <button id="saveButton" type="button" class="primary" disabled>この内容で保存</button>
+      <button id="saveButton" type="button" class="primary">この内容で保存</button>
     </div>
   </main>
 
   <script>
     let model = null;
-    let previewHash = '';
     const $ = id => document.getElementById(id);
     const money = value => `${Number(value) < 0 ? '-' : ''}¥${Math.abs(Math.round(Number(value) || 0)).toLocaleString('ja-JP')}`;
 
-    function setBusy(isBusy, label) {
-      $('previewButton').disabled = isBusy;
-      $('saveButton').disabled = isBusy || !previewHash;
-      if (label) $('previewButton').textContent = label;
-      else $('previewButton').textContent = '内容を確認';
+    function setBusy(isBusy) {
+      $('saveButton').disabled = isBusy;
     }
     function showError(error) {
       setBusy(false);
@@ -125,10 +117,7 @@
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
     }
-    function invalidatePreview() {
-      previewHash = '';
-      $('preview').classList.add('hidden');
-      $('saveButton').disabled = true;
+    function clearMessage() {
       $('message').innerHTML = '';
     }
     function selectedType() {
@@ -147,8 +136,7 @@
         amount: $('amount').value,
         amountBand: $('amountBand').value,
         evidence: type === 'change' ? $('evidenceChange').value : $('evidenceNote').value,
-        confidence: $('confidence').value,
-        previewHash
+        confidence: $('confidence').value
       };
     }
     function updateConditionalFields() {
@@ -162,7 +150,7 @@
       ['target','changeKind','period','direction','amountMode','evidenceChange','confidence'].forEach(id => { $(id).required = type === 'change'; });
       $('amount').required = type === 'change' && mode === 'exact';
       $('amountBand').required = type === 'change' && mode === 'band';
-      invalidatePreview();
+      clearMessage();
     }
     function render(data) {
       model = data;
@@ -170,7 +158,12 @@
       $('app').classList.remove('hidden');
       $('bookMeta').textContent = `${data.clientName}｜FY${data.fiscalYear}｜実績基準日 ${data.cutoff || '未設定'}`;
       $('state').textContent = `${data.stateLabel}　／　${data.roleLabel}${data.stateNotice ? '　／　' + data.stateNotice.label : ''}`;
-      $('bandHelp').innerHTML = (data.amountBands || []).map(b => `<div><strong>${escapeHtml(b.label)}</strong>：${money(b.low)} ～ ${money(b.high)}</div>`).join('');
+      const bandSelect = $('amountBand');
+      const bands = data.amountBands || [];
+      bandSelect.innerHTML = '<option value="">選択してください</option>' + bands.map(b => `<option value="${escapeHtml(b.key)}" ${b.available ? '' : 'disabled'}>${escapeHtml(b.label)}</option>`).join('');
+      $('bandHelp').innerHTML = `<div><strong>${escapeHtml(data.amountBandBasis || '')}</strong></div>` + bands.map(b => b.available ? `<div>${escapeHtml(b.label)}：${money(b.low)} ～ ${money(b.high)}</div>` : '').join('');
+      const bandMode = $('amountMode').querySelector('option[value="band"]');
+      if (bandMode) bandMode.disabled = !bands.some(b => b.available);
       $('override').classList.toggle('hidden', !data.canOverrideInput);
       const previous = data.latestOwnEvidence;
       if (previous && previous.responseType) {
@@ -182,22 +175,10 @@
       }
       updateConditionalFields();
     }
-    function preview() {
-      invalidatePreview();
-      if (!$('evidenceForm').reportValidity()) return;
-      setBusy(true, '確認しています…');
-      google.script.run.withSuccessHandler(result => {
-        previewHash = result.previewHash;
-        $('previewSummary').textContent = result.summary;
-        $('previewImpact').textContent = `概算影響：${result.impactText}`;
-        $('previewWarning').textContent = result.warning || '';
-        $('preview').classList.remove('hidden');
-        $('saveButton').disabled = false;
-        setBusy(false);
-      }).withFailureHandler(showError).vNextPreviewEvidence(payload());
-    }
     function save() {
-      setBusy(true, '確認済み');
+      clearMessage();
+      if (!$('evidenceForm').reportValidity()) return;
+      setBusy(true);
       $('saveButton').textContent = '保存しています…';
       google.script.run.withSuccessHandler(result => {
         $('message').innerHTML = `<div class="success">${escapeHtml(result.message)}</div>`;
@@ -219,10 +200,9 @@
       }).withFailureHandler(error => { $('overrideButton').disabled = false; showError(error); }).vNextCloseInputAndProceed(reason);
     }
 
-    document.querySelectorAll('input,select,textarea').forEach(input => input.addEventListener('input', invalidatePreview));
+    document.querySelectorAll('input,select,textarea').forEach(input => input.addEventListener('input', clearMessage));
     document.querySelectorAll('input[name="responseType"]').forEach(input => input.addEventListener('change', updateConditionalFields));
     $('amountMode').addEventListener('change', updateConditionalFields);
-    $('previewButton').addEventListener('click', preview);
     $('saveButton').addEventListener('click', save);
     $('overrideButton').addEventListener('click', overrideInput);
     google.script.run.withSuccessHandler(render).withFailureHandler(error => {

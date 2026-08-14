@@ -4,7 +4,7 @@
  */
 
 var VNEXT_CLIENT_CORE = Object.freeze({
-  RUNTIME_VERSION: 'vnext-client-1.1.0',
+  RUNTIME_VERSION: 'vnext-client-1.2.0',
   SCHEMA_VERSION: 'vnext-schema-2',
   CONFIG_SHEET: 'VN_BOOK_CONFIG',
   REQUEST_SHEET: 'VN_CLIENT_REQUEST',
@@ -127,6 +127,16 @@ function vNextAppendRecords_(sheetName, records, options) {
         return headers.map(function (header) { return vNextClientCellValue_(item && item[header]); });
       });
       var firstRow = sheet.getLastRow() + 1;
+      // Google Sheets otherwise coerces values such as "2027-04" into Date
+      // objects. These two columns are audit identifiers, not dates; keeping
+      // them as text preserves the canonical YYYY-MM contract end to end.
+      if (sheetName === 'EVIDENCE_EVENT') {
+        var startMonthColumn = headers.indexOf('target_start_month') + 1;
+        var endMonthColumn = headers.indexOf('target_end_month') + 1;
+        if (startMonthColumn > 0 && endMonthColumn === startMonthColumn + 1) {
+          sheet.getRange(firstRow, startMonthColumn, rows.length, 2).setNumberFormat('@');
+        }
+      }
       sheet.getRange(firstRow, 1, rows.length, headers.length).setValues(rows);
       return { appended: rows.length, firstRow: firstRow };
     };
@@ -234,6 +244,8 @@ function vNextGetBookContext_(options) {
       },
       canProceed: team.length > 0 && answered >= team.length,
       latestOwnEvidence: ownEvidence ? vNextClientEvidenceForView_(ownEvidence) : null,
+      annualSalesBaseline: Number(config.annual_sales_baseline || 0),
+      annualSalesBaselineBasis: String(config.annual_sales_baseline_basis || ''),
       version: {
         runtime: VNEXT_CLIENT_CORE.RUNTIME_VERSION,
         schema: String(meta.schema_version || config.schema_version || VNEXT_CLIENT_CORE.SCHEMA_VERSION),
