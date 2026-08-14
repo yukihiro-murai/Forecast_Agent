@@ -2181,6 +2181,48 @@ function vNextAdminAppendAiEvidence(request) {
   });
 }
 
+/**
+ * Rebuilds the employee-safe AI insight cache from Hub evidence. This is a
+ * derived presentation cache only; the append-only Hub EVIDENCE_EVENT remains
+ * authoritative and raw prompt/model metadata never leaves the Admin Hub.
+ */
+function vNextAdminRefreshClientAiInsightProjection(request) {
+  return vNextAdminGuard_('vNextAdminRefreshClientAiInsightProjection', function () {
+    const hub = vNextAdminRequireHub_();
+    const req = request && typeof request === 'object' ? request : {};
+    const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+    return vNextAdminWithScriptLock_('refresh-client-ai-insights', function () {
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry) throw new Error('Registered CLIENT book not found: ' + bookId);
+      return vNextAdminProjectAiInsightsToClient_(hub, registry, { asOf: req.asOf });
+    });
+  });
+}
+
+/** Admin editor fallback used to refresh already-completed Pilot research. */
+function vNextAdminRefreshAllAiInsightProjectionsForManualTest() {
+  return vNextAdminGuard_('vNextAdminRefreshAllAiInsightProjectionsForManualTest', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminWithScriptLock_('refresh-all-client-ai-insights', function () {
+      const bookIds = new Set(vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').filter(function (row) {
+        return String(row.evidence_type || '').toUpperCase().indexOf('AI_RESEARCH') === 0 &&
+          String(row.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
+      }).map(function (row) { return String(row.book_id || ''); }).filter(Boolean));
+      const projected = [];
+      bookIds.forEach(function (bookId) {
+        const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+          return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT' &&
+            String(row.status || '').toUpperCase() === 'ACTIVE';
+        });
+        if (registry) projected.push(vNextAdminProjectAiInsightsToClient_(hub, registry, {}));
+      });
+      return { ok: true, projectedBooks: projected.length, books: projected };
+    });
+  });
+}
+
 /** Read-only basis for the Admin AI rollback control. Raw prompts are not returned. */
 function vNextAdminGetAiRollbackBasis(request) {
   return vNextAdminGuard_('vNextAdminGetAiRollbackBasis', function () {
@@ -7743,7 +7785,12 @@ function vNextAdminExecuteJob_(hub, job) {
           effectiveAsOf: String(payload.asOf || payload.effectiveAsOf || '')
         }));
       });
-      return { findings: list.length, appended: appended.length, evidenceIds: appended.map(function (row) { return row.evidenceId; }) };
+      const publicProjection = vNextAdminProjectAiInsightsToClient_(hub, registry, {});
+      return {
+        findings: list.length, appended: appended.length,
+        evidenceIds: appended.map(function (row) { return row.evidenceId; }),
+        publicInsights: publicProjection.insightCount
+      };
     }
     case 'MIGRATION':
       return vNextAdminExecuteMigrationSkeleton_(hub, job, payload);
@@ -8326,10 +8373,85 @@ function vNextAdminAppendAiEvidenceInternal_(hub, request) {
     applied_amount: appliedAmount, cap_applied: capApplied ? 1 : 0
   };
   vNextAdminAppendCoreRowsNoLock_(hub, 'EVIDENCE_EVENT', [record]);
-  // Raw prompt/model/research metadata remains Admin-Hub-only. Client books receive
-  // only the engine's sanitized FORECAST_RUN evidence summary.
+  // Raw prompt/model/research metadata remains Admin-Hub-only. Employee books
+  // receive only a separately sanitized derived cache.
   vNextAdminWriteAudit_(hub, 'APPEND_AI_EVIDENCE', 'EVIDENCE', evidenceId, 'SUCCESS', metadata);
   return { reused: false, evidenceId: evidenceId, appliedAmount: appliedAmount, capApplied: capApplied, capRate: capRate };
+}
+
+function vNextAdminProjectAiInsightsToClient_(hub, registry, options) {
+  const opt = options && typeof options === 'object' ? options : {};
+  const bookId = vNextAdminRequiredText_(registry && registry.book_id, 'registry.book_id');
+  const spreadsheetId = vNextAdminRequiredText_(registry && registry.spreadsheet_id, 'registry.spreadsheet_id');
+  const client = SpreadsheetApp.openById(spreadsheetId);
+  const routing = vNextAdminReadKeyValueSheet_(client, VN_ADMIN_BOOK_CONFIG_SHEET);
+  if (String(routing.mode || '').toUpperCase() !== 'CLIENT' || String(routing.book_id || '') !== bookId ||
+      String(routing.client_id || '') !== String(registry.client_id || '') ||
+      Number(routing.fiscal_year || 0) !== Number(registry.fiscal_year || 0)) {
+    throw new Error('Client identity does not match BOOK_REGISTRY for AI insight projection.');
+  }
+  const now = new Date();
+  const asOf = vNextAdminText_(opt.asOf) || Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const activeRows = vNextAdminSelectActiveAiEvidenceAt_(
+    vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT'), bookId, asOf
+  );
+  const insights = activeRows.map(vNextAdminPublicAiInsightFromRow_).filter(Boolean).sort(function (a, b) {
+    const useScore = { APPLY: 2, INSIGHT_ONLY: 1 };
+    const relevanceScore = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const qualityScore = { A: 4, B: 3, C: 2, D: 1 };
+    return (useScore[b.forecastUse] || 0) - (useScore[a.forecastUse] || 0) ||
+      (relevanceScore[b.salesRelevance] || 0) - (relevanceScore[a.salesRelevance] || 0) ||
+      (qualityScore[b.evidenceQuality] || 0) - (qualityScore[a.evidenceQuality] || 0) ||
+      String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''));
+  }).slice(0, 5);
+  const generatedAt = now.toISOString();
+  const projection = {
+    schemaVersion: 'vnext-public-ai-insights-1',
+    bookId: bookId,
+    generatedAt: generatedAt,
+    insights: insights
+  };
+  vNextAdminWriteBookConfig_(client, {
+    public_ai_insights_schema_version: projection.schemaVersion,
+    public_ai_insights_json: vNextAdminCanonicalJson_(projection),
+    public_ai_insights_updated_at: generatedAt
+  });
+  vNextAdminProtectClientInternalSheets_(client, [VN_ADMIN_BOOK_CONFIG_SHEET]);
+  vNextAdminWriteAudit_(hub, 'PROJECT_PUBLIC_AI_INSIGHTS', 'BOOK', bookId, 'SUCCESS', {
+    insightCount: insights.length, clientSpreadsheetId: spreadsheetId,
+    schemaVersion: projection.schemaVersion, generatedAt: generatedAt
+  });
+  return { bookId: bookId, spreadsheetId: spreadsheetId, insightCount: insights.length, generatedAt: generatedAt };
+}
+
+function vNextAdminPublicAiInsightFromRow_(row) {
+  const metadata = vNextAdminParseJson_(row && row.evidence_text, {});
+  const summary = String(metadata.summary || row && row.target || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 280);
+  const sourceUrl = String(row && row.source_url || metadata.sourceUrl || '').trim();
+  if (!summary || !/^https?:\/\//i.test(sourceUrl)) return null;
+  const forecastUse = String(metadata.forecastUse || (Number(row && row.applied_amount || 0) ? 'APPLY' : 'INSIGHT_ONLY')).toUpperCase();
+  const direction = String(row && row.direction || 'NEUTRAL').toUpperCase();
+  const appliedAmount = Math.abs(Number(row && (row.applied_amount || row.amount_mid) || 0));
+  return {
+    insightId: 'PUB-' + vNextAdminSha256_(String(row && row.evidence_id || '')).slice(0, 20).toUpperCase(),
+    target: String(row && row.target || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 120),
+    direction: ['UP', 'DOWN', 'NEUTRAL'].indexOf(direction) >= 0 ? direction : 'NEUTRAL',
+    summary: summary,
+    citationTitle: String(metadata.citationTitle || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 160),
+    sourceUrl: sourceUrl.slice(0, 2000),
+    sourceDate: String(row && row.source_date || metadata.sourceDate || '').slice(0, 10),
+    appliedAmount: appliedAmount,
+    evidenceQuality: String(row && row.evidence_quality || metadata.evidenceQuality || '').toUpperCase().slice(0, 20),
+    capApplied: Number(row && row.cap_applied || 0) === 1,
+    researchAxis: String(metadata.researchAxis || 'ALTERNATIVE_SIGNALS').toUpperCase().slice(0, 40),
+    signalType: String(metadata.signalType || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 80),
+    sourceStrength: String(metadata.sourceStrength || '').toUpperCase().slice(0, 40),
+    forecastUse: ['APPLY', 'INSIGHT_ONLY'].indexOf(forecastUse) >= 0 ? forecastUse : 'INSIGHT_ONLY',
+    salesRelevance: String(metadata.salesRelevance || '').toUpperCase().slice(0, 20),
+    humanQuestion: String(metadata.humanQuestion || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 180),
+    projectionStatus: forecastUse === 'APPLY' ? 'PENDING_FORECAST_REFRESH' : 'INSIGHT_ONLY',
+    publishedAt: String(row && row.created_at || '').slice(0, 30)
+  };
 }
 
 function vNextAdminAiEvidenceActiveAt_(row, bookId, effectiveAsOf, supersededIds) {

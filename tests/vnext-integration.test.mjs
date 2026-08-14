@@ -108,7 +108,7 @@ async function checkEmployeeResearchUxContracts() {
   const sandbox = gasSandbox();
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_UX.js'), 'utf8'), sandbox, { filename: 'VNext_UX.js' });
-  const forecast = sandbox.vNextUxPublicForecast_({
+  const rawForecast = {
     runId: 'RUN-UX',
     layers: {
       historyBaseline: 100, commitmentDelta: 10, referenceDelta: 5,
@@ -126,12 +126,39 @@ async function checkEmployeeResearchUxContracts() {
         humanQuestion: '予算執行部門を確認する', sourceUrl: 'https://example.com/dx'
       }]
     }
-  });
+  };
+  const forecast = sandbox.vNextUxPublicForecast_(rawForecast);
   assert.equal(forecast.layerBreakdown.rows.length, 7);
   assert.equal(forecast.layerBreakdown.checkTotal, 112,
     'The employee layer view must reconcile exactly to the system recommendation');
   assert.equal(forecast.aiEvidence[0].axisLabel, 'DX・業務変革');
   assert.equal(forecast.aiEvidence[0].useLabel, '担当者向け参考');
+
+  const projection = {
+    schemaVersion: 'vnext-public-ai-insights-1', bookId: 'BOOK-UX', generatedAt: '2026-08-14T10:00:00Z',
+    insights: [{
+      target: '日本法人', researchAxis: 'FINANCIAL_CAPACITY', forecastUse: 'INSIGHT_ONLY',
+      projectionStatus: 'INSIGHT_ONLY', summary: '公開情報から投資余力を確認',
+      humanQuestion: '日本向け予算の配分を確認する', sourceUrl: 'https://example.com/public',
+      sourceDate: '2026-08-14', evidenceQuality: 'A'
+    }]
+  };
+  sandbox.SpreadsheetApp = {
+    getActiveSpreadsheet: () => ({
+      getSheetByName: () => ({
+        getLastRow: () => 2,
+        getDataRange: () => ({ getValues: () => [['key', 'value'], ['public_ai_insights_json', JSON.stringify(projection)]] })
+      })
+    })
+  };
+  const projectedForecast = sandbox.vNextUxForecastForView_({ bookId: 'BOOK-UX' }, Object.assign({}, rawForecast, {
+    evidenceSummary: Object.assign({}, rawForecast.evidenceSummary, { aiUnavailable: true })
+  }));
+  assert.equal(projectedForecast.systemRecommended, 112, 'public AI insights must never change the forecast amount');
+  assert.equal(projectedForecast.aiEvidence.length, 2);
+  assert.equal(projectedForecast.aiEvidence[1].useLabel, '担当者向け参考（予測額には未反映）');
+  assert.equal(projectedForecast.nextInformation.includes('日本向け予算の配分を確認する'), true);
+  assert.match(projectedForecast.warnings.join(' '), /現在の予測額は変更していません/);
 
   const guidance = await readFile(path.join(root, 'VNext_GuidanceSidebar.html'), 'utf8');
   assert.match(guidance, /data-panel="layers"/);
@@ -143,6 +170,38 @@ async function checkEmployeeResearchUxContracts() {
   assert.equal(/内容を確認/.test(plan), false, 'Plan submission must be one-step');
   assert.equal(/内容を確認/.test(review), false, 'Review save must be one-step');
   assert.equal(/内容を確認/.test(input), false, 'Evidence save must be one-step');
+
+  const admin = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  assert.match(admin, /function vNextAdminProjectAiInsightsToClient_/);
+  assert.match(admin, /public_ai_insights_json/);
+  assert.match(admin, /const publicProjection = vNextAdminProjectAiInsightsToClient_/,
+    'a successful standalone AI job must refresh the employee-safe projection');
+  const sanitizer = admin.slice(
+    admin.indexOf('function vNextAdminPublicAiInsightFromRow_'),
+    admin.indexOf('function vNextAdminAiEvidenceActiveAt_')
+  );
+  assert.equal(/aiModel|promptVersion|ruleVersion|parentRequestId/.test(sanitizer), false,
+    'employee projection must not expose model, prompt, rule, or request metadata');
+  const adminSandbox = {
+    vNextAdminParseJson_: value => JSON.parse(value || '{}'),
+    vNextAdminSha256_: value => createHash('sha256').update(String(value), 'utf8').digest('hex')
+  };
+  vm.createContext(adminSandbox);
+  vm.runInContext(sanitizer, adminSandbox);
+  const safeInsight = adminSandbox.vNextAdminPublicAiInsightFromRow_({
+    evidence_id: 'AI-1', target: '日本法人', direction: 'NEUTRAL', source_url: 'https://example.com/source',
+    source_date: '2026-08-14', evidence_quality: 'A', applied_amount: 0, cap_applied: 0,
+    created_at: '2026-08-14T10:00:00Z', evidence_text: JSON.stringify({
+      summary: '公開情報の要約', citationTitle: '一次情報', researchAxis: 'PRODUCT_MARKET',
+      signalType: '製品上市', sourceStrength: 'PRIMARY_OFFICIAL', forecastUse: 'INSIGHT_ONLY',
+      salesRelevance: 'MEDIUM', humanQuestion: '日本向け実行予算を確認する', aiModel: 'secret-model',
+      promptVersion: 'secret-prompt', parentRequestId: 'secret-request'
+    })
+  });
+  assert.equal(safeInsight.forecastUse, 'INSIGHT_ONLY');
+  assert.equal(safeInsight.appliedAmount, 0);
+  assert.equal(safeInsight.citationTitle, '一次情報');
+  assert.equal('aiModel' in safeInsight || 'promptVersion' in safeInsight || 'parentRequestId' in safeInsight, false);
 }
 
 async function checkClientBundleBoundary() {
@@ -161,7 +220,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.3.0',
+    version: 'vnext-client-1.3.1',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),

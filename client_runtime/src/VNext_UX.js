@@ -9,6 +9,7 @@ var VNEXT_UX_CONFIG_ = Object.freeze({
   PLAN_SHEET: '2_予測と計画',
   REVIEW_SHEET: '3_振り返り',
   META_SHEET: 'BOOK_META',
+  CONFIG_SHEET: 'VN_BOOK_CONFIG',
   INPUT_HTML: 'VNext_InputSidebar',
   GUIDANCE_HTML: 'VNext_GuidanceSidebar',
   HELP_HTML: 'VNext_HelpSidebar',
@@ -381,7 +382,7 @@ function vNextGetPlanEditorModel() {
     vNextUxAssertPlanEditable_(context);
     var rawForecast = vNextUxGetLatestForecast_(context);
     if (!rawForecast) throw new Error('提出に使用できる予測がありません。');
-    var forecast = vNextUxPublicForecast_(rawForecast);
+    var forecast = vNextUxForecastForView_(context, rawForecast);
     var plan = vNextUxGetLatestPlan_(context.bookId);
     var allocation = vNextUxParseJsonArray_(plan && plan.uplift_allocation_json);
     var monthValues = vNextUxForecastMonthValues_(forecast.months);
@@ -522,7 +523,7 @@ function vNextGetClientViewModel() {
         : '年間売上基準を確認できないため、金額入力を選んでください。',
       primaryAction: action,
       stateNotice: vNextUxStateIssue_(context),
-      forecast: vNextUxPublicForecast_(forecast),
+      forecast: vNextUxForecastForView_(context, forecast),
       version: context.version || ''
     };
   } catch (err) {
@@ -1321,6 +1322,86 @@ function vNextUxPublicForecast_(raw) {
   };
 }
 
+/**
+ * Adds the Admin-sanitized external-research cache to the current forecast for
+ * presentation only. It never changes aiDelta, p50, or any persisted plan.
+ */
+function vNextUxForecastForView_(context, rawForecast) {
+  var forecast = vNextUxPublicForecast_(rawForecast);
+  var projection = vNextUxReadPublicAiInsightProjection_(context);
+  if (!projection.insights.length) return forecast;
+  var projected = projection.insights.map(function(item) {
+    var normalized = vNextUxNormalizeAiInsight_(item);
+    normalized.publicProjection = true;
+    normalized.projectionStatus = String(item.projectionStatus || item.projection_status || 'INSIGHT_ONLY').toUpperCase();
+    normalized.publishedAt = String(item.publishedAt || item.published_at || '');
+    if (normalized.projectionStatus === 'PENDING_FORECAST_REFRESH' && normalized.forecastUse === 'APPLY') {
+      normalized.useLabel = '次回予測で反映予定';
+    } else if (normalized.forecastUse === 'INSIGHT_ONLY') {
+      normalized.useLabel = '担当者向け参考（予測額には未反映）';
+    }
+    return normalized;
+  });
+  var seen = {};
+  forecast.aiEvidence = forecast.aiEvidence.concat(projected).filter(function(item) {
+    var key = [String(item.sourceUrl || ''), String(item.summary || ''), String(item.target || '')].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).slice(0, 5);
+  var questions = projected.map(function(item) { return item.humanQuestion; }).filter(Boolean);
+  forecast.nextInformation = forecast.nextInformation.concat(questions).filter(function(value, index, values) {
+    return value && values.indexOf(value) === index;
+  }).slice(0, 3);
+  if (forecast.layerBreakdown) forecast.layerBreakdown.aiInsightCount = forecast.aiEvidence.length;
+  var hadUnavailable = forecast.warnings.some(function(message) {
+    return String(message || '').indexOf('AI調査を利用できなかった') >= 0;
+  });
+  if (hadUnavailable) {
+    forecast.warnings = forecast.warnings.filter(function(message) {
+      return String(message || '').indexOf('AI調査を利用できなかった') < 0;
+    });
+    forecast.warnings.push('予測実行後にAI追加調査が完了しました。下の' + projected.length + '件は担当者向け参考で、現在の予測額は変更していません。');
+  }
+  forecast.aiInsightProjectionUpdatedAt = projection.generatedAt;
+  return forecast;
+}
+
+function vNextUxReadPublicAiInsightProjection_(context) {
+  var empty = { schemaVersion: '', generatedAt: '', insights: [] };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss && ss.getSheetByName(VNEXT_UX_CONFIG_.CONFIG_SHEET || 'VN_BOOK_CONFIG');
+    if (!sheet || sheet.getLastRow() < 2) return empty;
+    var values = sheet.getDataRange().getValues();
+    var headers = values[0].map(function(value) { return String(value || '').trim().toLowerCase(); });
+    var keyColumn = headers.indexOf('key');
+    var valueColumn = headers.indexOf('value');
+    if (keyColumn < 0 || valueColumn < 0) return empty;
+    var raw = '';
+    values.slice(1).some(function(row) {
+      if (String(row[keyColumn] || '').trim() !== 'public_ai_insights_json') return false;
+      raw = String(row[valueColumn] || '');
+      return true;
+    });
+    if (!raw) return empty;
+    var parsed = JSON.parse(raw);
+    if (!parsed || parsed.schemaVersion !== 'vnext-public-ai-insights-1' ||
+        String(parsed.bookId || '') !== String(context && context.bookId || '') ||
+        !Array.isArray(parsed.insights)) return empty;
+    return {
+      schemaVersion: parsed.schemaVersion,
+      generatedAt: String(parsed.generatedAt || ''),
+      insights: parsed.insights.slice(0, 5).filter(function(item) {
+        return item && String(item.summary || '').trim() && /^https?:\/\//i.test(String(item.sourceUrl || ''));
+      })
+    };
+  } catch (error) {
+    Logger.log('vNextUxReadPublicAiInsightProjection_ warning: ' + vNextUxErrorText_(error));
+    return empty;
+  }
+}
+
 function vNextUxLayerBreakdown_(raw, layers, evidenceSummary, historyBaseline, humanDelta, aiDelta) {
   raw = raw || {};
   layers = layers || {};
@@ -1368,6 +1449,7 @@ function vNextUxNormalizeAiInsight_(item) {
   return {
     target: String(item.target || ''), direction: String(item.direction || 'NEUTRAL').toUpperCase(),
     summary: String(item.summary || ''), sourceUrl: String(item.sourceUrl || item.source_url || ''),
+    citationTitle: String(item.citationTitle || item.citation_title || ''),
     sourceDate: String(item.sourceDate || item.source_date || ''), appliedAmount: Number(item.appliedAmount || item.applied_amount || 0),
     evidenceQuality: String(item.evidenceQuality || item.evidence_quality || ''), capApplied: Boolean(item.capApplied || item.cap_applied),
     researchAxis: axis, axisLabel: axisLabels[axis] || '外部環境', signalType: String(item.signalType || item.signal_type || ''),
@@ -1495,7 +1577,7 @@ function vNextUxRemoveLegacyImages_(sheet) {
 function vNextUxRenderPlan_(context, rawForecast, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
   vNextUxResetViewSheet_(sheet, 60, 13);
-  var f = vNextUxPublicForecast_(rawForecast);
+  var f = vNextUxForecastForView_(context, rawForecast);
   sheet.getRange('A1').setValue('予測と年度計画').setFontSize(18).setFontWeight('bold');
   sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + '｜' + (VNEXT_UX_STATE_LABELS_[context.state] || context.state)).setFontColor('#5f6368');
   if (!rawForecast) {
@@ -1654,21 +1736,19 @@ function vNextUxWriteListBlock_(sheet, headerRange, startRow, startCol, width, t
 
 function vNextUxWriteAiEvidence_(sheet, items) {
   var evidence = (items || []).slice(0, 3);
-  vNextUxSetSectionHeader_(sheet, 47, 1, 13, 'AI調査で使用した主な外部情報');
+  vNextUxSetSectionHeader_(sheet, 47, 1, 13, 'AI調査の外部情報（詳細は案内サイドバー）');
   if (!evidence.length) {
-    sheet.getRange('A48').setValue('今回、予測へ直接反映したAI外部情報はありません。');
+    sheet.getRange('A48').setValue('現在表示できるAI外部情報はありません。');
     return;
   }
-  sheet.getRange('A48:G48').setValues([['要因', '方向', '適用額', '出典日', '情報品質', '上限', '出典']]).setFontWeight('bold').setBackground('#f8f9fa');
+  sheet.getRange('A48:G48').setValues([['観点', '対象', '外部情報', '扱い', '出典日', '担当者に確認', '出典']]).setFontWeight('bold').setBackground('#f8f9fa');
   evidence.forEach(function(item, index) {
     var row = 49 + index;
-    var direction = String(item.direction || '').toUpperCase() === 'DOWN' ? '減少' : (String(item.direction || '').toUpperCase() === 'UP' ? '増加' : '中立');
     sheet.getRange(row, 1, 1, 6).setValues([[
-      String(item.summary || item.target || '外部情報'), direction, Number(item.appliedAmount || 0),
-      item.sourceDate || '', item.evidenceQuality || '', item.capApplied ? '適用' : 'なし'
+      String(item.axisLabel || '外部環境'), String(item.target || ''), String(item.summary || '外部情報'),
+      String(item.useLabel || '担当者向け参考'), item.sourceDate || '', String(item.humanQuestion || '')
     ]]);
-    sheet.getRange(row, 1).setWrap(true);
-    sheet.getRange(row, 3).setNumberFormat('¥#,##0');
+    sheet.getRange(row, 1, 1, 6).setWrap(true).setVerticalAlignment('top');
     var linkRange = sheet.getRange(row, 7);
     var url = String(item.sourceUrl || '');
     if (/^https?:\/\//i.test(url)) {
