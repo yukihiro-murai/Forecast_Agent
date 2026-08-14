@@ -10,6 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const admin = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
 const ux = await readFile(path.join(root, 'VNext_UX.js'), 'utf8');
 const input = await readFile(path.join(root, 'VNext_InputSidebar.html'), 'utf8');
+const guidance = await readFile(path.join(root, 'VNext_GuidanceSidebar.html'), 'utf8');
 
 checkEvidenceMonthNormalization();
 checkSafeLivePilotUpgrade();
@@ -122,6 +123,13 @@ function checkEmployeeInteractionContract() {
   assert.equal((input.match(/id=["']saveButton["']/g) || []).length, 1);
   assert.match(ux, /vNextUxAutoOpenGuidance_/,
     'A state-aware sidebar must open automatically for passive employees');
+  assert.match(ux, /vNextUxOpenGuidanceShellQuietly_\(\);[\s\S]*vNextUxActivateSheet_/,
+    'Client open must show the lightweight guidance shell before any sheet work');
+  const openMenu = functionSource(ux, 'vNextBuildClientMenu_', 'vNextSetupClientExperience_');
+  assert.doesNotMatch(openMenu, /vNextUxGetBookContext_|vNextRefreshEmployeeViews/,
+    'Client onOpen must not block guidance on identity or full view rendering');
+  assert.match(guidance, /vNextRefreshEmployeeViews\(\)/,
+    'Guidance must refresh the visible sheets asynchronously after it is rendered');
   const scaleResolver = functionSource(admin, 'vNextAdminResolveClientAnnualSalesScale_',
     'vNextAdminRefreshClientAnnualSalesScale_');
   assert.match(scaleResolver, /asOf:\s*asOf \|\| new Date\(\)/,

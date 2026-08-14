@@ -51,6 +51,8 @@
       const waiting = data.primaryAction.key === 'WAIT';
       $('actionButton').hidden = waiting;
       $('actionButton').textContent = data.primaryAction.label;
+      // 案内を先に表示し、シート本体は後から非同期で最新化する。
+      google.script.run.withFailureHandler(() => {}).vNextRefreshEmployeeViews();
     }
     function fail(error) {
       $('loading').innerHTML = `<div class="error">${text(error && error.message ? error.message : error)}</div>`;

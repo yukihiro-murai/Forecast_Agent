@@ -65,15 +65,14 @@ function vNextBuildClientMenu_() {
       .addItem('予測と計画を見る', 'vNextOpenForecastPlanOrCurrentAction')
       .addItem('使い方・困ったとき', 'vNextOpenHelpSidebar')
       .addToUi();
-    // 初回openでも空白を見せない。描画失敗後もvNext menuは維持し、legacyへ戻さない。
+    // Simple onOpenでは利用者メールを取得できない場合がある。利用者情報や
+    // 画面再描画を待たずに案内の外枠を先に開き、中身はsidebar側から取得する。
+    // これにより、受け身の利用者にも次の操作を必ず提示し、openを軽く保つ。
+    vNextUxOpenGuidanceShellQuietly_();
     try {
-      var context = vNextUxGetBookContext_();
-      vNextUxAssertClientBook_(context);
-      vNextRefreshEmployeeViews(context);
       vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
-      vNextUxAutoOpenGuidance_(context);
     } catch (refreshError) {
-      Logger.log('vNextBuildClientMenu_ initial refresh warning: ' + vNextUxErrorText_(refreshError));
+      Logger.log('vNextBuildClientMenu_ initial activation warning: ' + vNextUxErrorText_(refreshError));
     }
     return true;
   } catch (err) {
@@ -119,23 +118,29 @@ function vNextGoHomeAndShowGuidance() {
 
 function vNextOpenGuidanceSidebar() {
   try {
-    var html = HtmlService.createTemplateFromFile(VNEXT_UX_CONFIG_.GUIDANCE_HTML).evaluate()
-      .setTitle('次にすること')
-      .setWidth(400);
-    SpreadsheetApp.getUi().showSidebar(html);
+    if (!vNextUxOpenGuidanceShellQuietly_()) throw new Error('案内を表示できませんでした。');
   } catch (err) {
     Logger.log('vNextOpenGuidanceSidebar error: ' + vNextUxErrorText_(err));
     vNextUxAlertError_('案内を開けませんでした。', err);
   }
 }
 
+function vNextUxOpenGuidanceShellQuietly_() {
+  try {
+    var html = HtmlService.createTemplateFromFile(VNEXT_UX_CONFIG_.GUIDANCE_HTML).evaluate()
+      .setTitle('次にすること')
+      .setWidth(400);
+    SpreadsheetApp.getUi().showSidebar(html);
+    return true;
+  } catch (error) {
+    Logger.log('vNextUxOpenGuidanceShellQuietly_ skipped: ' + vNextUxErrorText_(error));
+    return false;
+  }
+}
+
 function vNextUxAutoOpenGuidance_(context, forceGuidance) {
   try {
-    var model = vNextGetClientViewModel();
-    if (!forceGuidance && model.canInput && !(model.inputStatus && model.inputStatus.submitted)) {
-      vNextOpenInputSidebar();
-      return true;
-    }
+    // 最初は常に1つの案内だけを見せ、質問を突然並べない。
     vNextOpenGuidanceSidebar();
     return true;
   } catch (error) {

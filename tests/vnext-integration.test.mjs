@@ -118,7 +118,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.2.0',
+    version: 'vnext-client-1.2.1',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
