@@ -220,7 +220,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.3.1',
+    version: 'vnext-client-1.3.2',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -239,6 +239,13 @@ async function checkClientBundleBoundary() {
   const joined = bundle.files.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0');
   assert.equal(createHash('sha256').update(joined).digest('hex'), bundle.sha256);
   const source = bundle.files.map(file => file.source).join('\n');
+  const employeeSidebarSource = bundle.files
+    .filter(file => file.type === 'HTML')
+    .map(file => file.source).join('\n');
+  assert.equal(employeeSidebarSource.includes(String.raw`/^https?:\/\//i`), false,
+    'Apps Script HTML sidebars must not use a URL regex that is truncated by the HTML sandbox');
+  assert.match(employeeSidebarSource, /sourceUrl\.split\(':\'\)\[0\]\.toLowerCase\(\)/,
+    'Employee sidebars must validate citation schemes without the sandbox-unsafe URL regex');
   assert.match(source, /reason:\s*'forecast_requested:'\s*\+\s*requestId/,
     'The deployed client runtime must bind READY_TO_RUN>RUNNING to the exact requestId');
   for (const forbidden of [
