@@ -4112,7 +4112,7 @@ function vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release
     throw new Error('Client VN_SYSTEM_CONFIGのrelease pinが一致しません。');
   }
   vNextClientRuntimeAssertBoundParent_(String(registry.client_script_id || ''), String(client.getId()));
-  vNextClientRuntimeVerifyScriptContent_(
+  vNextClientRuntimeVerifyPinnedScriptContent_(
     vNextClientRuntimeGetContent_(String(registry.client_script_id || '')),
     String(registry.client_script_id || ''), String(release.client_runtime_sha256 || '')
   );
@@ -4181,7 +4181,7 @@ function vNextAdminAssertEmptyPilotReleaseAssets_(release) {
   if (vNextDetectBookMode_(template) !== 'TEMPLATE') throw new Error('Immutable Template modeが不正です。');
   vNextAdminAssertReleaseTemplateManifest_(release, template);
   vNextClientRuntimeAssertBoundParent_(scriptId, templateId);
-  vNextClientRuntimeVerifyScriptContent_(vNextClientRuntimeGetContent_(scriptId), scriptId,
+  vNextClientRuntimeVerifyPinnedScriptContent_(vNextClientRuntimeGetContent_(scriptId), scriptId,
     vNextAdminRequiredText_(release.client_runtime_sha256, 'release.client_runtime_sha256'));
   const config = vNextAdminReadKeyValueSheet_(template, VN_ADMIN_BOOK_CONFIG_SHEET);
   if (String(config.version || '') !== String(release.release_id || '') ||
@@ -5174,7 +5174,7 @@ function vNextAdminMenuUpdatePortalRuntime() {
  */
 function vNextAdminUpdateSharedPortalRuntimeForManualTest() {
   return vNextAdminUpdateSharedPortalRuntime({
-    reason: 'Pilot Admin approved Portal v1.2 runtime and simplified UI update'
+    reason: 'Pilot Admin approved Portal v1.3 runtime and simplified UI update'
   });
 }
 

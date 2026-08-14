@@ -61,6 +61,10 @@ function checkSafeLivePilotUpgrade() {
   assert.ok(apply.indexOf('vNextClientRuntimeCopyScriptContent_') <
     apply.indexOf('vNextAdminPatchRegistryByBookId_'),
   'runtime/UI/config/meta must be durable before the registry commit marker');
+  const sourcePins = functionSource(admin, 'vNextAdminAssertEmptyPilotPinnedRelease_',
+    'vNextAdminEmptyPilotRelease_');
+  assert.match(sourcePins, /vNextClientRuntimeVerifyPinnedScriptContent_/,
+    'the known failed Pilot may migrate only from an exact SHA-pinned historical runtime');
 }
 
 function checkEmployeeInteractionContract() {

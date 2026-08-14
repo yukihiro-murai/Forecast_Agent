@@ -46,7 +46,11 @@ function checkStaticSafetyContract() {
   assert.ok(apply.includes('vNextAdminAssertReleaseTemplateManifest_(release, client)'));
   const pins = functionSource('vNextAdminAssertEmptyPilotPinnedRelease_', 'vNextAdminEmptyPilotRelease_');
   assert.ok(pins.includes('vNextClientRuntimeAssertBoundParent_') &&
-    pins.includes('vNextClientRuntimeVerifyScriptContent_'));
+    pins.includes('vNextClientRuntimeVerifyPinnedScriptContent_'));
+  const assets = functionSource('vNextAdminAssertEmptyPilotReleaseAssets_',
+    'vNextAdminFreezeEmptyPilotClient_');
+  assert.ok(assets.includes('vNextClientRuntimeVerifyPinnedScriptContent_'),
+    'registered source Template releases must allow only exact hash-pinned historical runtimes');
 }
 
 function checkPartialHubMetaAppendRecovery() {

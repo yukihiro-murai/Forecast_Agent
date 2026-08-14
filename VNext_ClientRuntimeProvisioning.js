@@ -16,6 +16,20 @@ var VNEXT_CLIENT_RUNTIME_FILE_TYPES_ = Object.freeze({
   VNext_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
+// Immutable releases created before the guidance sidebar was introduced have
+// exactly this smaller shape. They may be read/copied only when their stored
+// release SHA-256 matches. Fresh releases still require the current contract.
+var VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_ = Object.freeze({
+  Client_Bridge: 'SERVER_JS',
+  Client_Core: 'SERVER_JS',
+  Client_Entry: 'SERVER_JS',
+  VNext_HelpSidebar: 'HTML',
+  VNext_InputSidebar: 'HTML',
+  VNext_PlanSidebar: 'HTML',
+  VNext_ReviewSidebar: 'HTML',
+  VNext_UX: 'SERVER_JS',
+  appsscript: 'JSON'
+});
 var VNEXT_CLIENT_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/script.container.ui',
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
@@ -139,7 +153,7 @@ function vNextClientRuntimeUpdateScriptContent_(scriptId) {
 /**
  * Copies a previously verified client-only runtime between two known Apps
  * Script projects. It never discovers IDs and never accepts content outside
- * the fixed eight-code-file plus manifest contract.
+ * the current contract or an exact, hash-pinned historical contract.
  */
 function vNextClientRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, expectedSha256) {
   try {
@@ -149,14 +163,14 @@ function vNextClientRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, ex
     if (sourceId === targetId) throw new Error('sourceScriptId and targetScriptId must be different.');
     var expectedSha = vNextClientRuntimeValidateSha256_(expectedSha256);
     var sourceContent = vNextClientRuntimeGetContent_(sourceId);
-    var verifiedSource = vNextClientRuntimeVerifyScriptContent_(sourceContent, sourceId, expectedSha);
+    var verifiedSource = vNextClientRuntimeVerifyPinnedScriptContent_(sourceContent, sourceId, expectedSha);
     var updateResult = vNextClientRuntimePutContent_(targetId, verifiedSource);
     if (updateResult && updateResult.scriptId && String(updateResult.scriptId) !== targetId) {
       throw new Error('Apps Script update response scriptId does not match targetScriptId.');
     }
     var resultHasContent = updateResult && Array.isArray(updateResult.files);
     var targetContent = resultHasContent ? updateResult : vNextClientRuntimeGetContent_(targetId);
-    var verifiedTarget = vNextClientRuntimeVerifyScriptContent_(targetContent, targetId, expectedSha);
+    var verifiedTarget = vNextClientRuntimeVerifyPinnedScriptContent_(targetContent, targetId, expectedSha);
     Logger.log('[vNext Client Runtime] content copied source=%s target=%s bundle=%s files=%s',
       sourceId, targetId, expectedSha, verifiedTarget.files.length);
     return {
@@ -380,6 +394,79 @@ function vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expec
     throw new Error('Client runtime content hash does not match expectedSha256.');
   }
   return { scriptId: String(expectedScriptId), sha256: digest, files: files };
+}
+
+/**
+ * Verifies an already registered immutable runtime. The current runtime is
+ * preferred; the legacy branch accepts only one historical allowlist and only
+ * with the exact SHA recorded by its release. Publishing and fresh
+ * provisioning continue to use vNextClientRuntimeVerifyScriptContent_.
+ */
+function vNextClientRuntimeVerifyPinnedScriptContent_(content, expectedScriptId, expectedSha256) {
+  if (!content || typeof content !== 'object' || !Array.isArray(content.files)) {
+    return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
+  }
+  if (content.scriptId && String(content.scriptId) !== String(expectedScriptId)) {
+    return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
+  }
+  if (!vNextClientRuntimeHasExactFileNames_(content.files, VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_)) {
+    return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
+  }
+  var files = vNextClientRuntimeValidateLegacyFiles_(content.files);
+  var digest = vNextClientRuntimeFilesSha256_(files);
+  if (digest !== String(expectedSha256 || '').toLowerCase()) {
+    throw new Error('Pinned legacy client runtime content hash does not match expectedSha256.');
+  }
+  return {
+    scriptId: String(expectedScriptId),
+    sha256: digest,
+    files: files,
+    historicalContract: true
+  };
+}
+
+function vNextClientRuntimeHasExactFileNames_(files, contract) {
+  var expectedNames = Object.keys(contract || {});
+  if (!Array.isArray(files) || files.length !== expectedNames.length) return false;
+  var seen = {};
+  for (var i = 0; i < files.length; i++) {
+    var name = String(files[i] && files[i].name || '');
+    if (!Object.prototype.hasOwnProperty.call(contract, name) || seen[name]) return false;
+    seen[name] = true;
+  }
+  return expectedNames.every(function (name) { return !!seen[name]; });
+}
+
+function vNextClientRuntimeValidateLegacyFiles_(files) {
+  var expectedNames = Object.keys(VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_);
+  if (!Array.isArray(files) || files.length !== expectedNames.length) {
+    throw new Error('Pinned legacy client runtime must contain exactly eight client files and one manifest.');
+  }
+  var byName = {};
+  files.forEach(function (file) {
+    if (!file || typeof file !== 'object') {
+      throw new Error('Pinned legacy client runtime contains an invalid file record.');
+    }
+    var name = String(file.name || '');
+    if (!Object.prototype.hasOwnProperty.call(VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_, name) || byName[name]) {
+      throw new Error('Pinned legacy client runtime file allowlist mismatch: ' + name);
+    }
+    var expectedType = VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_[name];
+    if (String(file.type || '') !== expectedType) {
+      throw new Error('Pinned legacy client runtime file type mismatch: ' + name);
+    }
+    if (typeof file.source !== 'string') {
+      throw new Error('Pinned legacy client runtime file source is invalid: ' + name);
+    }
+    byName[name] = { name: name, type: expectedType, source: file.source };
+  });
+  var ordered = expectedNames.map(function (name) {
+    if (!byName[name]) throw new Error('Pinned legacy client runtime file is missing: ' + name);
+    return byName[name];
+  });
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source);
+  vNextClientRuntimeRejectForbiddenContent_(ordered);
+  return ordered;
 }
 
 function vNextClientRuntimeValidateFiles_(files) {
