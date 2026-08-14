@@ -3,68 +3,64 @@
 <head>
   <base target="_top">
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    :root { --blue:#174ea6; --text:#202124; --muted:#5f6368; --line:#dadce0; --soft:#f8f9fa; }
-    * { box-sizing:border-box; }
-    body { margin:0; padding:20px; color:var(--text); font:14px/1.6 Arial,"Noto Sans JP",sans-serif; }
-    .eyebrow { color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.04em; }
-    h1 { margin:5px 0 8px; font-size:21px; line-height:1.35; }
-    .meta { color:var(--muted); font-size:12px; }
-    .card { margin-top:18px; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }
-    .card strong { display:block; margin-bottom:6px; font-size:16px; }
-    .card p { margin:0; }
-    button { width:100%; min-height:44px; margin-top:18px; border:0; border-radius:7px; padding:11px 14px; background:var(--blue); color:#fff; font:inherit; font-weight:700; cursor:pointer; }
-    button.secondary { background:#fff; color:var(--blue); border:1px solid var(--blue); }
-    button:disabled { opacity:.5; cursor:default; }
-    button:focus-visible { outline:3px solid #aecbfa; outline-offset:2px; }
-    .hint { margin-top:12px; color:var(--muted); font-size:12px; }
-    .error { padding:12px; border-radius:7px; background:#fce8e6; color:#b3261e; }
+    :root{--navy:#17324d;--blue:#1769aa;--teal:#167d76;--amber:#9a6700;--red:#b3261e;--text:#1f2933;--muted:#64717d;--line:#dce2e7;--soft:#f5f7f9;--blue-soft:#edf5fb;--teal-soft:#edf7f5;--amber-soft:#fff7e6}
+    *{box-sizing:border-box}body{margin:0;color:var(--text);background:#fff;font:14px/1.55 Arial,"Noto Sans JP",sans-serif}button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid #9fc5e8;outline-offset:2px}
+    .shell{padding:18px 18px 92px}.loading{padding:20px;color:var(--muted)}.eyebrow{color:var(--blue);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+    h1{margin:5px 0 3px;color:var(--navy);font-size:22px;line-height:1.3;letter-spacing:-.01em}h2{margin:0;color:var(--navy);font-size:15px;line-height:1.4}p{margin:0}.meta{color:var(--muted);font-size:12px}
+    .action-card{margin-top:16px;padding:15px;border:1px solid #c9d9e7;border-left:4px solid var(--blue);border-radius:9px;background:#fff}.action-label{font-weight:700;color:var(--navy);font-size:16px}.action-copy{margin-top:5px;color:#43515c}
+    .metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.metric{min-width:0;padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.metric.primary{grid-column:1/-1;background:var(--blue-soft);border-color:#c9dff0}.metric-label{color:var(--muted);font-size:11px}.metric-value{margin-top:2px;color:var(--navy);font-size:18px;font-weight:700;white-space:nowrap}.metric.primary .metric-value{font-size:24px}
+    .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:18px 0 12px;padding:3px;border-radius:8px;background:var(--soft)}.tab{min-height:36px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-weight:700;cursor:pointer}.tab.active{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(23,50,77,.12)}
+    .panel[hidden]{display:none}.section{margin-top:16px}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}.section-note{color:var(--muted);font-size:11px}
+    .notice{margin:10px 0;padding:11px 12px;border-radius:7px;background:var(--amber-soft);color:#704d00}.readiness{padding:13px;border:1px solid var(--line);border-radius:8px}.readiness strong{display:block;color:var(--navy)}.readiness .meta{margin-top:4px}
+    .list{display:grid;gap:7px}.list-item{position:relative;padding:9px 10px 9px 28px;border-bottom:1px solid #edf0f2}.list-item::before{content:attr(data-index);position:absolute;left:4px;top:10px;width:16px;height:16px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:10px;font-weight:700;text-align:center;line-height:16px}
+    .layers{display:grid;gap:9px}.layer{padding:11px;border:1px solid var(--line);border-radius:8px;background:#fff}.layer-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.layer-title{font-weight:700}.layer-desc{margin-top:2px;color:var(--muted);font-size:11px}.layer-amount{white-space:nowrap;color:var(--navy);font-weight:700}.layer-amount.negative{color:var(--red)}.bar{height:5px;margin-top:8px;border-radius:999px;background:#edf0f2;overflow:hidden}.bar>span{display:block;height:100%;border-radius:999px;background:var(--blue)}.layer[data-key="HUMAN"] .bar>span{background:var(--teal)}.layer[data-key="AI"] .bar>span{background:#6f42c1}.layer[data-negative="true"] .bar>span{background:var(--red)}
+    .equation{margin-top:11px;padding:12px;border-radius:8px;background:var(--navy);color:#fff}.equation-row{display:flex;justify-content:space-between;gap:8px}.equation small{display:block;margin-top:3px;color:#d7e2eb}
+    .insights{display:grid;gap:10px}.insight{padding:13px;border:1px solid var(--line);border-radius:9px;background:#fff}.badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}.badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;background:var(--soft);color:#52606b;font-size:10px;font-weight:700}.badge.apply{background:var(--teal-soft);color:#0f655f}.badge.reference{background:var(--amber-soft);color:#765000}.insight-title{font-weight:700;color:var(--navy)}.insight-summary{margin-top:5px}.question{margin-top:9px;padding:8px 9px;border-left:3px solid var(--teal);background:var(--teal-soft);font-size:12px}.source{display:flex;justify-content:space-between;gap:8px;margin-top:8px;color:var(--muted);font-size:11px}.source a{color:var(--blue);font-weight:700;text-decoration:none}.empty{padding:15px;border:1px dashed #cbd3d9;border-radius:8px;color:var(--muted);text-align:center}
+    .footer{position:fixed;left:0;right:0;bottom:0;padding:10px 16px 14px;border-top:1px solid var(--line);background:rgba(255,255,255,.97)}.primary{width:100%;min-height:44px;border:0;border-radius:7px;background:var(--blue);color:#fff;font-weight:700;cursor:pointer}.primary:disabled{opacity:.5;cursor:default}.close{display:block;width:100%;min-height:30px;margin-top:5px;border:0;background:transparent;color:var(--muted);cursor:pointer}.error{padding:12px;border-radius:7px;background:#fce8e6;color:var(--red)}
+    @media(max-width:340px){.shell{padding-left:14px;padding-right:14px}.metric-value{font-size:16px}.metric.primary .metric-value{font-size:21px}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
   </style>
 </head>
 <body>
-  <div id="loading" role="status">案内を確認しています…</div>
-  <main id="app" hidden>
+  <div id="loading" class="loading" role="status" aria-live="polite">年度計画を確認しています…</div>
+  <main id="app" class="shell" hidden>
     <div class="eyebrow" id="state"></div>
     <h1 id="title"></h1>
     <div class="meta" id="meta"></div>
-    <section class="card">
-      <strong id="actionLabel"></strong>
-      <p id="instruction"></p>
+    <section class="action-card" aria-labelledby="actionLabel"><div class="action-label" id="actionLabel"></div><p class="action-copy" id="instruction"></p></section>
+    <section id="forecastBlock" hidden>
+      <div class="metrics">
+        <div class="metric primary"><div class="metric-label">中心見込み</div><div class="metric-value" id="center"></div></div>
+        <div class="metric"><div class="metric-label">下振れ目安</div><div class="metric-value" id="p10"></div></div>
+        <div class="metric"><div class="metric-label">上振れ目安</div><div class="metric-value" id="p90"></div></div>
+      </div>
+      <nav class="tabs" aria-label="予測情報"><button class="tab active" type="button" data-panel="overview">要点</button><button class="tab" type="button" data-panel="layers">積み上げ</button><button class="tab" type="button" data-panel="insights">AI調査</button></nav>
+      <section id="panel-overview" class="panel">
+        <div id="warnings"></div>
+        <div class="section"><div class="section-head"><h2>根拠のそろい具合</h2></div><div id="readiness" class="readiness"></div></div>
+        <div class="section"><div class="section-head"><h2>今回の主な要因</h2></div><div id="drivers" class="list"></div></div>
+        <div class="section"><div class="section-head"><h2>次に確認するとよい情報</h2></div><div id="nextInfo" class="list"></div></div>
+      </section>
+      <section id="panel-layers" class="panel" hidden><div class="section-head"><div><h2>予測の積み上げ</h2><div class="section-note">異なる意味の情報を混ぜず、金額への寄与を分けています。</div></div></div><div id="layers" class="layers"></div><div class="equation"><div class="equation-row"><strong>システム推奨予測</strong><strong id="layerTotal"></strong></div><small>予測であり、採用判断・営業目標とは別です。</small></div></section>
+      <section id="panel-insights" class="panel" hidden><div class="section-head"><div><h2>AIが見つけた外部情報</h2><div class="section-note">強い根拠だけを予測へ反映し、その他は担当者向け参考として表示します。</div></div></div><div id="insights" class="insights"></div></section>
     </section>
-    <button id="actionButton" type="button"></button>
-    <button id="closeButton" type="button" class="secondary">閉じる</button>
-    <div class="hint">この案内は上部メニュー「年度計画」→「ホーム・案内を表示」から、いつでも再表示できます。</div>
   </main>
+  <footer id="footer" class="footer" hidden><button id="actionButton" class="primary" type="button"></button><button id="closeButton" class="close" type="button">閉じる</button></footer>
   <script>
-    const $ = id => document.getElementById(id);
-    let model = null;
-    function text(value) { return String(value === undefined || value === null ? '' : value); }
-    function render(data) {
-      model = data;
-      $('loading').hidden = true;
-      $('app').hidden = false;
-      $('state').textContent = data.stateLabel;
-      $('title').textContent = '次にすること';
-      $('meta').textContent = `${text(data.clientName)}｜FY${text(data.fiscalYear)}｜${text(data.roleLabel)}`;
-      $('actionLabel').textContent = data.primaryAction.label;
-      $('instruction').textContent = data.primaryAction.instruction;
-      const waiting = data.primaryAction.key === 'WAIT';
-      $('actionButton').hidden = waiting;
-      $('actionButton').textContent = data.primaryAction.label;
-      // 案内を先に表示し、シート本体は後から非同期で最新化する。
-      google.script.run.withFailureHandler(() => {}).vNextRefreshEmployeeViews();
-    }
-    function fail(error) {
-      $('loading').innerHTML = `<div class="error">${text(error && error.message ? error.message : error)}</div>`;
-    }
-    $('actionButton').addEventListener('click', () => {
-      $('actionButton').disabled = true;
-      $('actionButton').textContent = '開いています…';
-      google.script.run.withSuccessHandler(() => google.script.host.close())
-        .withFailureHandler(error => { $('actionButton').disabled = false; $('actionButton').textContent = model.primaryAction.label; fail(error); })
-        .vNextOpenCurrentAction();
-    });
-    $('closeButton').addEventListener('click', () => google.script.host.close());
+    const $=id=>document.getElementById(id);let model=null;
+    const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    const money=v=>`${Number(v)<0?'-':''}¥${Math.abs(Math.round(Number(v)||0)).toLocaleString('ja-JP')}`;
+    function renderList(id,items,empty){$(id).innerHTML=(items||[]).length?(items||[]).map((item,i)=>`<div class="list-item" data-index="${i+1}">${esc(typeof item==='string'?item:(item.text||item.summary||item.title||''))}</div>`).join(''):`<div class="empty">${esc(empty)}</div>`}
+    function renderLayers(breakdown){const rows=breakdown&&breakdown.rows||[];const max=Math.max(1,...rows.map(row=>Math.abs(Number(row.amount)||0)));$('layers').innerHTML=rows.map(row=>{const amount=Number(row.amount)||0;const width=Math.max(amount?4:0,Math.round(Math.abs(amount)/max*100));return `<article class="layer" data-key="${esc(row.key)}" data-negative="${amount<0}"><div class="layer-top"><div><div class="layer-title">${esc(row.label)}</div><div class="layer-desc">${esc(row.description)}</div></div><div class="layer-amount ${amount<0?'negative':''}">${money(amount)}</div></div><div class="bar" aria-hidden="true"><span style="width:${width}%"></span></div></article>`}).join('');$('layerTotal').textContent=money(breakdown&&breakdown.finalAmount||0)}
+    function renderInsights(items,unavailable){if(!(items||[]).length){$('insights').innerHTML=`<div class="empty">${unavailable?'今回のAI外部調査は引用確認まで完了しませんでした。予測には0円として扱っています。':'表示できる外部情報はありません。'}</div>`;return}$('insights').innerHTML=items.map(item=>{const link=/^https?:\/\//i.test(item.sourceUrl||'')?`<a href="${esc(item.sourceUrl)}" target="_blank" rel="noopener">出典を開く</a>`:'<span>出典URLなし</span>';return `<article class="insight"><div class="badges"><span class="badge">${esc(item.axisLabel||'外部環境')}</span><span class="badge ${item.forecastUse==='APPLY'?'apply':'reference'}">${esc(item.useLabel)}</span>${item.signalType?`<span class="badge">${esc(item.signalType)}</span>`:''}</div><div class="insight-title">${esc(item.target||'外部情報')}</div><p class="insight-summary">${esc(item.summary)}</p>${item.forecastUse==='APPLY'?`<div class="meta" style="margin-top:7px">予測への適用額 ${money(item.appliedAmount)}</div>`:''}${item.humanQuestion?`<div class="question"><strong>担当者への確認</strong><br>${esc(item.humanQuestion)}</div>`:''}<div class="source"><span>${esc(item.sourceDate||'日付未確認')}｜品質 ${esc(item.evidenceQuality||'-')}</span>${link}</div></article>`}).join('')}
+    function selectPanel(key){document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('active',tab.dataset.panel===key));document.querySelectorAll('.panel').forEach(panel=>panel.hidden=panel.id!==`panel-${key}`)}
+    function render(data){model=data;$('loading').hidden=true;$('app').hidden=false;$('footer').hidden=false;$('state').textContent=data.stateLabel;$('title').textContent=`${data.clientName} FY${data.fiscalYear}`;$('meta').textContent=`${data.roleLabel}｜実績基準日 ${data.cutoff||'未設定'}`;$('actionLabel').textContent=data.primaryAction.label;$('instruction').textContent=data.primaryAction.instruction;const waiting=data.primaryAction.key==='WAIT';$('actionButton').hidden=waiting;$('actionButton').textContent=data.primaryAction.label;const f=data.forecast||{};if(f.runId){$('forecastBlock').hidden=false;$('center').textContent=money(f.systemRecommended||f.center);$('p10').textContent=money(f.p10);$('p90').textContent=money(f.p90);$('warnings').innerHTML=(f.warnings||[]).map(w=>`<div class="notice">${esc(w)}</div>`).join('');const c=f.evidenceCoverage||{};$('readiness').innerHTML=`<strong>${esc(c.label||'確認中')}</strong><div class="meta">${esc(c.summary||c.detail||(c.details||[]).join('／'))}</div>`;renderList('drivers',f.drivers,'主な要因はまだ整理されていません。');renderList('nextInfo',f.nextInformation,'追加で確認する情報はありません。');renderLayers(f.layerBreakdown||{});renderInsights(f.aiEvidence||[],(f.warnings||[]).length>0)}google.script.run.withFailureHandler(()=>{}).vNextRefreshEmployeeViews()}
+    function fail(error){$('loading').innerHTML=`<div class="error">${esc(error&&error.message?error.message:error)}</div>`}
+    document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>selectPanel(tab.dataset.panel)));
+    $('actionButton').addEventListener('click',()=>{$('actionButton').disabled=true;$('actionButton').textContent='開いています…';google.script.run.withSuccessHandler(()=>google.script.host.close()).withFailureHandler(error=>{$('actionButton').disabled=false;$('actionButton').textContent=model.primaryAction.label;fail(error)}).vNextOpenCurrentAction()});
+    $('closeButton').addEventListener('click',()=>google.script.host.close());
     google.script.run.withSuccessHandler(render).withFailureHandler(fail).vNextGetClientViewModel();
   </script>
 </body>

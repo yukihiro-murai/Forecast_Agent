@@ -354,7 +354,9 @@ function vNextSaveReview(payload) {
     vNextUxAssertReviewEditable_(context);
     var review = vNextUxNormalizeReview_(payload, context);
     var expectedHash = vNextUxSha256_(JSON.stringify(review));
-    if (!payload || String(payload.previewHash || '') !== expectedHash) throw new Error('保存前に「内容を確認」を押してください。確認後に内容を変えた場合は、もう一度確認が必要です。');
+    if (payload && payload.previewHash && String(payload.previewHash) !== expectedHash) {
+      throw new Error('画面の内容が変更されています。入力内容を確認して、もう一度保存してください。');
+    }
     if (typeof vNextAppendRecord_ !== 'function') throw new Error('振り返りの保存先が未設定です。管理者へ連絡してください。');
     var previous = vNextUxGetLatestOwnReviewRecord_(context);
     var evidenceId = typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid();
@@ -415,6 +417,10 @@ function vNextGetPlanEditorModel() {
       runId: forecast.runId,
       systemRecommended: forecast.systemRecommended,
       range: { p10: forecast.p10, p90: forecast.p90 },
+      evidenceCoverage: forecast.evidenceCoverage,
+      layerBreakdown: forecast.layerBreakdown,
+      aiEvidence: forecast.aiEvidence,
+      warnings: forecast.warnings,
       monthLabels: ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'],
       monthWeights: monthWeights,
       changeRequestReason: vNextUxGetLatestChangeRequestReason_(context.bookId),
@@ -463,7 +469,9 @@ function vNextSubmitPlan(payload) {
     var forecast = vNextUxPublicForecast_(vNextUxGetLatestForecast_(context));
     var plan = vNextUxNormalizePlan_(payload, context, forecast);
     var expectedHash = vNextUxSha256_(JSON.stringify(plan.canonical));
-    if (!payload || String(payload.previewHash || '') !== expectedHash) throw new Error('提出前に「内容を確認」を押してください。確認後に内容を変えた場合は、もう一度確認が必要です。');
+    if (payload && payload.previewHash && String(payload.previewHash) !== expectedHash) {
+      throw new Error('画面の内容が変更されています。金額と理由を確認して、もう一度提出してください。');
+    }
     if (typeof vNextAppendPlanVersion_ !== 'function') throw new Error('計画の保存機能が未設定です。管理者へ連絡してください。');
     var latest = vNextUxGetLatestPlan_(context.bookId);
     var record = vNextAppendPlanVersion_({
@@ -1308,6 +1316,7 @@ function vNextUxPublicForecast_(raw) {
     warnings.push('AI調査を利用できなかったため、今回はAI差分を0として振れ幅を広げています。');
   }
   var hasPlan = Boolean(String(raw.planStatus || raw.plan_status || '').trim());
+  var layerBreakdown = vNextUxLayerBreakdown_(raw, layers, evidenceSummary, historyBaseline, humanDelta, aiDelta);
   return {
     runId: raw.runId || raw.run_id || '',
     status: raw.status || '',
@@ -1329,12 +1338,70 @@ function vNextUxPublicForecast_(raw) {
     months: raw.months || [],
     planQuarters: raw.planQuarters || [],
     planMonths: raw.planMonths || [],
-    aiEvidence: (evidenceSummary.topAiEvidence || evidenceSummary.top_ai_evidence || []).slice(0, 3),
+    aiEvidence: (evidenceSummary.topAiEvidence || evidenceSummary.top_ai_evidence || []).slice(0, 5).map(vNextUxNormalizeAiInsight_),
+    layerBreakdown: layerBreakdown,
     drivers: providedDrivers.slice(0, 3),
     nextInformation: providedNextInformation.slice(0, 3),
     changeReasons: providedChangeReasons.slice(0, 3),
     evidenceCoverage: evidenceCoverage,
     warnings: warnings
+  };
+}
+
+function vNextUxLayerBreakdown_(raw, layers, evidenceSummary, historyBaseline, humanDelta, aiDelta) {
+  raw = raw || {};
+  layers = layers || {};
+  evidenceSummary = evidenceSummary || {};
+  var lenses = raw.lenses || {};
+  var continuity = lenses.continuity || {};
+  var changeReference = lenses.changeReference || lenses.change_reference || {};
+  var unknownSpot = Number(evidenceSummary.unknownSpotExpectedAnnual || evidenceSummary.unknown_spot_expected_annual || 0);
+  var baseTrend = Number(continuity.baseAnnualBaseline || continuity.base_annual_baseline || 0);
+  if (!baseTrend && historyBaseline) baseTrend = Math.max(0, historyBaseline - unknownSpot);
+  if (!unknownSpot && baseTrend && historyBaseline) unknownSpot = historyBaseline - baseTrend;
+  var commitment = Number(layers.commitmentDelta || layers.commitment_delta || 0);
+  var peer = Number(changeReference.peerReferenceDelta || changeReference.peer_reference_delta || 0);
+  var objective = Number(changeReference.objectiveEventDelta || changeReference.objective_event_delta || 0);
+  var reference = Number(layers.referenceDelta || layers.reference_delta || 0);
+  if (!peer && !objective && reference) objective = reference;
+  var rows = [
+    { key: 'BASE_TREND', label: '過去売上の継続トレンド', description: '確定実績の水準・成長・季節性', amount: baseTrend, kind: 'BASE' },
+    { key: 'UNKNOWN_SPOT', label: '未確認の単発売上', description: '過去の突発売上が再発する可能性', amount: unknownSpot, kind: 'DELTA' },
+    { key: 'COMMITMENT', label: '契約・確定案件', description: '契約更新、受注済み案件、認識月ずれ', amount: commitment, kind: 'DELTA' },
+    { key: 'PEER_REFERENCE', label: '参照クラス', description: '類似条件の客観的な参照情報', amount: peer, kind: 'DELTA' },
+    { key: 'OBJECTIVE_EVENTS', label: '確認できる外部・案件情報', description: '日付と根拠を確認できる客観情報', amount: objective, kind: 'DELTA' },
+    { key: 'HUMAN', label: '担当者の見立て', description: '過去実績に表れない現場情報', amount: humanDelta, kind: 'DELTA' },
+    { key: 'AI', label: 'AI外部調査', description: '引用できる公開情報のうち予測へ採用した差分', amount: aiDelta, kind: 'DELTA' }
+  ];
+  var finalAmount = Number(raw.systemRecommended || layers.systemRecommended || layers.system_recommended || 0);
+  return {
+    rows: rows,
+    historySubtotal: historyBaseline,
+    finalAmount: finalAmount,
+    checkTotal: rows.reduce(function (sum, row) { return sum + Number(row.amount || 0); }, 0),
+    aiInsightCount: Number(evidenceSummary.ai || 0)
+  };
+}
+
+function vNextUxNormalizeAiInsight_(item) {
+  item = item || {};
+  var axis = String(item.researchAxis || item.research_axis || 'ALTERNATIVE_SIGNALS').toUpperCase();
+  var axisLabels = {
+    FINANCIAL_CAPACITY: '業績・投資余力', DIGITAL_EXECUTION: 'DX・業務変革',
+    PRODUCT_MARKET: '製品・市場の勢い', STRATEGY_ORGANIZATION: '戦略・組織',
+    REGULATORY_SUPPLY: '規制・供給・調達', ALTERNATIVE_SIGNALS: '先行シグナル'
+  };
+  var forecastUse = String(item.forecastUse || item.forecast_use || (Number(item.appliedAmount || 0) ? 'APPLY' : 'INSIGHT_ONLY')).toUpperCase();
+  return {
+    target: String(item.target || ''), direction: String(item.direction || 'NEUTRAL').toUpperCase(),
+    summary: String(item.summary || ''), sourceUrl: String(item.sourceUrl || item.source_url || ''),
+    sourceDate: String(item.sourceDate || item.source_date || ''), appliedAmount: Number(item.appliedAmount || item.applied_amount || 0),
+    evidenceQuality: String(item.evidenceQuality || item.evidence_quality || ''), capApplied: Boolean(item.capApplied || item.cap_applied),
+    researchAxis: axis, axisLabel: axisLabels[axis] || '外部環境', signalType: String(item.signalType || item.signal_type || ''),
+    sourceStrength: String(item.sourceStrength || item.source_strength || ''), forecastUse: forecastUse,
+    useLabel: forecastUse === 'APPLY' ? '予測へ反映' : '担当者向け参考',
+    salesRelevance: String(item.salesRelevance || item.sales_relevance || ''),
+    humanQuestion: String(item.humanQuestion || item.human_question || '')
   };
 }
 

@@ -4,12 +4,19 @@
  */
 
 var VNEXT_AI = Object.freeze({
-  VERSION: 'vnext-ai-0.1.0',
-  PROMPT_VERSION: 'vnext-ai-research-ja-1',
-  SCHEMA_VERSION: 'vnext-ai-finding-1',
-  RULE_VERSION: 'vnext-ai-impact-class-1',
-  MAX_FINDINGS: 3,
-  IMPACT_RATE_BY_CLASS: Object.freeze({ SMALL: 0.005, MEDIUM: 0.015, LARGE: 0.03 })
+  VERSION: 'vnext-ai-0.2.0',
+  PROMPT_VERSION: 'vnext-ai-research-ja-2',
+  SCHEMA_VERSION: 'vnext-ai-finding-2',
+  RULE_VERSION: 'vnext-ai-evidence-gate-2',
+  MAX_FINDINGS: 6,
+  IMPACT_RATE_BY_CLASS: Object.freeze({ SMALL: 0.0025, MEDIUM: 0.0075, LARGE: 0.015 }),
+  AXES: Object.freeze([
+    'FINANCIAL_CAPACITY', 'DIGITAL_EXECUTION', 'PRODUCT_MARKET',
+    'STRATEGY_ORGANIZATION', 'REGULATORY_SUPPLY', 'ALTERNATIVE_SIGNALS'
+  ]),
+  SOURCE_STRENGTHS: Object.freeze([
+    'PRIMARY_OFFICIAL', 'PRIMARY_REGISTRY', 'REPUTABLE_SECONDARY', 'ALTERNATIVE_SIGNAL'
+  ])
 });
 
 /** Admin job provider hook consumed by VNext_Admin.js. */
@@ -52,12 +59,26 @@ function vNextVertexAiResearch_(request) {
   var researchPrompt = vNextAiResearchPrompt_(clientName, fiscalYear, asOfText);
   var grounded = callVertexGeminiGrounded_(researchPrompt, { config: config });
   if (!grounded || !grounded.ok || !grounded.text) {
+    vNextAiWriteRawAudit_(req, researchPrompt, grounded, '', null, [], []);
     throw new Error('Vertex grounded research failed: ' + String(grounded && grounded.error || 'empty response'));
   }
-  var citations = extractGeminiGroundingCitations_(grounded.raw).filter(function (item) {
+  var citations = vNextAiExtractCitations_(grounded.raw).filter(function (item) {
     return /^https?:\/\//i.test(String(item.uri || ''));
   }).slice(0, 12);
-  if (!citations.length) throw new Error('Vertex research returned no usable citation URL; AI impact was not applied.');
+  if (!citations.length && config.ragReady && typeof callVertexSearchRAG_ === 'function') {
+    var rag = callVertexSearchRAG_(vNextAiRagQuery_(clientName, fiscalYear, asOfText), { config: config });
+    grounded = Object.assign({}, grounded, { ragFallback: rag });
+    if (rag && rag.ok) {
+      citations = vNextAiDedupeCitations_((rag.citations || []).concat(rag.documents || [])).filter(function (item) {
+        return /^https?:\/\//i.test(String(item.uri || ''));
+      }).slice(0, 12);
+      if (rag.summary) grounded.text += '\n\nVertex Search補足:\n' + String(rag.summary);
+    }
+  }
+  if (!citations.length) {
+    vNextAiWriteRawAudit_(req, researchPrompt, grounded, '', null, [], []);
+    throw new Error('Vertex research returned no usable citation URL after grounded search and configured search fallback; AI impact was not applied.');
+  }
 
   var structurePrompt = vNextAiStructurePrompt_(clientName, fiscalYear, asOfText, grounded.text, citations);
   var structured = callVertexGeminiStructured_(
@@ -103,14 +124,22 @@ function vNextAiRuntimeConfig_() {
 }
 
 function vNextAiResearchPrompt_(clientName, fiscalYear, asOfText) {
+  var names = vNextAiClientSearchNames_(clientName);
   return [
-    'あなたは法人向け年度売上計画の外部情報調査担当です。',
-    '対象クライアント: ' + clientName,
+    'あなたは法人向け年度売上計画の外部情報リサーチャーです。担当者が過去売上や社内意見だけでは見落としやすい変化を見つけます。',
+    '対象クライアント: ' + clientName + '（検索表記候補: ' + names.join(' / ') + '。正式名・英語名・略称も確認）',
     '対象年度: FY' + fiscalYear + '（' + fiscalYear + '年4月〜' + (fiscalYear + 1) + '年3月）',
     '情報締切: ' + asOfText,
-    '公開情報を検索し、この会社との取引売上を通常状態から変え得る外部要因だけを最大3件報告してください。',
-    '対象は、顧客の事業方針・製品/市場・組織・競争・規制などです。一般論や根拠のない推測は除外してください。',
-    '各要因について、方向、対象期間、短い根拠、出典を示してください。売上額や率を推測しないでください。'
+    '次の6観点を横断し、重要な事実または先行シグナルを最大6件報告してください。',
+    '1. 業績・資金・設備投資・研究開発などの投資余力',
+    '2. DX・データ・AI・業務変革が構想でなく実行段階にある証拠',
+    '3. 製品・サービス・市場の勢い、上市、採用、成長/失速',
+    '4. 中期戦略、提携、買収、経営/組織/購買責任の変化',
+    '5. 規制、供給、調達、入札、サプライチェーンの変化',
+    '6. 採用増減、特許・治験・認証、施設投資、提携網、公開情報更新頻度などの代替的な先行シグナル',
+    '会社公式発表・法定開示・規制/公的登録・調達公告を優先し、信頼できる二次情報と代替シグナルは区別してください。',
+    'この取引売上へのつながりが明示できない情報も、担当者が確認すべき参考示唆として残して構いません。',
+    '売上額や率を推測しないでください。事実、解釈、担当者への確認質問を分け、各項目に出典URLと公開日を付けてください。'
   ].join('\n');
 }
 
@@ -122,9 +151,11 @@ function vNextAiStructurePrompt_(clientName, fiscalYear, asOfText, researchText,
     '対象=' + clientName + ', FY=' + fiscalYear + ', as_of=' + asOfText,
     '次の調査文と引用一覧だけを使ってください。',
     'JSON schema:',
-    '{"findings":[{"target":"短い対象名","direction":"UP|DOWN","impactClass":"SMALL|MEDIUM|LARGE","confidenceClass":"CONFIRMED_FACT|LIKELY|HYPOTHESIS","evidenceQuality":"A|B|C|D","summary":"日本語140字以内","citationIndex":0,"sourceDate":"YYYY-MM-DD","startMonth":"YYYY-MM","endMonth":"YYYY-MM"}]}',
-    'impactClassは売上額ではなく外部変化の重要度。通常はSMALL、明確な全社/主力事業級のみMEDIUM、LARGEは極めて例外的。',
-    'citationIndexは必ず一覧に存在する番号。公開日を確認できない項目、根拠が弱い項目は出力しない。最大3件。',
+    '{"findings":[{"axis":"FINANCIAL_CAPACITY|DIGITAL_EXECUTION|PRODUCT_MARKET|STRATEGY_ORGANIZATION|REGULATORY_SUPPLY|ALTERNATIVE_SIGNALS","signalType":"短い分類","target":"短い対象名","direction":"UP|DOWN|NEUTRAL","forecastUse":"APPLY|INSIGHT_ONLY","impactClass":"NONE|SMALL|MEDIUM|LARGE","confidenceClass":"CONFIRMED_FACT|LIKELY|HYPOTHESIS","evidenceQuality":"A|B|C|D","sourceStrength":"PRIMARY_OFFICIAL|PRIMARY_REGISTRY|REPUTABLE_SECONDARY|ALTERNATIVE_SIGNAL","salesRelevance":"HIGH|MEDIUM|LOW","summary":"確認できた事実と意味を日本語180字以内","humanQuestion":"担当者が次に確認する質問を日本語100字以内","citationIndex":0,"sourceDate":"YYYY-MM-DD","startMonth":"YYYY-MM","endMonth":"YYYY-MM"}]}',
+    'forecastUse=APPLYは、一次情報または公的登録により、対象年度の取引売上との直接的なつながりを説明できる場合だけ。その他はINSIGHT_ONLY。',
+    'impactClassは売上額ではなく外部変化の重要度。通常はNONEまたはSMALL。LARGEは例外的で、サーバ側でさらに縮小・棄却されます。',
+    '代替シグナルと仮説は担当者向けのINSIGHT_ONLYにし、予測金額へ直接反映しないでください。',
+    'citationIndexは必ず一覧に存在する番号。公開日を確認できない項目は出力しない。6観点を優先度順に最大6件。',
     '対象期間はFY' + fiscalYear + 'の範囲内。',
     '',
     '調査文:',
@@ -145,14 +176,26 @@ function vNextAiNormalizeFindings_(rawFindings, citations, context) {
     var citationIndex = Number(row.citationIndex);
     var citation = isFinite(citationIndex) ? citations[Math.floor(citationIndex)] : null;
     if (!citation || !/^https?:\/\//i.test(String(citation.uri || ''))) return null;
-    var direction = String(row.direction || '').toUpperCase();
-    if (direction !== 'UP' && direction !== 'DOWN') return null;
+    var axis = String(row.axis || 'ALTERNATIVE_SIGNALS').toUpperCase();
+    if (VNEXT_AI.AXES.indexOf(axis) < 0) axis = 'ALTERNATIVE_SIGNALS';
+    var direction = String(row.direction || 'NEUTRAL').toUpperCase();
+    if (['UP', 'DOWN', 'NEUTRAL'].indexOf(direction) < 0) direction = 'NEUTRAL';
     var impactClass = String(row.impactClass || 'SMALL').toUpperCase();
-    if (!VNEXT_AI.IMPACT_RATE_BY_CLASS[impactClass]) impactClass = 'SMALL';
+    if (impactClass !== 'NONE' && !VNEXT_AI.IMPACT_RATE_BY_CLASS[impactClass]) impactClass = 'SMALL';
     var confidence = String(row.confidenceClass || 'HYPOTHESIS').toUpperCase();
     if (['CONFIRMED_FACT', 'LIKELY', 'HYPOTHESIS'].indexOf(confidence) < 0) confidence = 'HYPOTHESIS';
     var quality = String(row.evidenceQuality || 'C').toUpperCase();
     if (['A', 'B', 'C', 'D'].indexOf(quality) < 0) quality = 'C';
+    var sourceStrength = String(row.sourceStrength || 'REPUTABLE_SECONDARY').toUpperCase();
+    if (VNEXT_AI.SOURCE_STRENGTHS.indexOf(sourceStrength) < 0) sourceStrength = 'REPUTABLE_SECONDARY';
+    var salesRelevance = String(row.salesRelevance || 'LOW').toUpperCase();
+    if (['HIGH', 'MEDIUM', 'LOW'].indexOf(salesRelevance) < 0) salesRelevance = 'LOW';
+    var requestedUse = String(row.forecastUse || 'INSIGHT_ONLY').toUpperCase();
+    var forecastUse = requestedUse === 'APPLY' && impactClass !== 'NONE' && (direction === 'UP' || direction === 'DOWN') &&
+      (sourceStrength === 'PRIMARY_OFFICIAL' || sourceStrength === 'PRIMARY_REGISTRY') &&
+      (quality === 'A' || quality === 'B') &&
+      (confidence === 'CONFIRMED_FACT' || confidence === 'LIKELY') && salesRelevance === 'HIGH'
+      ? 'APPLY' : 'INSIGHT_ONLY';
     var startMonth = /^\d{4}-\d{2}$/.test(String(row.startMonth || '')) ? String(row.startMonth) : fyStart;
     var endMonth = /^\d{4}-\d{2}$/.test(String(row.endMonth || '')) ? String(row.endMonth) : fyEnd;
     if (startMonth < fyStart || startMonth > fyEnd) startMonth = fyStart;
@@ -161,13 +204,16 @@ function vNextAiNormalizeFindings_(rawFindings, citations, context) {
     var sourceDate = String(row.sourceDate);
     var parsedSourceDate = new Date(sourceDate + 'T00:00:00');
     if (isNaN(parsedSourceDate.getTime()) || parsedSourceDate.getTime() > context.asOf.getTime()) return null;
-    var rate = VNEXT_AI.IMPACT_RATE_BY_CLASS[impactClass] * (direction === 'DOWN' ? -1 : 1);
+    var rate = forecastUse === 'APPLY'
+      ? VNEXT_AI.IMPACT_RATE_BY_CLASS[impactClass === 'NONE' ? 'SMALL' : impactClass] * (direction === 'DOWN' ? -1 : 1)
+      : 0;
     return {
       bookId: context.bookId,
       target: String(row.target || '外部環境変化').trim().slice(0, 120),
       targetStartMonth: startMonth,
       targetEndMonth: endMonth,
       effectRate: rate,
+      direction: direction,
       basisAmount: context.basisAmount,
       sourceUrl: String(citation.uri),
       citationTitle: String(citation.title || '').slice(0, 240),
@@ -176,6 +222,12 @@ function vNextAiNormalizeFindings_(rawFindings, citations, context) {
       summary: String(row.summary || row.target || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 280),
       confidenceClass: confidence,
       evidenceQuality: quality,
+      researchAxis: axis,
+      signalType: String(row.signalType || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 80),
+      sourceStrength: sourceStrength,
+      forecastUse: forecastUse,
+      salesRelevance: salesRelevance,
+      humanQuestion: String(row.humanQuestion || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 180),
       aiModel: context.aiModel,
       promptVersion: VNEXT_AI.PROMPT_VERSION,
       aiSchemaVersion: VNEXT_AI.SCHEMA_VERSION,
@@ -186,9 +238,58 @@ function vNextAiNormalizeFindings_(rawFindings, citations, context) {
   }).filter(Boolean);
 }
 
+function vNextAiClientSearchNames_(clientName) {
+  var raw = String(clientName || '').trim();
+  var normalized = typeof raw.normalize === 'function' ? raw.normalize('NFKC') : raw;
+  var bare = normalized.replace(/(?:株式会社|有限会社|合同会社|\(株\)|（株）|\(有\)|（有）)/g, '').trim();
+  return [raw, normalized, bare].filter(function (value, index, list) {
+    return value && list.indexOf(value) === index;
+  });
+}
+
+function vNextAiRagQuery_(clientName, fiscalYear, asOfText) {
+  return vNextAiClientSearchNames_(clientName).join(' ') + ' FY' + fiscalYear +
+    ' 業績 投資 DX 製品 戦略 規制 調達 採用 提携 as of ' + asOfText;
+}
+
+function vNextAiExtractCitations_(json) {
+  var out = [];
+  if (typeof extractGeminiGroundingCitations_ === 'function') {
+    out = out.concat(extractGeminiGroundingCitations_(json) || []);
+  }
+  ((json && json.candidates) || []).forEach(function (candidate) {
+    var citationMetadata = candidate && candidate.citationMetadata || {};
+    (citationMetadata.citations || []).forEach(function (citation) {
+      out.push({ title: String(citation.title || citation.license || '').trim(), uri: String(citation.uri || '').trim() });
+    });
+    var grounding = candidate && candidate.groundingMetadata || {};
+    (grounding.groundingChunks || []).forEach(function (chunk) {
+      var source = chunk && (chunk.web || chunk.retrievedContext) || {};
+      out.push({ title: String(source.title || '').trim(), uri: String(source.uri || '').trim() });
+    });
+    var urlContext = candidate && candidate.urlContextMetadata || {};
+    (urlContext.urlMetadata || []).forEach(function (item) {
+      out.push({ title: String(item.title || '').trim(), uri: String(item.retrievedUrl || item.url || '').trim() });
+    });
+  });
+  return vNextAiDedupeCitations_(out);
+}
+
+function vNextAiDedupeCitations_(items) {
+  var seen = {};
+  return (items || []).map(function (item) {
+    return { title: String(item && item.title || '').trim(), uri: String(item && (item.uri || item.link) || '').trim() };
+  }).filter(function (item) {
+    if (!item.uri || seen[item.uri]) return false;
+    seen[item.uri] = true;
+    return true;
+  });
+}
+
 function vNextAiWriteRawAudit_(request, researchPrompt, grounded, structurePrompt, structured, citations, findings) {
   try {
-    var hub = SpreadsheetApp.getActiveSpreadsheet();
+    var hub = request && request.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
+    if (!hub || typeof hub.getId !== 'function') throw new Error('Admin Hub spreadsheet is unavailable for AI audit.');
     var hubFile = DriveApp.getFileById(hub.getId());
     var parents = hubFile.getParents();
     var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
@@ -218,14 +319,34 @@ function vNextAiWriteRawAudit_(request, researchPrompt, grounded, structurePromp
 /** Pure deterministic test; no Vertex or spreadsheet access. */
 function testVNextAiDeterministicMapping() {
   var findings = vNextAiNormalizeFindings_([{
-    target: '制度変更', direction: 'DOWN', impactClass: 'MEDIUM', confidenceClass: 'LIKELY',
-    evidenceQuality: 'B', summary: '根拠要約', citationIndex: 0,
+    axis: 'REGULATORY_SUPPLY', sourceStrength: 'PRIMARY_REGISTRY', salesRelevance: 'HIGH',
+    forecastUse: 'APPLY', target: '制度変更', direction: 'DOWN', impactClass: 'MEDIUM', confidenceClass: 'LIKELY',
+    evidenceQuality: 'B', summary: '根拠要約', humanQuestion: '制度対応時期を確認する', citationIndex: 0,
     sourceDate: '2027-03-01', startMonth: '2027-04', endMonth: '2028-03'
   }], [{ title: '一次情報', uri: 'https://example.com/source' }], {
     bookId: 'BOOK-1', fiscalYear: 2027, basisAmount: 100000000,
     asOf: new Date('2027-03-15T00:00:00Z'), aiModel: 'model'
   });
-  if (findings.length !== 1 || findings[0].effectRate !== -0.015) throw new Error('AI impact class mapping failed.');
+  if (findings.length !== 1 || findings[0].effectRate !== -0.0075 || findings[0].forecastUse !== 'APPLY') {
+    throw new Error('AI impact evidence gate failed.');
+  }
+  var insight = vNextAiNormalizeFindings_([{
+    axis: 'ALTERNATIVE_SIGNALS', sourceStrength: 'ALTERNATIVE_SIGNAL', salesRelevance: 'MEDIUM',
+    forecastUse: 'APPLY', target: '採用増加', direction: 'UP', impactClass: 'LARGE', confidenceClass: 'HYPOTHESIS',
+    evidenceQuality: 'C', summary: '採用情報から投資領域の変化が示唆される', citationIndex: 0,
+    sourceDate: '2027-03-01', startMonth: '2027-04', endMonth: '2028-03'
+  }], [{ title: '採用情報', uri: 'https://example.com/jobs' }], {
+    bookId: 'BOOK-1', fiscalYear: 2027, basisAmount: 100000000,
+    asOf: new Date('2027-03-15T00:00:00Z'), aiModel: 'model'
+  });
+  if (insight.length !== 1 || insight[0].effectRate !== 0 || insight[0].forecastUse !== 'INSIGHT_ONLY') {
+    throw new Error('Alternative signal must remain insight-only.');
+  }
+  var citations = vNextAiExtractCitations_({ candidates: [{
+    citationMetadata: { citations: [{ uri: 'https://example.com/citation', title: '引用' }] },
+    groundingMetadata: { groundingChunks: [{ retrievedContext: { uri: 'https://example.com/rag', title: 'RAG' } }] }
+  }] });
+  if (citations.length !== 2) throw new Error('AI citation variants were not extracted.');
   if (Object.prototype.hasOwnProperty.call(findings[0], 'researchPrompt')) throw new Error('Raw prompt leaked into finding.');
   return true;
 }

@@ -4,21 +4,21 @@
   <base target="_top">
   <meta charset="UTF-8">
   <style>
-    :root { --blue:#174ea6; --text:#202124; --muted:#5f6368; --line:#dadce0; --soft:#f8f9fa; }
+    :root { --navy:#17324d; --blue:#1769aa; --text:#1f2933; --muted:#64717d; --line:#dce2e7; --soft:#f5f7f9; }
     * { box-sizing:border-box; }
-    body { margin:0; padding:18px; color:var(--text); font:14px/1.65 Arial,"Noto Sans JP",sans-serif; }
-    h1 { margin:0 0 8px; font-size:20px; }
-    h2 { margin:22px 0 8px; font-size:15px; }
+    body { margin:0; padding:18px; color:var(--text); font:14px/1.6 Arial,"Noto Sans JP",sans-serif; }
+    h1 { margin:0 0 8px; color:var(--navy); font-size:22px; line-height:1.3; }
+    h2 { margin:22px 0 8px; color:var(--navy); font-size:15px; }
     p { margin:6px 0; }
     ol,ul { margin:6px 0; padding-left:22px; }
-    .lead { padding:12px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    .lead { padding:12px; border:1px solid #c9dff0; border-left:4px solid var(--blue); border-radius:7px; background:#fff; }
     .card { margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:8px; }
     .term { display:grid; grid-template-columns:90px 1fr; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); }
     .term:last-child { border-bottom:0; }
     .term strong { color:var(--blue); }
     .muted { color:var(--muted); font-size:12px; }
     button { width:100%; min-height:42px; margin-top:22px; padding:10px; border:0; border-radius:6px; color:#fff; background:var(--blue); font-weight:700; cursor:pointer; }
-    button:focus-visible { outline:3px solid #aecbfa; outline-offset:2px; }
+    button:focus-visible { outline:3px solid #9fc5e8; outline-offset:2px; }
   </style>
 </head>
 <body>
@@ -37,7 +37,14 @@
   <div class="card">
     <p><strong>「変化なし」「わからない」も有効な回答です。</strong></p>
     <p>無理に数字を作る必要はありません。確認済みの事実、有力情報、仮説を区別して入力してください。</p>
-    <p class="muted">入力した内容は保存前に概算影響を確認できます。本人が確認するまで保存されません。</p>
+    <p class="muted">「この内容で保存」を1回押すと保存されます。大・中・小は固定金額ではなく、そのクライアントの年間売上規模に合わせて表示されます。</p>
+  </div>
+
+  <h2>AI外部調査の見方</h2>
+  <div class="card">
+    <p><strong>金額へ反映する情報と、担当者向けの参考情報を分けています。</strong></p>
+    <p>会社公式・法定開示・公的登録など、売上とのつながりが強い情報だけを予測差分へ使います。DXの実行度、製品・市場の勢い、採用や提携などの先行シグナルは、根拠URLと「次に確認する質問」とともに参考表示します。</p>
+    <p class="muted">AI情報が利用できない場合は0円扱いにし、過去実績と担当者情報だけで予測を継続します。</p>
   </div>
 
   <h2>数字の意味</h2>

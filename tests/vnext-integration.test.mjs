@@ -20,6 +20,7 @@ await checkClientBundleBoundary();
 await checkPortalRuntimeBoundary();
 await checkAdminRecoveryContracts();
 await checkAdminCoverageContracts();
+await checkEmployeeResearchUxContracts();
 checkSourceContract();
 
 process.stdout.write('PASS vNext integration contract tests\n');
@@ -102,6 +103,47 @@ async function checkClientSchemaCompatibility() {
   assert.deepEqual(clientSchemas, rootSchemas, 'Client/Core append-only schemas must have identical headers and order');
 }
 
+async function checkEmployeeResearchUxContracts() {
+  const sandbox = gasSandbox();
+  vm.createContext(sandbox);
+  vm.runInContext(await readFile(path.join(root, 'VNext_UX.js'), 'utf8'), sandbox, { filename: 'VNext_UX.js' });
+  const forecast = sandbox.vNextUxPublicForecast_({
+    runId: 'RUN-UX',
+    layers: {
+      historyBaseline: 100, commitmentDelta: 10, referenceDelta: 5,
+      objectiveForecast: 115, humanDelta: -4, aiDelta: 1, systemRecommended: 112
+    },
+    annual: { p10: 90, p50: 112, p90: 130 },
+    lenses: {
+      continuity: { baseAnnualBaseline: 80, fiscalYears: [2019, 2020, 2021, 2022, 2023] },
+      changeReference: { peerReferenceDelta: 2, objectiveEventDelta: 3 }
+    },
+    evidenceSummary: {
+      unknownSpotExpectedAnnual: 20,
+      topAiEvidence: [{
+        researchAxis: 'DIGITAL_EXECUTION', forecastUse: 'INSIGHT_ONLY', summary: 'DX投資の実行状況を確認',
+        humanQuestion: '予算執行部門を確認する', sourceUrl: 'https://example.com/dx'
+      }]
+    }
+  });
+  assert.equal(forecast.layerBreakdown.rows.length, 7);
+  assert.equal(forecast.layerBreakdown.checkTotal, 112,
+    'The employee layer view must reconcile exactly to the system recommendation');
+  assert.equal(forecast.aiEvidence[0].axisLabel, 'DX・業務変革');
+  assert.equal(forecast.aiEvidence[0].useLabel, '担当者向け参考');
+
+  const guidance = await readFile(path.join(root, 'VNext_GuidanceSidebar.html'), 'utf8');
+  assert.match(guidance, /data-panel="layers"/);
+  assert.match(guidance, /data-panel="insights"/);
+  assert.match(guidance, /担当者への確認/);
+  const plan = await readFile(path.join(root, 'VNext_PlanSidebar.html'), 'utf8');
+  const review = await readFile(path.join(root, 'VNext_ReviewSidebar.html'), 'utf8');
+  const input = await readFile(path.join(root, 'VNext_InputSidebar.html'), 'utf8');
+  assert.equal(/内容を確認/.test(plan), false, 'Plan submission must be one-step');
+  assert.equal(/内容を確認/.test(review), false, 'Review save must be one-step');
+  assert.equal(/内容を確認/.test(input), false, 'Evidence save must be one-step');
+}
+
 async function checkClientBundleBoundary() {
   const sandbox = {};
   vm.createContext(sandbox);
@@ -118,7 +160,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.2.2',
+    version: 'vnext-client-1.3.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),

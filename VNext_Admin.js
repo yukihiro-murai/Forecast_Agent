@@ -8194,8 +8194,15 @@ function vNextAdminAppendAiEvidenceInternal_(hub, request) {
   const endMonth = vNextAdminRequiredText_(req.targetEndMonth || req.endMonth || startMonth, 'targetEndMonth');
   if (!/^\d{4}-\d{2}$/.test(startMonth) || !/^\d{4}-\d{2}$/.test(endMonth)) throw new Error('AI evidence period must be YYYY-MM.');
   const effectRate = Number(req.effectRate);
-  if (!isFinite(effectRate) || effectRate === 0 || Math.abs(effectRate) > 0.25) {
-    throw new Error('effectRate must be non-zero and between -0.25 and 0.25.');
+  const forecastUse = String(req.forecastUse || (effectRate === 0 ? 'INSIGHT_ONLY' : 'APPLY')).trim().toUpperCase();
+  if (!isFinite(effectRate) || Math.abs(effectRate) > 0.25 || ['APPLY', 'INSIGHT_ONLY'].indexOf(forecastUse) < 0 ||
+      (forecastUse === 'APPLY' && effectRate === 0) || (forecastUse === 'INSIGHT_ONLY' && effectRate !== 0)) {
+    throw new Error('AI evidence must use a non-zero effectRate for APPLY or zero for INSIGHT_ONLY, within -0.25 and 0.25.');
+  }
+  const requestedDirection = String(req.direction || (effectRate < 0 ? 'DOWN' : effectRate > 0 ? 'UP' : 'NEUTRAL')).trim().toUpperCase();
+  if (['UP', 'DOWN', 'NEUTRAL'].indexOf(requestedDirection) < 0 ||
+      (effectRate > 0 && requestedDirection !== 'UP') || (effectRate < 0 && requestedDirection !== 'DOWN')) {
+    throw new Error('AI evidence direction does not match effectRate.');
   }
   const sourceUrl = vNextAdminRequiredText_(req.sourceUrl, 'sourceUrl');
   if (!/^https?:\/\//i.test(sourceUrl)) throw new Error('sourceUrl must be an http(s) citation URL.');
@@ -8261,20 +8268,28 @@ function vNextAdminAppendAiEvidenceInternal_(hub, request) {
     return sum + sign * Number(row.applied_amount || row.amount_mid || 0);
   }, 0);
   const requestedSigned = basisAmount * effectRate;
-  const appliedSigned = requestedSigned > 0
+  const appliedSigned = requestedSigned === 0 ? 0 : (requestedSigned > 0
     ? Math.max(0, Math.min(requestedSigned, capAmount - existingNet))
-    : Math.min(0, Math.max(requestedSigned, -capAmount - existingNet));
+    : Math.min(0, Math.max(requestedSigned, -capAmount - existingNet)));
   const cappedNet = existingNet + appliedSigned;
   const appliedAmount = Math.abs(appliedSigned);
   const capApplied = Math.abs(appliedSigned - requestedSigned) > 0.5;
-  const direction = appliedSigned < 0 || (appliedSigned === 0 && effectRate < 0) ? 'DOWN' : 'UP';
+  const direction = appliedSigned < 0 || (appliedSigned === 0 && effectRate < 0)
+    ? 'DOWN' : (appliedSigned > 0 || effectRate > 0 ? 'UP' : requestedDirection);
   const retrievedAt = new Date().toISOString();
+  const researchAxis = String(req.researchAxis || 'ALTERNATIVE_SIGNALS').trim().toUpperCase().slice(0, 40);
+  const sourceStrength = String(req.sourceStrength || 'REPUTABLE_SECONDARY').trim().toUpperCase().slice(0, 40);
+  const salesRelevance = String(req.salesRelevance || 'LOW').trim().toUpperCase().slice(0, 20);
+  const signalType = String(req.signalType || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 80);
+  const humanQuestion = String(req.humanQuestion || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 180);
   const metadata = {
     summary: summary, citationTitle: String(req.citationTitle || ''), sourceUrl: sourceUrl,
     sourceDate: normalizedSourceDate, retrievedAt: retrievedAt,
     parentRequestId: parentRequestId, effectiveAsOf: effectiveAsOf, aiModel: aiModel,
     promptVersion: promptVersion, aiSchemaVersion: schemaVersion, ruleVersion: ruleVersion,
     evidenceQuality: evidenceQuality, confidenceClass: confidence,
+    researchAxis: researchAxis, signalType: signalType, sourceStrength: sourceStrength,
+    forecastUse: forecastUse, salesRelevance: salesRelevance, humanQuestion: humanQuestion,
     basisAmount: basisAmount, basisSourceRunId: latest && latest.run_id || '',
     requestedEffectRate: effectRate, requestedSignedAmount: requestedSigned,
     existingAiNetAmount: existingNet, appliedSignedAmount: appliedSigned,
@@ -8286,7 +8301,10 @@ function vNextAdminAppendAiEvidenceInternal_(hub, request) {
     sourceUrl: sourceUrl, sourceDate: normalizedSourceDate, promptVersion: promptVersion,
     aiModel: aiModel, schemaVersion: schemaVersion, ruleVersion: ruleVersion, requestedEffectRate: effectRate,
     supersedesEvidenceId: String(req.supersedesEvidenceId || ''), summary: summary,
-    parentRequestId: parentRequestId, effectiveAsOf: effectiveAsOf
+    parentRequestId: parentRequestId, effectiveAsOf: effectiveAsOf,
+    researchAxis: researchAxis, signalType: signalType, sourceStrength: sourceStrength,
+    forecastUse: forecastUse, salesRelevance: salesRelevance, humanQuestion: humanQuestion,
+    direction: direction
   });
   const evidenceId = 'AI-' + vNextAdminSha256_(identity).slice(0, 24).toUpperCase();
   const existing = vNextAdminReadCoreRows_(hub, 'EVIDENCE_EVENT').find(function (row) {
@@ -8296,7 +8314,7 @@ function vNextAdminAppendAiEvidenceInternal_(hub, request) {
   const record = {
     evidence_id: evidenceId, book_id: bookId, client_id: registry.client_id,
     fiscal_year: Number(registry.fiscal_year), actor_email: vNextAdminActor_().toLowerCase(),
-    response_type: 'CHANGE', evidence_type: 'AI_RESEARCH', target: target,
+    response_type: 'CHANGE', evidence_type: forecastUse === 'APPLY' ? 'AI_RESEARCH' : 'AI_RESEARCH_INSIGHT', target: target,
     target_start_month: startMonth, target_end_month: endMonth, direction: direction,
     amount_mode: 'PERCENT', amount_low: appliedAmount, amount_mid: appliedAmount,
     amount_high: appliedAmount, amount_band: '', confidence_class: confidence,
@@ -10154,6 +10172,26 @@ function vNextAdminSanitizeForecastRowsForClient_(rows) {
         (Array.isArray(lenses.drivers) ? lenses.drivers.slice(0, 5) : []),
       nextInformation: Array.isArray(lenses.nextInformation) ? lenses.nextInformation.slice(0, 5) : [],
       changeReasons: Array.isArray(lenses.changeReasons) ? lenses.changeReasons.slice(0, 5) : [],
+      continuity: lenses.continuity && typeof lenses.continuity === 'object' ? {
+        baseAnnualBaseline: Number(lenses.continuity.baseAnnualBaseline || 0),
+        annualBaseline: Number(lenses.continuity.annualBaseline || 0),
+        fiscalYears: Array.isArray(lenses.continuity.fiscalYears) ? lenses.continuity.fiscalYears.slice(-8) : []
+      } : {},
+      changeReference: lenses.changeReference && typeof lenses.changeReference === 'object' ? {
+        peerReferenceDelta: Number(lenses.changeReference.peerReferenceDelta || 0),
+        objectiveEventDelta: Number(lenses.changeReference.objectiveEventDelta || 0),
+        combinedObjectiveInformationDelta: Number(lenses.changeReference.combinedObjectiveInformationDelta || 0)
+      } : {},
+      evidenceReadiness: lenses.evidenceReadiness && typeof lenses.evidenceReadiness === 'object' ? {
+        level: String(lenses.evidenceReadiness.level || ''),
+        label: String(lenses.evidenceReadiness.label || ''),
+        summary: String(lenses.evidenceReadiness.summary || '').slice(0, 300),
+        historyYearCount: Number(lenses.evidenceReadiness.historyYearCount || 0),
+        historyFiscalYears: Array.isArray(lenses.evidenceReadiness.historyFiscalYears) ? lenses.evidenceReadiness.historyFiscalYears.slice(-8) : [],
+        missingResponseRate: Number(lenses.evidenceReadiness.missingResponseRate || 0),
+        informationGapRate: Number(lenses.evidenceReadiness.informationGapRate || 0),
+        issues: Array.isArray(lenses.evidenceReadiness.issues) ? lenses.evidenceReadiness.issues.slice(0, 5) : []
+      } : {},
       degradation: lenses.degradation && lenses.degradation.aiUnavailable === true ? {
         aiUnavailable: true, reason: String(lenses.degradation.reason || 'AI_RESEARCH_UNAVAILABLE'),
         policy: 'AI_ZERO_AND_WIDER_INTERVAL'
@@ -10168,7 +10206,18 @@ function vNextAdminSanitizeForecastRowsForClient_(rows) {
       informationGapRate: Number(evidence.informationGapRate || 0),
       aiUnavailable: evidence.aiUnavailable === true,
       aiUnavailableReason: evidence.aiUnavailable === true ? String(evidence.aiUnavailableReason || '') : '',
-      noChange: Number(evidence.noChange || 0), unknown: Number(evidence.unknown || 0)
+      noChange: Number(evidence.noChange || 0), unknown: Number(evidence.unknown || 0),
+      unknownSpotExpectedAnnual: Number(evidence.unknownSpotExpectedAnnual || 0),
+      unknownSpotExpectedOccurrences: Number(evidence.unknownSpotExpectedOccurrences || 0),
+      readiness: evidence.readiness && typeof evidence.readiness === 'object' ? {
+        level: String(evidence.readiness.level || ''), label: String(evidence.readiness.label || ''),
+        summary: String(evidence.readiness.summary || '').slice(0, 300),
+        historyYearCount: Number(evidence.readiness.historyYearCount || 0),
+        historyFiscalYears: Array.isArray(evidence.readiness.historyFiscalYears) ? evidence.readiness.historyFiscalYears.slice(-8) : [],
+        missingResponseRate: Number(evidence.readiness.missingResponseRate || 0),
+        informationGapRate: Number(evidence.readiness.informationGapRate || 0),
+        issues: Array.isArray(evidence.readiness.issues) ? evidence.readiness.issues.slice(0, 5) : []
+      } : {}
     });
     return copy;
   });

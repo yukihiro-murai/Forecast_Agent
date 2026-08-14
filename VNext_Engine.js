@@ -1764,13 +1764,20 @@ function vNextBuildPublicAiEvidence_(events) {
       sourceDate: String(event.sourceDate || event.source_date || metadata.sourceDate || '').slice(0, 10),
       appliedAmount: Math.abs(Number(event.appliedAmount !== undefined ? event.appliedAmount : (event.amountMid !== undefined ? event.amountMid : event.amount_mid)) || 0),
       evidenceQuality: String(event.evidenceQuality || event.evidence_quality || '').toUpperCase().slice(0, 20),
-      capApplied: Boolean(event.capApplied || Number(event.cap_applied || 0) === 1)
+      capApplied: Boolean(event.capApplied || Number(event.cap_applied || 0) === 1),
+      researchAxis: String(metadata.researchAxis || 'ALTERNATIVE_SIGNALS').toUpperCase().slice(0, 40),
+      signalType: String(metadata.signalType || '').trim().slice(0, 80),
+      sourceStrength: String(metadata.sourceStrength || '').toUpperCase().slice(0, 40),
+      forecastUse: String(metadata.forecastUse || (Number(event.applied_amount || 0) ? 'APPLY' : 'INSIGHT_ONLY')).toUpperCase().slice(0, 20),
+      salesRelevance: String(metadata.salesRelevance || '').toUpperCase().slice(0, 20),
+      humanQuestion: String(metadata.humanQuestion || '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 180)
     };
   }).filter(function (item) {
     return item.summary || item.target || item.sourceUrl;
   }).sort(function (a, b) {
-    return Number(b.appliedAmount || 0) - Number(a.appliedAmount || 0);
-  }).slice(0, 3);
+    var useDiff = (b.forecastUse === 'APPLY' ? 1 : 0) - (a.forecastUse === 'APPLY' ? 1 : 0);
+    return useDiff || Number(b.appliedAmount || 0) - Number(a.appliedAmount || 0);
+  }).slice(0, 5);
 }
 
 function vNextBuildContinuityPrior_(records, targetFiscalYear, cutoff) {
