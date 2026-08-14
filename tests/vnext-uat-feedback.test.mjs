@@ -90,6 +90,15 @@ function checkSafeLivePilotUpgrade() {
     'vNextAdminRecoverFailedPreflightPilotClientUpgrade');
   assert.equal(editorFallback.includes('dryRun: true'), false,
     'the editor fallback must not release a lock between slow dry-run and apply');
+  const stateValidator = functionSource(admin, 'vNextAdminValidateClientStateRows_',
+    'vNextAdminVerifyHistoricClientStatePrefix_');
+  assert.match(stateValidator, /vNextAdminVerifyHistoricClientStatePrefix_/,
+    'early Pilot Client state prefixes must be verified before health checks');
+  const recoveryFallback = functionSource(admin,
+    'vNextAdminRecoverOnlyFailedPreflightPilotForManualTest',
+    'vNextAdminAssertEmptyPilotUpgradeEligibility_');
+  assert.match(recoveryFallback, /direction:\s*'TARGET'/,
+    'manual recovery must finish the requested current-release upgrade after a verified rollback');
   const apply = functionSource(admin, 'vNextAdminApplyEmptyPilotRelease_',
     'vNextAdminAppendEmptyPilotRepairMeta_');
   assert.match(apply, /const preservedState = String\(plan\.preservedState \|\| 'INPUT_OPEN'\)/);

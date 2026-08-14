@@ -3624,8 +3624,13 @@ function vNextAdminRecoverEmptyPilotClientUpgrade(request) {
       const sourceRelease = vNextAdminEmptyPilotRelease_(hub, plan.sourceReleaseId, ['ACTIVE', 'RETIRED']);
       const sourceModel = vNextAdminEmptyPilotModel_(hub, plan.sourceModelReleaseId, sourceRelease,
         ['ACTIVE', 'RETIRED']);
-      let direction = String(registry.template_release_id || '') === String(plan.targetReleaseId || '')
-        ? 'TARGET' : 'SOURCE';
+      const preferredDirection = String(req.direction || '').toUpperCase();
+      if (preferredDirection && ['TARGET', 'SOURCE'].indexOf(preferredDirection) < 0) {
+        throw new Error('directionはTARGETまたはSOURCEだけを指定できます。');
+      }
+      let direction = preferredDirection ||
+        (String(registry.template_release_id || '') === String(plan.targetReleaseId || '')
+          ? 'TARGET' : 'SOURCE');
       let release = sourceRelease;
       let model = sourceModel;
       if (direction === 'TARGET') {
@@ -4006,7 +4011,8 @@ function vNextAdminRecoverOnlyFailedPreflightPilotForManualTest() {
   }
   return vNextAdminRecoverFailedPreflightPilotClientUpgrade({
     bookId: String(rows[0].book_id || ''), migrationId: String(rows[0].migration_id || ''),
-    reason: 'Apps Script editorから中断した入力済みPilot更新を復旧'
+    direction: 'TARGET',
+    reason: 'Apps Script editorから中断した入力済みPilot更新を現在の社員releaseへ復旧'
   });
 }
 
@@ -9535,6 +9541,12 @@ function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
   const latestMeta = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
     return String(row.book_id || '') === String(bookId);
   }).slice(-1)[0];
+  const allBookMeta = vNextAdminReadCoreRows_(hub, 'BOOK_META').filter(function (row) {
+    return String(row.book_id || '') === String(bookId);
+  });
+  const historicPrefixIds = vNextAdminVerifyHistoricClientStatePrefix_(
+    hub, client, registry, rows, hubRows, existingIds, owner, allBookMeta[0] || latestMeta
+  );
   let currentState = String(
     hubRows.length ? hubRows[hubRows.length - 1].to_state :
       latestMeta && latestMeta.state || registry.state || 'INPUT_OPEN'
@@ -9548,6 +9560,7 @@ function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
       const eventId = String(event.state_event_id || '');
       if (!eventId || seenIds.has(eventId)) throw new Error('Client STATE_EVENT contains a blank or duplicate ID.');
       seenIds.add(eventId);
+      if (historicPrefixIds.has(eventId)) return;
       if (existingIds.has(eventId)) {
         acceptedRows.push(event);
         return;
@@ -9594,6 +9607,55 @@ function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
     });
     throw err;
   }
+}
+
+/**
+ * Some early Pilot books reached the Hub only after their first request had
+ * started. Verify an older Client-only prefix against normal state semantics,
+ * but do not append it behind newer Hub events where row order would become
+ * misleading. Future events still require the normal append-only path.
+ */
+function vNextAdminVerifyHistoricClientStatePrefix_(hub, client, registry, rows, hubRows,
+    existingIds, owner, initialMeta) {
+  const verified = new Set();
+  if (!hubRows || !hubRows.length) return verified;
+  const firstHubTimestamp = vNextAdminStrictTimestampMs_(hubRows[0].created_at,
+    'Hub first STATE_EVENT.created_at');
+  const prefix = (rows || []).filter(function (event) {
+    const eventId = String(event.state_event_id || '');
+    if (!eventId || existingIds.has(eventId)) return false;
+    return vNextAdminStrictTimestampMs_(event.created_at,
+      'Historic Client STATE_EVENT.created_at') < firstHubTimestamp;
+  }).sort(function (a, b) {
+    return vNextAdminStrictTimestampMs_(a.created_at, 'Historic Client STATE_EVENT.created_at') -
+      vNextAdminStrictTimestampMs_(b.created_at, 'Historic Client STATE_EVENT.created_at');
+  });
+  if (!prefix.length) return verified;
+  let state = String(initialMeta && initialMeta.state || 'INPUT_OPEN').toUpperCase();
+  let lastTimestamp = 0;
+  prefix.forEach(function (event) {
+    const eventId = String(event.state_event_id || '');
+    if (String(event.book_id || '') !== String(registry.book_id || '')) {
+      throw new Error('Historic Client STATE_EVENT book_id mismatch.');
+    }
+    const fromState = String(event.from_state || '').toUpperCase();
+    const toState = String(event.to_state || '').toUpperCase();
+    const edge = fromState + '>' + toState;
+    if (fromState !== state) {
+      throw new Error('Historic Client state prefix is discontinuous. expected=' + state + '; event=' + edge);
+    }
+    const timestamp = vNextAdminStrictTimestampMs_(event.created_at,
+      'Historic Client STATE_EVENT.created_at');
+    if (timestamp < lastTimestamp) throw new Error('Historic Client STATE_EVENT is out of order.');
+    vNextAdminValidateClientStateEventSemantics_(hub, client, registry, event, edge, owner, timestamp);
+    verified.add(eventId);
+    state = toState;
+    lastTimestamp = timestamp;
+  });
+  if (state !== String(hubRows[0].from_state || '').toUpperCase()) {
+    throw new Error('Historic Client state prefix does not connect to the first Hub event.');
+  }
+  return verified;
 }
 
 function vNextAdminIsTrustedRejectedStateMarker_(hub, registry, event, edge) {
