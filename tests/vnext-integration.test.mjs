@@ -118,7 +118,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.2.1',
+    version: 'vnext-client-1.2.2',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -149,6 +149,7 @@ async function checkClientBundleBoundary() {
   const manifest = JSON.parse(bundle.files.find(file => file.name === 'appsscript').source);
   assert.deepEqual(manifest.oauthScopes, [
     'https://www.googleapis.com/auth/script.container.ui',
+    'https://www.googleapis.com/auth/script.scriptapp',
     'https://www.googleapis.com/auth/spreadsheets.currentonly',
     'https://www.googleapis.com/auth/userinfo.email'
   ]);

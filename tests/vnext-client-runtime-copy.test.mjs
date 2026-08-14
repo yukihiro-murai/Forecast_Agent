@@ -75,6 +75,11 @@ function testValidCopy() {
 
 function testPinnedHistoricalCopy() {
   const legacyFiles = clone(bundle.files).filter(file => file.name !== 'VNext_GuidanceSidebar');
+  const legacyManifestFile = legacyFiles.find(file => file.name === 'appsscript');
+  const legacyManifest = JSON.parse(legacyManifestFile.source);
+  legacyManifest.oauthScopes = legacyManifest.oauthScopes.filter(scope =>
+    scope !== 'https://www.googleapis.com/auth/script.scriptapp');
+  legacyManifestFile.source = JSON.stringify(legacyManifest, null, 2) + '\n';
   const legacySha = filesSha256(legacyFiles);
   assert.throws(
     () => sandbox.vNextClientRuntimeVerifyScriptContent_(
@@ -99,6 +104,19 @@ function testPinnedHistoricalCopy() {
   assert.equal(result.bundleSha256, legacySha);
   assert.equal(result.fileCount, 9);
   assert.equal(calls.length, 2);
+
+  const previousTenFiles = clone(bundle.files);
+  const previousManifestFile = previousTenFiles.find(file => file.name === 'appsscript');
+  const previousManifest = JSON.parse(previousManifestFile.source);
+  previousManifest.oauthScopes = previousManifest.oauthScopes.filter(scope =>
+    scope !== 'https://www.googleapis.com/auth/script.scriptapp');
+  previousManifestFile.source = JSON.stringify(previousManifest, null, 2) + '\n';
+  const previousSha = filesSha256(previousTenFiles);
+  const previousPinned = sandbox.vNextClientRuntimeVerifyPinnedScriptContent_(
+    { scriptId: sourceId, files: previousTenFiles }, sourceId, previousSha
+  );
+  assert.equal(previousPinned.historicalContract, true,
+    'the exact pre-trigger ten-file release remains readable only by its stored SHA');
 
   assert.throws(
     () => sandbox.vNextClientRuntimeVerifyPinnedScriptContent_(

@@ -123,11 +123,15 @@ function checkEmployeeInteractionContract() {
   assert.equal((input.match(/id=["']saveButton["']/g) || []).length, 1);
   assert.match(ux, /vNextUxAutoOpenGuidance_/,
     'A state-aware sidebar must open automatically for passive employees');
-  assert.match(ux, /vNextUxOpenGuidanceShellQuietly_\(\);[\s\S]*vNextUxActivateSheet_/,
-    'Client open must show the lightweight guidance shell before any sheet work');
   const openMenu = functionSource(ux, 'vNextBuildClientMenu_', 'vNextSetupClientExperience_');
   assert.doesNotMatch(openMenu, /vNextUxGetBookContext_|vNextRefreshEmployeeViews/,
     'Client onOpen must not block guidance on identity or full view rendering');
+  assert.doesNotMatch(openMenu, /vNextUxOpenGuidanceShellQuietly_/,
+    'Simple onOpen must not call authorized Ui.showSidebar');
+  assert.match(ux, /function vNextInstalledGuidanceOnOpen\(e\)[\s\S]*vNextUxOpenGuidanceShellQuietly_/,
+    'Automatic guidance must run from an installable open trigger');
+  assert.match(ux, /ScriptApp\.newTrigger\(handler\)\.forSpreadsheet\(spreadsheet\)\.onOpen\(\)\.create\(\)/,
+    'Forecast Owner must be able to enable automatic guidance once');
   assert.match(guidance, /vNextRefreshEmployeeViews\(\)/,
     'Guidance must refresh the visible sheets asynchronously after it is rendered');
   const scaleResolver = functionSource(admin, 'vNextAdminResolveClientAnnualSalesScale_',

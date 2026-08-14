@@ -32,6 +32,12 @@ var VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_ = Object.freeze({
 });
 var VNEXT_CLIENT_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/script.container.ui',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/userinfo.email'
+]);
+var VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
+  'https://www.googleapis.com/auth/script.container.ui',
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
@@ -409,6 +415,26 @@ function vNextClientRuntimeVerifyPinnedScriptContent_(content, expectedScriptId,
   if (content.scriptId && String(content.scriptId) !== String(expectedScriptId)) {
     return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
   }
+  // v1.0-v1.2.1 used the current ten-file contract before automatic guidance
+  // added the narrowly scoped trigger permission. Immutable historical releases
+  // remain readable only when their stored content SHA matches exactly.
+  if (vNextClientRuntimeHasExactFileNames_(content.files, VNEXT_CLIENT_RUNTIME_FILE_TYPES_)) {
+    if (vNextClientRuntimeManifestUsesScopes_(content.files,
+      VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_)) {
+      var previousFiles = vNextClientRuntimeValidateFiles_(content.files,
+        VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_);
+      var previousDigest = vNextClientRuntimeFilesSha256_(previousFiles);
+      if (previousDigest !== String(expectedSha256 || '').toLowerCase()) {
+        throw new Error('Pinned historical client runtime content hash does not match expectedSha256.');
+      }
+      return { scriptId: String(expectedScriptId), sha256: previousDigest,
+        files: previousFiles, historicalContract: true };
+    }
+    // Current-scope runtimes and every malformed/over-scoped manifest stay on
+    // the strict current verifier. A forbidden source capability must never be
+    // mistaken for evidence that the runtime is an older approved release.
+    return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
+  }
   if (!vNextClientRuntimeHasExactFileNames_(content.files, VNEXT_CLIENT_RUNTIME_LEGACY_FILE_TYPES_)) {
     return vNextClientRuntimeVerifyScriptContent_(content, expectedScriptId, expectedSha256);
   }
@@ -423,6 +449,21 @@ function vNextClientRuntimeVerifyPinnedScriptContent_(content, expectedScriptId,
     files: files,
     historicalContract: true
   };
+}
+
+function vNextClientRuntimeManifestUsesScopes_(files, expectedScopes) {
+  var manifestFile = (files || []).filter(function (file) {
+    return String(file && file.name || '') === 'appsscript';
+  })[0];
+  if (!manifestFile || typeof manifestFile.source !== 'string') return false;
+  try {
+    var manifest = JSON.parse(manifestFile.source);
+    var actual = Array.isArray(manifest.oauthScopes) ? manifest.oauthScopes.map(String).sort() : [];
+    var expected = (expectedScopes || []).slice().sort();
+    return JSON.stringify(actual) === JSON.stringify(expected);
+  } catch (ignoredParseError) {
+    return false;
+  }
 }
 
 function vNextClientRuntimeHasExactFileNames_(files, contract) {
@@ -464,12 +505,13 @@ function vNextClientRuntimeValidateLegacyFiles_(files) {
     if (!byName[name]) throw new Error('Pinned legacy client runtime file is missing: ' + name);
     return byName[name];
   });
-  vNextClientRuntimeValidateManifest_(byName.appsscript.source);
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source,
+    VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_);
   vNextClientRuntimeRejectForbiddenContent_(ordered);
   return ordered;
 }
 
-function vNextClientRuntimeValidateFiles_(files) {
+function vNextClientRuntimeValidateFiles_(files, expectedScopes) {
   var expectedNames = Object.keys(VNEXT_CLIENT_RUNTIME_FILE_TYPES_);
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
     throw new Error('Client runtime must contain exactly ' + (expectedNames.length - 1) + ' client files and one manifest.');
@@ -490,18 +532,18 @@ function vNextClientRuntimeValidateFiles_(files) {
     if (!byName[name]) throw new Error('Client runtime file is missing: ' + name);
   });
   var ordered = expectedNames.map(function (name) { return byName[name]; });
-  vNextClientRuntimeValidateManifest_(byName.appsscript.source);
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source, expectedScopes);
   vNextClientRuntimeRejectForbiddenContent_(ordered);
   return ordered;
 }
 
-function vNextClientRuntimeValidateManifest_(source) {
+function vNextClientRuntimeValidateManifest_(source, expectedScopes) {
   var manifest;
   try { manifest = JSON.parse(String(source || '')); }
   catch (error) { throw new Error('Client runtime manifest is not valid JSON.'); }
   if (!manifest || manifest.runtimeVersion !== 'V8') throw new Error('Client runtime manifest must use V8.');
   var scopes = Array.isArray(manifest.oauthScopes) ? manifest.oauthScopes.map(String).sort() : [];
-  var expected = VNEXT_CLIENT_RUNTIME_OAUTH_SCOPES_.slice().sort();
+  var expected = (expectedScopes || VNEXT_CLIENT_RUNTIME_OAUTH_SCOPES_).slice().sort();
   if (JSON.stringify(scopes) !== JSON.stringify(expected)) {
     throw new Error('Client runtime manifest OAuth scopes do not match the minimal allowlist.');
   }
@@ -548,12 +590,20 @@ function vNextClientRuntimeRejectForbiddenContent_(files) {
     /VNext_Engine|vNextRunForecast_|vNextSimulateForecast_/,
     /FORECAST_SOURCE_SPREADSHEET_ID|VNEXT_ZAC_SOURCE_SPREADSHEET_ID/,
     /VERTEX_[A-Z_]+|VertexAI|aiplatform/,
-    /DriveApp|UrlFetchApp|SpreadsheetApp\.openById|PropertiesService|ScriptApp/,
+    /DriveApp|UrlFetchApp|SpreadsheetApp\.openById|PropertiesService/,
     /auth\/cloud-platform|auth\/drive(?:["/])|auth\/script\.projects|auth\/script\.external_request/
   ];
   forbidden.forEach(function (pattern) {
     if (pattern.test(combined)) throw new Error('Client runtime contains a forbidden capability: ' + pattern);
   });
+  var allowedScriptAppMethods = { getUserTriggers: true, newTrigger: true, EventType: true };
+  var match;
+  var scriptAppPattern = /ScriptApp\.([A-Za-z_$][\w$]*)/g;
+  while ((match = scriptAppPattern.exec(combined)) !== null) {
+    if (!allowedScriptAppMethods[match[1]]) {
+      throw new Error('Client runtime contains a forbidden ScriptApp capability: ' + match[1]);
+    }
+  }
   return true;
 }
 

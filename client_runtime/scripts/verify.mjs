@@ -30,16 +30,24 @@ const forbidden = [
   ['forecast engine', /VNext_Engine|vNextRunForecast_|vNextSimulateForecast_/],
   ['source-system configuration', /FORECAST_SOURCE_SPREADSHEET_ID|VNEXT_ZAC_SOURCE_SPREADSHEET_ID/],
   ['AI runtime configuration', /VERTEX_[A-Z_]+|VertexAI|aiplatform/],
-  ['cross-file access API', /DriveApp|UrlFetchApp|SpreadsheetApp\.openById|PropertiesService|ScriptApp/],
+  ['cross-file access API', /DriveApp|UrlFetchApp|SpreadsheetApp\.openById|PropertiesService/],
   ['broad cloud scope', /auth\/cloud-platform|auth\/drive(?:["/])|auth\/script\.projects|auth\/script\.external_request/]
 ];
 for (const [label, pattern] of forbidden) {
   if (pattern.test(combined)) throw new Error(`禁止された${label}がclient runtimeに含まれています: ${pattern}`);
 }
 
+const allowedScriptAppMethods = new Set(['getUserTriggers', 'newTrigger', 'EventType']);
+for (const match of combined.matchAll(/ScriptApp\.([A-Za-z_$][\w$]*)/g)) {
+  if (!allowedScriptAppMethods.has(match[1])) {
+    throw new Error(`client runtimeで許可されていないScriptApp APIです: ${match[1]}`);
+  }
+}
+
 const manifest = JSON.parse(contents['appsscript.json']);
 const expectedScopes = [
   'https://www.googleapis.com/auth/script.container.ui',
+  'https://www.googleapis.com/auth/script.scriptapp',
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/userinfo.email'
 ].sort();
@@ -54,7 +62,8 @@ for (const [name, source] of Object.entries(contents)) {
   for (const match of source.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)) serverFunctions.add(match[1]);
 }
 const requiredFunctions = [
-  'onOpen', 'vNextGetClientViewModel', 'vNextPreviewEvidence', 'vNextSaveEvidence',
+  'onOpen', 'vNextInstalledGuidanceOnOpen', 'vNextInstallAutomaticGuidance',
+  'vNextGetClientViewModel', 'vNextPreviewEvidence', 'vNextSaveEvidence',
   'vNextCloseInputAndProceed', 'vNextGetPlanEditorModel', 'vNextPreviewPlan',
   'vNextSubmitPlan', 'vNextGetReviewEditorModel', 'vNextPreviewReview',
   'vNextSaveReview', 'vNextQueueClientForecastRequest'

@@ -86,10 +86,9 @@ function vNextBuildClientMenu_() {
       .addItem('予測と計画を見る', 'vNextOpenForecastPlanOrCurrentAction')
       .addItem('使い方・困ったとき', 'vNextOpenHelpSidebar')
       .addToUi();
-    // Simple onOpenでは利用者メールを取得できない場合がある。利用者情報や
-    // 画面再描画を待たずに案内の外枠を先に開き、中身はsidebar側から取得する。
-    // これにより、受け身の利用者にも次の操作を必ず提示し、openを軽く保つ。
-    vNextUxOpenGuidanceShellQuietly_();
+    // Simple onOpenは認可サービスのUi.showSidebarを呼べない。menuだけを即時
+    // 表示し、案内の自動表示はForecast Ownerが一度だけ有効化するinstallable
+    // open triggerへ委譲する。
     try {
       vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
     } catch (refreshError) {
@@ -128,13 +127,47 @@ function vNextGoHome() {
 
 function vNextGoHomeAndShowGuidance() {
   try {
-    vNextRefreshEmployeeViews();
+    var context = vNextUxGetBookContext_();
+    if (context.isForecastOwner) vNextUxEnsureGuidanceOnOpenTrigger_();
+    vNextRefreshEmployeeViews(context);
     vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
-    vNextUxAutoOpenGuidance_(vNextUxGetBookContext_(), true);
+    vNextUxAutoOpenGuidance_(context, true);
   } catch (err) {
     Logger.log('vNextGoHomeAndShowGuidance error: ' + vNextUxErrorText_(err));
     vNextUxAlertError_('ホームと案内を開けませんでした。', err);
   }
+}
+
+/** Forecast Ownerが一度だけ実行する自動案内の有効化entry。 */
+function vNextInstallAutomaticGuidance() {
+  try {
+    var context = vNextUxGetBookContext_();
+    if (!context.isForecastOwner) throw new Error('自動案内の有効化はForecast Ownerが行います。');
+    var installed = vNextUxEnsureGuidanceOnOpenTrigger_();
+    vNextOpenGuidanceSidebar();
+    return { ok: true, installed: installed, message: '次回からブックを開くと案内が自動表示されます。' };
+  } catch (error) {
+    Logger.log('vNextInstallAutomaticGuidance error: ' + vNextUxErrorText_(error));
+    vNextUxAlertError_('自動案内を有効にできませんでした。', error);
+    return { ok: false };
+  }
+}
+
+/** Installable open triggerからだけ呼ぶ。simple onOpenからは呼ばない。 */
+function vNextInstalledGuidanceOnOpen(e) {
+  return vNextUxOpenGuidanceShellQuietly_();
+}
+
+function vNextUxEnsureGuidanceOnOpenTrigger_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var handler = 'vNextInstalledGuidanceOnOpen';
+  var existing = ScriptApp.getUserTriggers(spreadsheet).some(function (trigger) {
+    return trigger.getHandlerFunction() === handler &&
+      trigger.getEventType() === ScriptApp.EventType.ON_OPEN;
+  });
+  if (existing) return false;
+  ScriptApp.newTrigger(handler).forSpreadsheet(spreadsheet).onOpen().create();
+  return true;
 }
 
 function vNextOpenGuidanceSidebar() {

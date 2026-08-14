@@ -4,7 +4,7 @@
  */
 
 var VNEXT_CLIENT_CORE = Object.freeze({
-  RUNTIME_VERSION: 'vnext-client-1.2.1',
+  RUNTIME_VERSION: 'vnext-client-1.2.2',
   SCHEMA_VERSION: 'vnext-schema-2',
   CONFIG_SHEET: 'VN_BOOK_CONFIG',
   REQUEST_SHEET: 'VN_CLIENT_REQUEST',
