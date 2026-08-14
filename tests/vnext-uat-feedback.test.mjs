@@ -47,6 +47,12 @@ function checkEvidenceMonthNormalization() {
   assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
     'Client evidence differs from the already accepted Hub record: c2597e43-a91d-41b4-9439-953b0a73f6bd'), true);
   assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
+    'Append-only integrity mismatch EVIDENCE_EVENT id=c2597e43-a91d-41b4-9439-953b0a73f6bd'), true);
+  assert.equal(sandbox.vNextAdminCanRetryKnownEvidencePreflightJob_({
+    error: 'Append-only integrity mismatch EVIDENCE_EVENT id=c2597e43-a91d-41b4-9439-953b0a73f6bd',
+    attempts: 3
+  }), true, 'the exact no-run code defect receives one audited corrective retry');
+  assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
     'Client evidence differs from the already accepted Hub record: bad id!'), false);
   assert.throws(() => sandbox.vNextAdminNormalizeEvidenceMonth_('April 2027',
     'target_start_month'), /invalid evidence month/);
@@ -57,6 +63,10 @@ function checkEvidenceMonthNormalization() {
   'Sheets Date coercion must be normalized before the strict evidence-month check');
   assert.match(validator, /vNextAdminCanonicalEvidenceForComparison_\(existingById\.get\(evidenceId\)\)/,
     'already accepted Hub evidence must receive the same lossless month normalization');
+  const appendMissing = functionSource(admin, 'vNextAdminAppendMissingCoreRows_',
+    'vNextAdminCanonicalCoreRowForIntegrity_');
+  assert.match(appendMissing, /vNextAdminCanonicalCoreRowForIntegrity_\(sheetName, row\)/,
+    'append-only sync must compare the same lossless canonical evidence representation');
 }
 
 function checkSafeLivePilotUpgrade() {
@@ -71,7 +81,7 @@ function checkSafeLivePilotUpgrade() {
     "status === 'RUNNING'",
     "latest.event_type || '').toUpperCase() !== 'FAILED'"
   ]) assert.ok(boundary.includes(token), `failed-preflight boundary missing ${token}`);
-  assert.match(boundary, /vNextAdminIsKnownEvidencePreflightFailure_\(row\.error\)/,
+  assert.match(boundary, /vNextAdminCanRetryKnownEvidencePreflightJob_\(row\)/,
     'migration eligibility and requeue must share the same exact preflight failure predicate');
   assert.match(boundary, /vNextAdminIsKnownEvidenceRequeuedJob_\(hub, row\)/,
     'migration may coexist only with the exact unlocked queued retry it preserves');

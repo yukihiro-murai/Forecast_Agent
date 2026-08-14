@@ -3868,10 +3868,9 @@ function vNextAdminAssertFailedPreflightBusinessBoundary_(hub, client, registry)
       !vNextAdminIsKnownEvidenceRequeuedJob_(hub, row));
   })) throw new Error('対象bookにQUEUED/RUNNING jobがあるため更新を停止しました。');
   const matching = jobs.filter(function (row) {
-    return String(row.job_type || '') === 'FORECAST_REQUEST' &&
-      Number(row.attempts || 0) < 3 && (
+    return String(row.job_type || '') === 'FORECAST_REQUEST' && (
         (String(row.status || '').toUpperCase() === 'FAILED' &&
-          vNextAdminIsKnownEvidencePreflightFailure_(row.error)) ||
+          vNextAdminCanRetryKnownEvidencePreflightJob_(row)) ||
         vNextAdminIsKnownEvidenceRequeuedJob_(hub, row)
       );
   });
@@ -6217,8 +6216,7 @@ function vNextAdminRequeueKnownPilotFailures_(hub) {
 function vNextAdminRequeueKnownEvidenceMonthFailure_(hub, job) {
   if (String(job.job_type || '') !== 'FORECAST_REQUEST' ||
       String(job.status || '').toUpperCase() !== 'FAILED' ||
-      Number(job.attempts || 0) >= 3 ||
-      !vNextAdminIsKnownEvidencePreflightFailure_(job.error)) return false;
+      !vNextAdminCanRetryKnownEvidencePreflightJob_(job)) return false;
   const payload = vNextAdminParseJson_(job.request_json, {});
   const requestId = String(payload.requestId || '');
   const requestHash = String(payload.requestHash || '');
@@ -6229,6 +6227,8 @@ function vNextAdminRequeueKnownEvidenceMonthFailure_(hub, job) {
   });
   if (!registry || (String(job.target_spreadsheet_id || '') &&
       String(job.target_spreadsheet_id || '') !== String(registry.spreadsheet_id || ''))) return false;
+  const activePair = vNextAdminReadActiveReleasePair_(hub);
+  if (String(registry.template_release_id || '') !== String(activePair.releaseId || '')) return false;
   const client = SpreadsheetApp.openById(String(registry.spreadsheet_id || ''));
   const requests = vNextAdminReadTable_(client, VN_ADMIN_CLIENT_REQUEST_SHEET).rows.filter(function (row) {
     return String(row.request_id || '') === requestId;
@@ -6287,13 +6287,23 @@ function vNextAdminRequeueKnownEvidenceMonthFailure_(hub, job) {
 function vNextAdminIsKnownEvidencePreflightFailure_(errorText) {
   const text = String(errorText || '');
   return /^invalid evidence month: target_(?:start|end)_month$/.test(text) ||
-    /^Client evidence differs from the already accepted Hub record: [A-Za-z0-9-]{8,200}$/.test(text);
+    /^Client evidence differs from the already accepted Hub record: [A-Za-z0-9-]{8,200}$/.test(text) ||
+    /^Append-only integrity mismatch EVIDENCE_EVENT id=[A-Za-z0-9-]{8,200}$/.test(text);
+}
+
+function vNextAdminCanRetryKnownEvidencePreflightJob_(job) {
+  if (!vNextAdminIsKnownEvidencePreflightFailure_(job && job.error)) return false;
+  const attempts = Number(job && job.attempts || 0);
+  if (/^Append-only integrity mismatch EVIDENCE_EVENT id=/.test(String(job && job.error || ''))) {
+    return attempts >= 1 && attempts <= 3;
+  }
+  return attempts >= 0 && attempts < 3;
 }
 
 function vNextAdminIsKnownEvidenceRequeuedJob_(hub, job) {
   if (String(job && job.job_type || '') !== 'FORECAST_REQUEST' ||
       String(job && job.status || '').toUpperCase() !== 'QUEUED' ||
-      Number(job && job.attempts || 0) >= 3 || String(job && job.error || '') ||
+      Number(job && job.attempts || 0) > 3 || String(job && job.error || '') ||
       String(job && job.locked_at || '') || String(job && job.locked_by || '') ||
       String(job && job.started_at || '') || String(job && job.result_json || '')) return false;
   const logs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOB_LOG).rows.filter(function (row) {
@@ -9809,13 +9819,15 @@ function vNextAdminAppendMissingCoreRows_(target, sheetName, idField, sourceRows
   const byId = new Map();
   targetRows.forEach(function (row) {
     const id = String(row[idField] || '');
-    if (id) byId.set(id, vNextAdminSha256_(vNextAdminCanonicalJson_(row)));
+    if (id) byId.set(id, vNextAdminSha256_(vNextAdminCanonicalJson_(
+      vNextAdminCanonicalCoreRowForIntegrity_(sheetName, row))));
   });
   const missing = [];
   (sourceRows || []).forEach(function (row) {
     const id = String(row[idField] || '');
     if (!id) return;
-    const hash = vNextAdminSha256_(vNextAdminCanonicalJson_(row));
+    const hash = vNextAdminSha256_(vNextAdminCanonicalJson_(
+      vNextAdminCanonicalCoreRowForIntegrity_(sheetName, row)));
     if (byId.has(id)) {
       if (byId.get(id) !== hash) throw new Error('Append-only integrity mismatch ' + sheetName + ' id=' + id);
       return;
@@ -9825,6 +9837,11 @@ function vNextAdminAppendMissingCoreRows_(target, sheetName, idField, sourceRows
   });
   if (missing.length) vNextAdminAppendCoreRowsNoLock_(target, sheetName, missing);
   return { examined: (sourceRows || []).length, appended: missing.length };
+}
+
+function vNextAdminCanonicalCoreRowForIntegrity_(sheetName, row) {
+  if (String(sheetName || '') !== 'EVIDENCE_EVENT') return row;
+  return vNextAdminCanonicalEvidenceForComparison_(row);
 }
 
 // ---------------------------- Hub views ----------------------------
