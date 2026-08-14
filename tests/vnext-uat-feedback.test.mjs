@@ -68,11 +68,18 @@ function checkSafeLivePilotUpgrade() {
   for (const token of [
     'READY_TO_RUN', 'FORECAST_RUN', 'PLAN_VERSION', 'EVALUATION',
     'VN_ADMIN_SHEETS.APPROVALS', 'VN_ADMIN_SHEETS.OFFICIAL',
-    "['QUEUED', 'RUNNING']",
+    "status === 'RUNNING'",
     "latest.event_type || '').toUpperCase() !== 'FAILED'"
   ]) assert.ok(boundary.includes(token), `failed-preflight boundary missing ${token}`);
   assert.match(boundary, /vNextAdminIsKnownEvidencePreflightFailure_\(row\.error\)/,
     'migration eligibility and requeue must share the same exact preflight failure predicate');
+  assert.match(boundary, /vNextAdminIsKnownEvidenceRequeuedJob_\(hub, row\)/,
+    'migration may coexist only with the exact unlocked queued retry it preserves');
+  const editorFallback = functionSource(admin,
+    'vNextAdminUpgradeOnlyKnownFailedPreflightPilotForManualTest',
+    'vNextAdminRecoverFailedPreflightPilotClientUpgrade');
+  assert.equal(editorFallback.includes('dryRun: true'), false,
+    'the editor fallback must not release a lock between slow dry-run and apply');
   const apply = functionSource(admin, 'vNextAdminApplyEmptyPilotRelease_',
     'vNextAdminAppendEmptyPilotRepairMeta_');
   assert.match(apply, /const preservedState = String\(plan\.preservedState \|\| 'INPUT_OPEN'\)/);

@@ -3863,12 +3863,17 @@ function vNextAdminAssertFailedPreflightBusinessBoundary_(hub, client, registry)
     return String(row.target_book_id || '') === bookId;
   });
   if (jobs.some(function (row) {
-    return ['QUEUED', 'RUNNING'].indexOf(String(row.status || '').toUpperCase()) >= 0;
+    const status = String(row.status || '').toUpperCase();
+    return status === 'RUNNING' || (status === 'QUEUED' &&
+      !vNextAdminIsKnownEvidenceRequeuedJob_(hub, row));
   })) throw new Error('対象bookにQUEUED/RUNNING jobがあるため更新を停止しました。');
   const matching = jobs.filter(function (row) {
     return String(row.job_type || '') === 'FORECAST_REQUEST' &&
-      String(row.status || '').toUpperCase() === 'FAILED' && Number(row.attempts || 0) < 3 &&
-      vNextAdminIsKnownEvidencePreflightFailure_(row.error);
+      Number(row.attempts || 0) < 3 && (
+        (String(row.status || '').toUpperCase() === 'FAILED' &&
+          vNextAdminIsKnownEvidencePreflightFailure_(row.error)) ||
+        vNextAdminIsKnownEvidenceRequeuedJob_(hub, row)
+      );
   });
   if (matching.length !== 1) throw new Error('既知の月表記変換エラーjobが1件に確定しませんでした。');
   const failedJob = matching[0];
@@ -3907,22 +3912,14 @@ function vNextAdminUpgradeOnlyKnownFailedPreflightPilotForManualTest() {
       String(row.state || '').toUpperCase() === 'READY_TO_RUN' &&
       String(row.template_release_id || '') !== pair.releaseId;
   });
-  const eligible = [];
-  candidates.forEach(function (row) {
-    try {
-      eligible.push(vNextAdminUpgradeFailedPreflightPilotClient({
-        bookId: String(row.book_id || ''), dryRun: true
-      }));
-    } catch (ignoredIneligible) {
-      Logger.log('Failed preflight Pilot candidate skipped book=%s reason=%s',
-        String(row.book_id || ''), String(ignoredIneligible && ignoredIneligible.message || ignoredIneligible));
-    }
-  });
-  if (eligible.length !== 1) {
-    throw new Error('安全条件を満たす入力済み失敗Pilotが1冊に確定しませんでした: ' + eligible.length + '冊');
+  if (candidates.length !== 1) {
+    throw new Error('更新候補の入力済み失敗Pilotが1冊に確定しませんでした: ' + candidates.length + '冊');
   }
+  // The public apply call performs every strict check while holding one lock.
+  // A separate slow dry-run would let the scheduler requeue/claim the exact
+  // job between locks and create a false conflict.
   return vNextAdminUpgradeFailedPreflightPilotClient({
-    bookId: eligible[0].bookId, dryRun: false,
+    bookId: String(candidates[0].book_id || ''), dryRun: false,
     reason: '既知の月表記変換エラーを修正し、同じURLで従業員UIを更新'
   });
 }
@@ -6291,6 +6288,21 @@ function vNextAdminIsKnownEvidencePreflightFailure_(errorText) {
   const text = String(errorText || '');
   return /^invalid evidence month: target_(?:start|end)_month$/.test(text) ||
     /^Client evidence differs from the already accepted Hub record: [A-Za-z0-9-]{8,200}$/.test(text);
+}
+
+function vNextAdminIsKnownEvidenceRequeuedJob_(hub, job) {
+  if (String(job && job.job_type || '') !== 'FORECAST_REQUEST' ||
+      String(job && job.status || '').toUpperCase() !== 'QUEUED' ||
+      Number(job && job.attempts || 0) >= 3 || String(job && job.error || '') ||
+      String(job && job.locked_at || '') || String(job && job.locked_by || '') ||
+      String(job && job.started_at || '') || String(job && job.result_json || '')) return false;
+  const logs = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOB_LOG).rows.filter(function (row) {
+    return String(row.job_id || '') === String(job.job_id || '');
+  });
+  const latest = logs.length ? logs[logs.length - 1] : null;
+  return String(latest && latest.status || '').toUpperCase() === 'QUEUED' &&
+    String(latest && latest.message || '') ===
+      'Evidence month coercion fixed; original forecast job requeued';
 }
 
 /**
