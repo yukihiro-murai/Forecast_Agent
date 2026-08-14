@@ -3868,7 +3868,7 @@ function vNextAdminAssertFailedPreflightBusinessBoundary_(hub, client, registry)
   const matching = jobs.filter(function (row) {
     return String(row.job_type || '') === 'FORECAST_REQUEST' &&
       String(row.status || '').toUpperCase() === 'FAILED' && Number(row.attempts || 0) < 3 &&
-      /^invalid evidence month: target_(?:start|end)_month$/.test(String(row.error || ''));
+      vNextAdminIsKnownEvidencePreflightFailure_(row.error);
   });
   if (matching.length !== 1) throw new Error('既知の月表記変換エラーjobが1件に確定しませんでした。');
   const failedJob = matching[0];
@@ -6212,15 +6212,16 @@ function vNextAdminRequeueKnownPilotFailures_(hub) {
 }
 
 /**
- * Recover the exact pre-run failure caused by Sheets converting YYYY-MM text
- * to Date objects. No FORECAST_RUN exists at this point, so the original job,
- * request hash and idempotency key can be retried without creating a new run.
+ * Recover the exact pre-run failures caused by Sheets converting YYYY-MM text
+ * to Date objects. The comparison error is the same defect observed one step
+ * later and is accepted only after the full validator proves Client and Hub
+ * evidence are still identical. No FORECAST_RUN exists at this point.
  */
 function vNextAdminRequeueKnownEvidenceMonthFailure_(hub, job) {
   if (String(job.job_type || '') !== 'FORECAST_REQUEST' ||
       String(job.status || '').toUpperCase() !== 'FAILED' ||
       Number(job.attempts || 0) >= 3 ||
-      !/^invalid evidence month: target_(?:start|end)_month$/.test(String(job.error || ''))) return false;
+      !vNextAdminIsKnownEvidencePreflightFailure_(job.error)) return false;
   const payload = vNextAdminParseJson_(job.request_json, {});
   const requestId = String(payload.requestId || '');
   const requestHash = String(payload.requestHash || '');
@@ -6284,6 +6285,12 @@ function vNextAdminRequeueKnownEvidenceMonthFailure_(hub, job) {
     bookId: registry.book_id, requestId: requestId, runId: runIdentity.runId
   });
   return true;
+}
+
+function vNextAdminIsKnownEvidencePreflightFailure_(errorText) {
+  const text = String(errorText || '');
+  return /^invalid evidence month: target_(?:start|end)_month$/.test(text) ||
+    /^Client evidence differs from the already accepted Hub record: [A-Za-z0-9-]{8,200}$/.test(text);
 }
 
 /**

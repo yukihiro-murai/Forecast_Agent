@@ -42,6 +42,12 @@ function checkEvidenceMonthNormalization() {
   });
   assert.equal(JSON.stringify(accepted), JSON.stringify(submitted),
     'Hub Date values and Client YYYY-MM strings must compare as identical evidence');
+  assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
+    'invalid evidence month: target_start_month'), true);
+  assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
+    'Client evidence differs from the already accepted Hub record: c2597e43-a91d-41b4-9439-953b0a73f6bd'), true);
+  assert.equal(sandbox.vNextAdminIsKnownEvidencePreflightFailure_(
+    'Client evidence differs from the already accepted Hub record: bad id!'), false);
   assert.throws(() => sandbox.vNextAdminNormalizeEvidenceMonth_('April 2027',
     'target_start_month'), /invalid evidence month/);
   const validator = functionSource(admin, 'vNextAdminValidateClientEvidenceRows_',
@@ -62,9 +68,11 @@ function checkSafeLivePilotUpgrade() {
   for (const token of [
     'READY_TO_RUN', 'FORECAST_RUN', 'PLAN_VERSION', 'EVALUATION',
     'VN_ADMIN_SHEETS.APPROVALS', 'VN_ADMIN_SHEETS.OFFICIAL',
-    "['QUEUED', 'RUNNING']", 'invalid evidence month: target_',
+    "['QUEUED', 'RUNNING']",
     "latest.event_type || '').toUpperCase() !== 'FAILED'"
   ]) assert.ok(boundary.includes(token), `failed-preflight boundary missing ${token}`);
+  assert.match(boundary, /vNextAdminIsKnownEvidencePreflightFailure_\(row\.error\)/,
+    'migration eligibility and requeue must share the same exact preflight failure predicate');
   const apply = functionSource(admin, 'vNextAdminApplyEmptyPilotRelease_',
     'vNextAdminAppendEmptyPilotRepairMeta_');
   assert.match(apply, /const preservedState = String\(plan\.preservedState \|\| 'INPUT_OPEN'\)/);
