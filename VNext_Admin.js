@@ -4088,7 +4088,9 @@ function vNextAdminUpgradeDraftReadyPilotUx(request) {
         targetReleaseId: String(resolved.targetRelease.release_id || ''),
         targetModelReleaseId: String(resolved.targetModel.model_release_id || ''),
         schemaVersion: String(resolved.targetRelease.schema_version || ''),
-        preservedState: 'DRAFT_READY', sourceForecastRunId: resolved.sourceForecastRunId,
+        preservedState: resolved.preservedState, sourceForecastRunId: resolved.sourceForecastRunId,
+        sourcePlanVersionId: resolved.sourcePlanVersionId || '',
+        sourceApprovalRequestId: resolved.sourceApprovalRequestId || '',
         reason: reason
       };
       vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.MIGRATIONS, {
@@ -4165,6 +4167,10 @@ function vNextAdminUpgradeDraftReadyPilotUx(request) {
 
 function vNextAdminResolveDraftReadyPilotUxUpgrade_(hub, request) {
   const req = request && typeof request === 'object' ? request : {};
+  const preservedState = String(req.preservedState || 'DRAFT_READY').toUpperCase();
+  if (['DRAFT_READY', 'SUBMITTED'].indexOf(preservedState) < 0) {
+    throw new Error('この画面更新で保持できる状態はDRAFT_READYまたはSUBMITTEDです。');
+  }
   const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
   const registry = vNextAdminFindRegistryRow_(hub, function (row) {
     return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
@@ -4199,13 +4205,15 @@ function vNextAdminResolveDraftReadyPilotUxUpgrade_(hub, request) {
     vNextAdminRequiredText_(routing.model_release_id, 'client.model_release_id'), sourceRelease,
     ['ACTIVE', 'RETIRED']);
   const sourceMeta = vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry,
-    sourceRelease, sourceModel, false, 'DRAFT_READY');
-  const boundary = vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry);
+    sourceRelease, sourceModel, false, preservedState);
+  const boundary = vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry, preservedState);
   vNextAdminAssertEmptyPilotReleaseAssets_(sourceRelease);
   vNextAdminAssertEmptyPilotReleaseAssets_(targetRelease);
   return { registry: registry, client: client, sourceRelease: sourceRelease,
     sourceModel: sourceModel, sourceMeta: sourceMeta, targetRelease: targetRelease,
     targetModel: targetModel, sourceForecastRunId: boundary.runId,
+    sourcePlanVersionId: boundary.planVersionId || '',
+    sourceApprovalRequestId: boundary.approvalRequestId || '', preservedState: preservedState,
     basis: { eligible: true, readOnly: req.dryRun !== false, bookId: bookId,
       clientName: String(registry.client_name || ''), fiscalYear: Number(registry.fiscal_year || 0),
       spreadsheetId: String(registry.spreadsheet_id || ''),
@@ -4213,30 +4221,31 @@ function vNextAdminResolveDraftReadyPilotUxUpgrade_(hub, request) {
       currentReleaseId: String(sourceRelease.release_id || ''),
       targetReleaseId: String(targetRelease.release_id || ''),
       targetModelReleaseId: String(targetModel.model_release_id || ''),
-      sourceForecastRunId: boundary.runId, preservedState: 'DRAFT_READY',
-      safeguards: ['予測SUCCESS・DRAFT_READY・計画未作成だけ', '予測と入力は変更しない',
+      sourceForecastRunId: boundary.runId, sourcePlanVersionId: boundary.planVersionId || '',
+      sourceApprovalRequestId: boundary.approvalRequestId || '', preservedState: preservedState,
+      safeguards: ['予測SUCCESSと承認前の状態だけ', '予測・入力・提出済み計画は変更しない',
         '同一schema', '同じSpreadsheet URL', '失敗時は旧releaseへ自動rollback'] }
   };
 }
 
-function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry) {
+function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry, expectedState) {
   const bookId = String(registry.book_id || '');
-  if (String(registry.state || '').toUpperCase() !== 'DRAFT_READY' ||
+  const preservedState = String(expectedState || 'DRAFT_READY').toUpperCase();
+  if (['DRAFT_READY', 'SUBMITTED'].indexOf(preservedState) < 0 ||
+      String(registry.state || '').toUpperCase() !== preservedState ||
       String(registry.current_official_id || '')) {
-    throw new Error('画面更新はDRAFT_READY / 正式計画なしだけが対象です。');
+    throw new Error('画面更新はDRAFT_READYまたはSUBMITTED / 正式計画なしだけが対象です。');
   }
-  ['PLAN_VERSION', 'EVALUATION'].forEach(function (sheetName) {
+  ['EVALUATION'].forEach(function (sheetName) {
     const count = vNextAdminReadCoreRows_(hub, sheetName).concat(
       vNextAdminReadCoreRows_(client, sheetName)).filter(function (row) {
         return String(row.book_id || '') === bookId;
       }).length;
-    if (count) throw new Error('計画・評価作成後はこの画面更新を実行できません: ' + sheetName);
+    if (count) throw new Error('評価作成後はこの画面更新を実行できません: ' + sheetName);
   });
-  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.some(function (row) {
+  if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.some(function (row) {
     return String(row.book_id || '') === bookId;
-  }) || vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.OFFICIAL).rows.some(function (row) {
-    return String(row.book_id || '') === bookId;
-  })) throw new Error('承認または公式recordがあるため画面更新を停止しました。');
+  })) throw new Error('公式recordがあるため画面更新を停止しました。');
   if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.JOBS).rows.some(function (row) {
     return String(row.target_book_id || '') === bookId &&
       ['QUEUED', 'RUNNING'].indexOf(String(row.status || '').toUpperCase()) >= 0;
@@ -4249,11 +4258,57 @@ function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry) {
   });
   const hubState = hubStates[hubStates.length - 1];
   const clientState = clientStates[clientStates.length - 1];
-  const runId = String(hubState && hubState.related_run_id || '');
-  if (!hubState || !clientState || String(hubState.to_state || '').toUpperCase() !== 'DRAFT_READY' ||
-      String(clientState.to_state || '').toUpperCase() !== 'DRAFT_READY' || !runId ||
-      String(clientState.related_run_id || '') !== runId) {
-    throw new Error('Hub/Clientの最新DRAFT_READYと予測run lineageが一致しません。');
+  if (!hubState || !clientState || String(hubState.to_state || '').toUpperCase() !== preservedState ||
+      String(clientState.to_state || '').toUpperCase() !== preservedState) {
+    throw new Error('Hub/Clientの最新状態が更新対象と一致しません。');
+  }
+  let planVersionId = '';
+  let approvalRequestId = '';
+  let runId = String(hubState.related_run_id || clientState.related_run_id || '');
+  if (preservedState === 'DRAFT_READY') {
+    const planCount = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').concat(
+      vNextAdminReadCoreRows_(client, 'PLAN_VERSION')).filter(function (row) {
+        return String(row.book_id || '') === bookId;
+      }).length;
+    if (planCount) throw new Error('DRAFT_READY画面更新は計画未作成だけが対象です。');
+    if (vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.some(function (row) {
+      return String(row.book_id || '') === bookId;
+    })) throw new Error('DRAFT_READY画面更新は承認recordなしだけが対象です。');
+    if (!runId || String(clientState.related_run_id || '') !== runId) {
+      throw new Error('Hub/ClientのDRAFT_READY予測run lineageが一致しません。');
+    }
+  } else {
+    planVersionId = String(hubState.related_plan_version_id || '');
+    if (!planVersionId || String(clientState.related_plan_version_id || '') !== planVersionId) {
+      throw new Error('Hub/ClientのSUBMITTED計画lineageが一致しません。');
+    }
+    const hubPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
+      return String(row.book_id || '') === bookId &&
+        String(row.plan_version_id || '') === planVersionId &&
+        String(row.status || '').toUpperCase() === 'SUBMITTED';
+    });
+    const clientPlans = vNextAdminReadCoreRows_(client, 'PLAN_VERSION').filter(function (row) {
+      return String(row.book_id || '') === bookId &&
+        String(row.plan_version_id || '') === planVersionId &&
+        String(row.status || '').toUpperCase() === 'SUBMITTED';
+    });
+    const hubPlan = hubPlans[hubPlans.length - 1];
+    const clientPlan = clientPlans[clientPlans.length - 1];
+    if (!hubPlan || !clientPlan || String(hubPlan.run_id || '') !== String(clientPlan.run_id || '') ||
+        Number(hubPlan.final_budget || 0) !== Number(clientPlan.final_budget || 0)) {
+      throw new Error('Hub/Clientの提出済み計画recordが一致しません。');
+    }
+    runId = String(hubPlan.run_id || '');
+    const approvals = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.APPROVALS).rows.filter(function (row) {
+      return String(row.book_id || '') === bookId &&
+        String(row.plan_version_id || '') === planVersionId &&
+        String(row.forecast_run_id || '') === runId;
+    });
+    const approval = approvals[approvals.length - 1];
+    if (!approval || String(approval.status || '').toUpperCase() !== 'PENDING') {
+      throw new Error('提出済み計画に対応するPENDING承認が一意に確認できません。');
+    }
+    approvalRequestId = String(approval.approval_request_id || '');
   }
   const hubRun = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').find(function (row) {
     return String(row.book_id || '') === bookId && String(row.run_id || '') === runId;
@@ -4267,7 +4322,7 @@ function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry) {
       Number(hubRun.p50 || 0) !== Number(clientRun.p50 || 0)) {
     throw new Error('Hub/ClientのSUCCESS予測recordが一致しません。');
   }
-  return { runId: runId };
+  return { runId: runId, planVersionId: planVersionId, approvalRequestId: approvalRequestId };
 }
 
 function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
@@ -4284,6 +4339,25 @@ function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
     candidates.length + '冊');
   return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
     dryRun: false, reason: '予測recordを保持したまま社員案内を現在版へ更新' });
+}
+
+/** Same-URL employee UX update for the single submitted, not-yet-official Pilot. */
+function vNextAdminUpgradeOnlySubmittedPilotUxForManualTest() {
+  const hub = vNextAdminRequireHub_();
+  const pair = vNextAdminReadActiveReleasePair_(hub);
+  const candidates = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.state || '').toUpperCase() === 'SUBMITTED' &&
+      String(row.access_policy || '').toUpperCase() === 'INTERNAL_OPEN' &&
+      !String(row.current_official_id || '') &&
+      String(row.template_release_id || '') !== pair.releaseId;
+  });
+  if (candidates.length !== 1) throw new Error('更新候補のSUBMITTED Pilotが1冊に確定しません: ' +
+    candidates.length + '冊');
+  return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
+    preservedState: 'SUBMITTED', dryRun: false,
+    reason: '予測・提出済み計画・承認待ちを保持したまま社員UXを現在版へ更新' });
 }
 
 function vNextAdminRecoverDraftReadyPilotUxUpgrade(request) {
@@ -4308,7 +4382,7 @@ function vNextAdminRecoverDraftReadyPilotUxUpgrade(request) {
         throw new Error('復旧対象のClient registry identityが一致しません。');
       }
       const client = SpreadsheetApp.openById(String(plan.spreadsheetId || ''));
-      vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry);
+      vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry, plan.preservedState);
       const sourceRelease = vNextAdminEmptyPilotRelease_(hub, plan.sourceReleaseId,
         ['ACTIVE', 'RETIRED']);
       const sourceModel = vNextAdminEmptyPilotModel_(hub, plan.sourceModelReleaseId, sourceRelease,
