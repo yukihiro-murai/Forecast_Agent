@@ -2561,9 +2561,9 @@ function vNextAppendPlanVersion_(payload, options) {
     if (typeof SpreadsheetApp !== 'undefined' && (!forecast || forecast.status !== 'SUCCESS')) {
       throw new Error('The plan must reference a successful forecast run for the same book.');
     }
-    var system = forecast ? Number(forecast.layers.systemRecommended) : Number(data.systemRecommended);
-    var adoptionDelta = Number(data.adoptionDelta || 0);
-    var uplift = Number(data.salesUplift || 0);
+    var system = Math.trunc(forecast ? Number(forecast.layers.systemRecommended) : Number(data.systemRecommended));
+    var adoptionDelta = Math.trunc(Number(data.adoptionDelta || 0));
+    var uplift = Math.trunc(Number(data.salesUplift || 0));
     if (!isFinite(system)) throw new Error('systemRecommended is required.');
     if (forecast && vNextIsFiniteNumber_(data.systemRecommended) && Math.abs(Number(data.systemRecommended) - system) > 1) {
       throw new Error('systemRecommended does not match the referenced forecast run.');
@@ -2635,7 +2635,7 @@ function vNextValidateUpliftAllocation_(allocation, uplift, fiscalYear) {
   var normalized = source.map(function (item, index) {
     var expectedMonth = isFinite(fy) && fy > 0 ? vNextFormatMonth_(new Date(fy, 3 + index, 1)) : '';
     var isObject = item && typeof item === 'object' && !Array.isArray(item);
-    var amount = Number(isObject ? item.amount : item);
+    var amount = Math.trunc(Number(isObject ? item.amount : item));
     if (!isFinite(amount) || amount < 0) throw new Error('upliftAllocation must contain 12 non-negative monthly amounts.');
     var suppliedMonth = isObject ? String(item.month || '') : '';
     if (suppliedMonth && expectedMonth && suppliedMonth !== expectedMonth) {

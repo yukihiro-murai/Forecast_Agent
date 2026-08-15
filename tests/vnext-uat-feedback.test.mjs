@@ -10,12 +10,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const admin = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
 const ux = await readFile(path.join(root, 'VNext_UX.js'), 'utf8');
 const input = await readFile(path.join(root, 'VNext_InputSidebar.html'), 'utf8');
+const plan = await readFile(path.join(root, 'VNext_PlanSidebar.html'), 'utf8');
+const review = await readFile(path.join(root, 'VNext_ReviewSidebar.html'), 'utf8');
 const guidance = await readFile(path.join(root, 'VNext_GuidanceSidebar.html'), 'utf8');
 
 checkEvidenceMonthNormalization();
 checkSafeLivePilotUpgrade();
 checkEmployeeInteractionContract();
-process.stdout.write('PASS vNext live UAT feedback tests (3 groups)\n');
+checkStructuredDashboardContract();
+process.stdout.write('PASS vNext live UAT feedback tests (4 groups)\n');
 
 function checkEvidenceMonthNormalization() {
   const sandbox = {
@@ -139,6 +142,45 @@ function checkEmployeeInteractionContract() {
   assert.match(scaleResolver, /asOf:\s*asOf \|\| new Date\(\)/,
     'relative bands must validate actuals against the forecast as-of, not treat cutoff as a new as-of');
   assert.match(scaleResolver, /cutoff:\s*cutoff \|\| vNextAdminCutoffFromAsOf_/);
+}
+
+function checkStructuredDashboardContract() {
+  assert.match(ux, /ANALYTICS_SHEET:\s*'VN_ANALYTICS_FACT'/);
+  assert.match(ux, /var VNEXT_UX_ANALYTICS_HEADERS_/);
+  for (const field of ['record_type', 'period_type', 'amount_yen', 'p10_yen', 'p50_yen', 'p90_yen', 'source_table']) {
+    assert.match(ux, new RegExp(`['"]${field}['"]`), `analytics projection missing ${field}`);
+  }
+  assert.match(ux, /function vNextOpenForecastDashboard\(\)[\s\S]*showModelessDialog/,
+    'forecast dashboard must use a wide modeless surface rather than a cell chart');
+  assert.match(guidance, /data-panel="dashboard"/);
+  assert.match(guidance, /三つの切り口/);
+  assert.match(guidance, /id="monthChart"/);
+  for (const html of [input, plan, review, guidance]) {
+    assert.doesNotMatch(html, /setTimeout\s*\([^)]*google\.script\.host\.close/,
+      'successful employee operations must not close their surface automatically');
+  }
+  assert.match(input, /Math\.trunc/);
+  assert.match(plan, /Math\.trunc/);
+  assert.match(review, /Math\.trunc/);
+
+  const sandbox = { console, Logger: { log() {} } };
+  vm.createContext(sandbox);
+  vm.runInContext(ux, sandbox, { filename: 'VNext_UX.js' });
+  const forecast = sandbox.vNextUxPublicForecast_({
+    fiscalYear: 2027,
+    p10: 80.9,
+    p50: 100.9,
+    p90: 120.9,
+    layers: { historyBaseline: 90.8, objectiveForecast: 95.7, systemRecommended: 100.9 },
+    months: Array.from({ length: 12 }, (_, index) => ({ month: index + 1, p10: 6.9, p50: 8.9, p90: 10.9 }))
+  });
+  assert.equal(forecast.center, 100);
+  assert.equal(forecast.p10, 80);
+  assert.equal(forecast.p90, 120);
+  assert.equal(forecast.months.reduce((sum, item) => sum + item.p50, 0), 100,
+    'whole-yen monthly values must reconcile to the whole-yen annual forecast');
+  assert.equal(forecast.quarters.reduce((sum, item) => sum + item.p50, 0), 100,
+    'whole-yen quarters must reconcile to the whole-yen annual forecast');
 }
 
 function functionSource(source, name, nextName) {

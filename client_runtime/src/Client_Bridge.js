@@ -102,9 +102,9 @@ function vNextAppendPlanVersion_(payload, options) {
       if (['DRAFT_READY', 'CHANGES_REQUESTED'].indexOf(context.state) < 0) throw new Error('現在は計画案を提出できません。');
       var forecast = vNextClientFindForecast_(ss, context.bookId, data.runId);
       if (!forecast || forecast.status !== 'SUCCESS') throw new Error('提出に使用できる予測がありません。');
-      var system = Number(forecast.layers.systemRecommended);
-      var adoptionDelta = Number(data.adoptionDelta || 0);
-      var uplift = Number(data.salesUplift || 0);
+      var system = Math.trunc(Number(forecast.layers.systemRecommended));
+      var adoptionDelta = Math.trunc(Number(data.adoptionDelta || 0));
+      var uplift = Math.trunc(Number(data.salesUplift || 0));
       if (!isFinite(adoptionDelta) || !isFinite(uplift) || uplift < 0) throw new Error('計画金額を確認してください。');
       if (adoptionDelta !== 0 && !String(data.adoptionReason || '').trim()) throw new Error('採用判断の理由を入力してください。');
       if (uplift !== 0 && (!String(data.upliftReason || '').trim() || !String(data.upliftOwner || '').trim() || !String(data.upliftAction || '').trim() || !data.upliftDueDate)) {
@@ -173,7 +173,7 @@ function vNextClientValidateAllocation_(allocation, uplift, fiscalYear) {
   if (source.length !== 12) throw new Error('営業上積みは12か月へ配分してください。');
   var total = 0;
   var output = source.map(function (item, index) {
-    var amount = Number(item && typeof item === 'object' ? item.amount : item);
+    var amount = Math.trunc(Number(item && typeof item === 'object' ? item.amount : item));
     if (!isFinite(amount) || amount < 0) throw new Error('月次配分は0円以上にしてください。');
     total += amount;
     var monthDate = new Date(Number(fiscalYear), 3 + index, 1);

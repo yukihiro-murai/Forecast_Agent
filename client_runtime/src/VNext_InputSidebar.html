@@ -103,7 +103,7 @@
   <script>
     let model = null;
     const $ = id => document.getElementById(id);
-    const money = value => `${Number(value) < 0 ? '-' : ''}¥${Math.abs(Math.round(Number(value) || 0)).toLocaleString('ja-JP')}`;
+    const money = value => `${Number(value) < 0 ? '-' : ''}¥${Math.abs(Math.trunc(Number(value) || 0)).toLocaleString('ja-JP')}`;
 
     function setBusy(isBusy) {
       $('saveButton').disabled = isBusy;
@@ -119,6 +119,8 @@
     }
     function clearMessage() {
       $('message').innerHTML = '';
+      $('saveButton').disabled = false;
+      $('saveButton').textContent = 'この内容で保存';
     }
     function selectedType() {
       const selected = document.querySelector('input[name="responseType"]:checked');
@@ -184,7 +186,6 @@
         $('message').innerHTML = `<div class="success">${escapeHtml(result.message)}</div>`;
         $('saveButton').textContent = '保存しました';
         $('saveButton').disabled = true;
-        setTimeout(() => google.script.host.close(), 1200);
       }).withFailureHandler(error => {
         $('saveButton').textContent = 'この内容で保存';
         showError(error);
@@ -196,7 +197,7 @@
       $('overrideButton').disabled = true;
       google.script.run.withSuccessHandler(result => {
         $('message').innerHTML = `<div class="success">${escapeHtml(result.message)}</div>`;
-        setTimeout(() => google.script.host.close(), 1200);
+        $('overrideButton').textContent = '入力を締め切りました';
       }).withFailureHandler(error => { $('overrideButton').disabled = false; showError(error); }).vNextCloseInputAndProceed(reason);
     }
 
