@@ -171,6 +171,14 @@ function checkStructuredDashboardContract() {
     'All employee-facing currency must use full yen notation');
   assert.match(guidance, /grid-template-columns:1fr/,
     'Dashboard information groups must use a single reading column');
+  assert.match(guidance, /\.metric\.primary\{[^}]*background:#f1f5f8[^}]*color:var\(--ink\)/,
+    'Primary forecast card must use a light high-contrast surface');
+  assert.match(guidance, /\.primary-action\{/,
+    'Footer button styling must use a class that cannot collide with the forecast card');
+  assert.doesNotMatch(guidance, /(^|})\.primary\{/m,
+    'A generic primary class must not recolor unrelated dashboard components');
+  assert.match(guidance, /body\{[^}]*font:15px\/1\.6/,
+    'Dashboard body copy must remain readable without oversized typography');
   assert.doesNotMatch(guidance, /repeat\(2|minmax\(0,1fr\).*minmax\(0,1fr\)/,
     'Layer, timing and AI cards must not use dense two-column grids');
   assert.match(guidance, /preserveAspectRatio="xMidYMid meet"/,

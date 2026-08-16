@@ -19,6 +19,8 @@ function runAllVNextTests() {
     vNextTestExplanationAndInformationRanking_,
     vNextTestUnknownSpotLens_,
     vNextTestCalibratedAnnualUncertainty_,
+    vNextTestAnnualSpotCoupling_,
+    vNextTestAiFailureDoesNotWidenSalesVolatility_,
     vNextTestTriangulationMethods_,
     vNextTestMonthlyShockAndCommitmentDelay_,
     vNextTestReferencePriorSafety_,
@@ -73,6 +75,8 @@ function runVNextEngineTests() {
   vNextTestHistoryGuard_();
   vNextTestUnknownSpotLens_();
   vNextTestCalibratedAnnualUncertainty_();
+  vNextTestAnnualSpotCoupling_();
+  vNextTestAiFailureDoesNotWidenSalesVolatility_();
   vNextTestTriangulationMethods_();
   vNextTestMonthlyShockAndCommitmentDelay_();
   vNextTestReferencePriorSafety_();
@@ -86,7 +90,7 @@ function runVNextEngineTests() {
   vNextTestLearningSeparation_();
   vNextTestAutomaticEvaluationBreakdown_();
   vNextTestTrustedRollbackContract_();
-  return { passed: 17, failed: 0 };
+  return { passed: 19, failed: 0 };
 }
 
 function vNextTestCanonicalJsonAndSha256_() {
@@ -303,7 +307,7 @@ function vNextTestUnknownSpotLens_() {
 function vNextTestCalibratedAnnualUncertainty_() {
   var stable = [100, 108, 116.64, 125.9712, 136.049].map(Math.log);
   var stableCalibration = vNextCalibrateAnnualLogSigma_(stable);
-  vNextAssertEqual_(stableCalibration.method, 'DETREND_MAD_SHRINKAGE', 'Annual interval documents its calibration method.');
+  vNextAssertEqual_(stableCalibration.method, 'RECENT_REGIME_DETREND_MAD_SHRINKAGE', 'Annual interval documents its calibration method.');
   vNextAssertTrue_(stableCalibration.logSigma <= 0.13,
     'A stable exponential trend must not be misclassified as high uncertainty.');
   var volatile = [100, 160, 80, 190, 95, 210].map(Math.log);
@@ -312,6 +316,43 @@ function vNextTestCalibratedAnnualUncertainty_() {
     'Unexplained annual deviations must widen the calibrated interval.');
   vNextAssertTrue_(volatileCalibration.logSigma <= VNEXT_ENGINE.MAX_ANNUAL_LOG_SIGMA,
     'Small-sample interval calibration remains bounded by the deployed policy.');
+  var oldShockWithStableCurrentRegime = [100, 220, 72, 150, 158, 166, 174, 182].map(Math.log);
+  var recentRegime = vNextCalibrateAnnualLogSigma_(oldShockWithStableCurrentRegime);
+  vNextAssertEqual_(recentRegime.calibrationSampleSize, 5,
+    'Ordinary forward uncertainty uses the fixed recent operating regime.');
+  vNextAssertTrue_(recentRegime.logSigma < volatileCalibration.logSigma,
+    'An old structural shock must not be treated as annually recurring volatility.');
+}
+
+function vNextTestAnnualSpotCoupling_() {
+  var spotMonthly = {};
+  for (var fy = 2019; fy <= 2025; fy++) {
+    for (var monthIndex = 0; monthIndex < 12; monthIndex++) {
+      spotMonthly[vNextFormatMonth_(new Date(fy, 3 + monthIndex, 1))] = 100 + monthIndex * 5 + (fy - 2019) * 2;
+    }
+  }
+  var years = [2019, 2020, 2021, 2022, 2023, 2024, 2025];
+  var model = vNextBuildUnknownSpotModel_(spotMonthly, years, new Date(2026, 2, 31));
+  vNextAssertEqual_(model.samplingPolicy, 'ANNUAL_TOTAL_THEN_MONTH_ALLOCATION',
+    'Recurring SPOT is sampled as one annual total before month allocation.');
+  var rng = vNextCreatePrng_(20260816);
+  var gaussian = vNextCreateGaussianSampler_(rng);
+  var samples = [];
+  for (var i = 0; i < 4000; i++) {
+    samples.push(vNextSum_(vNextSampleUnknownSpot_(model, new Array(12).fill(0), rng, gaussian, 1, new Array(12).fill(1))));
+  }
+  var mean = vNextMean_(samples);
+  vNextAssertNear_(mean, model.expectedAnnual, model.expectedAnnual * 0.06,
+    'Annual coupling preserves the historical expected SPOT value.');
+  vNextAssertTrue_(model.annualAmountCalibration.logSigma <= VNEXT_ENGINE.MAX_SPOT_LOG_SIGMA,
+    'Annual SPOT uncertainty is robustly calibrated and bounded.');
+}
+
+function vNextTestAiFailureDoesNotWidenSalesVolatility_() {
+  var baseline = vNextUncertaintyMultiplier_({ missingResponseRate: 0, informationGapRate: 0 });
+  var aiUnavailable = vNextUncertaintyMultiplier_({ missingResponseRate: 0, informationGapRate: 0, aiUnavailable: true });
+  vNextAssertNear_(baseline, aiUnavailable, 1e-12,
+    'Missing AI research is a reference gap, not evidence of higher sales volatility.');
 }
 
 function vNextTestTriangulationMethods_() {
@@ -471,7 +512,7 @@ function vNextTestCoherentSimulation_() {
   vNextAssertTrue_(first.lenses.continuity.monthlyCommonShockSigma > 0, 'Continuity lens exposes the monthly common shock.');
   vNextAssertEqual_(first.lenses.commitment.delayByEvent[0].evidenceId, 'COMMIT-COHERENCE', 'Commitment delay audit retains event lineage.');
   vNextAssertTrue_(first.lenses.simulationDesign.monthlyCommonShock.sharedAcrossLayers, 'Monthly common shock is shared across layers.');
-  vNextAssertEqual_(first.lenses.simulationDesign.annualCommonShock.calibration.method, 'DETREND_MAD_SHRINKAGE',
+  vNextAssertEqual_(first.lenses.simulationDesign.annualCommonShock.calibration.method, 'RECENT_REGIME_DETREND_MAD_SHRINKAGE',
     'Annual interval calibration is auditable.');
   vNextAssertTrue_(first.lenses.triangulation.methods.length >= 4,
     'Independent classical and simulation references are persisted for triangulation.');

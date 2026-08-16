@@ -7682,7 +7682,7 @@ function vNextAdminExecuteJob_(hub, job) {
             });
             vNextAdminWriteAudit_(hub, 'AI_RESEARCH_DEGRADED', 'FORECAST_JOB', job.job_id, 'WARN', {
               bookId: registry.book_id, dependencyJobId: payload.aiResearchJobId,
-              dependencyStatus: dependencyStatus, policy: 'CONTINUE_WITH_AI_ZERO_AND_WIDER_INTERVAL'
+              dependencyStatus: dependencyStatus, policy: 'CONTINUE_WITH_AI_ZERO_REFERENCE_ONLY'
             });
           }
         }
@@ -10462,7 +10462,7 @@ function vNextAdminSanitizeForecastRowsForClient_(rows) {
       } : {},
       degradation: lenses.degradation && lenses.degradation.aiUnavailable === true ? {
         aiUnavailable: true, reason: String(lenses.degradation.reason || 'AI_RESEARCH_UNAVAILABLE'),
-        policy: 'AI_ZERO_AND_WIDER_INTERVAL'
+        policy: 'AI_ZERO_REFERENCE_ONLY'
       } : null
     });
     copy.evidence_json = vNextAdminCanonicalJson_({

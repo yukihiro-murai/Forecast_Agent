@@ -86,7 +86,7 @@ async function runCoreAndEngineTests() {
     vm.runInContext(await readFile(path.join(root, name), 'utf8'), sandbox, { filename: name });
   }
   const result = sandbox.runAllVNextTests();
-  assert.equal(result.passed, 27);
+  assert.equal(result.passed, 29);
   assert.equal(result.failed, 0);
   assert.equal(sandbox.testVNextAiDeterministicMapping(), true);
   engineSandbox = sandbox;
@@ -231,7 +231,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.6.0',
+    version: 'vnext-client-1.7.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -507,7 +507,7 @@ async function checkAdminRecoveryContracts() {
     source.includes("const VN_ADMIN_TEMPLATE_MANIFEST_SCHEMA_V2 = 'VNEXT_TEMPLATE_UI_V2'") &&
     source.includes('vNextAdminTemplateUiManifestHashV2_(template)'),
     'The faster manifest must be versioned while existing V2 releases remain verifiable');
-  assert.ok(source.includes('AI_ZERO_AND_WIDER_INTERVAL') &&
+  assert.ok(source.includes('AI_ZERO_REFERENCE_ONLY') &&
     source.includes("exception_type: 'AI_RESEARCH_UNAVAILABLE'"),
     'Terminal AI research failures must degrade explicitly rather than block the forecast');
   const aiSource = await readFile(path.join(root, 'VNext_AI.js'), 'utf8');

@@ -4,7 +4,7 @@
  */
 
 var VNEXT_ENGINE = Object.freeze({
-  VERSION: 'vnext-engine-0.4.0',
+  VERSION: 'vnext-engine-0.5.0',
   MIN_HISTORY_YEARS: 5,
   MAX_HISTORY_YEARS: 8,
   DEFAULT_SIMULATIONS: 2000,
@@ -21,6 +21,7 @@ var VNEXT_ENGINE = Object.freeze({
   MIN_ANNUAL_LOG_SIGMA: 0.06,
   MAX_ANNUAL_LOG_SIGMA: 0.30,
   ANNUAL_SIGMA_PRIOR_WEIGHT: 4,
+  ANNUAL_SIGMA_RECENT_WINDOW: 5,
   DEFAULT_SPOT_LOG_SIGMA: 0.25,
   MAX_SPOT_LOG_SIGMA: 0.55,
   REFERENCE_MAX_STRENGTH: 0.35,
@@ -344,14 +345,13 @@ function vNextAuthorizeAdminJobRequest_(request) {
   safe.requestedBy = actor;
   safe.missingResponseRate = vNextMissingResponseRateFromContext_(context);
   safe.informationGapRate = Number(context.inputStatus && context.inputStatus.informationGapRate || 0);
-  // AI is an optional evidence layer.  Only the Admin-owned worker may mark a
-  // terminal dependency failure and widen uncertainty while continuing with
-  // AI=0; employee payloads cannot set this policy flag.
+  // AI is an optional reference layer. A research failure is visible in the
+  // audit trail, but it is not statistical evidence that client sales became
+  // more volatile. Employee payloads cannot set this policy flag.
   safe.aiUnavailable = request.aiUnavailable === true;
   safe.aiUnavailableReason = safe.aiUnavailable
     ? String(request.aiUnavailableReason || 'AI_RESEARCH_UNAVAILABLE').slice(0, 200)
     : '';
-  if (safe.aiUnavailable) safe.informationGapRate = Math.max(safe.informationGapRate, 0.15);
   safe.evidenceResponseCounts = {
     change: Number(context.inputStatus && context.inputStatus.changeCount || 0),
     unknown: Number(context.inputStatus && context.inputStatus.unknownCount || 0),
@@ -1429,9 +1429,7 @@ function vNextSimulateForecast_(request) {
     history.baseAnnualBaseline,
     request.fiscalYear
   );
-  var uncertaintyMultiplier = 1 +
-    request.missingResponseRate * VNEXT_ENGINE.MISSING_RESPONSE_UNCERTAINTY +
-    request.informationGapRate * VNEXT_ENGINE.INFORMATION_GAP_UNCERTAINTY;
+  var uncertaintyMultiplier = vNextUncertaintyMultiplier_(request);
   var spotSuppression = vNextCommitmentSpotSuppression_(request.commitmentEvents, request.fiscalYear);
   for (var i = 0; i < n; i++) {
     var annualShockZ = gaussian();
@@ -1570,7 +1568,7 @@ function vNextSimulateForecast_(request) {
       degradation: request.aiUnavailable === true ? {
         aiUnavailable: true,
         reason: request.aiUnavailableReason || 'AI_RESEARCH_UNAVAILABLE',
-        policy: 'AI_ZERO_AND_WIDER_INTERVAL'
+        policy: 'AI_ZERO_REFERENCE_ONLY'
       } : null,
       rollback: request.rollbackContext || null,
       changeReference: {
@@ -1892,24 +1890,29 @@ function vNextBuildContinuityPrior_(records, targetFiscalYear, cutoff) {
 /**
  * Calibrates FY uncertainty from detrended log residuals. The previous design
  * measured residuals around an intentionally damped trend and therefore counted
- * explainable trend as uncertainty. We fit the full trend for calibration only,
- * use MAD to limit one exceptional year, then shrink variance toward a 12% prior
- * because each client has only 5-8 annual observations.
+ * explainable trend as uncertainty. Long history remains available for the
+ * level and triangulation, while the ordinary forward interval is calibrated
+ * from a fixed recent five-FY operating regime. This prevents an old structural
+ * shock from being treated as if it recurred every year. MAD limits one
+ * exceptional year and small samples are shrunk toward an auditable 12% prior.
  */
 function vNextCalibrateAnnualLogSigma_(logs) {
   var prior = VNEXT_ENGINE.DEFAULT_ANNUAL_LOG_SIGMA;
   if (!logs || logs.length < 3) {
     return {
-      method: 'DETREND_MAD_SHRINKAGE',
+      method: 'RECENT_REGIME_DETREND_MAD_SHRINKAGE',
       sampleSize: logs ? logs.length : 0,
+      calibrationSampleSize: logs ? logs.length : 0,
       empiricalSigma: 0,
       priorSigma: prior,
       priorWeight: VNEXT_ENGINE.ANNUAL_SIGMA_PRIOR_WEIGHT,
       logSigma: prior
     };
   }
-  var regression = vNextLinearRegression_(logs);
-  var residuals = logs.map(function (value, index) {
+  var windowSize = Math.min(logs.length, VNEXT_ENGINE.ANNUAL_SIGMA_RECENT_WINDOW);
+  var calibrationLogs = logs.slice(logs.length - windowSize);
+  var regression = vNextLinearRegression_(calibrationLogs);
+  var residuals = calibrationLogs.map(function (value, index) {
     return value - (regression.intercept + regression.slope * index);
   });
   var medianResidual = vNextMedian_(residuals);
@@ -1921,15 +1924,17 @@ function vNextCalibrateAnnualLogSigma_(logs) {
     ? Math.max(madSigma, Math.min(rmsSigma, madSigma * 1.50))
     : rmsSigma;
   empirical = vNextClamp_(empirical || prior, VNEXT_ENGINE.MIN_ANNUAL_LOG_SIGMA, VNEXT_ENGINE.MAX_ANNUAL_LOG_SIGMA);
-  var dataWeight = Math.max(1, logs.length - 2);
+  var dataWeight = Math.max(1, calibrationLogs.length - 2);
   var priorWeight = VNEXT_ENGINE.ANNUAL_SIGMA_PRIOR_WEIGHT;
   var shrunk = Math.sqrt(
     (dataWeight * empirical * empirical + priorWeight * prior * prior) /
     (dataWeight + priorWeight)
   );
   return {
-    method: 'DETREND_MAD_SHRINKAGE',
+    method: 'RECENT_REGIME_DETREND_MAD_SHRINKAGE',
     sampleSize: logs.length,
+    calibrationSampleSize: calibrationLogs.length,
+    calibrationWindow: 'MOST_RECENT_' + calibrationLogs.length + '_FY',
     empiricalSigma: empirical,
     priorSigma: prior,
     priorWeight: priorWeight,
@@ -2040,13 +2045,69 @@ function vNextBuildUnknownSpotModel_(spotMonthly, fiscalYears, cutoff) {
     totalOccurrences += occurrences;
     totalExposures += exposures;
   }
+  var expectedAnnual = vNextSum_(monthModels.map(function (model) { return model.expectedAmount; }));
+  var completedYearTotals = [];
+  fiscalYears.forEach(function (fy) {
+    var finalMonth = new Date(Number(fy) + 1, 2, 1);
+    if (finalMonth > cutoff) return;
+    var total = 0;
+    for (var monthIndex = 0; monthIndex < 12; monthIndex++) {
+      total += Math.max(0, Number(spotMonthly[vNextFormatMonth_(new Date(fy, 3 + monthIndex, 1))] || 0));
+    }
+    completedYearTotals.push(total);
+  });
+  var positiveAnnualTotals = completedYearTotals.filter(function (value) { return value > 0; });
+  var annualOccurrenceProbability = completedYearTotals.length
+    ? (positiveAnnualTotals.length + 0.5) / (completedYearTotals.length + 1)
+    : 0;
+  var annualAmountCalibration = vNextCalibrateSpotAnnualLogSigma_(positiveAnnualTotals);
+  var annualConditionalMean = annualOccurrenceProbability > 0 ? expectedAnnual / annualOccurrenceProbability : 0;
+  var annualAmountMedian = annualConditionalMean > 0
+    ? annualConditionalMean / Math.exp(0.5 * annualAmountCalibration.logSigma * annualAmountCalibration.logSigma)
+    : 0;
   return {
     months: monthModels,
-    expectedAnnual: vNextSum_(monthModels.map(function (model) { return model.expectedAmount; })),
+    samplingPolicy: positiveAnnualTotals.length >= 3
+      ? 'ANNUAL_TOTAL_THEN_MONTH_ALLOCATION'
+      : 'MONTH_INDEPENDENT_FALLBACK',
+    expectedAnnual: expectedAnnual,
     expectedOccurrences: vNextSum_(monthModels.map(function (model) { return model.probability; })),
     meanOccurrenceRate: totalExposures ? totalOccurrences / totalExposures : 0,
     historyOccurrenceCount: totalOccurrences,
-    historyExposureMonths: totalExposures
+    historyExposureMonths: totalExposures,
+    completedYearCount: completedYearTotals.length,
+    completedYearTotals: completedYearTotals,
+    annualOccurrenceProbability: annualOccurrenceProbability,
+    annualAmountMedian: annualAmountMedian,
+    annualAmountCalibration: annualAmountCalibration
+  };
+}
+
+function vNextCalibrateSpotAnnualLogSigma_(positiveAnnualTotals) {
+  var values = (positiveAnnualTotals || []).filter(function (value) { return Number(value) > 0; });
+  var prior = VNEXT_ENGINE.DEFAULT_SPOT_LOG_SIGMA;
+  if (values.length < 2) {
+    return { method: 'ANNUAL_SPOT_MAD_SHRINKAGE', sampleSize: values.length, empiricalSigma: 0, priorSigma: prior, logSigma: prior };
+  }
+  var logs = values.map(function (value) { return Math.log(value); });
+  var median = vNextMedian_(logs);
+  var madSigma = 1.4826 * vNextMedian_(logs.map(function (value) { return Math.abs(value - median); }));
+  var stdSigma = vNextStdDev_(logs);
+  var empirical = madSigma > 0 ? Math.max(madSigma, Math.min(stdSigma, madSigma * 1.50)) : stdSigma;
+  empirical = vNextClamp_(empirical || prior, 0.08, VNEXT_ENGINE.MAX_SPOT_LOG_SIGMA);
+  var dataWeight = Math.max(1, values.length - 1);
+  var priorWeight = 3;
+  var shrunk = Math.sqrt(
+    (dataWeight * empirical * empirical + priorWeight * prior * prior) /
+    (dataWeight + priorWeight)
+  );
+  return {
+    method: 'ANNUAL_SPOT_MAD_SHRINKAGE',
+    sampleSize: values.length,
+    empiricalSigma: empirical,
+    priorSigma: prior,
+    priorWeight: priorWeight,
+    logSigma: vNextClamp_(shrunk, 0.08, VNEXT_ENGINE.MAX_SPOT_LOG_SIGMA)
   };
 }
 
@@ -2075,6 +2136,29 @@ function vNextSampleMonthlyCommonShock_(seasonalShares, sigma, gaussian) {
 function vNextSampleUnknownSpot_(model, suppressionByMonth, rng, gaussian, uncertaintyMultiplier, monthMultipliers) {
   var output = new Array(12).fill(0);
   if (!model || !model.months) return output;
+  if (model.samplingPolicy === 'ANNUAL_TOTAL_THEN_MONTH_ALLOCATION') {
+    var annualProbability = vNextClamp_(Number(model.annualOccurrenceProbability || 0), 0, 1);
+    if (rng() > annualProbability || Number(model.annualAmountMedian || 0) <= 0) return output;
+    var annualSigma = Number(model.annualAmountCalibration && model.annualAmountCalibration.logSigma || 0);
+    var annualTotal = Number(model.annualAmountMedian) * Math.exp(
+      gaussian() * annualSigma * Math.max(1, Number(uncertaintyMultiplier || 1))
+    );
+    var baseWeights = model.months.map(function (monthModel) { return Math.max(0, Number(monthModel.expectedAmount || 0)); });
+    var baseWeightTotal = vNextSum_(baseWeights);
+    if (baseWeightTotal <= 0) return output;
+    var allocationWeights = baseWeights.map(function (weight, index) {
+      var suppression = vNextClamp_(Number(suppressionByMonth && suppressionByMonth[index] || 0), 0, 1);
+      return weight * (1 - suppression) * Math.max(0.000001, Number(monthMultipliers && monthMultipliers[index] || 1));
+    });
+    var unsmoothedAdjustedTotal = vNextSum_(baseWeights.map(function (weight, index) {
+      var suppression = vNextClamp_(Number(suppressionByMonth && suppressionByMonth[index] || 0), 0, 1);
+      return weight * (1 - suppression);
+    }));
+    var allocationTotal = vNextSum_(allocationWeights);
+    var suppressionScale = unsmoothedAdjustedTotal / baseWeightTotal;
+    if (allocationTotal <= 0 || suppressionScale <= 0) return output;
+    return allocationWeights.map(function (weight) { return annualTotal * suppressionScale * weight / allocationTotal; });
+  }
   model.months.forEach(function (monthModel, index) {
     var suppression = vNextClamp_(Number(suppressionByMonth && suppressionByMonth[index] || 0), 0, 1);
     var probability = vNextClamp_(Number(monthModel.probability || 0) * (1 - suppression), 0, 1);
@@ -2085,6 +2169,13 @@ function vNextSampleUnknownSpot_(model, suppressionByMonth, rng, gaussian, uncer
       Math.max(0.000001, Number(monthMultipliers && monthMultipliers[index] || 1));
   });
   return output;
+}
+
+function vNextUncertaintyMultiplier_(request) {
+  var input = request || {};
+  return 1 +
+    vNextClamp_(Number(input.missingResponseRate || 0), 0, 1) * VNEXT_ENGINE.MISSING_RESPONSE_UNCERTAINTY +
+    vNextClamp_(Number(input.informationGapRate || 0), 0, 1) * VNEXT_ENGINE.INFORMATION_GAP_UNCERTAINTY;
 }
 
 /** Known upward commitments suppress 50% of duplicate unknown-SPOT probability in their target months. */
