@@ -361,6 +361,7 @@ async function checkPortalRuntimeBoundary() {
   const pilotEnd = adminSource.indexOf('/**\n * Spreadsheet macro entry', pilotStart);
   const pilot = adminSource.slice(pilotStart, pilotEnd);
   assert.ok(pilotStart >= 0 &&
+    pilot.includes('vNextAdminResolveActiveModelReleaseForUpgrade_(hub, initialPair)') &&
     pilot.includes('vNextAdminPublishTemplateRelease({') &&
     pilot.includes('vNextAdminRegisterModelRelease({') &&
     pilot.includes('vNextAdminActivateReleasePair({') &&
@@ -370,6 +371,15 @@ async function checkPortalRuntimeBoundary() {
     pilot.includes('pairAfterStage.releaseId !== initialPair.releaseId') &&
     !pilot.includes('SpreadsheetApp.getUi'),
   'The first Portal pilot needs an idempotent Admin-only path that also works outside Spreadsheet UI context');
+  const upgradeResolverStart = adminSource.indexOf('function vNextAdminResolveActiveModelReleaseForUpgrade_(');
+  const upgradeResolverEnd = adminSource.indexOf('function vNextAdminResolveActiveModelRelease_(', upgradeResolverStart);
+  const upgradeResolver = adminSource.slice(upgradeResolverStart, upgradeResolverEnd);
+  assert.ok(upgradeResolverStart >= 0 &&
+    upgradeResolver.includes("String(model.model_version || '') !== String(release.engine_version || '')") &&
+    upgradeResolver.includes("String(model.schema_version || '') !== vNextAdminClientSchemaVersion_()") &&
+    upgradeResolver.includes("String(backtest.candidateHash || '') !== candidateHash") &&
+    !upgradeResolver.includes('VNEXT_ENGINE.VERSION'),
+  'Engine upgrades must validate the active source pair against its own immutable version before registering the new deployed Engine');
   assert.ok(adminSource.includes('function vNextAdminPrepareEmployeePortalPilotForManualTest()') &&
     adminSource.includes("answer !== ui.Button.YES") &&
     adminSource.includes('clientRuntimeTests: 10') &&

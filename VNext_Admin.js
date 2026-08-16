@@ -1388,7 +1388,14 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
     }
     const hub = vNextAdminRequireHub_();
     const initialPair = vNextAdminReadActiveReleasePair_(hub);
-    const initialModel = vNextAdminResolveActiveModelRelease_(hub, initialPair.modelReleaseId);
+    // A release bootstrap is the one place where the currently active Model
+    // may legitimately target the immediately previous Engine. Validate that
+    // source release against its own immutable Template/Model pair, then bind
+    // the copied parameters to the newly deployed Engine below. Using the
+    // normal runtime resolver here would make every Engine version bump
+    // impossible because it correctly requires an exact deployed-version
+    // match for ordinary forecast execution.
+    const initialModel = vNextAdminResolveActiveModelReleaseForUpgrade_(hub, initialPair);
     const parameters = vNextAdminParseJson_(initialModel.parameters_json, {});
     const engineVersion = typeof VNEXT_ENGINE !== 'undefined' ? String(VNEXT_ENGINE.VERSION || '') : '';
     if (!engineVersion) throw new Error('Forecast Engine version is unavailable.');
@@ -11421,6 +11428,42 @@ function vNextAdminLatestModelReleaseSummaries_(hub) {
 function vNextAdminTryResolveActiveModelRelease_(hub) {
   try { return vNextAdminResolveActiveModelRelease_(hub); }
   catch (error) { return null; }
+}
+
+function vNextAdminResolveActiveModelReleaseForUpgrade_(hub, activePair) {
+  const pair = activePair || vNextAdminReadActiveReleasePair_(hub);
+  const modelId = vNextAdminRequiredText_(pair.modelReleaseId, 'activePair.modelReleaseId');
+  const releaseId = vNextAdminRequiredText_(pair.releaseId, 'activePair.releaseId');
+  const model = vNextAdminLatestModelRelease_(hub, modelId);
+  if (!model || String(model.status || '').toUpperCase() !== 'ACTIVE') {
+    throw new Error('Active source MODEL_RELEASE is missing or not ACTIVE: ' + modelId);
+  }
+  const release = vNextAdminResolveRelease_(hub, releaseId);
+  if (String(model.template_version || '') !== String(release.release_id || '') ||
+      String(model.schema_version || '') !== String(release.schema_version || '') ||
+      String(model.model_version || '') !== String(release.engine_version || '') ||
+      String(model.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+    throw new Error('Active source Template and Model Release are not an exact immutable pair.');
+  }
+  const parameters = vNextAdminNormalizeModelParameters_(vNextAdminParseJson_(model.parameters_json, {}));
+  if (vNextAdminCanonicalJson_(parameters) !== String(model.parameters_json || '')) {
+    throw new Error('Active source MODEL_RELEASE parameters are not canonical.');
+  }
+  const candidateHash = vNextAdminModelCandidateHash_({
+    modelVersion: model.model_version,
+    schemaVersion: model.schema_version,
+    templateVersion: model.template_version,
+    parameters: parameters
+  });
+  const backtest = vNextAdminParseJson_(model.backtest_json, {});
+  const canary = vNextAdminParseJson_(model.canary_json, {});
+  if (!vNextAdminModelCheckPassed_(model.backtest_json) ||
+      !vNextAdminModelCheckPassed_(model.canary_json) ||
+      String(backtest.candidateHash || '') !== candidateHash ||
+      String(canary.candidateHash || '') !== candidateHash) {
+    throw new Error('Active source MODEL_RELEASE checks do not match its immutable candidate.');
+  }
+  return model;
 }
 
 function vNextAdminResolveActiveModelRelease_(hub, requestedId) {
