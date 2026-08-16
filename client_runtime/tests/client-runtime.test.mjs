@@ -408,6 +408,14 @@ async function testEmployeeUxContracts() {
   assert.doesNotMatch(inputHtml, /id="previewButton"|内容を確認/,
     'employee evidence input must save in one server-validated operation');
   assert.match(inputHtml, /vNextSaveEvidence\(payload\(\)\)/);
+  assert.match(inputHtml, /data-step="response"/);
+  assert.match(inputHtml, /data-step="impact"/);
+  assert.match(inputHtml, /function showStep\(key\)/,
+    'evidence input should disclose one decision at a time');
+  assert.match(planHtml, /data-step="adoption"/);
+  assert.match(planHtml, /data-step="uplift"/);
+  assert.match(planHtml, /function showStep\(key\)/,
+    'plan editing should disclose adoption and uplift as separate decisions');
   const coreSource = await readFile(path.join(sourceDir, 'Client_Core.js'), 'utf8');
   assert.match(coreSource, /target_start_month[\s\S]*setNumberFormat\('@'\)/,
     'evidence month columns must be formatted as text before append');

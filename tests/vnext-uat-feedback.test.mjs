@@ -123,7 +123,14 @@ function checkEmployeeInteractionContract() {
   assert.match(ux, /key:\s*'large'[\s\S]*?base \* 0\.05[\s\S]*?base \* 0\.10/);
   assert.equal(/id=["']previewButton["']/.test(input), false,
     'The employee must not need a separate confirm click before saving');
-  assert.equal((input.match(/id=["']saveButton["']/g) || []).length, 1);
+  assert.equal((input.match(/vNextSaveEvidence\(payload\(\)\)/g) || []).length, 1,
+    'The progressive input must still perform one server save only');
+  assert.match(input, /data-step="response"/);
+  assert.match(input, /data-step="detail"/);
+  assert.match(input, /data-step="impact"/);
+  assert.match(input, /data-step="evidence"/);
+  assert.match(input, /function showStep\(key\)/,
+    'Evidence questions must be disclosed one step at a time');
   assert.match(ux, /vNextUxAutoOpenGuidance_/,
     'A state-aware sidebar must open automatically for passive employees');
   const openMenu = functionSource(ux, 'vNextBuildClientMenu_', 'vNextSetupClientExperience_');
@@ -153,6 +160,10 @@ function checkStructuredDashboardContract() {
   assert.match(ux, /function vNextOpenForecastDashboard\(\)[\s\S]*showModelessDialog/,
     'forecast dashboard must use a wide modeless surface rather than a cell chart');
   assert.match(guidance, /data-panel="dashboard"/);
+  assert.match(guidance, /data-panel="triangulation"/);
+  assert.match(guidance, /data-panel="timing"/);
+  assert.match(guidance, /id="openWideButton"/,
+    'The compact automatic guidance must offer the detailed dashboard as a separate view');
   assert.match(guidance, /三つの切り口/);
   assert.match(guidance, /id="monthChart"/);
   for (const html of [input, plan, review, guidance]) {
