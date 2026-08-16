@@ -1,0 +1,151 @@
+# Forecast vNext — AIエージェント引継ぎ
+
+最終更新: 2026-08-16 JST  
+対象ブランチ: `codex/vnext-annual-planning`  
+この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
+
+## 最初に行うこと
+
+1. [`AGENTS.md`](./AGENTS.md) とワークスペースルートの `AGENTS.md` / `GIT_SYNC_RULES.md` を読む。
+2. `git branch --show-current`、`git status -sb`、`git fetch origin --prune` を実行する。
+3. この文書と [`README_VNEXT_JA.md`](./README_VNEXT_JA.md) を読む。
+4. `origin/codex/vnext-annual-planning` と同期していることを確認する。分岐、未push、競合があれば勝手にmerge/rebase/stashしない。
+5. 実装前に下記の「ライブ状態」と実際のHub状態を照合する。Sheets/GASの状態はGitだけでは更新されないため、記載値を盲信しない。
+
+## 現在のコードと配備状態
+
+2026-08-16時点の確認値。IDは認証情報ではないが、公開資料へ転載しない。
+
+| 対象 | 現在値 |
+|---|---|
+| Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
+| 直近実装commit | `5a8a97a` (`Improve forecast contrast and uncertainty calibration`) |
+| 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
+| Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
+| Admin Hub bound Script ID | `1ANVtOBzPo90DveLcmTYokpEycr4iOphMaKZrhyjvzUizEQUjGqHRScxw` |
+| 社員ポータル Spreadsheet ID | `16uiBgEF6Pz6N3UUpPU1DPJ6axelYRDJ3WuXFJUWy1dU` |
+| Forecast Engine | `vnext-engine-0.5.0` |
+| Client runtime | `vnext-client-1.7.0` |
+| Client bundle SHA-256 | `7f093be113d4e6abb6f6dfc8a1451e6836f15b90392aedc549ad86598c4df090` |
+| Portal runtime | `vnext-portal-1.3.0` |
+| Portal bundle SHA-256 | `03a7d32b3ce19ac318bd8486558449efbb9d6f5a5aae8654474de4e2280197e4` |
+| ACTIVE Template Release | `vnext-client-vnext-client-1.7.0-7f093be1-26d2b11e` |
+| ACTIVE Model Release | `model-portal-BEFDD31F149CE292A6CD` |
+| ACTIVE Template Spreadsheet ID | `14xOCQCcQ7xiBpKeHuPkmBZ9iB7ufuhW1dU857jvamDM` |
+
+中央projectとAdmin Hub bound projectには、commit `5a8a97a` の18ファイルを`clasp push`済み。Client 1.7.0 / Engine 0.5.0のTemplate・Model pairはHubで有効化済み。社員ポータルは既存URLを維持して再利用されている。
+
+## ライブUAT対象: アストラゼネカ FY2027
+
+- Spreadsheet: [Forecast アストラゼネカ FY2027](https://docs.google.com/spreadsheets/d/1bJwCUSn2GJ8uKZeBG1vyXMOX5fkl81t3h-hljTMlK7w/edit)
+- 2026-08-16時点の状態: `SUBMITTED`、管理者承認待ち。
+- 同じURLのままClient runtime 1.7.0へ更新済み。
+- 提出済み計画、承認待ち、入力、既存の予測runは保持した。
+- 保存済みrun ID: `RUN-68D50704E1BA8E3A73A5B87BB1EA9202`
+- 保存済み中心予測: `¥185,642,622`（表示は1円単位、内部ログは元の数値も保持）
+- 保存済みP10–P90: `¥137,153,921 ～ ¥261,460,828`
+
+重要: この保存済みrunは旧Engine `vnext-engine-0.3.1`で計算されたimmutable recordである。Client 1.7.0へ画面を更新しても、過去runの分位点を後から書き換えてはいけない。Engine 0.5.0の新しい不確実性校正を実値で確認する場合は、承認前にAdmin Hubで差戻し経路「同じ入力で再予測」を選び、新しいrunとして実行する。ユーザーの明示判断なしに承認・差戻し・公式化を行わない。
+
+## 直近変更の意図
+
+### UI・可読性
+
+- [`VNext_GuidanceSidebar.html`](./VNext_GuidanceSidebar.html) の予測カードを淡い背景＋濃い文字へ変更した。
+- 保存ボタン用の汎用`.primary`が`<article class="metric primary">`にも当たっていたため、ボタンを`.primary-action`へ分離した。
+- 本文15px、主要見出し26px、主要金額28pxを基準とし、派手な装飾や多カラムを避けた。
+- 同じファイルを`client_runtime`へvendorし、[`VNext_ClientRuntimeBundle.js`](./VNext_ClientRuntimeBundle.js)を再生成した。
+
+### 予測幅
+
+[`VNext_Engine.js`](./VNext_Engine.js) で表示上のcapや任意倍率は使わず、生成過程を変更した。
+
+- 年次変動は全期間の外れたregimeを混ぜず、直近5FYのdetrended log residualをMAD＋shrinkageで校正する。
+- アストラゼネカの同じ年次実績では、年次sigmaが旧`0.261031...`から新`0.103498...`へ下がる純粋テストを追加した。
+- UNKNOWN SPOTは12か月それぞれで大きなtailを引かず、年間総額を1回sampleして月へ配分する。
+- AI/provider失敗はAI差分0の参考情報扱いとし、失敗だけを理由に売上分布を機械的に15%拡大しない。
+- seed、FY/Q/月の加算整合、分位点、layer、input hash、versionは引き続きFORECAST_RUNへ保存する。
+
+## 主要ファイル
+
+| ファイル/ディレクトリ | 役割 |
+|---|---|
+| [`VNext_Admin.js`](./VNext_Admin.js) | Hub、provision、job、承認、release、AI調査、公式化 |
+| [`VNext_Core.js`](./VNext_Core.js) | append-only schema、context、hash、状態イベント |
+| [`VNext_Engine.js`](./VNext_Engine.js) | 実績読込、レイヤー、simulation、評価 |
+| [`VNext_AI.js`](./VNext_AI.js) | AI調査・grounding・公開要約 |
+| [`VNext_UX.js`](./VNext_UX.js) | Client FY Bookの表示・操作routing |
+| [`VNext_GuidanceSidebar.html`](./VNext_GuidanceSidebar.html) | 1カラムの案内・予測dashboard |
+| [`client_runtime/`](./client_runtime/) | Client専用最小runtimeの正本・build・tests |
+| [`portal_runtime/`](./portal_runtime/) | 社員ポータル専用runtimeの正本・build・tests |
+| [`VNext_ClientRuntimeProvisioning.js`](./VNext_ClientRuntimeProvisioning.js) | known-bound project作成・runtime copy/verify |
+| [`tests/`](./tests/) | Node/V8契約・runtime copy・UAT回帰テスト |
+
+`Forecast_Agent.js`はlegacy資産であり、vNextの新規employee flowを追加する場所ではない。vNext公開関数は原則`vNext` prefixを維持する。
+
+## ローカル検証
+
+最低限、変更範囲に応じて次を実行する。
+
+```bash
+node --check VNext_Admin.js
+node --check VNext_Core.js
+node --check VNext_Engine.js
+node --check VNext_UX.js
+node tests/vnext-integration.test.mjs
+node tests/vnext-uat-feedback.test.mjs
+node tests/vnext-client-runtime-copy.test.mjs
+node tests/vnext-admin-runtime-copy.test.mjs
+node tests/vnext-portal-pilot-recovery.test.mjs
+
+cd client_runtime
+npm run vendor
+npm run build
+npm run verify
+npm test
+
+cd ../portal_runtime
+npm run check
+```
+
+Client/Portalのsourceを変更した場合はbundle再生成を省略しない。integration testのSHA不一致は、sourceと生成bundleのどちらかが古いことを示す。
+
+## Git・GAS反映
+
+1. 対象ファイルだけ`git add`する。
+2. commit後、`git pull --ff-only`、`git push origin codex/vnext-annual-planning`。
+3. `clasp status`で中央projectの対象を確認して`clasp push`。
+4. AdminコードをHubへ反映する場合は、Hubの管理画面「中央配備版へ更新」を使うか、緊急bridgeとしてHub bound Script IDへ同一18ファイルを直接pushする。対象Script IDとparent Spreadsheetを再確認する。
+5. Client/Engine/UI変更は中央/Hubへpushしただけでは既存Clientへ反映されない。新しいimmutable Template＋Model pairを発行・有効化し、既存bookは状態別の専用same-URL upgradeを使う。
+
+`clasp push`だけで「ライブ反映完了」と判断しない。中央source、Hub bound project、ACTIVE pair、対象Client pinの4層を確認する。
+
+## 変更してはいけない境界
+
+- 保存済みFORECAST_RUN、PLAN_VERSION、OFFICIAL_RUNを上書きしない。
+- 採用判断、営業上積み、最終予算をモデル学習へ戻さない。
+- Client runtimeへHub ID、ZAC source ID、Vertex設定、raw prompt、Admin処理を入れない。
+- Portal runtimeからZAC/API/Hubを直接読まない。Adminがcatalogを投影し、Hub側でrequestを再検証する。
+- Client hidden sheetは未信頼staging。Hub正本へ無検証で同期しない。
+- P10/P90を見栄え目的でclip/capしない。狭める場合はデータ生成、校正、event構造を変え、理由とtestを残す。
+- 既存Clientの状態を変える承認・差戻し・再予測・公式化は、ユーザーの明示判断なしに実行しない。
+- `.clasp.json`のtargetを確認せずpushしない。`--force` pushは禁止。
+
+## 次の安全な作業候補
+
+1. ユーザーが希望した場合のみ、アストラゼネカを「同じ入力で再予測」へ差戻し、Engine 0.5.0の新runを生成する。
+2. 新旧runの中心値、P10/P90、layer、seed、AI/非AI input hashを比較し、幅が狭くなった理由をダッシュボードに表示する。
+3. 予測幅の校正は複数clientでcoverage/backtestを行う。アストラゼネカ1社だけに合わせた係数へ変更しない。
+4. Admin Hubの13件の既存例外を、現行UATに影響するものと過去Pilot残骸に分類する。無差別削除しない。
+5. `main`へ統合する場合は、現ブランチのライブ配備状態とGitHub差分を独立レビューしてから行う。
+
+## 終了時に更新する項目
+
+作業を引き継ぐ場合、この文書の次を必ず更新してcommit/pushする。
+
+- 最終更新日時、ブランチ、commit
+- Central/Hubへclasp反映したか
+- ACTIVE Template/Model、Client/Portal/Engine versionとSHA
+- ライブUAT対象のstateと、実行した外部操作
+- PASS/FAILしたtest
+- 未解決事項と、次の具体的な1操作

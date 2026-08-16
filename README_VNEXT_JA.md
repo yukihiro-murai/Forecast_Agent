@@ -92,7 +92,7 @@ Vertex/providerが一時的に失敗した場合や、引用URLを検証でき�
 - 承認時はHubにあるSUCCESS runとSUBMITTED planからsnapshotを再構築し、組合せを検証してから公式vintageを凍結します。
 - 正式計画の訂正は、現在の公式vintageを参照するamendmentとしてだけ発行します。
 - 実績評価は、対象FYの確定実績と現在の公式vintageを検証してから生成します。
-- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、17ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
+- Admin runtime改修は中央clasp projectへpush後、Hubの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、18ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
 - Client runtime/UI改修は現行Templateを上書きしません。管理者限定Draft（code-only更新は現ACTIVE UI）から新しいprivate `STAGED` Templateを作り、そのrelease IDへ厳密に結び付いたPASS済みModel candidateとの組だけを有効化します。canonical pair pointerをCASで切り替え、property cache更新後にだけ旧TemplateをRETIREDへ移します。各phaseは追記型journalへ残るため、中断後も同じoperation IDから再開できます。
 - Client FY BookはAdmin管理のprivate root配下へだけ生成します。任意の共有folderや、共有境界を証明できない保存先はfail-closedで拒否します。
 

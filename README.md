@@ -2,6 +2,10 @@
 
 詳細な構成・データ契約・運用手順は [`README_VNEXT_JA.md`](./README_VNEXT_JA.md) を参照してください。
 
+別端末・別AIエージェントで現在の作業を引き継ぐ場合は、最初に
+[`AI_HANDOFF.md`](./AI_HANDOFF.md) を参照してください。現在のライブ版、配備先、
+アストラゼネカFY2027の状態、テスト・反映手順、変更禁止境界をまとめています。
+
 ## 初期版の信頼境界
 
 Forecast vNext の初期版は、Admin Hub とクライアント年度 book を物理的に分離します。Hub は管理者だけに共有し、従業員には担当クライアントの年度 book だけを共有します。Vertex AI の設定、raw prompt、raw AI evidence、他クライアントの情報はクライアント book に保存しません。
@@ -27,7 +31,7 @@ Admin 所有 trigger は Hub へ取り込む前に、次をサーバー側で再
 3. 生成した Admin Hub を開き、「自動運用を有効化」を1回実行します。
 4. 社員ポータルでFY、ZACクライアント、関与メンバー氏名を指定して年度 book の作成を依頼します。Forecast Ownerは依頼した社内ユーザーへ自動設定されます。
 
-Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み17ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは原則固定されます。汎用migration APPLYは停止したままです。従業員テスト前で回答・依頼・予測・計画等が完全に0件、source pinsとruntime SHAが一致する空のPilot Clientだけは、read-only事前判定後に同じURLのままcanonical ACTIVE pairへ更新でき、途中停止時は専用journalから復旧します。
+Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み18ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは原則固定されます。汎用migration APPLYは停止したままです。従業員テスト前で回答・依頼・予測・計画等が完全に0件、source pinsとruntime SHAが一致する空のPilot Clientだけは、read-only事前判定後に同じURLのままcanonical ACTIVE pairへ更新でき、途中停止時は専用journalから復旧します。
 
 初回展開は2～3 Client、明示承認後のcanaryでも最大5 Clientです。6冊目は30冊負荷試験とrelease承認が完了するまでserver-sideで拒否します。Client fileはAdmin管理のprivate root配下にだけ生成し、共有境界を確認できないfolderは使用しません。
 
