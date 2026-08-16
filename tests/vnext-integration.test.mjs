@@ -375,11 +375,18 @@ async function checkPortalRuntimeBoundary() {
   const upgradeResolverEnd = adminSource.indexOf('function vNextAdminResolveActiveModelRelease_(', upgradeResolverStart);
   const upgradeResolver = adminSource.slice(upgradeResolverStart, upgradeResolverEnd);
   assert.ok(upgradeResolverStart >= 0 &&
-    upgradeResolver.includes("String(model.model_version || '') !== String(release.engine_version || '')") &&
-    upgradeResolver.includes("String(model.schema_version || '') !== vNextAdminClientSchemaVersion_()") &&
-    upgradeResolver.includes("String(backtest.candidateHash || '') !== candidateHash") &&
+    upgradeResolver.includes('vNextAdminAssertModelReleaseOwnPair_(model, release)') &&
     !upgradeResolver.includes('VNEXT_ENGINE.VERSION'),
   'Engine upgrades must validate the active source pair against its own immutable version before registering the new deployed Engine');
+  assert.match(adminSource, /function vNextAdminAssertModelReleaseOwnPair_\(model, release\)/);
+  assert.match(adminSource, /String\(model\.model_version \|\| ''\) !== String\(release\.engine_version \|\| ''\)/);
+  assert.match(adminSource, /String\(backtest\.candidateHash \|\| ''\) !== candidateHash/);
+  const emptyModelStart = adminSource.indexOf('function vNextAdminEmptyPilotModel_(');
+  const emptyModelEnd = adminSource.indexOf('function vNextAdminAssertEmptyPilotReleaseAssets_(', emptyModelStart);
+  const emptyModel = adminSource.slice(emptyModelStart, emptyModelEnd);
+  assert.ok(emptyModel.includes("String(release.release_id || '') === String(activePair.releaseId || '')") &&
+    emptyModel.includes('vNextAdminAssertModelReleaseOwnPair_(model, release)'),
+  'Same-URL upgrades must validate the retired source Model against its own immutable Template while keeping the target pair strict');
   assert.ok(adminSource.includes('function vNextAdminPrepareEmployeePortalPilotForManualTest()') &&
     adminSource.includes("answer !== ui.Button.YES") &&
     adminSource.includes('clientRuntimeTests: 10') &&

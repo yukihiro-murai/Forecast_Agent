@@ -4570,7 +4570,12 @@ function vNextAdminAssertEmptyPilotPinnedRelease_(hub, client, registry, release
       vNextAdminLatestClientState_(client, bookId, clientMeta.state) !== expectedState) {
     throw new Error('Hub/Clientのappend-only stateが更新対象stateと一致しません: ' + expectedState);
   }
-  vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  const activePair = vNextAdminReadActiveReleasePair_(hub);
+  if (String(release.release_id || '') === String(activePair.releaseId || '')) {
+    vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  } else {
+    vNextAdminAssertModelReleaseOwnPair_(model, release);
+  }
   return hubMeta;
 }
 
@@ -4595,8 +4600,13 @@ function vNextAdminEmptyPilotModel_(hub, modelReleaseId, release, statuses) {
   if (!model || allowed.indexOf(String(model.status || '').toUpperCase()) < 0) {
     throw new Error('空Pilot更新には過去にACTIVE化済みのMODEL_RELEASEが必要です: ' + id);
   }
-  vNextAdminAssertModelReleaseChecksPassed_(model);
-  vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  const activePair = vNextAdminReadActiveReleasePair_(hub);
+  if (String(release.release_id || '') === String(activePair.releaseId || '')) {
+    vNextAdminAssertModelReleaseChecksPassed_(model);
+    vNextAdminAssertModelTemplateCompatibility_(hub, model, release);
+  } else {
+    vNextAdminAssertModelReleaseOwnPair_(model, release);
+  }
   return model;
 }
 
@@ -11439,30 +11449,7 @@ function vNextAdminResolveActiveModelReleaseForUpgrade_(hub, activePair) {
     throw new Error('Active source MODEL_RELEASE is missing or not ACTIVE: ' + modelId);
   }
   const release = vNextAdminResolveRelease_(hub, releaseId);
-  if (String(model.template_version || '') !== String(release.release_id || '') ||
-      String(model.schema_version || '') !== String(release.schema_version || '') ||
-      String(model.model_version || '') !== String(release.engine_version || '') ||
-      String(model.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
-    throw new Error('Active source Template and Model Release are not an exact immutable pair.');
-  }
-  const parameters = vNextAdminNormalizeModelParameters_(vNextAdminParseJson_(model.parameters_json, {}));
-  if (vNextAdminCanonicalJson_(parameters) !== String(model.parameters_json || '')) {
-    throw new Error('Active source MODEL_RELEASE parameters are not canonical.');
-  }
-  const candidateHash = vNextAdminModelCandidateHash_({
-    modelVersion: model.model_version,
-    schemaVersion: model.schema_version,
-    templateVersion: model.template_version,
-    parameters: parameters
-  });
-  const backtest = vNextAdminParseJson_(model.backtest_json, {});
-  const canary = vNextAdminParseJson_(model.canary_json, {});
-  if (!vNextAdminModelCheckPassed_(model.backtest_json) ||
-      !vNextAdminModelCheckPassed_(model.canary_json) ||
-      String(backtest.candidateHash || '') !== candidateHash ||
-      String(canary.candidateHash || '') !== candidateHash) {
-    throw new Error('Active source MODEL_RELEASE checks do not match its immutable candidate.');
-  }
+  vNextAdminAssertModelReleaseOwnPair_(model, release);
   return model;
 }
 
@@ -11557,6 +11544,36 @@ function vNextAdminAssertModelReleaseChecksPassed_(row) {
   if (!vNextAdminModelCheckPassed_(row && row.canary_json)) throw new Error('MODEL_RELEASE canary result must be PASS.');
   if (String(backtest.candidateHash || '') !== candidateHash || String(canary.candidateHash || '') !== candidateHash) {
     throw new Error('MODEL_RELEASE backtest/canary artifacts are not bound to this candidate hash.');
+  }
+  return true;
+}
+
+/** Validates a historical Model against the immutable Template it was released with. */
+function vNextAdminAssertModelReleaseOwnPair_(model, release) {
+  if (!model || !release ||
+      String(model.template_version || '') !== String(release.release_id || '') ||
+      String(model.schema_version || '') !== String(release.schema_version || '') ||
+      String(model.model_version || '') !== String(release.engine_version || '') ||
+      String(model.schema_version || '') !== vNextAdminClientSchemaVersion_()) {
+    throw new Error('Source Template and Model Release are not an exact immutable pair.');
+  }
+  const parameters = vNextAdminNormalizeModelParameters_(vNextAdminParseJson_(model.parameters_json, {}));
+  if (vNextAdminCanonicalJson_(parameters) !== String(model.parameters_json || '')) {
+    throw new Error('Source MODEL_RELEASE parameters are not canonical.');
+  }
+  const candidateHash = vNextAdminModelCandidateHash_({
+    modelVersion: model.model_version,
+    schemaVersion: model.schema_version,
+    templateVersion: model.template_version,
+    parameters: parameters
+  });
+  const backtest = vNextAdminParseJson_(model.backtest_json, {});
+  const canary = vNextAdminParseJson_(model.canary_json, {});
+  if (!vNextAdminModelCheckPassed_(model.backtest_json) ||
+      !vNextAdminModelCheckPassed_(model.canary_json) ||
+      String(backtest.candidateHash || '') !== candidateHash ||
+      String(canary.candidateHash || '') !== candidateHash) {
+    throw new Error('Source MODEL_RELEASE checks do not match its immutable candidate.');
   }
   return true;
 }
