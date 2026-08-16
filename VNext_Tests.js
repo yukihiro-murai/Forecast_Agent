@@ -18,6 +18,8 @@ function runAllVNextTests() {
     vNextTestAiEvidenceTemporalBoundary_,
     vNextTestExplanationAndInformationRanking_,
     vNextTestUnknownSpotLens_,
+    vNextTestCalibratedAnnualUncertainty_,
+    vNextTestTriangulationMethods_,
     vNextTestMonthlyShockAndCommitmentDelay_,
     vNextTestReferencePriorSafety_,
     vNextTestCoherentSimulation_,
@@ -70,6 +72,8 @@ function runVNextEngineTests() {
   vNextTestAdminJobAsOfPrecedence_();
   vNextTestHistoryGuard_();
   vNextTestUnknownSpotLens_();
+  vNextTestCalibratedAnnualUncertainty_();
+  vNextTestTriangulationMethods_();
   vNextTestMonthlyShockAndCommitmentDelay_();
   vNextTestReferencePriorSafety_();
   vNextTestCoherentSimulation_();
@@ -82,7 +86,7 @@ function runVNextEngineTests() {
   vNextTestLearningSeparation_();
   vNextTestAutomaticEvaluationBreakdown_();
   vNextTestTrustedRollbackContract_();
-  return { passed: 15, failed: 0 };
+  return { passed: 17, failed: 0 };
 }
 
 function vNextTestCanonicalJsonAndSha256_() {
@@ -296,6 +300,41 @@ function vNextTestUnknownSpotLens_() {
   vNextAssertEqual_(suppression[4], 0.5, 'Known August commitment suppresses duplicate unknown SPOT.');
 }
 
+function vNextTestCalibratedAnnualUncertainty_() {
+  var stable = [100, 108, 116.64, 125.9712, 136.049].map(Math.log);
+  var stableCalibration = vNextCalibrateAnnualLogSigma_(stable);
+  vNextAssertEqual_(stableCalibration.method, 'DETREND_MAD_SHRINKAGE', 'Annual interval documents its calibration method.');
+  vNextAssertTrue_(stableCalibration.logSigma <= 0.13,
+    'A stable exponential trend must not be misclassified as high uncertainty.');
+  var volatile = [100, 160, 80, 190, 95, 210].map(Math.log);
+  var volatileCalibration = vNextCalibrateAnnualLogSigma_(volatile);
+  vNextAssertTrue_(volatileCalibration.logSigma > stableCalibration.logSigma,
+    'Unexplained annual deviations must widen the calibrated interval.');
+  vNextAssertTrue_(volatileCalibration.logSigma <= VNEXT_ENGINE.MAX_ANNUAL_LOG_SIGMA,
+    'Small-sample interval calibration remains bounded by the deployed policy.');
+}
+
+function vNextTestTriangulationMethods_() {
+  var triangulation = vNextBuildTriangulationReference_({
+    annualHistory: [
+      { fiscalYear: 2020, baseTotal: 100 }, { fiscalYear: 2021, baseTotal: 110 },
+      { fiscalYear: 2022, baseTotal: 130 }, { fiscalYear: 2023, baseTotal: 145 },
+      { fiscalYear: 2024, baseTotal: 170 }
+    ],
+    unknownSpotModel: { expectedAnnual: 10 }
+  }, 190);
+  vNextAssertEqual_(triangulation.policy, 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED',
+    'Triangulation methods are references, not an automatic ensemble.');
+  vNextAssertEqual_(triangulation.methods.length, 4, 'Weighted level, regression, CAGR and simulation are shown.');
+  var keys = triangulation.methods.map(function (method) { return method.key; });
+  ['RECENT_WEIGHTED_AVERAGE', 'LINEAR_REGRESSION', 'DAMPED_CAGR', 'INTEGRATED_SIMULATION'].forEach(function (key) {
+    vNextAssertTrue_(keys.indexOf(key) >= 0, 'Triangulation includes ' + key + '.');
+  });
+  vNextAssertTrue_(triangulation.methods.every(function (method) {
+    return method.value >= 0 && method.assumption && method.basis;
+  }), 'Every reference exposes its amount, assumption and basis.');
+}
+
 function vNextTestMonthlyShockAndCommitmentDelay_() {
   var shares = new Array(12).fill(1 / 12);
   var firstRng = vNextCreatePrng_(20260809);
@@ -432,6 +471,10 @@ function vNextTestCoherentSimulation_() {
   vNextAssertTrue_(first.lenses.continuity.monthlyCommonShockSigma > 0, 'Continuity lens exposes the monthly common shock.');
   vNextAssertEqual_(first.lenses.commitment.delayByEvent[0].evidenceId, 'COMMIT-COHERENCE', 'Commitment delay audit retains event lineage.');
   vNextAssertTrue_(first.lenses.simulationDesign.monthlyCommonShock.sharedAcrossLayers, 'Monthly common shock is shared across layers.');
+  vNextAssertEqual_(first.lenses.simulationDesign.annualCommonShock.calibration.method, 'DETREND_MAD_SHRINKAGE',
+    'Annual interval calibration is auditable.');
+  vNextAssertTrue_(first.lenses.triangulation.methods.length >= 4,
+    'Independent classical and simulation references are persisted for triangulation.');
   vNextAssertEqual_(first.evidenceSummary.noChange, 3, 'NO_CHANGE remains explicit evidence.');
   vNextAssertEqual_(first.evidenceSummary.unknown, 1, 'UNKNOWN remains an information gap.');
   var counterfactual = first.lenses.changeReference.aiCounterfactual;

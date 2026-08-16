@@ -4,7 +4,7 @@
  */
 
 var VNEXT_ENGINE = Object.freeze({
-  VERSION: 'vnext-engine-0.3.1',
+  VERSION: 'vnext-engine-0.4.0',
   MIN_HISTORY_YEARS: 5,
   MAX_HISTORY_YEARS: 8,
   DEFAULT_SIMULATIONS: 2000,
@@ -17,6 +17,12 @@ var VNEXT_ENGINE = Object.freeze({
   DEFAULT_MONTH_COMMON_SHOCK_SIGMA: 0.10,
   MIN_MONTH_COMMON_SHOCK_SIGMA: 0.04,
   MAX_MONTH_COMMON_SHOCK_SIGMA: 0.30,
+  DEFAULT_ANNUAL_LOG_SIGMA: 0.12,
+  MIN_ANNUAL_LOG_SIGMA: 0.06,
+  MAX_ANNUAL_LOG_SIGMA: 0.30,
+  ANNUAL_SIGMA_PRIOR_WEIGHT: 4,
+  DEFAULT_SPOT_LOG_SIGMA: 0.25,
+  MAX_SPOT_LOG_SIGMA: 0.55,
   REFERENCE_MAX_STRENGTH: 0.35,
   REFERENCE_MIN_GROWTH: -1,
   REFERENCE_MAX_GROWTH: 3,
@@ -1493,6 +1499,7 @@ function vNextSimulateForecast_(request) {
   var nextInformation = vNextRankNextInformation_(request, history, layers, coherent.annual);
   var changeReasons = vNextBuildChangeReasons_(request.previousRunSummary, layers);
   var evidenceReadiness = vNextBuildPublicEvidenceReadiness_(request, history, coherent.annual);
+  var triangulation = vNextBuildTriangulationReference_(history, layers.systemRecommended);
   return {
     runId: request.runId,
     bookId: request.bookId,
@@ -1536,6 +1543,7 @@ function vNextSimulateForecast_(request) {
         modelReleaseId: request.modelReleaseId
       },
       continuity: history,
+      triangulation: triangulation,
       commitment: {
         eventCount: request.commitmentEvents.length,
         unknownSpotSuppressionByMonth: spotSuppression,
@@ -1546,7 +1554,8 @@ function vNextSimulateForecast_(request) {
         annualCommonShock: {
           distribution: 'LOGNORMAL',
           logSigma: history.logSigma,
-          uncertaintyMultiplier: uncertaintyMultiplier
+          uncertaintyMultiplier: uncertaintyMultiplier,
+          calibration: history.annualSigmaCalibration
         },
         monthlyCommonShock: {
           distribution: 'LOGNORMAL_NORMALIZED_TO_FY',
@@ -1857,16 +1866,13 @@ function vNextBuildContinuityPrior_(records, targetFiscalYear, cutoff) {
   var logs = positive.map(function (row) { return Math.log(row.total); });
   var slope = logs.length >= 2 ? vNextClamp_(vNextLinearSlope_(logs) * 0.50, -0.18, 0.18) : 0;
   var baseline = 0;
-  var sigma = 0.20;
+  var sigmaCalibration = vNextCalibrateAnnualLogSigma_(logs);
+  var sigma = sigmaCalibration.logSigma;
   if (logs.length) {
     var weights = positive.map(function (row, index) { return index + 1; });
     var weightedLog = vNextWeightedMean_(logs, weights);
     var latestLog = logs[logs.length - 1];
     baseline = Math.exp(latestLog * 0.65 + weightedLog * 0.35 + slope);
-    var residuals = logs.map(function (value, index) {
-      return value - (logs[0] + slope * index);
-    });
-    sigma = vNextClamp_(vNextStdDev_(residuals), 0.08, 0.45);
   }
   var unknownSpotModel = vNextBuildUnknownSpotModel_(spotMonthly, fiscalYears, cutoff);
   return {
@@ -1875,10 +1881,118 @@ function vNextBuildContinuityPrior_(records, targetFiscalYear, cutoff) {
     baseAnnualBaseline: baseline,
     logTrend: slope,
     logSigma: sigma,
+    annualSigmaCalibration: sigmaCalibration,
     monthlyCommonShockSigma: monthlyCommonShockSigma,
     seasonalShares: seasonal,
     annualHistory: annuals.map(function (row) { return { fiscalYear: row.fy, baseTotal: row.total, estimated: row.estimated }; }),
     unknownSpotModel: unknownSpotModel
+  };
+}
+
+/**
+ * Calibrates FY uncertainty from detrended log residuals. The previous design
+ * measured residuals around an intentionally damped trend and therefore counted
+ * explainable trend as uncertainty. We fit the full trend for calibration only,
+ * use MAD to limit one exceptional year, then shrink variance toward a 12% prior
+ * because each client has only 5-8 annual observations.
+ */
+function vNextCalibrateAnnualLogSigma_(logs) {
+  var prior = VNEXT_ENGINE.DEFAULT_ANNUAL_LOG_SIGMA;
+  if (!logs || logs.length < 3) {
+    return {
+      method: 'DETREND_MAD_SHRINKAGE',
+      sampleSize: logs ? logs.length : 0,
+      empiricalSigma: 0,
+      priorSigma: prior,
+      priorWeight: VNEXT_ENGINE.ANNUAL_SIGMA_PRIOR_WEIGHT,
+      logSigma: prior
+    };
+  }
+  var regression = vNextLinearRegression_(logs);
+  var residuals = logs.map(function (value, index) {
+    return value - (regression.intercept + regression.slope * index);
+  });
+  var medianResidual = vNextMedian_(residuals);
+  var madSigma = 1.4826 * vNextMedian_(residuals.map(function (value) {
+    return Math.abs(value - medianResidual);
+  }));
+  var rmsSigma = Math.sqrt(vNextMean_(residuals.map(function (value) { return value * value; })));
+  var empirical = madSigma > 0
+    ? Math.max(madSigma, Math.min(rmsSigma, madSigma * 1.50))
+    : rmsSigma;
+  empirical = vNextClamp_(empirical || prior, VNEXT_ENGINE.MIN_ANNUAL_LOG_SIGMA, VNEXT_ENGINE.MAX_ANNUAL_LOG_SIGMA);
+  var dataWeight = Math.max(1, logs.length - 2);
+  var priorWeight = VNEXT_ENGINE.ANNUAL_SIGMA_PRIOR_WEIGHT;
+  var shrunk = Math.sqrt(
+    (dataWeight * empirical * empirical + priorWeight * prior * prior) /
+    (dataWeight + priorWeight)
+  );
+  return {
+    method: 'DETREND_MAD_SHRINKAGE',
+    sampleSize: logs.length,
+    empiricalSigma: empirical,
+    priorSigma: prior,
+    priorWeight: priorWeight,
+    regressionSlope: regression.slope,
+    logSigma: vNextClamp_(shrunk, VNEXT_ENGINE.MIN_ANNUAL_LOG_SIGMA, VNEXT_ENGINE.MAX_ANNUAL_LOG_SIGMA)
+  };
+}
+
+/** Independent annual references. They are never averaged into the system forecast. */
+function vNextBuildTriangulationReference_(history, simulationValue) {
+  history = history || {};
+  var annualRows = Array.isArray(history.annualHistory) ? history.annualHistory.filter(function (row) {
+    return Number(row && row.baseTotal || 0) > 0;
+  }).sort(function (a, b) { return Number(a.fiscalYear || 0) - Number(b.fiscalYear || 0); }) : [];
+  var values = annualRows.map(function (row) { return Number(row.baseTotal); });
+  var spotExpected = Math.max(0, Number(history.unknownSpotModel && history.unknownSpotModel.expectedAnnual || 0));
+  var methods = [];
+  if (values.length) {
+    var recent = values.slice(-Math.min(3, values.length));
+    var recentWeights = recent.map(function (_, index) { return index + 1; });
+    methods.push({
+      key: 'RECENT_WEIGHTED_AVERAGE',
+      label: '直近3年度の加重平均',
+      value: Math.max(0, vNextWeightedMean_(recent, recentWeights) + spotExpected),
+      assumption: '直近の売上水準を重く見て、急な成長を外挿しません。',
+      basis: recent.length + '年度の確定実績'
+    });
+  }
+  if (values.length >= 3) {
+    var regression = vNextLinearRegression_(values);
+    methods.push({
+      key: 'LINEAR_REGRESSION',
+      label: '線形回帰トレンド',
+      value: Math.max(0, regression.intercept + regression.slope * values.length + spotExpected),
+      assumption: '年度売上の増減が一定額で続くと仮定します。',
+      basis: values.length + '年度の年度売上'
+    });
+  }
+  if (values.length >= 2 && values[0] > 0) {
+    var rawCagr = Math.pow(values[values.length - 1] / values[0], 1 / Math.max(1, values.length - 1)) - 1;
+    var dampedCagr = vNextClamp_(rawCagr * 0.50, -0.25, 0.35);
+    methods.push({
+      key: 'DAMPED_CAGR',
+      label: '減衰CAGR',
+      value: Math.max(0, values[values.length - 1] * (1 + dampedCagr) + spotExpected),
+      assumption: '長期の成長率は半分に減衰して続くと仮定します。',
+      basis: '観測CAGR ' + Math.round(rawCagr * 1000) / 10 + '%'
+    });
+  }
+  methods.push({
+    key: 'INTEGRATED_SIMULATION',
+    label: '統合シミュレーション',
+    value: Math.max(0, Number(simulationValue || 0)),
+    assumption: '季節性・案件・現場情報・外部情報と不確実性を統合します。',
+    basis: '現在の入力と同一seed'
+  });
+  var valuesForSpread = methods.map(function (method) { return Number(method.value || 0); }).sort(function (a, b) { return a - b; });
+  return {
+    policy: 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED',
+    methods: methods,
+    referenceMin: valuesForSpread.length ? valuesForSpread[0] : 0,
+    referenceMedian: vNextMedian_(valuesForSpread),
+    referenceMax: valuesForSpread.length ? valuesForSpread[valuesForSpread.length - 1] : 0
   };
 }
 
@@ -1900,7 +2014,19 @@ function vNextBuildUnknownSpotModel_(spotMonthly, fiscalYears, cutoff) {
     var probability = occurrences === 0 || exposures === 0 ? 0 : (occurrences + 0.5) / (exposures + 1);
     var logAmounts = amounts.map(function (amount) { return Math.log(amount); });
     var logMean = logAmounts.length ? vNextMean_(logAmounts) : 0;
-    var logSigma = logAmounts.length >= 2 ? vNextClamp_(vNextStdDev_(logAmounts), 0.10, 0.75) : 0.25;
+    var logSigma = VNEXT_ENGINE.DEFAULT_SPOT_LOG_SIGMA;
+    if (logAmounts.length >= 2) {
+      var spotMedian = vNextMedian_(logAmounts);
+      var spotMad = 1.4826 * vNextMedian_(logAmounts.map(function (value) { return Math.abs(value - spotMedian); }));
+      var spotStd = vNextStdDev_(logAmounts);
+      var spotEmpirical = spotMad > 0 ? Math.max(spotMad, Math.min(spotStd, spotMad * 1.50)) : spotStd;
+      var spotWeight = Math.max(1, logAmounts.length - 1);
+      logSigma = Math.sqrt(
+        (spotWeight * spotEmpirical * spotEmpirical + 3 * VNEXT_ENGINE.DEFAULT_SPOT_LOG_SIGMA * VNEXT_ENGINE.DEFAULT_SPOT_LOG_SIGMA) /
+        (spotWeight + 3)
+      );
+      logSigma = vNextClamp_(logSigma, 0.10, VNEXT_ENGINE.MAX_SPOT_LOG_SIGMA);
+    }
     var expectedConditionalAmount = logAmounts.length ? Math.exp(logMean + 0.5 * logSigma * logSigma) : 0;
     monthModels.push({
       fiscalMonthIndex: monthIndex,
@@ -3081,6 +3207,19 @@ function vNextLinearSlope_(values) {
     denominator += Math.pow(index - xMean, 2);
   });
   return denominator ? numerator / denominator : 0;
+}
+
+function vNextLinearRegression_(values) {
+  var source = (values || []).map(Number).filter(function (value) { return isFinite(value); });
+  if (!source.length) return { intercept: 0, slope: 0 };
+  var slope = vNextLinearSlope_(source);
+  return { intercept: vNextMean_(source) - slope * ((source.length - 1) / 2), slope: slope };
+}
+
+function vNextMedian_(values) {
+  var sorted = (values || []).map(Number).filter(function (value) { return isFinite(value); })
+    .sort(function (a, b) { return a - b; });
+  return sorted.length ? vNextPercentileSorted_(sorted, 0.50) : 0;
 }
 
 function vNextPercentileSorted_(sorted, quantile) {

@@ -196,8 +196,8 @@ function vNextOpenForecastDashboard() {
   try {
     var html = HtmlService.createTemplateFromFile(VNEXT_UX_CONFIG_.GUIDANCE_HTML).evaluate()
       .setTitle('予測ダッシュボード')
-      .setWidth(1120)
-      .setHeight(760);
+      .setWidth(860)
+      .setHeight(780);
     SpreadsheetApp.getUi().showModelessDialog(html, '予測ダッシュボード');
   } catch (err) {
     Logger.log('vNextOpenForecastDashboard error: ' + vNextUxErrorText_(err));
@@ -1449,6 +1449,7 @@ function vNextUxImpactText_(low, high) {
 function vNextUxPublicForecast_(raw) {
   raw = raw || {};
   var layers = raw.layers || {};
+  var lenses = raw.lenses || {};
   var quantiles = raw.quantiles || raw.annual || {};
   var historyBaseline = Number(raw.historyBaseline || layers.historyBaseline || layers.history_baseline || 0);
   var objectiveForecast = Number(raw.objectiveForecast || layers.objectiveForecast || layers.objective_forecast || 0);
@@ -1485,6 +1486,7 @@ function vNextUxPublicForecast_(raw) {
   }
   var hasPlan = Boolean(String(raw.planStatus || raw.plan_status || '').trim());
   var layerBreakdown = vNextUxLayerBreakdown_(raw, layers, evidenceSummary, historyBaseline, humanDelta, aiDelta);
+  var triangulation = vNextUxTriangulation_(raw, lenses, Number(raw.systemRecommended || layers.systemRecommended || layers.system_recommended || raw.p50 || quantiles.p50 || 0));
   var wholePeriods = vNextUxWholeYenPeriods_(raw.months || [], {
     p10: Number(raw.p10 || quantiles.p10 || 0),
     p50: Number(raw.p50 || quantiles.p50 || raw.systemRecommended || layers.systemRecommended || layers.system_recommended || 0),
@@ -1513,11 +1515,42 @@ function vNextUxPublicForecast_(raw) {
     planMonths: raw.planMonths || [],
     aiEvidence: (evidenceSummary.topAiEvidence || evidenceSummary.top_ai_evidence || []).slice(0, 5).map(vNextUxNormalizeAiInsight_),
     layerBreakdown: layerBreakdown,
+    triangulation: triangulation,
     drivers: providedDrivers.slice(0, 3),
     nextInformation: providedNextInformation.slice(0, 3),
     changeReasons: providedChangeReasons.slice(0, 3),
     evidenceCoverage: evidenceCoverage,
     warnings: warnings
+  };
+}
+
+/** Independent reference methods; no automatic averaging or forecast adjustment. */
+function vNextUxTriangulation_(raw, lenses, systemRecommended) {
+  var source = lenses && (lenses.triangulation || lenses.triangulation_reference) || raw && raw.triangulation || {};
+  var methods = Array.isArray(source.methods) ? source.methods.slice(0, 5).map(function(method) {
+    return {
+      key: String(method && method.key || ''),
+      label: String(method && method.label || ''),
+      value: vNextUxWholeYen_(method && method.value),
+      assumption: String(method && method.assumption || ''),
+      basis: String(method && method.basis || '')
+    };
+  }).filter(function(method) { return method.label && isFinite(method.value); }) : [];
+  if (!methods.length) {
+    methods.push({
+      key: 'INTEGRATED_SIMULATION', label: '統合シミュレーション',
+      value: vNextUxWholeYen_(systemRecommended),
+      assumption: '季節性・案件・現場情報・外部情報と不確実性を統合します。',
+      basis: '現在の予測run'
+    });
+  }
+  var values = methods.map(function(method) { return method.value; }).sort(function(a, b) { return a - b; });
+  return {
+    policy: String(source.policy || 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED'),
+    methods: methods,
+    referenceMin: values.length ? values[0] : 0,
+    referenceMedian: values.length ? values[Math.floor((values.length - 1) / 2)] : 0,
+    referenceMax: values.length ? values[values.length - 1] : 0
   };
 }
 
@@ -1527,6 +1560,10 @@ function vNextUxPublicForecast_(raw) {
  */
 function vNextUxForecastForView_(context, rawForecast) {
   var forecast = vNextUxPublicForecast_(rawForecast);
+  var triangulationProjection = vNextUxReadTriangulationProjection_(context, forecast.runId);
+  if (triangulationProjection.methods.length) {
+    forecast.triangulation = vNextUxTriangulation_({ triangulation: triangulationProjection }, {}, forecast.systemRecommended);
+  }
   var projection = vNextUxReadPublicAiInsightProjection_(context);
   if (!projection.insights.length) return forecast;
   var projected = projection.insights.map(function(item) {
@@ -1564,6 +1601,34 @@ function vNextUxForecastForView_(context, rawForecast) {
   }
   forecast.aiInsightProjectionUpdatedAt = projection.generatedAt;
   return forecast;
+}
+
+function vNextUxReadTriangulationProjection_(context, runId) {
+  var empty = { policy: '', methods: [] };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss && ss.getSheetByName(VNEXT_UX_CONFIG_.CONFIG_SHEET || 'VN_BOOK_CONFIG');
+    if (!sheet || sheet.getLastRow() < 2) return empty;
+    var values = sheet.getDataRange().getValues();
+    var keyColumn = values[0].indexOf('key');
+    var valueColumn = values[0].indexOf('value');
+    if (keyColumn < 0 || valueColumn < 0) return empty;
+    var raw = '';
+    values.slice(1).some(function(row) {
+      if (String(row[keyColumn] || '').trim() !== 'triangulation_reference_json') return false;
+      raw = String(row[valueColumn] || '');
+      return true;
+    });
+    if (!raw) return empty;
+    var parsed = JSON.parse(raw);
+    if (!parsed || parsed.schemaVersion !== 'vnext-triangulation-projection-1' ||
+        String(parsed.bookId || '') !== String(context && context.bookId || '') ||
+        String(parsed.runId || '') !== String(runId || '') || !Array.isArray(parsed.methods)) return empty;
+    return { policy: String(parsed.policy || ''), methods: parsed.methods.slice(0, 5) };
+  } catch (error) {
+    Logger.log('vNextUxReadTriangulationProjection_ warning: ' + vNextUxErrorText_(error));
+    return empty;
+  }
 }
 
 function vNextUxReadPublicAiInsightProjection_(context) {

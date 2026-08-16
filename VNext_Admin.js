@@ -4674,6 +4674,9 @@ function vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan, release,
 
   const meta = vNextAdminAppendEmptyPilotRepairMeta_(hub, client, plan, release, model, expectedDirection);
   callback('EMPTY_PILOT_META_APPENDED', { direction: expectedDirection, recordId: meta.record_id });
+  if (plan.sourceForecastRunId) {
+    vNextAdminWriteTriangulationProjection_(hub, client, bookId, plan.sourceForecastRunId);
+  }
 
   if (expectedDirection === 'TARGET') {
     const pair = vNextAdminReadActiveReleasePair_(hub);
@@ -4716,6 +4719,40 @@ function vNextAdminApplyEmptyPilotRelease_(hub, client, registry, plan, release,
   callback('EMPTY_PILOT_HEALTH_VERIFIED', { direction: expectedDirection,
     healthStatus: health.healthStatus, healthCode: health.healthCode });
   return { meta: meta, health: health };
+}
+
+/** Regenerable employee projection for runs created before triangulation was persisted. */
+function vNextAdminWriteTriangulationProjection_(hub, client, bookId, runId) {
+  const run = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+    return String(row.book_id || '') === String(bookId || '') &&
+      String(row.run_id || '') === String(runId || '') &&
+      String(row.status || '').toUpperCase() === 'SUCCESS';
+  }).slice(-1)[0];
+  if (!run) throw new Error('Triangulation projection source run is missing: ' + runId);
+  const lenses = vNextAdminParseJson_(run.lens_json, {});
+  const triangulation = lenses.triangulation && Array.isArray(lenses.triangulation.methods)
+    ? lenses.triangulation
+    : (typeof vNextBuildTriangulationReference_ === 'function'
+      ? vNextBuildTriangulationReference_(lenses.continuity || {}, Number(run.system_recommended || run.p50 || 0))
+      : null);
+  if (!triangulation || !Array.isArray(triangulation.methods) || !triangulation.methods.length) {
+    throw new Error('Triangulation projection could not be derived.');
+  }
+  const payload = {
+    schemaVersion: 'vnext-triangulation-projection-1', bookId: String(bookId || ''),
+    runId: String(runId || ''), generatedAt: new Date().toISOString(),
+    policy: String(triangulation.policy || 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED'),
+    methods: triangulation.methods.slice(0, 5).map(function (method) {
+      return { key: String(method.key || ''), label: String(method.label || '').slice(0, 80),
+        value: Math.trunc(Number(method.value || 0)), assumption: String(method.assumption || '').slice(0, 240),
+        basis: String(method.basis || '').slice(0, 120) };
+    })
+  };
+  vNextAdminWriteBookConfig_(client, {
+    triangulation_reference_json: vNextAdminCanonicalJson_(payload),
+    triangulation_reference_updated_at: new Date(), updated_at: new Date(), updated_by: vNextAdminActor_()
+  });
+  return payload;
 }
 
 function vNextAdminAppendEmptyPilotRepairMeta_(hub, client, plan, release, model, direction) {
@@ -10363,6 +10400,11 @@ function vNextAdminSanitizeForecastRowsForClient_(rows) {
     const copy = Object.assign({}, row);
     const lenses = vNextAdminParseJson_(row.lens_json, {});
     const evidence = vNextAdminParseJson_(row.evidence_json, {});
+    const triangulation = lenses.triangulation && typeof lenses.triangulation === 'object'
+      ? lenses.triangulation
+      : (typeof vNextBuildTriangulationReference_ === 'function'
+        ? vNextBuildTriangulationReference_(lenses.continuity || {}, Number(row.system_recommended || row.p50 || 0))
+        : {});
     copy.lens_json = vNextAdminCanonicalJson_({
       publicDrivers: Array.isArray(lenses.publicDrivers) ? lenses.publicDrivers.slice(0, 5) :
         (Array.isArray(lenses.drivers) ? lenses.drivers.slice(0, 5) : []),
@@ -10372,6 +10414,19 @@ function vNextAdminSanitizeForecastRowsForClient_(rows) {
         baseAnnualBaseline: Number(lenses.continuity.baseAnnualBaseline || 0),
         annualBaseline: Number(lenses.continuity.annualBaseline || 0),
         fiscalYears: Array.isArray(lenses.continuity.fiscalYears) ? lenses.continuity.fiscalYears.slice(-8) : []
+      } : {},
+      triangulation: triangulation && Array.isArray(triangulation.methods) ? {
+        policy: String(triangulation.policy || 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED'),
+        methods: triangulation.methods.slice(0, 5).map(function (method) {
+          return {
+            key: String(method.key || ''), label: String(method.label || '').slice(0, 80),
+            value: Number(method.value || 0), assumption: String(method.assumption || '').slice(0, 240),
+            basis: String(method.basis || '').slice(0, 120)
+          };
+        }),
+        referenceMin: Number(triangulation.referenceMin || 0),
+        referenceMedian: Number(triangulation.referenceMedian || 0),
+        referenceMax: Number(triangulation.referenceMax || 0)
       } : {},
       changeReference: lenses.changeReference && typeof lenses.changeReference === 'object' ? {
         peerReferenceDelta: Number(lenses.changeReference.peerReferenceDelta || 0),

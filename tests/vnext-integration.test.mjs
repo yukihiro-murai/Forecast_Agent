@@ -86,7 +86,7 @@ async function runCoreAndEngineTests() {
     vm.runInContext(await readFile(path.join(root, name), 'utf8'), sandbox, { filename: name });
   }
   const result = sandbox.runAllVNextTests();
-  assert.equal(result.passed, 25);
+  assert.equal(result.passed, 27);
   assert.equal(result.failed, 0);
   assert.equal(sandbox.testVNextAiDeterministicMapping(), true);
   engineSandbox = sandbox;
@@ -117,7 +117,16 @@ async function checkEmployeeResearchUxContracts() {
     annual: { p10: 90, p50: 112, p90: 130 },
     lenses: {
       continuity: { baseAnnualBaseline: 80, fiscalYears: [2019, 2020, 2021, 2022, 2023] },
-      changeReference: { peerReferenceDelta: 2, objectiveEventDelta: 3 }
+      changeReference: { peerReferenceDelta: 2, objectiveEventDelta: 3 },
+      triangulation: {
+        policy: 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED',
+        methods: [
+          { key: 'RECENT_WEIGHTED_AVERAGE', label: '直近3年度の加重平均', value: 100, assumption: '水準継続', basis: '3年度' },
+          { key: 'LINEAR_REGRESSION', label: '線形回帰トレンド', value: 108, assumption: '一定額増加', basis: '5年度' },
+          { key: 'DAMPED_CAGR', label: '減衰CAGR', value: 105, assumption: '成長率減衰', basis: 'CAGR' },
+          { key: 'INTEGRATED_SIMULATION', label: '統合シミュレーション', value: 112, assumption: '情報統合', basis: 'seed' }
+        ]
+      }
     },
     evidenceSummary: {
       unknownSpotExpectedAnnual: 20,
@@ -133,6 +142,8 @@ async function checkEmployeeResearchUxContracts() {
     'The employee layer view must reconcile exactly to the system recommendation');
   assert.equal(forecast.aiEvidence[0].axisLabel, 'DX・業務変革');
   assert.equal(forecast.aiEvidence[0].useLabel, '担当者向け参考');
+  assert.equal(forecast.triangulation.methods.length, 4);
+  assert.equal(forecast.triangulation.policy, 'INDEPENDENT_REFERENCES_NOT_AUTOMATICALLY_AVERAGED');
 
   const projection = {
     schemaVersion: 'vnext-public-ai-insights-1', bookId: 'BOOK-UX', generatedAt: '2026-08-14T10:00:00Z',
@@ -220,7 +231,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.4.0',
+    version: 'vnext-client-1.6.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const admin = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+const engine = await readFile(path.join(root, 'VNext_Engine.js'), 'utf8');
 const ux = await readFile(path.join(root, 'VNext_UX.js'), 'utf8');
 const input = await readFile(path.join(root, 'VNext_InputSidebar.html'), 'utf8');
 const plan = await readFile(path.join(root, 'VNext_PlanSidebar.html'), 'utf8');
@@ -161,10 +162,22 @@ function checkStructuredDashboardContract() {
     'forecast dashboard must use a wide modeless surface rather than a cell chart');
   assert.match(guidance, /data-panel="dashboard"/);
   assert.match(guidance, /data-panel="triangulation"/);
+  assert.match(guidance, /独立した予測アプローチ/,
+    'Triangulation must compare independent methods rather than cumulative layers');
+  for (const method of ['直近3年度の加重平均', '線形回帰トレンド', '減衰CAGR', '統合シミュレーション']) {
+    assert.match(engine, new RegExp(method), `Engine must expose ${method}`);
+  }
+  assert.doesNotMatch(guidance, /shortMoney/,
+    'All employee-facing currency must use full yen notation');
+  assert.match(guidance, /grid-template-columns:1fr/,
+    'Dashboard information groups must use a single reading column');
+  assert.doesNotMatch(guidance, /repeat\(2|minmax\(0,1fr\).*minmax\(0,1fr\)/,
+    'Layer, timing and AI cards must not use dense two-column grids');
+  assert.match(guidance, /preserveAspectRatio="xMidYMid meet"/,
+    'Monthly graph must preserve its geometry instead of stretching');
   assert.match(guidance, /data-panel="timing"/);
   assert.match(guidance, /id="openWideButton"/,
     'The compact automatic guidance must offer the detailed dashboard as a separate view');
-  assert.match(guidance, /三つの切り口/);
   assert.match(guidance, /id="monthChart"/);
   for (const html of [input, plan, review, guidance]) {
     assert.doesNotMatch(html, /setTimeout\s*\([^)]*google\.script\.host\.close/,
