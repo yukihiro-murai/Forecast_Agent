@@ -4,7 +4,11 @@
  */
 
 const VN_ADMIN_SCHEMA_VERSION = 'vnext-admin-1';
-const VN_ADMIN_MENU_NAME = '年度計画 管理';
+const VN_ADMIN_MENU_NAME = '【管理者】Hub';
+const VN_ADMIN_MENU_OPEN_SIDEBAR = '日常：承認と例外の作業画面';
+const VN_ADMIN_MENU_RUN_NOW = '滞留時：申請を今すぐ処理';
+const VN_ADMIN_MENU_HEALTH_SCAN = '点検：全クライアントの異常確認';
+const VN_ADMIN_MENU_OPEN_REGISTRY = '内部：登録ブック一覧を開く';
 const VN_ADMIN_META_SHEET = 'BOOK_META';
 const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
 const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
@@ -323,12 +327,12 @@ function vNextBuildAdminMenu_() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) return false;
     SpreadsheetApp.getUi().createMenu(VN_ADMIN_MENU_NAME)
-      .addItem('管理画面を開く', 'vNextAdminOpenSidebar')
+      .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
       .addSeparator()
-      .addItem('受付・処理を今すぐ確認', 'vNextAdminMenuRunOperationalCycle')
-      .addItem('全年度計画の状態を確認', 'vNextAdminMenuRunHealthScan')
+      .addItem(VN_ADMIN_MENU_RUN_NOW, 'vNextAdminMenuRunOperationalCycle')
+      .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
       .addSeparator()
-      .addItem('年度計画一覧を開く', 'vNextAdminMenuOpenRegistry')
+      .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry')
       .addToUi();
     return true;
   } catch (err) {
@@ -463,7 +467,7 @@ function vNextAdminOpenSidebar() {
       vNextAdminAssertHubAdmin_(active, false);
     }
     const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
-      .setTitle('年度計画 管理');
+      .setTitle(VN_ADMIN_MENU_NAME);
     SpreadsheetApp.getUi().showSidebar(html);
     return true;
   });
@@ -692,7 +696,7 @@ function vNextAdminExceptionForSidebar_(row, registryByBook, jobRows) {
     guidance = '同じ操作を新しく作り直さず、失敗内容を確認してください。';
   }
   if (category === 'SCHEDULER_STALE') {
-    guidance = 'まず「受付・処理を今すぐ確認」を実行し、続く場合は自動運用の権限を確認してください。';
+    guidance = 'まず「' + VN_ADMIN_MENU_RUN_NOW + '」を実行し、続く場合は自動運用の権限を確認してください。';
   }
   return {
     bookId: bookId,
@@ -848,7 +852,7 @@ function vNextAdminAttentionSummary_(model, safeRetryCandidates) {
   }
   if (operations.queueStale) {
     return { status: 'ERROR', label: '処理が長時間止まっています',
-      guidance: '「受付・処理を今すぐ確認」を実行し、要確認事項を確認してください。', safeRetryCandidates: retryCount };
+      guidance: '「' + VN_ADMIN_MENU_RUN_NOW + '」を実行し、要確認事項を確認してください。', safeRetryCandidates: retryCount };
   }
   if (model.portalRequests && model.portalRequests.unavailable) {
     return { status: 'ATTENTION', label: '社員ポータルの状態を確認できません',
@@ -10785,7 +10789,7 @@ function vNextAdminRefreshTodayExceptions_(hub) {
       title: actualDataIssue ? '予測に必要な確定実績が不足' : '自動処理を完了できませんでした',
       detail: row.error,
       recommended_action: safeRetry
-        ? 'サイドバーの「受付・処理を今すぐ確認」で、同じ処理を安全に再開'
+        ? 'サイドバーの「' + VN_ADMIN_MENU_RUN_NOW + '」で、同じ処理を安全に再開'
         : actualDataIssue
           ? 'ZACの確定実績が5年度以上あるか確認。新しい処理を重複登録しない'
           : 'JOB_QUEUEの元処理を確認。新しい処理を重複登録しない',
@@ -10883,7 +10887,7 @@ function vNextAdminRefreshHome_(hub) {
   else if (approvalCount || exceptionRows.length) overall = '管理者の確認あり';
   else if (queuedCount || runningCount) overall = '自動処理中';
   const rows = [
-    ['年度計画 管理', overall],
+    [VN_ADMIN_MENU_NAME, overall],
     ['最終確認', new Date()],
     ['', ''],
     ['今日、判断すること', approvalCount + exceptionRows.length + '件'],
@@ -10899,7 +10903,7 @@ function vNextAdminRefreshHome_(hub) {
     ['登録済み年度計画', clientCount + '冊'],
     ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
     ['', ''],
-    ['次の操作', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」から管理画面を開いてください。'],
+    ['次の操作', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
     ['正式計画', '確定済みの計画は上書きせず、訂正履歴を追加します。']
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);

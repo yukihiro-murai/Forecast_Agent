@@ -48,7 +48,8 @@
     </style>
   </head>
   <body>
-    <h1>年度計画 管理</h1>
+    <h1>【管理者】Hub</h1>
+    <p class="muted" style="margin:4px 0 8px">このブックは管理者専用です。社員・ディレクターは「年度計画ポータル」から年度とクライアントを指定します。</p>
     <div><span id="mode" class="badge">loading</span></div>
     <div id="book" class="muted"></div>
 
@@ -120,7 +121,7 @@
         <div id="portalRequests" class="muted"></div>
         <div id="recentJobs" class="muted"></div>
         <button id="installAutomation" class="good" onclick="callSimple('vNextAdminInstallAutomation')">自動運用を有効化</button>
-        <button id="runOperationalCycle" onclick="runOperationalCycle()">受付・処理を今すぐ確認</button>
+        <button id="runOperationalCycle" onclick="runOperationalCycle()">滞留時：申請を今すぐ処理</button>
         <details>
           <summary>個別の状態確認</summary>
           <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全年度計画を確認</button>
@@ -342,7 +343,7 @@
         } else if (/At least 5 fiscal years|confirmed actual history/i.test(raw)) {
           friendly = '予測に必要な確定実績が5年度未満です。ZACの実績範囲を確認してください。';
         } else if (/Requested release is not ACTIVE/i.test(raw)) {
-          friendly = '使用する年度計画の版に不整合がありました。「受付・処理を今すぐ確認」から安全な再開を試してください。';
+          friendly = '使用する年度計画の版に不整合がありました。「滞留時：申請を今すぐ処理」から安全な再開を試してください。';
         }
         showStatus(friendly, true);
         $('statusTechnicalText').textContent = raw;
@@ -558,7 +559,7 @@
             div.appendChild(retry);
           } else if (row.actionType === 'RUN_NOW') {
             const run = document.createElement('button');
-            run.textContent = '受付・処理を今すぐ確認';
+            run.textContent = '滞留時：申請を今すぐ処理';
             run.onclick = runOperationalCycle;
             div.appendChild(run);
           } else if (row.bookUrl) {

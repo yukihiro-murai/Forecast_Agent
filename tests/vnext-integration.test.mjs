@@ -395,6 +395,17 @@ async function checkPortalRuntimeBoundary() {
   const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
   const adminMenu = adminSource.slice(adminMenuStart, adminMenuEnd);
+  assert.ok(adminMenu.includes('VN_ADMIN_MENU_OPEN_SIDEBAR') &&
+    adminMenu.includes('VN_ADMIN_MENU_RUN_NOW') &&
+    adminMenu.includes('VN_ADMIN_MENU_HEALTH_SCAN') &&
+    adminMenu.includes('VN_ADMIN_MENU_OPEN_REGISTRY'),
+    'The Hub menu must use role/timing labels instead of generic open/check items');
+  assert.ok(adminSource.includes("VN_ADMIN_MENU_NAME = '【管理者】Hub'") &&
+    adminSource.includes("VN_ADMIN_MENU_OPEN_SIDEBAR = '日常：承認と例外の作業画面'") &&
+    adminSource.includes("VN_ADMIN_MENU_RUN_NOW = '滞留時：申請を今すぐ処理'") &&
+    adminSource.includes("VN_ADMIN_MENU_HEALTH_SCAN = '点検：全クライアントの異常確認'") &&
+    adminSource.includes("VN_ADMIN_MENU_OPEN_REGISTRY = '内部：登録ブック一覧を開く'"),
+    'Admin Hub menu copy must name the administrator audience and when to use each item');
   assert.ok(!adminMenu.includes('vNextAdminContinueEmployeePortalPilotRecoveryForManualTest'),
     'One-time Portal bootstrap recovery must stay out of the normal four-item Admin menu');
   assert.ok(!adminMenu.includes("'vNextAdminPrepareEmployeePortalPilotForManualTest'"),
@@ -981,6 +992,10 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('RESET_GENERATED_CLIENTS') &&
     sidebar.includes('apply:true'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
+  assert.ok(sidebar.includes('このブックは管理者専用です') &&
+    sidebar.includes('年度計画ポータル') &&
+    sidebar.includes('滞留時：申請を今すぐ処理'),
+    'Admin Sidebar must state it is administrator-only and point employees to the Portal');
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
   const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
   const provision = source.slice(provisionStart, provisionEnd);
