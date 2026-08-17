@@ -4989,12 +4989,25 @@ function vNextAdminRelocateLibraryInHub_(hub, request, allowEffectiveUser) {
         req.employeeDomain || vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).employee_domain ||
         vNextGetRuntimeConfig_().VNEXT_EMPLOYEE_DOMAIN || vNextAdminEmailDomain_(vNextAdminActor_())
       );
+      const prior = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
       const library = vNextAdminEnsureSharedLibrary_(hub, {
-        sharedDriveId: vNextAdminText_(req.sharedDriveId),
+        sharedDriveId: vNextAdminText_(req.sharedDriveId) || vNextAdminDetectCurrentSharedDriveId_(hub) ||
+          vNextAdminText_(prior.shared_drive_id),
         adminEmails: adminEmails,
         domain: domain
       });
-      const moved = vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails);
+      vNextAdminWriteSystemConfig_(hub, {
+        shared_drive_id: library.driveId,
+        library_drive_name: VN_ADMIN_LIBRARY.DRIVE_NAME,
+        library_portal_folder_id: library.folders.portal,
+        library_books_folder_id: library.folders.books,
+        library_admin_folder_id: library.folders.admin,
+        library_audit_folder_id: library.folders.audit,
+        library_templates_folder_id: library.folders.templates
+      });
+      const moved = vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails, {
+        legacyRootId: vNextAdminText_(prior.private_root_folder_id)
+      });
       vNextAdminWriteSystemConfig_(hub, {
         private_root_folder_id: library.rootId,
         shared_drive_id: library.driveId,
@@ -12612,7 +12625,11 @@ function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {
     vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET),
     vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_BOOK_CONFIG_SHEET)
   );
-  const owner = String(DriveApp.getFileById(hub.getId()).getOwner().getEmail() || '').toLowerCase();
+  const ownerUser = (function () {
+    try { return DriveApp.getFileById(hub.getId()).getOwner(); }
+    catch (ignoredSharedDriveOwner) { return null; }
+  })();
+  const owner = ownerUser ? String(ownerUser.getEmail() || '').toLowerCase() : '';
   const admins = vNextAdminMergeEmails_(routing.admin_emails,
     PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'), owner);
   if (!actor || admins.indexOf(actor) < 0) throw new Error('Admin Hubの操作権限がありません。');
@@ -12621,7 +12638,14 @@ function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {
 
 function vNextAdminSpreadsheetAccessible_(id) {
   if (!id) return false;
-  try { SpreadsheetApp.openById(String(id)).getName(); return true; } catch (err) { return false; }
+  try {
+    const file = DriveApp.getFileById(String(id));
+    if (file.isTrashed()) return false;
+    SpreadsheetApp.openById(String(id)).getName();
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 function vNextAdminResolveDestinationFolder_(folderId, sourceFile) {
@@ -12691,11 +12715,47 @@ function vNextAdminEnsureLibraryPath_(root, pathSegments, adminEmails) {
   let current = root;
   (pathSegments || []).forEach(function (name) {
     const safe = vNextAdminSafeDriveName_(name, 'folder');
-    const existing = current.getFoldersByName(safe);
-    current = existing.hasNext() ? existing.next() : current.createFolder(safe);
+    const existing = vNextAdminFindNamedChildFolder_(current, safe);
+    current = existing || current.createFolder(safe);
     current = vNextAdminPrepareManagedFolder_(current.getId(), current.getName(), adminEmails);
   });
   return current;
+}
+
+function vNextAdminFindNamedChildFolder_(parent, name) {
+  const matches = [];
+  const folders = parent.getFolders();
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    if (folder.getName() === name) matches.push(folder);
+  }
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  matches.sort(function (a, b) {
+    return vNextAdminFolderOccupancy_(b) - vNextAdminFolderOccupancy_(a);
+  });
+  return matches[0];
+}
+
+function vNextAdminFolderOccupancy_(folder) {
+  let count = 0;
+  const files = folder.getFiles();
+  while (count < 20 && files.hasNext()) { files.next(); count += 1; }
+  const folders = folder.getFolders();
+  while (count < 20 && folders.hasNext()) { folders.next(); count += 1; }
+  return count;
+}
+
+function vNextAdminDetectCurrentSharedDriveId_(spreadsheet) {
+  try {
+    if (typeof Drive === 'undefined' || !Drive.Files || !spreadsheet) return '';
+    const meta = Drive.Files.get(spreadsheet.getId(), {
+      fields: 'id,driveId,teamDriveId', supportsAllDrives: true, supportsTeamDrives: true
+    });
+    return String((meta && (meta.driveId || meta.teamDriveId)) || '').trim();
+  } catch (error) {
+    return '';
+  }
 }
 
 function vNextAdminEnsureSharedLibrary_(hub, options) {
@@ -12763,11 +12823,18 @@ function vNextAdminShareLibraryWithCompany_(driveId, domain, adminEmails) {
   }
 }
 
-function vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails) {
+function vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails, options) {
   const moved = [];
+  const opt = options || {};
+  const hubId = String(hub.getId() || '');
   const activeReleaseId = String(vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id || '');
   const root = vNextAdminPrepareManagedFolder_(library.rootId, VN_ADMIN_LIBRARY.DRIVE_NAME, adminEmails);
-  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.forEach(function (row) {
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.slice().sort(function (a, b) {
+    const aHub = String(a.spreadsheet_id || '') === hubId ? 1 : 0;
+    const bHub = String(b.spreadsheet_id || '') === hubId ? 1 : 0;
+    return aHub - bHub;
+  });
+  rows.forEach(function (row) {
     const spreadsheetId = String(row.spreadsheet_id || '').trim();
     if (!spreadsheetId || !vNextAdminSpreadsheetAccessible_(spreadsheetId)) return;
     const mode = String(row.mode || '').toUpperCase();
@@ -12787,26 +12854,39 @@ function vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails) {
     moved.push({ spreadsheetId: spreadsheetId, mode: mode, folderId: dest.getId() });
   });
   const auditDest = vNextAdminPrepareManagedFolder_(library.folders.audit, VN_ADMIN_LIBRARY.AUDIT, adminEmails);
-  const hubParents = DriveApp.getFileById(hub.getId()).getParents();
-  if (hubParents.hasNext()) {
-    const oldAudit = hubParents.next().getFoldersByName('Forecast vNext Admin Audit');
-    if (oldAudit.hasNext()) {
-      const files = oldAudit.next().getFiles();
-      while (files.hasNext()) vNextAdminMoveFileToFolder_(files.next().getId(), auditDest);
-    }
+  const auditSearchRoots = [];
+  const legacyRootId = String(opt.legacyRootId || '').trim();
+  if (legacyRootId) {
+    try { auditSearchRoots.push(DriveApp.getFolderById(legacyRootId)); } catch (ignoredMissingLegacyRoot) {}
   }
+  try {
+    const hubParents = DriveApp.getFileById(hub.getId()).getParents();
+    if (hubParents.hasNext()) auditSearchRoots.push(hubParents.next());
+  } catch (ignoredMissingHubParent) {}
+  auditSearchRoots.forEach(function (folder) {
+    const oldAudit = folder.getFoldersByName('Forecast vNext Admin Audit');
+    if (!oldAudit.hasNext()) return;
+    const files = oldAudit.next().getFiles();
+    while (files.hasNext()) vNextAdminMoveFileToFolder_(files.next().getId(), auditDest);
+  });
   return moved;
 }
 
 function vNextAdminMoveFileToFolder_(fileId, destFolder) {
   const file = DriveApp.getFileById(fileId);
+  if (file.isTrashed()) return { fileId: fileId, skipped: 'trashed' };
   const destId = destFolder.getId();
   const parents = file.getParents();
   let alreadyThere = false;
   while (parents.hasNext()) {
     if (parents.next().getId() === destId) alreadyThere = true;
   }
-  if (!alreadyThere) file.moveTo(destFolder);
+  if (alreadyThere) return { fileId: fileId, folderId: destId };
+  try {
+    file.moveTo(destFolder);
+  } catch (error) {
+    throw new Error('ファイルを移せませんでした: ' + file.getName() + ' / ' + String(error && error.message || error));
+  }
   return { fileId: fileId, folderId: destId };
 }
 
@@ -12922,11 +13002,18 @@ function vNextAdminIsSharedDriveManaged_(fileOrFolder) {
   try {
     if (typeof Drive !== 'undefined' && Drive.Files) {
       const meta = Drive.Files.get(fileOrFolder.getId(), {
-        fields: 'id,driveId', supportsAllDrives: true
+        fields: 'id,driveId,teamDriveId', supportsAllDrives: true, supportsTeamDrives: true
       });
-      if (meta && meta.driveId) return true;
+      if (meta && (meta.driveId || meta.teamDriveId)) return true;
     }
   } catch (error) {}
+  try {
+    if (typeof fileOrFolder.getSharingAccess === 'function') fileOrFolder.getSharingAccess();
+  } catch (error) {
+    if (/Team Drive|shared drive|共有ドライブ|not supported|Action not allowed/i.test(String(error && error.message || error))) {
+      return true;
+    }
+  }
   return false;
 }
 

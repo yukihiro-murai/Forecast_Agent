@@ -353,7 +353,7 @@
       function onFailure(error) {
         setBusy(false);
         const raw = (error && error.message) || String(error);
-        let friendly = '処理を完了できませんでした。要確認事項と詳細を確認してください。';
+        let friendly = raw || '処理を完了できませんでした。';
         if (/Another .* operation is running|別の処理|running:/i.test(raw)) {
           friendly = '別の処理を実行中です。少し待ってから最新状態を確認してください。';
         } else if (/At least 5 fiscal years|confirmed actual history/i.test(raw)) {

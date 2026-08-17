@@ -1148,6 +1148,17 @@ async function checkAdminCoverageContracts() {
     source.includes('function vNextAdminRelocateLibraryToSharedDrive(') &&
     source.includes('vNextAdminPrepareLibraryDestinationFolder_'),
     'Client provisioning must stay inside the recorded library root, with a shared-drive relocate path');
+  assert.ok(sidebar.includes('vNextAdminRelocateLibraryToSharedDrive') &&
+    !sidebar.includes('処理を完了できませんでした。要確認事項と詳細を確認してください。'),
+    'Admin Sidebar must show the actual relocate error instead of a generic placeholder');
+  const relocateStart = source.indexOf('function vNextAdminMoveRegisteredFilesIntoLibrary_');
+  const relocateEnd = source.indexOf('function vNextAdminFolderWithinRoot_', relocateStart);
+  const relocate = source.slice(relocateStart, relocateEnd);
+  assert.ok(relocate.includes('file.isTrashed()') && relocate.includes('aHub - bHub'),
+    'Library relocate must skip trashed files and move the running Hub last');
+  assert.ok(source.includes('vNextAdminFindNamedChildFolder_') &&
+    source.includes('vNextAdminDetectCurrentSharedDriveId_'),
+    'Shared-drive relocate must reuse existing folders/drives instead of creating duplicates');
   assert.ok(source.includes('VN_ADMIN_PILOT_INITIAL_LIMIT = 3') &&
     source.includes('VN_ADMIN_PILOT_CANARY_LIMIT = 5'),
     'Pilot provisioning must gate at three and hard-stop after five Clients');
