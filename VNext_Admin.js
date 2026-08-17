@@ -5057,7 +5057,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
     return vNextAdminWithScriptLock_('update-portal-runtime', function () {
-      const reason = vNextAdminRequiredText_(req.reason, 'reason');
+      const reason = vNextAdminText_(req.reason) || '共有ドライブ移設後の最新版';
       const portal = vNextAdminResolvePortal_(hub);
       const target = vNextPortalRuntimeVerifiedBundle_();
       if (String(target.version || '') !== VN_ADMIN_PORTAL_RUNTIME_VERSION) {

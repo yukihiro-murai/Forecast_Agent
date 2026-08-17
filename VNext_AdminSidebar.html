@@ -102,6 +102,7 @@
           <li>ポータルのスクリプトから Web アプリを社内向けに公開</li>
         </ol>
         <button class="good" onclick="relocateLibrary()">共有ドライブ「年度計画」へ移す</button>
+        <button class="warn" onclick="updatePortalRuntime()">社員ポータルを最新版へ更新</button>
       </div>
       <div id="attentionOverview" class="card overview">
         <div id="attentionLabel" class="overview-title">最新状態を確認しています</div>
@@ -153,8 +154,8 @@
         <button id="refreshClientCatalogButton" class="secondary" onclick="refreshClientCatalog()">ZACクライアント候補を今すぐ更新</button>
         <details>
           <summary>既存ポータルを最新版へ更新する</summary>
-          <p class="muted">受付履歴とClient一覧は残したまま、検証済みruntimeとクライアント選択候補を更新します。</p>
-          <label>更新理由（必須）<input id="portalRuntimeReason" placeholder="入力項目の簡略化・不具合修正など"></label>
+          <p class="muted">受付履歴とClient一覧は残したまま、検証済みruntimeとクライアント選択候補を更新します。理由は空欄のままで構いません。</p>
+          <label>更新理由（空欄可）<input id="portalRuntimeReason" placeholder="入力項目の簡略化・不具合修正など"></label>
           <button id="updatePortalRuntimeButton" class="warn" onclick="updatePortalRuntime()">既存ポータルを最新版へ更新</button>
         </details>
         <details>
@@ -803,8 +804,7 @@
         }).withFailureHandler(onFailure).vNextAdminRunOperationalCycle();
       }
       function updatePortalRuntime() {
-        const reason = value('portalRuntimeReason');
-        if (!reason) { showStatus('社員ポータルの更新理由を入力してください。', true); return; }
+        const reason = value('portalRuntimeReason') || '共有ドライブ移設後の最新版';
         setBusy(true); showStatus('受付履歴を保ったまま、社員ポータルを検証済み最新版へ更新しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('portalRuntimeReason').value = ''; load();
