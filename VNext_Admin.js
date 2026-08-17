@@ -5860,8 +5860,8 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
       protectedSpreadsheetCount: protectedIds.size
     },
     message: apply
-      ? '生成済み年度計画を削除し、社員ポータルから作り直せる状態に戻しました。'
-      : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。Admin Hub / ポータル / Template は残します。')
+      ? '生成済み年度計画と検証ログを削除し、社員ポータルから作り直せる状態に戻しました。'
+      : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。試験ログも消します。Admin Hub / ポータル / Template は残します。')
   };
   if (!apply) return vNextAdminJsonSafe_(result);
 
@@ -5897,7 +5897,8 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
     });
     [
       VN_ADMIN_SHEETS.JOBS, VN_ADMIN_SHEETS.JOB_LOG, VN_ADMIN_SHEETS.APPROVALS,
-      VN_ADMIN_SHEETS.OFFICIAL, VN_ADMIN_SHEETS.EXCEPTIONS, VN_ADMIN_CLIENT_REQUEST_SHEET
+      VN_ADMIN_SHEETS.OFFICIAL, VN_ADMIN_SHEETS.EXCEPTIONS, VN_ADMIN_SHEETS.AUDIT,
+      VN_ADMIN_CLIENT_REQUEST_SHEET
     ].forEach(function (name) {
       vNextAdminClearTableData_(hub, name, VN_ADMIN_HEADERS[name]);
     });
@@ -5927,12 +5928,14 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
       if (!/not configured/i.test(String(portalError && portalError.message || portalError))) throw portalError;
     }
 
+    const auditFiles = vNextAdminTrashAuditArtifacts_(hub, hubConfig);
     vNextAdminRefreshTodayExceptions_(hub);
     vNextAdminRefreshHome_(hub);
     vNextAdminWriteAudit_(hub, 'FRESH_UAT_RESET', 'CLIENT', 'ALL', 'SUCCEEDED', {
       clientCount: inventory.length,
       trashed: trashed,
       trashErrors: trashErrors,
+      auditFiles: auditFiles,
       portalRows: portalRefresh.rows || 0
     });
     result.trashed = trashed;
@@ -5944,6 +5947,37 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
     }
     return vNextAdminJsonSafe_(result);
   });
+}
+
+function vNextAdminTrashAuditArtifacts_(hub, hubConfig) {
+  const trashed = [];
+  const seen = {};
+  function trashFilesInFolder_(folder) {
+    if (!folder) return;
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      const id = String(file.getId() || '');
+      if (!id || seen[id]) continue;
+      seen[id] = true;
+      file.setTrashed(true);
+      trashed.push(id);
+    }
+    const folders = folder.getFolders();
+    while (folders.hasNext()) trashFilesInFolder_(folders.next());
+  }
+  try {
+    const auditId = String(hubConfig && hubConfig.library_audit_folder_id || '').trim();
+    if (auditId) trashFilesInFolder_(DriveApp.getFolderById(auditId));
+  } catch (ignoredMissingLibraryAudit) {}
+  try {
+    const parents = DriveApp.getFileById(hub.getId()).getParents();
+    if (parents.hasNext()) {
+      const named = parents.next().getFoldersByName('Forecast vNext Admin Audit');
+      if (named.hasNext()) trashFilesInFolder_(named.next());
+    }
+  } catch (ignoredMissingLegacyAudit) {}
+  return trashed;
 }
 
 function vNextAdminProtectedSpreadsheetIds_(hub, registryRows, releaseRows, hubConfig, runtime) {

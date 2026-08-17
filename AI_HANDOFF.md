@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-17 JST（案内サイドバー優先の操作面）  
+最終更新: 2026-08-17 JST（初期設定順と検証ログ削除）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -141,7 +141,7 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 ユーザーが「管理シートだけの状態に戻す」と明示した場合の専用操作。確認語 `RESET_GENERATED_CLIENTS` と `apply:true` が揃うまで Drive 削除も Hub 書込もしない。
 
 残すもの: Admin Hub、社員ポータル、Template/Model release、ZACクライアント候補。
-消すもの: 生成済み Client FY Book（ゴミ箱へ移動）、予測/申請/承認/job の試験データ、ポータルの依頼・directory 投影。
+消すもの: 生成済み Client FY Book（ゴミ箱へ移動）、予測/申請/承認/job の試験データ、`ADMIN_AUDIT_LOG`、Drive監査フォルダのAI JSON等、ポータルの依頼・directory 投影。リセット直後に `FRESH_UAT_RESET` の監査行が1件だけ残る。
 
 実行手順（Admin Hubを再読み込みしてから）:
 
@@ -150,13 +150,25 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 3. 「対象を確認（変更なし）」で Client 冊数を見る。
 4. 確認語 `RESET_GENERATED_CLIENTS` を入力し、「生成済み年度計画を削除して初期状態へ戻す」。
 
+## ユーザーが今やる設定順
+
+リセットを先に行い、検証ブックを共有ドライブへコピーしない。
+
+1. [Admin Hub](https://docs.google.com/spreadsheets/d/1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8/edit) を開く。案内が出なければメニュー「年度計画 → 案内を開く」。
+2. 「保守・高度な操作」→「中央配備版へ更新」（理由必須）→ 再読み込み。
+3. 「社員テストをゼロからやり直す」。確認語 `RESET_GENERATED_CLIENTS`。
+4. 「共有ドライブ『年度計画』へ移す」（理由必須）→ 再読み込み。
+5. 「社員ポータルの設定・更新」→「既存ポータルを最新版へ更新」（理由必須）。
+6. ポータル bound script から Web アプリを1回公開（実行者=アクセスしているユーザー、アクセス=ドメイン）。そのURLが社員入口。
+
+Apps Script の実行履歴は Google 側の記録のため、このリセットでは消えない。HubシートとDrive上の検証ファイルは手順3で消える。
+
 ## 次の安全な作業候補
 
-1. Hubを再読み込みし、案内が自動で開くことを確認する。未実行なら確認語付きリセットで生成Clientを消す。
-2. Hub案内の「既存ポータルを最新版へ更新」で Portal 1.4.0 を同じURLへ載せる。初回はscript.scriptappの再同意が出ることがある。
-3. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
-4. ユーザーが希望した場合のみ、新しいrunで Engine 0.5.0 の P10/P90 を確認する。
-5. `main`へ統合する場合は、現ブランチのライブ配備状態とGitHub差分を独立レビューしてから行う。
+1. 上記の設定順をユーザーが完了する。エージェントは Hub のリセット・移設・承認を代行しない。
+2. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
+3. ユーザーが希望した場合のみ、新しいrunで Engine 0.5.0 の P10/P90 を確認する。
+4. `main`へ統合する場合は、現ブランチのライブ配備状態とGitHub差分を独立レビューしてから行う。
 
 ## 終了時に更新する項目
 

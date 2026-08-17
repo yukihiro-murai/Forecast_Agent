@@ -91,6 +91,17 @@
     </div>
 
     <div id="adminPanel" class="hidden">
+      <div class="card">
+        <h2>最初にやること（1回だけ）</h2>
+        <p class="muted">検証データを消してから置き場を整え、社員入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
+        <ol class="muted" style="padding-left:18px;margin:8px 0">
+          <li>下の「保守・高度な操作」で「中央配備版へ更新」</li>
+          <li>同じ欄の「社員テストをゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
+          <li>「共有ドライブ『年度計画』へ移す」</li>
+          <li>「社員ポータルの設定・更新」で「既存ポータルを最新版へ更新」</li>
+          <li>ポータルのスクリプトから Web アプリを社内向けに公開</li>
+        </ol>
+      </div>
       <div id="attentionOverview" class="card overview">
         <div id="attentionLabel" class="overview-title">最新状態を確認しています</div>
         <div id="attentionGuidance" class="muted">少しお待ちください。</div>
@@ -295,7 +306,7 @@
         <label>年度終了理由<input id="closeReason" placeholder="振り返り入力と確認が完了"></label>
         <button class="warn" onclick="closeYear()">年度を終了</button>
         <h2>社員テストをゼロからやり直す</h2>
-        <p class="muted">生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認の試験データだけを消します。Admin Hub、社員ポータル、Template、ZAC候補、現行releaseは残します。確認語が一致した場合だけ削除します。</p>
+        <p class="muted">生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認・ジョブ・管理者監査ログ・AI検証ファイルなどの試験記録を消します。Admin Hub、社員ポータル、Template、ZAC候補、現行releaseは残します。確認語が一致した場合だけ削除します。</p>
         <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
         <button class="secondary" onclick="previewFreshUatReset()">対象を確認（変更なし）</button>
         <button class="danger" onclick="applyFreshUatReset()">生成済み年度計画を削除して初期状態へ戻す</button>

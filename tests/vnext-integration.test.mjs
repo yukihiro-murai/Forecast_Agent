@@ -994,11 +994,14 @@ async function checkAdminCoverageContracts() {
     'Fresh UAT reset must archive Client registry rows and rebuild Portal views');
   assert.ok(reset.includes('MODEL_RELEASE') && reset.includes("sheetName === 'MODEL_RELEASE'"),
     'Fresh UAT reset must preserve MODEL_RELEASE while clearing client audit rows');
+  assert.ok(reset.includes('VN_ADMIN_SHEETS.AUDIT') && reset.includes('vNextAdminTrashAuditArtifacts_'),
+    'Fresh UAT reset must clear ADMIN_AUDIT_LOG and trash Drive audit files');
   assert.equal(source.replace(reset, '').includes('.setTrashed('), false,
     'Drive trash must stay inside the confirmed fresh UAT reset path');
   assert.ok(sidebar.includes('vNextAdminResetGeneratedClientsForFreshUat') &&
     sidebar.includes('RESET_GENERATED_CLIENTS') &&
-    sidebar.includes('apply:true'),
+    sidebar.includes('apply:true') &&
+    sidebar.includes('管理者監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
   assert.ok(sidebar.includes('現場の年度・クライアント指定は、年度計画ポータルから行います') &&
     sidebar.includes('年度計画ポータル') &&
