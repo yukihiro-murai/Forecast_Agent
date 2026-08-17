@@ -979,8 +979,10 @@ async function checkAdminCoverageContracts() {
     , 'function vNextAdminProvisionSharedPortal(', 'function vNextAdminHarvestPortalRequests_('
     , "case 'PORTAL_PROVISION_CLIENT'", 'function vNextAdminRefreshPortalDirectory_('
     , 'function vNextAdminApplyEmployeeFileSharing_(', 'function vNextAdminAssertEmployeeFileSharing_('
-    , 'function vNextAdminResetGeneratedClientsForFreshUat(',
+    ,     'function vNextAdminResetGeneratedClientsForFreshUat(',
     'function vNextAdminResetGeneratedClientsForFreshUatFromSource(',
+    'function vNextAdminRelocateLibraryToSharedDrive(',
+    'function vNextAdminRelocateLibraryToSharedDriveFromSource(',
     "VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION = 'RESET_GENERATED_CLIENTS'"
   ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
   const resetStart = source.indexOf('function vNextAdminResetGeneratedClientsInHub_');

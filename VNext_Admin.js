@@ -4954,11 +4954,34 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
  */
 function vNextAdminRelocateLibraryToSharedDrive(request) {
   return vNextAdminGuard_('vNextAdminRelocateLibraryToSharedDrive', function () {
-    const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
-    vNextAdminAssertHubAdmin_(hub, false);
-    const reason = vNextAdminRequiredText_(req.reason, 'reason');
-    return vNextAdminWithScriptLock_('relocate-library', function () {
+    return vNextAdminRelocateLibraryInHub_(hub, request, false);
+  });
+}
+
+/** Central-source fallback used when Hub is not the active container. */
+function vNextAdminRelocateLibraryToSharedDriveFromSource(request) {
+  return vNextAdminGuard_('vNextAdminRelocateLibraryToSharedDriveFromSource', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not the registered Admin Hub.');
+    }
+    vNextAdminAssertHubAdmin_(hub, true);
+    vNextAdminHydrateHubRuntime_(hub);
+    Object.keys(VN_ADMIN_HEADERS).forEach(function (name) {
+      vNextAdminEnsureTable_(hub, name, VN_ADMIN_HEADERS[name]);
+    });
+    return vNextAdminRelocateLibraryInHub_(hub, req, true);
+  });
+}
+
+function vNextAdminRelocateLibraryInHub_(hub, request, allowEffectiveUser) {
+  const req = request && typeof request === 'object' ? request : {};
+  vNextAdminAssertHubAdmin_(hub, allowEffectiveUser === true);
+  const reason = vNextAdminText_(req.reason) || '社内共有ドライブへ整理';
+  return vNextAdminWithScriptLock_('relocate-library', function () {
       const adminEmails = vNextAdminMergeEmails_(
         vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS, vNextAdminActor_()
       );
@@ -5003,7 +5026,6 @@ function vNextAdminRelocateLibraryToSharedDrive(request) {
         message: '共有ドライブ「' + VN_ADMIN_LIBRARY.DRIVE_NAME + '」へ整理しました。画面を再読み込みしてください。'
       };
     });
-  });
 }
 
 function vNextAdminTryResolvePortal_(hub) {
