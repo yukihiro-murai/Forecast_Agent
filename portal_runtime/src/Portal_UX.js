@@ -1,6 +1,6 @@
 /**
  * Forecast vNext shared employee portal UI.
- * The visible experience is limited to Home, FY tabs, one creation sidebar, and help.
+ * Daily work stays in one guidance sidebar. The top menu is only a recovery path.
  */
 
 function onOpen(event) {
@@ -10,13 +10,59 @@ function onOpen(event) {
 function vNextPortalOnOpen_() {
   try {
     SpreadsheetApp.getUi().createMenu(VNEXT_PORTAL.MENU_NAME)
-      .addItem('ホームに戻る', 'vNextPortalGoHome')
-      .addItem('新しい年度計画を作る', 'vNextPortalOpenCreateSidebar')
-      .addItem('使い方・困ったとき', 'vNextPortalOpenHelp')
+      .addItem('案内を開く', 'vNextPortalGoHomeAndShowGuidance')
       .addToUi();
     return true;
   } catch (error) {
     vNextPortalLog_('vNextPortalOnOpen_ failed', error);
+    return false;
+  }
+}
+
+function vNextPortalGoHomeAndShowGuidance() {
+  try {
+    vNextPortalGoHome();
+    vNextPortalOpenGuidanceSidebarQuietly_();
+  } catch (error) {
+    vNextPortalLog_('vNextPortalGoHomeAndShowGuidance failed', error);
+    vNextPortalShowError_('案内を開けませんでした。', error);
+  }
+}
+
+function vNextPortalInstalledGuidanceOnOpen(e) {
+  return vNextPortalOpenGuidanceSidebarQuietly_();
+}
+
+function vNextPortalEnsureGuidanceOnOpenTrigger_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var handler = 'vNextPortalInstalledGuidanceOnOpen';
+  function isOpenHandler(trigger) {
+    return trigger.getHandlerFunction() === handler &&
+      trigger.getEventType() === ScriptApp.EventType.ON_OPEN;
+  }
+  if (ScriptApp.getProjectTriggers().some(isOpenHandler)) return false;
+  try {
+    ScriptApp.getUserTriggers(spreadsheet).filter(isOpenHandler).forEach(function (trigger) {
+      ScriptApp.deleteTrigger(trigger);
+    });
+  } catch (cleanupError) {
+    vNextPortalLog_('guidance trigger cleanup skipped', cleanupError);
+  }
+  ScriptApp.newTrigger(handler).forSpreadsheet(spreadsheet).onOpen().create();
+  return true;
+}
+
+function vNextPortalOpenGuidanceSidebarQuietly_() {
+  try {
+    var html = HtmlService.createTemplateFromFile('Portal_CreateSidebar').evaluate()
+      .setTitle('次にすること')
+      .setWidth(430);
+    SpreadsheetApp.getUi().showSidebar(html);
+    try { vNextPortalEnsureGuidanceOnOpenTrigger_(); }
+    catch (triggerError) { vNextPortalLog_('guidance trigger skipped', triggerError); }
+    return true;
+  } catch (error) {
+    vNextPortalLog_('vNextPortalOpenGuidanceSidebarQuietly_ skipped', error);
     return false;
   }
 }
@@ -63,15 +109,7 @@ function vNextPortalShowRequestOnHome(requestId) {
 }
 
 function vNextPortalOpenCreateSidebar() {
-  try {
-    var html = HtmlService.createTemplateFromFile('Portal_CreateSidebar').evaluate()
-      .setTitle('新しい年度計画を作る')
-      .setWidth(430);
-    SpreadsheetApp.getUi().showSidebar(html);
-  } catch (error) {
-    vNextPortalLog_('vNextPortalOpenCreateSidebar failed', error);
-    vNextPortalShowError_('作成画面を開けませんでした。', error);
-  }
+  return vNextPortalOpenGuidanceSidebarQuietly_();
 }
 
 function vNextPortalOpenHelp() {
@@ -83,9 +121,9 @@ function vNextPortalOpenHelp() {
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
       '</style></head><body><h2>年度計画ポータルの使い方</h2>' +
       '<div class="step"><b>1. 探す</b><br>対象年度のFYタブでクライアント名を検索し、「開く」から専用ブックへ移動します。</div>' +
-      '<div class="step"><b>2. なければ作る</b><br>上部メニューから「新しい年度計画を作る」を選びます。候補確認後に作成依頼を送ります。</div>' +
+      '<div class="step"><b>2. なければ作る</b><br>右側の案内から「新しい年度計画を作る」を選びます。候補確認後に作成依頼を送ります。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</div>' +
-      '<div class="note">このポータルではセルへ直接入力しません。表示を壊さないため、入力と作成依頼は上部メニューから行ってください。</div>' +
+      '<div class="note">このポータルではセルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</div>' +
       '</body></html>'
     ).setTitle('使い方・困ったとき').setWidth(420);
     SpreadsheetApp.getUi().showSidebar(html);
@@ -117,7 +155,7 @@ function vNextPortalRenderHome_(sheet, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
   sheet.getRange('A1').setValue('年度計画ポータル')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('既存の計画はFYタブから確認できます。新規作成と状態更新は上部メニュー「年度計画ポータル」から行います。')
+  sheet.getRange('A2').setValue('既存の計画はFYタブから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
@@ -157,7 +195,7 @@ function vNextPortalRenderHome_(sheet, data) {
   [118, 210, 76, 330, 124, 72].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
   sheet.setRowHeight(2, 24);
-  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は上部メニューから行います）');
+  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は右側の案内から行います）');
 }
 
 function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
@@ -174,7 +212,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
   if (!entries.length) {
-    sheet.getRange('A5').setValue('この年度の計画はまだありません。上部メニューから新しく作成できます。')
+    sheet.getRange('A5').setValue('この年度の計画はまだありません。右側の案内から作成できます。')
       .setFontColor('#5f6368').setFontStyle('italic');
   } else {
     var rows = entries.map(function (entry) {

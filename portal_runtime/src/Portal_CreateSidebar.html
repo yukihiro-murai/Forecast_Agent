@@ -38,7 +38,10 @@
     button.secondary, .button-link.secondary { background:var(--blue-soft); color:#174ea6; flex:1; }
     button.tertiary { border:1px solid var(--line); background:#fff; color:#3c4043; flex:1; }
     button:disabled { opacity:.52; cursor:not-allowed; }
+    .card { padding:11px 12px; border:1px solid var(--line); border-radius:6px; background:var(--soft); }
     .panel { margin-top:14px; padding:11px 12px; border:1px solid var(--line); border-radius:6px; background:var(--soft); }
+    details { margin-top:10px; }
+    summary { cursor:pointer; font-weight:700; }
     .panel.good { border-color:#a8dab5; background:var(--good); }
     .panel.warn { border-color:#f6d775; background:var(--warn); }
     .panel.bad { border-color:#f3b7b3; background:var(--bad); }
@@ -77,6 +80,23 @@
 </head>
 <body>
   <main>
+    <section id="homePanel">
+      <h1>次にすること</h1>
+      <p class="lead">既存の計画は左のFYタブから開きます。まだ無いときは、下のボタンから作成します。</p>
+      <div class="home-actions">
+        <button class="primary" type="button" id="startCreateButton" style="width:100%">新しい年度計画を作る</button>
+      </div>
+      <details class="card" style="margin-top:16px">
+        <summary>使い方・困ったとき</summary>
+        <p style="margin-top:10px"><b>1. 探す</b><br>対象年度のFYタブでクライアント名を検索し、「開く」から専用ブックへ移動します。</p>
+        <p style="margin-top:8px"><b>2. なければ作る</b><br>上のボタンから作成します。候補確認後に作成依頼を送ります。</p>
+        <p style="margin-top:8px"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</p>
+        <p class="hint" style="margin-top:10px">セルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</p>
+      </details>
+    </section>
+
+    <section id="createPanel" class="hidden">
+    <button class="link-button" type="button" id="backToHomeButton">案内に戻る</button>
     <h1>新しい年度計画を作る</h1>
     <p class="lead" id="lead">ZACのクライアントを選び、関与メンバーを登録します。</p>
 
@@ -140,6 +160,7 @@
         <button class="primary" type="button" id="submitButton" disabled>このクライアントの作成を依頼</button>
       </div>
     </form>
+    </section>
 
     <section id="submission" class="hidden" tabindex="-1" aria-live="polite" aria-atomic="true">
       <p class="eyebrow">受付完了</p>
@@ -190,12 +211,13 @@
       'previewButton','submitButton','addMemberButton','confirmSimilarDuplicates','similarConfirmWrap',
       'submission','submissionTitle','submissionTarget','submissionId','statusLabel','statusAction',
       'statusWait','statusUpdated','statusCheckNote','openBookLink','refreshStatusButton','showHomeButton',
-      'phase1','phase2','phase3','phase4'
+      'phase1','phase2','phase3','phase4','homePanel','createPanel','startCreateButton','backToHomeButton'
     ]);
     var elements = {};
     elementIds.forEach(function(id) { elements[id] = document.getElementById(id); });
 
-    loadCreateModel();
+    elements.startCreateButton.addEventListener('click', showCreate);
+    elements.backToHomeButton.addEventListener('click', showHome);
     elements.previewButton.addEventListener('click', preview);
     elements.submitButton.addEventListener('click', submit);
     elements.addMemberButton.addEventListener('click', addMember);
@@ -210,6 +232,18 @@
       });
     });
     window.addEventListener('pagehide', clearPolling);
+
+    function showHome() {
+      if (submitted) return;
+      elements.homePanel.classList.remove('hidden');
+      elements.createPanel.classList.add('hidden');
+    }
+
+    function showCreate() {
+      elements.homePanel.classList.add('hidden');
+      elements.createPanel.classList.remove('hidden');
+      if (!modelLoaded && !busy) loadCreateModel();
+    }
 
     function loadCreateModel() {
       modelLoaded = false;
@@ -346,6 +380,8 @@
       busy = false;
       submitted = true;
       currentRequestId = result.requestId;
+      elements.homePanel.classList.add('hidden');
+      elements.createPanel.classList.add('hidden');
       elements.form.classList.add('hidden');
       elements.submission.classList.remove('hidden');
       elements.submissionTarget.textContent = latestPreview

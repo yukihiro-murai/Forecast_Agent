@@ -28,7 +28,7 @@ if (!inlineScript) throw new Error('Portal creation sidebar inline script is mis
 new vm.Script(inlineScript[1], { filename: 'Portal_CreateSidebar.inline.js' });
 
 const forbidden = [
-  /\bDriveApp\b/, /\bUrlFetchApp\b/, /\bScriptApp\b/, /\bPropertiesService\b/,
+  /\bDriveApp\b/, /\bUrlFetchApp\b/, /\bPropertiesService\b/,
   /\bopenById\b/, /script\.external_request/, /cloud-platform/, /script\.projects/,
   /getScriptProperties\s*\(/, /getUserProperties\s*\(/
 ];
@@ -36,9 +36,19 @@ for (const pattern of forbidden) {
   if (pattern.test(allSource)) throw new Error(`Forbidden portal capability found: ${pattern}`);
 }
 
+const allowedScriptAppMethods = new Set([
+  'getUserTriggers', 'getProjectTriggers', 'newTrigger', 'deleteTrigger', 'EventType'
+]);
+for (const match of allSource.matchAll(/ScriptApp\.([A-Za-z_$][\w$]*)/g)) {
+  if (!allowedScriptAppMethods.has(match[1])) {
+    throw new Error(`Portal runtimeで許可されていないScriptApp APIです: ${match[1]}`);
+  }
+}
+
 const manifest = JSON.parse(sources['appsscript.json']);
 const expectedScopes = [
   'https://www.googleapis.com/auth/script.container.ui',
+  'https://www.googleapis.com/auth/script.scriptapp',
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/userinfo.email'
 ];
@@ -50,12 +60,10 @@ if (JSON.stringify((manifest.oauthScopes || []).slice().sort()) !== JSON.stringi
 const menuItems = [...sources['Portal_UX.js'].matchAll(/\.addItem\('([^']+)',\s*'([^']+)'\)/g)]
   .map((match) => [match[1], match[2]]);
 const expectedMenu = [
-  ['ホームに戻る', 'vNextPortalGoHome'],
-  ['新しい年度計画を作る', 'vNextPortalOpenCreateSidebar'],
-  ['使い方・困ったとき', 'vNextPortalOpenHelp']
+  ['案内を開く', 'vNextPortalGoHomeAndShowGuidance']
 ];
 if (JSON.stringify(menuItems) !== JSON.stringify(expectedMenu)) {
-  throw new Error(`Portal menu must contain exactly the three employee actions: ${JSON.stringify(menuItems)}`);
+  throw new Error(`Portal menu must contain only the recovery action: ${JSON.stringify(menuItems)}`);
 }
 
 const calledFunctions = [...sources['Portal_CreateSidebar.html'].matchAll(/\.([A-Za-z_$][\w$]*)\s*\(/g)]
@@ -85,7 +93,7 @@ if (/isForecastOwner|isTeamMember|allowedEmails|emailAllowlist/i.test(serverSour
   throw new Error('Portal runtime must not gate creation by client role or an email allowlist.');
 }
 
-process.stdout.write(`PASS portal runtime verification (${actual.length} files, 3 scopes, 3 menu items)\n`);
+process.stdout.write(`PASS portal runtime verification (${actual.length} files, 4 scopes, 1 menu item)\n`);
 
 function readArg(name) {
   const index = process.argv.indexOf(name);

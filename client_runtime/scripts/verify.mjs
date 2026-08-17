@@ -37,7 +37,9 @@ for (const [label, pattern] of forbidden) {
   if (pattern.test(combined)) throw new Error(`禁止された${label}がclient runtimeに含まれています: ${pattern}`);
 }
 
-const allowedScriptAppMethods = new Set(['getUserTriggers', 'newTrigger', 'EventType']);
+const allowedScriptAppMethods = new Set([
+  'getUserTriggers', 'getProjectTriggers', 'newTrigger', 'deleteTrigger', 'EventType'
+]);
 for (const match of combined.matchAll(/ScriptApp\.([A-Za-z_$][\w$]*)/g)) {
   if (!allowedScriptAppMethods.has(match[1])) {
     throw new Error(`client runtimeで許可されていないScriptApp APIです: ${match[1]}`);
@@ -63,7 +65,7 @@ for (const [name, source] of Object.entries(contents)) {
 }
 const requiredFunctions = [
   'onOpen', 'vNextInstalledGuidanceOnOpen', 'vNextInstallAutomaticGuidance',
-  'vNextGetClientViewModel', 'vNextPreviewEvidence', 'vNextSaveEvidence',
+  'vNextOpenTemplateGuidance', 'vNextGetClientViewModel', 'vNextPreviewEvidence', 'vNextSaveEvidence',
   'vNextCloseInputAndProceed', 'vNextGetPlanEditorModel', 'vNextPreviewPlan',
   'vNextSubmitPlan', 'vNextGetReviewEditorModel', 'vNextPreviewReview',
   'vNextSaveReview', 'vNextQueueClientForecastRequest'

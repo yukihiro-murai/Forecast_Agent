@@ -48,7 +48,7 @@ function clientOnlyUx(source) {
   let output = replaceBetween(
     source,
     'function vNextHandleOnOpen_()',
-    '/** Client FY Bookに従業員向け4項目だけを表示する。 */',
+    '/** Client FY Bookに復旧用の最小メニューだけを表示する。 */',
     `function vNextHandleOnOpen_() {
   try {
     return vNextBuildClientMenu_();

@@ -137,12 +137,17 @@ function checkEmployeeInteractionContract() {
   const openMenu = functionSource(ux, 'vNextBuildClientMenu_', 'vNextSetupClientExperience_');
   assert.doesNotMatch(openMenu, /vNextUxGetBookContext_|vNextRefreshEmployeeViews/,
     'Client onOpen must not block guidance on identity or full view rendering');
-  assert.doesNotMatch(openMenu, /vNextUxOpenGuidanceShellQuietly_/,
+  assert.doesNotMatch(openMenu, /vNextUxOpenGuidanceShellQuietly_|showSidebar/,
     'Simple onOpen must not call authorized Ui.showSidebar');
+  assert.match(openMenu, /addItem\('案内を開く'/);
+  assert.doesNotMatch(openMenu, /自分の情報を入力|予測ダッシュボード|使い方・困ったとき/,
+    'Daily employee actions must live in the guidance sidebar, not the top menu');
   assert.match(ux, /function vNextInstalledGuidanceOnOpen\(e\)[\s\S]*vNextUxOpenGuidanceShellQuietly_/,
     'Automatic guidance must run from an installable open trigger');
+  assert.match(ux, /ScriptApp\.getProjectTriggers\(\)/,
+    'Automatic guidance must be a project-level open trigger');
   assert.match(ux, /ScriptApp\.newTrigger\(handler\)\.forSpreadsheet\(spreadsheet\)\.onOpen\(\)\.create\(\)/,
-    'Forecast Owner must be able to enable automatic guidance once');
+    'The first authorized sidebar open must enable automatic guidance once');
   assert.match(guidance, /vNextRefreshEmployeeViews\(\)/,
     'Guidance must refresh the visible sheets asynchronously after it is rendered');
   const scaleResolver = functionSource(admin, 'vNextAdminResolveClientAnnualSalesScale_',

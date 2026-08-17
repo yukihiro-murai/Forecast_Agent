@@ -4,11 +4,12 @@
  */
 
 const VN_ADMIN_SCHEMA_VERSION = 'vnext-admin-1';
-const VN_ADMIN_MENU_NAME = '【管理者】Hub';
-const VN_ADMIN_MENU_OPEN_SIDEBAR = '日常：承認と例外の作業画面';
-const VN_ADMIN_MENU_RUN_NOW = '滞留時：申請を今すぐ処理';
-const VN_ADMIN_MENU_HEALTH_SCAN = '点検：全クライアントの異常確認';
-const VN_ADMIN_MENU_OPEN_REGISTRY = '内部：登録ブック一覧を開く';
+const VN_ADMIN_MENU_NAME = '年度計画';
+const VN_ADMIN_MENU_OPEN_SIDEBAR = '案内を開く';
+const VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理';
+const VN_ADMIN_MENU_HEALTH_SCAN = '全クライアントの状態点検';
+const VN_ADMIN_MENU_OPEN_REGISTRY = '登録一覧を開く';
+const VN_ADMIN_MENU_OTHER = 'その他';
 const VN_ADMIN_META_SHEET = 'BOOK_META';
 const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
 const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
@@ -91,9 +92,9 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.3.0';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.4.0';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
-  'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0'
+  'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0'
 ]);
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-2';
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1 = 'vnext-portal-request-1';
@@ -326,13 +327,12 @@ function vNextBuildAdminMenu_() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) return false;
-    SpreadsheetApp.getUi().createMenu(VN_ADMIN_MENU_NAME)
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu(VN_ADMIN_MENU_NAME)
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
-      .addSeparator()
-      .addItem(VN_ADMIN_MENU_RUN_NOW, 'vNextAdminMenuRunOperationalCycle')
-      .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
-      .addSeparator()
-      .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry')
+      .addSubMenu(ui.createMenu(VN_ADMIN_MENU_OTHER)
+        .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
+        .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry'))
       .addToUi();
     return true;
   } catch (err) {
@@ -449,14 +449,50 @@ function vNextAdminEnableGeneratedHubAppsScriptApi(request) {
 function vNextBuildTemplateMenu_() {
   try {
     if (vNextDetectBookMode_() !== 'TEMPLATE') return false;
-    SpreadsheetApp.getUi().createMenu('Forecast vNext Template')
-      .addItem('Template情報を開く', 'vNextAdminOpenSidebar')
+    SpreadsheetApp.getUi().createMenu(VN_ADMIN_MENU_NAME)
+      .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
       .addToUi();
     return true;
   } catch (err) {
     Logger.log('vNextBuildTemplateMenu_ error: %s', String(err && err.message || err));
     return true;
   }
+}
+
+function vNextAdminInstalledGuidanceOnOpen(e) {
+  try {
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    const mode = vNextDetectBookMode_(active);
+    if (mode !== 'ADMIN' && mode !== 'TEMPLATE' && mode !== 'LEGACY') return false;
+    if (mode === 'ADMIN' && !vNextAdminIsRegisteredHub_(active)) return false;
+    const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
+      .setTitle(VN_ADMIN_MENU_NAME);
+    SpreadsheetApp.getUi().showSidebar(html);
+    return true;
+  } catch (err) {
+    Logger.log('vNextAdminInstalledGuidanceOnOpen skipped: %s', String(err && err.message || err));
+    return false;
+  }
+}
+
+function vNextAdminEnsureGuidanceOnOpenTrigger_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const handler = 'vNextAdminInstalledGuidanceOnOpen';
+  function isOpenHandler(trigger) {
+    return trigger.getHandlerFunction() === handler &&
+      trigger.getEventType() === ScriptApp.EventType.ON_OPEN;
+  }
+  if (ScriptApp.getProjectTriggers().some(isOpenHandler)) return false;
+  try {
+    ScriptApp.getUserTriggers(ss).filter(isOpenHandler).forEach(function (trigger) {
+      ScriptApp.deleteTrigger(trigger);
+    });
+  } catch (cleanupError) {
+    Logger.log('vNextAdminEnsureGuidanceOnOpenTrigger_ cleanup skipped: %s',
+      String(cleanupError && cleanupError.message || cleanupError));
+  }
+  ScriptApp.newTrigger(handler).forSpreadsheet(ss).onOpen().create();
+  return true;
 }
 
 function vNextAdminOpenSidebar() {
@@ -469,6 +505,11 @@ function vNextAdminOpenSidebar() {
     const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
       .setTitle(VN_ADMIN_MENU_NAME);
     SpreadsheetApp.getUi().showSidebar(html);
+    try { vNextAdminEnsureGuidanceOnOpenTrigger_(); }
+    catch (triggerError) {
+      Logger.log('vNextAdminOpenSidebar trigger skipped: %s',
+        String(triggerError && triggerError.message || triggerError));
+    }
     return true;
   });
 }
@@ -2553,6 +2594,11 @@ function vNextAdminInstallAutomation() {
       });
       if (!existing.length) {
         ScriptApp.newTrigger(VN_ADMIN_SCHEDULED_HANDLER).timeBased().everyMinutes(5).create();
+      }
+      try { vNextAdminEnsureGuidanceOnOpenTrigger_(); }
+      catch (guidanceTriggerError) {
+        Logger.log('Install automation guidance trigger skipped: %s',
+          String(guidanceTriggerError && guidanceTriggerError.message || guidanceTriggerError));
       }
       PropertiesService.getScriptProperties().setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hub.getId());
       vNextAdminWriteAudit_(hub, 'INSTALL_AUTOMATION', 'TRIGGER', VN_ADMIN_SCHEDULED_HANDLER, 'SUCCESS', {
@@ -10903,7 +10949,7 @@ function vNextAdminRefreshHome_(hub) {
     ['登録済み年度計画', clientCount + '冊'],
     ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
     ['', ''],
-    ['次の操作', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
+    ['次の操作', '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」を使います。'],
     ['正式計画', '確定済みの計画は上書きせず、訂正履歴を追加します。']
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
@@ -10924,7 +10970,7 @@ function vNextAdminRefreshHome_(hub) {
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
   const version = String(runtimeVersion || '');
   return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
-    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0'].indexOf(version) >= 0;
+    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0'].indexOf(version) >= 0;
 }
 
 function vNextAdminResolvePortal_(hub) {

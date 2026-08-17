@@ -4,7 +4,8 @@
  */
 
 var VNEXT_PORTAL = Object.freeze({
-  RUNTIME_VERSION: 'vnext-portal-1.3.0',
+  MENU_NAME: '年度計画',
+  RUNTIME_VERSION: 'vnext-portal-1.4.0',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -14,7 +15,6 @@ var VNEXT_PORTAL = Object.freeze({
   CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG',
   CLIENT_CATALOG_CACHE_KEY: 'vnext-portal-client-catalog-v1',
   CLIENT_CATALOG_CACHE_SECONDS: 300,
-  MENU_NAME: '年度計画ポータル',
   PAYLOAD_KEYS: Object.freeze([
     'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'

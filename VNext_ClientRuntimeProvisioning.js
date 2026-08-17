@@ -49,6 +49,12 @@ var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
 });
 var VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/script.container.ui',
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/spreadsheets.currentonly',
+  'https://www.googleapis.com/auth/userinfo.email'
+]);
+var VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
+  'https://www.googleapis.com/auth/script.container.ui',
   'https://www.googleapis.com/auth/spreadsheets.currentonly',
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
@@ -575,16 +581,30 @@ function vNextPortalRuntimeValidateFiles_(files) {
     if (!byName[name]) throw new Error('Portal runtime file is missing: ' + name);
     return byName[name];
   });
-  vNextClientRuntimeValidateManifest_(byName.appsscript.source,
-    VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_);
+  var expectedScopes = vNextClientRuntimeManifestUsesScopes_(ordered,
+    VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_)
+    ? VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_
+    : VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_;
+  vNextClientRuntimeValidateManifest_(byName.appsscript.source, expectedScopes);
   var combined = ordered.map(function (file) { return file.source; }).join('\n');
   [
     /VNext_Admin|VNext_Engine|vNextRunForecast_|DriveApp|UrlFetchApp|SpreadsheetApp\.openById/,
     /FORECAST_SOURCE_SPREADSHEET_ID|VNEXT_ZAC_SOURCE_SPREADSHEET_ID|VERTEX_[A-Z_]+/,
-    /PropertiesService|ScriptApp|auth\/drive|auth\/script\.projects|auth\/cloud-platform/
+    /PropertiesService|auth\/drive|auth\/script\.projects|auth\/cloud-platform/
   ].forEach(function (pattern) {
     if (pattern.test(combined)) throw new Error('Portal runtime contains a forbidden capability: ' + pattern);
   });
+  var allowedScriptAppMethods = {
+    getUserTriggers: true, getProjectTriggers: true, newTrigger: true, deleteTrigger: true, EventType: true
+  };
+  var match;
+  var scriptAppPattern = /ScriptApp\.([A-Za-z_$][\w$]*)/g;
+  while ((match = scriptAppPattern.exec(combined)) !== null) {
+    if (expectedScopes === VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_ ||
+        !allowedScriptAppMethods[match[1]]) {
+      throw new Error('Portal runtime contains a forbidden ScriptApp capability: ' + match[1]);
+    }
+  }
   return ordered;
 }
 
@@ -602,7 +622,9 @@ function vNextClientRuntimeRejectForbiddenContent_(files) {
   forbidden.forEach(function (pattern) {
     if (pattern.test(combined)) throw new Error('Client runtime contains a forbidden capability: ' + pattern);
   });
-  var allowedScriptAppMethods = { getUserTriggers: true, newTrigger: true, EventType: true };
+  var allowedScriptAppMethods = {
+    getUserTriggers: true, getProjectTriggers: true, newTrigger: true, deleteTrigger: true, EventType: true
+  };
   var match;
   var scriptAppPattern = /ScriptApp\.([A-Za-z_$][\w$]*)/g;
   while ((match = scriptAppPattern.exec(combined)) !== null) {

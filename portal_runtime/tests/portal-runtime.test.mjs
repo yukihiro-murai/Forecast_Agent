@@ -270,7 +270,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.3.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.4.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -332,9 +332,10 @@ async function testStaticUxContracts() {
   const ux = await readFile(path.join(sourceDir, 'Portal_UX.js'), 'utf8');
   const html = await readFile(path.join(sourceDir, 'Portal_CreateSidebar.html'), 'utf8');
   assert.match(ux, /function onOpen\(event\)/);
-  assert.match(ux, /addItem\('ホームに戻る'/);
-  const onOpenBody = ux.slice(ux.indexOf('function vNextPortalOnOpen_'), ux.indexOf('function vNextPortalGoHome'));
-  assert.doesNotMatch(onOpenBody, /vNextPortalRefreshViews_/);
+  assert.match(ux, /addItem\('案内を開く'/);
+  const onOpenBody = ux.slice(ux.indexOf('function vNextPortalOnOpen_'), ux.indexOf('function vNextPortalGoHomeAndShowGuidance'));
+  assert.doesNotMatch(onOpenBody, /vNextPortalRefreshViews_|showSidebar/);
+  assert.match(ux, /function vNextPortalInstalledGuidanceOnOpen/);
   const openSidebarBody = ux.slice(ux.indexOf('function vNextPortalOpenCreateSidebar'), ux.indexOf('function vNextPortalOpenHelp'));
   assert.doesNotMatch(openSidebarBody, /vNextPortalEnsureStructure_/);
   assert.doesNotMatch(core, /getEffectiveUser/);

@@ -83,8 +83,11 @@ assert.equal(sandbox.vNextAdminAttentionSummary_({
 const menuStart = source.indexOf('function vNextBuildAdminMenu_()');
 const menuEnd = source.indexOf('function vNextBuildLegacySetupMenu_()', menuStart);
 const menuSource = source.slice(menuStart, menuEnd);
-assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 4,
-  'The normal Admin menu must stay focused on four decision-oriented actions');
+assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 3,
+  'The normal Admin menu is a recovery item plus nested irregular ops');
+assert.match(menuSource, /addSubMenu/);
+assert.doesNotMatch(menuSource, /vNextAdminMenuRunOperationalCycle/,
+  'Daily run-now stays in the sidebar, not the top menu');
 assert.equal(/Pilot|runtime|Release|\u5f85\u6a5fjob/.test(menuSource), false);
 assert.ok(source.includes('function vNextAdminRunOperationalCycle()') &&
   source.includes("vNextAdminWithScriptLock_('admin-run-operational-cycle'") &&

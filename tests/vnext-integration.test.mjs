@@ -231,7 +231,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.7.0',
+    version: 'vnext-client-1.8.0',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -280,7 +280,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.3.0');
+  assert.equal(bundle.version, 'vnext-portal-1.4.0');
   assert.equal(bundle.files.length, 4);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -305,6 +305,7 @@ async function checkPortalRuntimeBoundary() {
   const manifest = JSON.parse(generated.find(file => file.name === 'appsscript').source);
   assert.deepEqual(manifest.oauthScopes.slice().sort(), [
     'https://www.googleapis.com/auth/script.container.ui',
+    'https://www.googleapis.com/auth/script.scriptapp',
     'https://www.googleapis.com/auth/spreadsheets.currentonly',
     'https://www.googleapis.com/auth/userinfo.email'
   ].sort());
@@ -396,18 +397,24 @@ async function checkPortalRuntimeBoundary() {
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
   const adminMenu = adminSource.slice(adminMenuStart, adminMenuEnd);
   assert.ok(adminMenu.includes('VN_ADMIN_MENU_OPEN_SIDEBAR') &&
-    adminMenu.includes('VN_ADMIN_MENU_RUN_NOW') &&
     adminMenu.includes('VN_ADMIN_MENU_HEALTH_SCAN') &&
-    adminMenu.includes('VN_ADMIN_MENU_OPEN_REGISTRY'),
-    'The Hub menu must use role/timing labels instead of generic open/check items');
-  assert.ok(adminSource.includes("VN_ADMIN_MENU_NAME = '【管理者】Hub'") &&
-    adminSource.includes("VN_ADMIN_MENU_OPEN_SIDEBAR = '日常：承認と例外の作業画面'") &&
-    adminSource.includes("VN_ADMIN_MENU_RUN_NOW = '滞留時：申請を今すぐ処理'") &&
-    adminSource.includes("VN_ADMIN_MENU_HEALTH_SCAN = '点検：全クライアントの異常確認'") &&
-    adminSource.includes("VN_ADMIN_MENU_OPEN_REGISTRY = '内部：登録ブック一覧を開く'"),
-    'Admin Hub menu copy must name the administrator audience and when to use each item');
+    adminMenu.includes('VN_ADMIN_MENU_OPEN_REGISTRY') &&
+    adminMenu.includes('addSubMenu') &&
+    !adminMenu.includes('vNextAdminMenuRunOperationalCycle'),
+    'The Hub top menu is a recovery path plus nested irregular ops, not the daily run-now action');
+  assert.ok(adminSource.includes("VN_ADMIN_MENU_NAME = '年度計画'") &&
+    adminSource.includes("VN_ADMIN_MENU_OPEN_SIDEBAR = '案内を開く'") &&
+    adminSource.includes("VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理'") &&
+    adminSource.includes("VN_ADMIN_MENU_HEALTH_SCAN = '全クライアントの状態点検'") &&
+    adminSource.includes("VN_ADMIN_MENU_OPEN_REGISTRY = '登録一覧を開く'"),
+    'Admin Hub menu copy must stay role-neutral and keep daily processing in the sidebar');
+  assert.ok(adminSource.includes('function vNextAdminInstalledGuidanceOnOpen(') &&
+    adminSource.includes('vNextAdminEnsureGuidanceOnOpenTrigger_'),
+    'Hub must auto-open guidance from an installable project trigger, not simple onOpen');
+  assert.doesNotMatch(adminMenu, /showSidebar/,
+    'Simple Hub onOpen must not call authorized Ui.showSidebar');
   assert.ok(!adminMenu.includes('vNextAdminContinueEmployeePortalPilotRecoveryForManualTest'),
-    'One-time Portal bootstrap recovery must stay out of the normal four-item Admin menu');
+    'One-time Portal bootstrap recovery must stay out of the normal Admin menu');
   assert.ok(!adminMenu.includes("'vNextAdminPrepareEmployeePortalPilotForManualTest'"),
     'The long-running legacy one-shot Portal pilot action must not remain in the Admin menu');
   const recoverySource = await readFile(path.join(root, 'VNext_PortalPilotRecovery.js'), 'utf8');
@@ -992,10 +999,10 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('RESET_GENERATED_CLIENTS') &&
     sidebar.includes('apply:true'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
-  assert.ok(sidebar.includes('このブックは管理者専用です') &&
+  assert.ok(sidebar.includes('現場の年度・クライアント指定は、年度計画ポータルから行います') &&
     sidebar.includes('年度計画ポータル') &&
-    sidebar.includes('滞留時：申請を今すぐ処理'),
-    'Admin Sidebar must state it is administrator-only and point employees to the Portal');
+    sidebar.includes('申請を今すぐ処理'),
+    'Admin Sidebar must keep daily processing in-panel and point field work to the Portal');
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
   const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
   const provision = source.slice(provisionStart, provisionEnd);

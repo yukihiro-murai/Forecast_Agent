@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-17 JST  
+最終更新: 2026-08-17 JST（案内サイドバー優先の操作面）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -14,26 +14,29 @@
 
 ## 現在のコードと配備状態
 
-2026-08-16時点の確認値。IDは認証情報ではないが、公開資料へ転載しない。
+IDは認証情報ではないが、公開資料へ転載しない。Git上のruntime版と、Hubで有効なACTIVE pairは一致しないことがある。
 
 | 対象 | 現在値 |
 |---|---|
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
-| 直近実装commit | `5a8a97a` (`Improve forecast contrast and uncertainty calibration`) |
+| コード上のClient runtime | `vnext-client-1.8.0` |
+| コード上のClient bundle SHA-256 | `1699b9fb6ba71b8d0f0c3da699ee2819982d59e369c0282e70fb8f5a55f89765` |
+| コード上のPortal runtime | `vnext-portal-1.4.0` |
+| コード上のPortal bundle SHA-256 | `d0f44bcd8e0d9b81d69cb822d2e425d4d8046c162a623c32b37019e84d3bdf58` |
+| Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
 | Admin Hub bound Script ID | `1ANVtOBzPo90DveLcmTYokpEycr4iOphMaKZrhyjvzUizEQUjGqHRScxw` |
 | 社員ポータル Spreadsheet ID | `16uiBgEF6Pz6N3UUpPU1DPJ6axelYRDJ3WuXFJUWy1dU` |
-| Forecast Engine | `vnext-engine-0.5.0` |
-| Client runtime | `vnext-client-1.7.0` |
-| Client bundle SHA-256 | `7f093be113d4e6abb6f6dfc8a1451e6836f15b90392aedc549ad86598c4df090` |
-| Portal runtime | `vnext-portal-1.3.0` |
-| Portal bundle SHA-256 | `03a7d32b3ce19ac318bd8486558449efbb9d6f5a5aae8654474de4e2280197e4` |
-| ACTIVE Template Release | `vnext-client-vnext-client-1.7.0-7f093be1-26d2b11e` |
-| ACTIVE Model Release | `model-portal-BEFDD31F149CE292A6CD` |
-| ACTIVE Template Spreadsheet ID | `14xOCQCcQ7xiBpKeHuPkmBZ9iB7ufuhW1dU857jvamDM` |
+| ライブ ACTIVE Template / Model | まだ `vnext-client-1.7.0` / `model-portal-BEFDD31F149CE292A6CD`。Hubで新pair発行とポータル更新が必要 |
 
-中央projectとAdmin Hub bound projectには、commit `5a8a97a` の18ファイルを`clasp push`済み。Client 1.7.0 / Engine 0.5.0のTemplate・Model pairはHubで有効化済み。社員ポータルは既存URLを維持して再利用されている。
+## 操作面（2026-08-17）
+
+日常作業は右側の案内だけを辿る。上部メニュー「年度計画」は復旧用の「案内を開く」と、管理者の入れ子「その他」だけ。誰向け・いつ使うかの接頭辞は付けない。
+
+簡易onOpenからは案内を出せない。案内が一度開いたあと、そのブックのproject onOpen triggerで以後は自動表示する。
+
+Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
@@ -140,17 +143,17 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 実行手順（Admin Hubを再読み込みしてから）:
 
-1. メニュー「年度計画 管理」でサイドバーを開く。
+1. メニュー「年度計画」で案内を開く。
 2. 「保守・高度な操作」の最下部「社員テストをゼロからやり直す」。
 3. 「対象を確認（変更なし）」で Client 冊数を見る。
 4. 確認語 `RESET_GENERATED_CLIENTS` を入力し、「生成済み年度計画を削除して初期状態へ戻す」。
 
 ## 次の安全な作業候補
 
-1. 上記リセット後、社員ポータルから年度とクライアントを選んで新しい FY Book を作り、現場入力→予測依頼までをユーザー自身が体験する。
-2. ユーザーが希望した場合のみ、新しいrunで Engine 0.5.0 の P10/P90 を確認する。
-3. 予測幅の校正は複数clientでcoverage/backtestを行う。アストラゼネカ1社だけに合わせた係数へ変更しない。
-4. Admin Hubの既存例外を、現行UATに影響するものと過去Pilot残骸に分類する。無差別削除しない。
+1. Hubを再読み込みし、案内が自動で開くことを確認する。未実行なら確認語付きリセットで生成Clientを消す。
+2. Hub案内の「既存ポータルを最新版へ更新」で Portal 1.4.0 を同じURLへ載せる。初回はscript.scriptappの再同意が出ることがある。
+3. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
+4. ユーザーが希望した場合のみ、新しいrunで Engine 0.5.0 の P10/P90 を確認する。
 5. `main`へ統合する場合は、現ブランチのライブ配備状態とGitHub差分を独立レビューしてから行う。
 
 ## 終了時に更新する項目

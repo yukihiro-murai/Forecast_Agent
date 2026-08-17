@@ -5,7 +5,14 @@
 
 function onOpen(e) {
   try {
-    if (vNextClientDetectMode_() !== 'CLIENT') {
+    var mode = vNextClientDetectMode_();
+    if (mode === 'TEMPLATE') {
+      SpreadsheetApp.getUi().createMenu('年度計画')
+        .addItem('案内を開く', 'vNextOpenTemplateGuidance')
+        .addToUi();
+      return;
+    }
+    if (mode !== 'CLIENT') {
       Logger.log('[vNext Client] onOpen skipped because mode is not CLIENT.');
       return;
     }

@@ -66,20 +66,14 @@ function vNextHandleOnOpen_() {
   }
 }
 
-/** Client FY Bookに従業員向け4項目だけを表示する。 */
+/** Client FY Bookに復旧用の最小メニューだけを表示する。 */
 function vNextBuildClientMenu_() {
   try {
-    // Simple onOpen triggers may not expose user identity. Always render the recovery menu first;
-    // identity and role are required only after the user invokes an authorized action.
+    // Simple onOpen triggers may not expose user identity and cannot open the sidebar.
+    // Daily work lives in the guidance sidebar; this menu is only a recovery path.
     SpreadsheetApp.getUi().createMenu(VNEXT_UX_CONFIG_.MENU_NAME)
-      .addItem('ホーム・案内を表示', 'vNextGoHomeAndShowGuidance')
-      .addItem('自分の情報を入力・更新する', 'vNextOpenInputSidebar')
-      .addItem('予測ダッシュボードを開く', 'vNextOpenForecastDashboard')
-      .addItem('使い方・困ったとき', 'vNextOpenHelpSidebar')
+      .addItem('案内を開く', 'vNextGoHomeAndShowGuidance')
       .addToUi();
-    // Simple onOpenは認可サービスのUi.showSidebarを呼べない。menuだけを即時
-    // 表示し、案内の自動表示はForecast Ownerが一度だけ有効化するinstallable
-    // open triggerへ委譲する。
     try {
       vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
     } catch (refreshError) {
@@ -89,6 +83,19 @@ function vNextBuildClientMenu_() {
   } catch (err) {
     Logger.log('vNextBuildClientMenu_ error: ' + vNextUxErrorText_(err));
     return false;
+  }
+}
+
+/** Master Templateは現場入力の対象ではない。案内だけ出す。 */
+function vNextOpenTemplateGuidance() {
+  try {
+    SpreadsheetApp.getUi().alert(
+      '年度計画',
+      'このブックは生成用のひな型です。現場の年度計画はポータルから作成してください。',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (err) {
+    Logger.log('vNextOpenTemplateGuidance error: ' + vNextUxErrorText_(err));
   }
 }
 
@@ -119,7 +126,6 @@ function vNextGoHome() {
 function vNextGoHomeAndShowGuidance() {
   try {
     var context = vNextUxGetBookContext_();
-    if (context.isForecastOwner) vNextUxEnsureGuidanceOnOpenTrigger_();
     vNextRefreshEmployeeViews(context);
     vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
     vNextUxAutoOpenGuidance_(context, true);
@@ -129,11 +135,9 @@ function vNextGoHomeAndShowGuidance() {
   }
 }
 
-/** Forecast Ownerが一度だけ実行する自動案内の有効化entry。 */
+/** 案内の自動表示を、このブックのproject triggerとして有効化する。 */
 function vNextInstallAutomaticGuidance() {
   try {
-    var context = vNextUxGetBookContext_();
-    if (!context.isForecastOwner) throw new Error('自動案内の有効化はForecast Ownerが行います。');
     var installed = vNextUxEnsureGuidanceOnOpenTrigger_();
     vNextOpenGuidanceSidebar();
     return { ok: true, installed: installed, message: '次回からブックを開くと案内が自動表示されます。' };
@@ -152,11 +156,18 @@ function vNextInstalledGuidanceOnOpen(e) {
 function vNextUxEnsureGuidanceOnOpenTrigger_() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var handler = 'vNextInstalledGuidanceOnOpen';
-  var existing = ScriptApp.getUserTriggers(spreadsheet).some(function (trigger) {
+  function isOpenHandler(trigger) {
     return trigger.getHandlerFunction() === handler &&
       trigger.getEventType() === ScriptApp.EventType.ON_OPEN;
-  });
-  if (existing) return false;
+  }
+  if (ScriptApp.getProjectTriggers().some(isOpenHandler)) return false;
+  try {
+    ScriptApp.getUserTriggers(spreadsheet).filter(isOpenHandler).forEach(function (trigger) {
+      ScriptApp.deleteTrigger(trigger);
+    });
+  } catch (cleanupError) {
+    Logger.log('vNextUxEnsureGuidanceOnOpenTrigger_ cleanup skipped: ' + vNextUxErrorText_(cleanupError));
+  }
   ScriptApp.newTrigger(handler).forSpreadsheet(spreadsheet).onOpen().create();
   return true;
 }
@@ -190,6 +201,10 @@ function vNextUxOpenGuidanceShellQuietly_() {
       .setTitle('次にすること')
       .setWidth(400);
     SpreadsheetApp.getUi().showSidebar(html);
+    try { vNextUxEnsureGuidanceOnOpenTrigger_(); }
+    catch (triggerError) {
+      Logger.log('vNextUxOpenGuidanceShellQuietly_ trigger skipped: ' + vNextUxErrorText_(triggerError));
+    }
     return true;
   } catch (error) {
     Logger.log('vNextUxOpenGuidanceShellQuietly_ skipped: ' + vNextUxErrorText_(error));
@@ -218,7 +233,7 @@ function vNextGoForecastPlan() {
   }
 }
 
-/** 固定4項目menuから、状態に応じた予測・計画・振り返り操作へ到達させる。 */
+/** 案内サイドバーの主操作から、状態に応じた予測・計画・振り返り画面へ到達させる。 */
 function vNextOpenForecastPlanOrCurrentAction() {
   return vNextOpenForecastDashboard();
 }
@@ -1051,12 +1066,12 @@ function vNextUxStateIssue_(context) {
 }
 
 function vNextUxActionMenuGuide_(action) {
-  if (!action) return '上部メニュー：年度計画 → ホーム・案内を表示';
-  if (action.key === 'INPUT') return '上部メニュー：年度計画 → 自分の情報を入力・更新する';
+  if (!action) return '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。';
+  if (action.key === 'INPUT') return '右側の案内のボタンから入力を続けてください。';
   if (['REQUEST_FORECAST', 'EDIT_PLAN', 'REVIEW', 'VIEW_PLAN', 'VIEW_REVIEW'].indexOf(action.key) >= 0) {
-    return '上部メニュー：年度計画 → 予測ダッシュボードを開く';
+    return '右側の案内のボタンから、次の確認画面を開いてください。';
   }
-  return '現在、操作は不要です。最新状態を確認する場合：年度計画 → ホーム・案内を表示';
+  return '現在、操作は不要です。最新状態を確認する場合は右側の案内を見てください。';
 }
 
 function vNextUxAssertClientBook_(context) {
@@ -1847,7 +1862,7 @@ function vNextUxRenderHome_(context, sheet) {
     .setFontColor(action.key === 'WAIT' ? '#3c4043' : '#174ea6');
   sheet.getRange('B11').setWrap(true);
   if (action.issueKey) sheet.getRange('A10:B11').setBackground('#fef7e0');
-  sheet.getRange('A13').setValue('上部メニュー「年度計画」→「ホーム・案内を表示」で、案内サイドバーを再表示できます。')
+  sheet.getRange('A13').setValue('右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
     .setFontColor('#5f6368').setFontSize(9);
   sheet.setFrozenRows(2);
   sheet.setHiddenGridlines(false);
