@@ -18,6 +18,8 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET = 'VN_PORTAL_CLIENT_CATALOG';
 const VN_ADMIN_SCHEDULED_HANDLER = 'vNextAdminScheduledSweep';
 const VN_ADMIN_PILOT_INITIAL_LIMIT = 3;
 const VN_ADMIN_PILOT_CANARY_LIMIT = 5;
+const VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION = 'RESET_GENERATED_CLIENTS';
+const VN_ADMIN_PROTECTED_BOOK_MODES = Object.freeze(['ADMIN', 'TEMPLATE', 'PORTAL', 'LEGACY']);
 const VN_ADMIN_STALE_MINUTES = 15;
 const VN_ADMIN_MIGRATION_APPLY_ENABLED = false;
 const VN_ADMIN_MODES = ['LEGACY', 'ADMIN', 'TEMPLATE', 'CLIENT', 'PORTAL'];
@@ -5662,6 +5664,222 @@ function vNextAdminRecoverPortalProvisionForManualTest() {
 }
 
 /**
+ * Inventory or remove generated Client FY books so an employee can start from
+ * Portal year/client selection. Admin Hub, Portal, Template/Model releases,
+ * and ZAC catalog are preserved. apply=true plus the confirmation phrase is
+ * required before any write or Drive trash.
+ */
+function vNextAdminResetGeneratedClientsForFreshUat(request) {
+  return vNextAdminGuard_('vNextAdminResetGeneratedClientsForFreshUat', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminResetGeneratedClientsInHub_(hub, request);
+  });
+}
+
+/** Central-source fallback used by clasp/API when Hub is not the active container. */
+function vNextAdminResetGeneratedClientsForFreshUatFromSource(request) {
+  return vNextAdminGuard_('vNextAdminResetGeneratedClientsForFreshUatFromSource', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not the registered Admin Hub.');
+    }
+    vNextAdminAssertHubAdmin_(hub, true);
+    vNextAdminHydrateHubRuntime_(hub);
+    Object.keys(VN_ADMIN_HEADERS).forEach(function (name) {
+      vNextAdminEnsureTable_(hub, name, VN_ADMIN_HEADERS[name]);
+    });
+    return vNextAdminResetGeneratedClientsInHub_(hub, req);
+  });
+}
+
+function vNextAdminResetGeneratedClientsInHub_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const apply = req.apply === true;
+  if (apply && String(req.confirmation || '').trim() !== VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION) {
+    throw new Error('確認語が一致しません。RESET_GENERATED_CLIENTS を入力してください。');
+  }
+  const registryRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
+  const releaseRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.RELEASES).rows;
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const runtime = typeof vNextGetRuntimeConfig_ === 'function' ? vNextGetRuntimeConfig_() : {};
+  const protectedIds = vNextAdminProtectedSpreadsheetIds_(hub, registryRows, releaseRows, hubConfig, runtime);
+  const clientRows = registryRows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT';
+  });
+  const inventory = clientRows.map(function (row) {
+    const spreadsheetId = String(row.spreadsheet_id || '').trim();
+    const protectedHit = !spreadsheetId || protectedIds.has(spreadsheetId);
+    return {
+      bookId: String(row.book_id || ''),
+      clientName: String(row.client_name || ''),
+      fiscalYear: Number(row.fiscal_year || 0),
+      state: String(row.state || ''),
+      status: String(row.status || ''),
+      spreadsheetId: spreadsheetId,
+      spreadsheetUrl: String(row.spreadsheet_url || ''),
+      willTrash: !protectedHit,
+      protected: protectedHit
+    };
+  });
+  const blocked = inventory.filter(function (item) { return item.protected; });
+  if (blocked.length) {
+    throw new Error('CLIENT registry が Hub/Portal/Template を指しているため停止しました: ' +
+      blocked.map(function (item) { return item.bookId; }).join(', '));
+  }
+  const result = {
+    ok: true,
+    dryRun: !apply,
+    confirmationRequired: VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION,
+    clientCount: inventory.length,
+    clients: inventory,
+    preserved: {
+      hubSpreadsheetId: hub.getId(),
+      portalSpreadsheetId: String(hubConfig.portal_spreadsheet_id || runtime.VNEXT_PORTAL_SPREADSHEET_ID || ''),
+      protectedSpreadsheetCount: protectedIds.size
+    },
+    message: apply
+      ? '生成済み年度計画を削除し、社員ポータルから作り直せる状態に戻しました。'
+      : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。Admin Hub / ポータル / Template は残します。')
+  };
+  if (!apply) return vNextAdminJsonSafe_(result);
+
+  return vNextAdminWithScriptLock_('fresh-uat-reset', function () {
+    const now = new Date();
+    const clientBookIds = new Set(inventory.map(function (item) { return item.bookId; }).filter(Boolean));
+    const trashed = [];
+    const trashErrors = [];
+    inventory.forEach(function (item) {
+      if (!item.willTrash) return;
+      try {
+        DriveApp.getFileById(item.spreadsheetId).setTrashed(true);
+        trashed.push(item.spreadsheetId);
+      } catch (error) {
+        trashErrors.push({ spreadsheetId: item.spreadsheetId, error: String(error && error.message || error) });
+      }
+    });
+    clientRows.forEach(function (row) {
+      if (!row._rowNumber) return;
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.REGISTRY, row._rowNumber, {
+        status: 'ARCHIVED',
+        health_status: 'ARCHIVED',
+        health_code: 'FRESH_UAT_RESET',
+        updated_at: now,
+        note: vNextAdminFreshUatResetNote_(row.note, now)
+      });
+    });
+    vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.TEAM).rows.forEach(function (row) {
+      if (!clientBookIds.has(String(row.book_id || '')) || !row._rowNumber) return;
+      vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.TEAM, row._rowNumber, {
+        status: 'ARCHIVED', updated_at: now, note: vNextAdminFreshUatResetNote_(row.note, now)
+      });
+    });
+    [
+      VN_ADMIN_SHEETS.JOBS, VN_ADMIN_SHEETS.JOB_LOG, VN_ADMIN_SHEETS.APPROVALS,
+      VN_ADMIN_SHEETS.OFFICIAL, VN_ADMIN_SHEETS.EXCEPTIONS, VN_ADMIN_CLIENT_REQUEST_SHEET
+    ].forEach(function (name) {
+      vNextAdminClearTableData_(hub, name, VN_ADMIN_HEADERS[name]);
+    });
+    vNextAdminRewriteTableKeeping_(hub, VN_ADMIN_SHEETS.MIGRATIONS,
+      VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.MIGRATIONS], function (row) {
+        return !clientBookIds.has(String(row.book_id || ''));
+      });
+    const coreSheets = typeof VNEXT_CORE !== 'undefined' && VNEXT_CORE.INTERNAL_SHEETS
+      ? VNEXT_CORE.INTERNAL_SHEETS : {};
+    Object.keys(coreSheets).forEach(function (sheetName) {
+      if (sheetName === 'MODEL_RELEASE') return;
+      if (!hub.getSheetByName(sheetName)) return;
+      vNextAdminRewriteTableKeeping_(hub, sheetName, coreSheets[sheetName].slice(), function (row) {
+        const bookId = String(row.book_id || '');
+        return !bookId || !clientBookIds.has(bookId);
+      });
+    });
+
+    let portalRefresh = { configured: false };
+    try {
+      const portal = vNextAdminResolvePortal_(hub);
+      vNextAdminClearSheetDataRows_(portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET));
+      portalRefresh = vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
+      portalRefresh.views = vNextAdminRefreshPortalEmployeeViews_(portal.spreadsheet);
+      portalRefresh.configured = true;
+    } catch (portalError) {
+      if (!/not configured/i.test(String(portalError && portalError.message || portalError))) throw portalError;
+    }
+
+    vNextAdminRefreshTodayExceptions_(hub);
+    vNextAdminRefreshHome_(hub);
+    vNextAdminWriteAudit_(hub, 'FRESH_UAT_RESET', 'CLIENT', 'ALL', 'SUCCEEDED', {
+      clientCount: inventory.length,
+      trashed: trashed,
+      trashErrors: trashErrors,
+      portalRows: portalRefresh.rows || 0
+    });
+    result.trashed = trashed;
+    result.trashErrors = trashErrors;
+    result.portal = portalRefresh;
+    result.ok = trashErrors.length === 0;
+    if (trashErrors.length) {
+      result.message = 'Registryは初期化しましたが、一部のDriveファイルをゴミ箱へ移せませんでした。';
+    }
+    return vNextAdminJsonSafe_(result);
+  });
+}
+
+function vNextAdminProtectedSpreadsheetIds_(hub, registryRows, releaseRows, hubConfig, runtime) {
+  const protectedIds = new Set();
+  protectedIds.add(hub.getId());
+  (registryRows || []).forEach(function (row) {
+    const mode = String(row.mode || '').toUpperCase();
+    const spreadsheetId = String(row.spreadsheet_id || '').trim();
+    if (spreadsheetId && VN_ADMIN_PROTECTED_BOOK_MODES.indexOf(mode) >= 0) protectedIds.add(spreadsheetId);
+  });
+  (releaseRows || []).forEach(function (row) {
+    const templateId = String(row.template_spreadsheet_id || '').trim();
+    if (templateId) protectedIds.add(templateId);
+  });
+  [
+    hubConfig && hubConfig.portal_spreadsheet_id,
+    hubConfig && hubConfig.template_spreadsheet_id,
+    hubConfig && hubConfig.admin_hub_spreadsheet_id,
+    runtime && runtime.VNEXT_ADMIN_HUB_SPREADSHEET_ID,
+    runtime && runtime.VNEXT_MASTER_TEMPLATE_SPREADSHEET_ID,
+    runtime && runtime.VNEXT_PORTAL_SPREADSHEET_ID
+  ].forEach(function (value) {
+    const id = String(value || '').trim();
+    if (id) protectedIds.add(id);
+  });
+  return protectedIds;
+}
+
+function vNextAdminFreshUatResetNote_(existing, now) {
+  const stamp = 'fresh-uat-reset ' + (now instanceof Date ? now.toISOString() : String(now || ''));
+  const current = String(existing || '').trim();
+  if (!current) return stamp;
+  if (current.indexOf('fresh-uat-reset') >= 0) return current;
+  return current + ' | ' + stamp;
+}
+
+function vNextAdminRefreshPortalEmployeeViews_(portalSpreadsheet) {
+  if (typeof vNextPortalRefreshViews_ !== 'function') return { skipped: true };
+  const refreshed = vNextPortalRefreshViews_(portalSpreadsheet);
+  if (typeof vNextPortalGetLocalViewData_ !== 'function' || typeof vNextPortalRenderFiscalYear_ !== 'function') {
+    return refreshed;
+  }
+  const data = vNextPortalGetLocalViewData_(portalSpreadsheet);
+  const extraYears = [];
+  portalSpreadsheet.getSheets().forEach(function (sheet) {
+    const match = /^FY(\d{4})$/.exec(String(sheet.getName() || ''));
+    if (!match) return;
+    const year = Number(match[1]);
+    if ((refreshed.years || data.years || []).indexOf(year) >= 0) return;
+    vNextPortalRenderFiscalYear_(sheet, year, data);
+    extraYears.push(year);
+  });
+  return Object.assign({}, refreshed, { extraYears: extraYears });
+}
+
+/**
  * No-UI editor fallback for the live Pilot. It applies the dedicated empty-book
  * upgrade only when exactly one registered Client passes the full read-only
  * eligibility check; ambiguous or non-empty books fail closed.
@@ -10545,6 +10763,7 @@ function vNextAdminRefreshTodayExceptions_(hub) {
   });
   const registry = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
   registry.forEach(function (row) {
+    if (String(row.status || '').toUpperCase() === 'ARCHIVED') return;
     const health = String(row.health_status || '');
     if (health === 'ERROR' || health === 'WARN' || health === 'PENDING') {
       exceptions.push(vNextAdminExceptionObject_({
@@ -11850,6 +12069,34 @@ function vNextAdminEnsureExactTableHeaders_(ss, name, headers) {
   sheet.getRange(1, 1, 1, expected.length).setFontWeight('bold').setBackground('#eeeeee');
   sheet.setFrozenRows(1);
   return sheet;
+}
+
+function vNextAdminClearTableData_(ss, name, headers) {
+  const sheet = headers && headers.length
+    ? vNextAdminEnsureTable_(ss, name, headers)
+    : ss.getSheetByName(name);
+  vNextAdminClearSheetDataRows_(sheet);
+  return sheet;
+}
+
+function vNextAdminClearSheetDataRows_(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return sheet;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(1, sheet.getLastColumn())).clearContent();
+  return sheet;
+}
+
+function vNextAdminRewriteTableKeeping_(ss, name, headers, keepFn) {
+  const table = vNextAdminReadTable_(ss, name);
+  if (!table.sheet) return { kept: 0, removed: 0 };
+  const kept = table.rows.filter(function (row) { return keepFn(row); });
+  vNextAdminClearSheetDataRows_(table.sheet);
+  if (!kept.length) return { kept: 0, removed: table.rows.length };
+  const cols = headers && headers.length ? headers : table.headers;
+  const values = kept.map(function (row) {
+    return cols.map(function (key) { return row[key] === undefined ? '' : row[key]; });
+  });
+  table.sheet.getRange(2, 1, values.length, cols.length).setValues(values);
+  return { kept: kept.length, removed: table.rows.length - kept.length };
 }
 
 function vNextAdminReadTable_(ss, name) {

@@ -960,7 +960,27 @@ async function checkAdminCoverageContracts() {
     , 'function vNextAdminProvisionSharedPortal(', 'function vNextAdminHarvestPortalRequests_('
     , "case 'PORTAL_PROVISION_CLIENT'", 'function vNextAdminRefreshPortalDirectory_('
     , 'function vNextAdminApplyEmployeeFileSharing_(', 'function vNextAdminAssertEmployeeFileSharing_('
+    , 'function vNextAdminResetGeneratedClientsForFreshUat(',
+    'function vNextAdminResetGeneratedClientsForFreshUatFromSource(',
+    "VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION = 'RESET_GENERATED_CLIENTS'"
   ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
+  const resetStart = source.indexOf('function vNextAdminResetGeneratedClientsInHub_');
+  const resetEnd = source.indexOf('function vNextAdminProtectedSpreadsheetIds_', resetStart);
+  const reset = source.slice(resetStart, resetEnd);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart, 'Fresh UAT reset must be a dedicated Hub operation');
+  assert.ok(reset.includes("req.apply === true") && reset.includes('.setTrashed(true)'),
+    'Fresh UAT reset must require apply=true before trashing generated Client files');
+  assert.ok(reset.includes("status: 'ARCHIVED'") && reset.includes('vNextAdminRefreshPortalDirectory_') &&
+    reset.includes('vNextAdminRefreshPortalEmployeeViews_'),
+    'Fresh UAT reset must archive Client registry rows and rebuild Portal views');
+  assert.ok(reset.includes('MODEL_RELEASE') && reset.includes("sheetName === 'MODEL_RELEASE'"),
+    'Fresh UAT reset must preserve MODEL_RELEASE while clearing client audit rows');
+  assert.equal(source.replace(reset, '').includes('.setTrashed('), false,
+    'Drive trash must stay inside the confirmed fresh UAT reset path');
+  assert.ok(sidebar.includes('vNextAdminResetGeneratedClientsForFreshUat') &&
+    sidebar.includes('RESET_GENERATED_CLIENTS') &&
+    sidebar.includes('apply:true'),
+    'Admin Sidebar must hide the reset behind the exact confirmation phrase');
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
   const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
   const provision = source.slice(provisionStart, provisionEnd);

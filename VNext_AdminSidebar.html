@@ -289,6 +289,11 @@
         <button class="secondary" onclick="startReview()">確定実績で振り返りを開始</button>
         <label>年度終了理由<input id="closeReason" placeholder="振り返り入力と確認が完了"></label>
         <button class="warn" onclick="closeYear()">年度を終了</button>
+        <h2>社員テストをゼロからやり直す</h2>
+        <p class="muted">生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認の試験データだけを消します。Admin Hub、社員ポータル、Template、ZAC候補、現行releaseは残します。確認語が一致した場合だけ削除します。</p>
+        <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
+        <button class="secondary" onclick="previewFreshUatReset()">対象を確認（変更なし）</button>
+        <button class="danger" onclick="applyFreshUatReset()">生成済み年度計画を削除して初期状態へ戻す</button>
       </details>
     </div>
 
@@ -1089,6 +1094,31 @@
         setBusy(true);
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminCloseYear({bookId:value('reviewBookId'), reason:value('closeReason')});
+      }
+      function previewFreshUatReset() {
+        setBusy(true); showStatus('削除対象の年度計画を確認しています（シートは変更しません）…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false);
+          const lines = (result.clients || []).map(item =>
+            `${item.clientName || item.bookId} / FY${item.fiscalYear} / ${item.state || item.status}`
+          );
+          showStatus(result.message + (lines.length ? '\n' + lines.join('\n') : ''));
+        }).withFailureHandler(onFailure).vNextAdminResetGeneratedClientsForFreshUat({ apply:false });
+      }
+      function applyFreshUatReset() {
+        const confirmation = value('freshUatResetConfirmation');
+        if (confirmation !== 'RESET_GENERATED_CLIENTS') {
+          showStatus('確認語 RESET_GENERATED_CLIENTS を入力してください。', true); return;
+        }
+        if (!window.confirm('生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認の試験データを消します。Admin Hubと社員ポータルは残ります。続行しますか？')) return;
+        setBusy(true); showStatus('生成済み年度計画を削除し、ポータルを初期状態へ戻しています。画面を閉じずにお待ちください…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false);
+          $('freshUatResetConfirmation').value = '';
+          showStatus(result); load();
+        }).withFailureHandler(onFailure).vNextAdminResetGeneratedClientsForFreshUat({
+          apply:true, confirmation
+        });
       }
       function callSimple(name, arg) {
         setBusy(true); showStatus('処理中…');
