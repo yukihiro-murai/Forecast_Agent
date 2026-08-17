@@ -12853,6 +12853,19 @@ function vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails, op
     vNextAdminMoveFileToFolder_(spreadsheetId, dest);
     moved.push({ spreadsheetId: spreadsheetId, mode: mode, folderId: dest.getId() });
   });
+  const portalDest = vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('PORTAL'), adminEmails);
+  const portalIds = {};
+  const resolvedPortal = vNextAdminTryResolvePortal_(hub);
+  if (resolvedPortal && resolvedPortal.spreadsheet) {
+    portalIds[String(resolvedPortal.spreadsheet.getId())] = true;
+  }
+  const configPortalId = String(vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).portal_spreadsheet_id || '').trim();
+  if (configPortalId) portalIds[configPortalId] = true;
+  Object.keys(portalIds).forEach(function (spreadsheetId) {
+    if (!vNextAdminSpreadsheetAccessible_(spreadsheetId)) return;
+    vNextAdminMoveFileToFolder_(spreadsheetId, portalDest);
+    moved.push({ spreadsheetId: spreadsheetId, mode: 'PORTAL', folderId: portalDest.getId() });
+  });
   const auditDest = vNextAdminPrepareManagedFolder_(library.folders.audit, VN_ADMIN_LIBRARY.AUDIT, adminEmails);
   const auditSearchRoots = [];
   const legacyRootId = String(opt.legacyRootId || '').trim();
@@ -12885,6 +12898,16 @@ function vNextAdminMoveFileToFolder_(fileId, destFolder) {
   try {
     file.moveTo(destFolder);
   } catch (error) {
+    const destIsShared = vNextAdminIsSharedDriveManaged_(destFolder);
+    if (destIsShared) {
+      try {
+        file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
+        file.moveTo(destFolder);
+        return { fileId: fileId, folderId: destId };
+      } catch (retryError) {
+        throw new Error('ファイルを移せませんでした: ' + file.getName() + ' / ' + String(error && error.message || error));
+      }
+    }
     throw new Error('ファイルを移せませんでした: ' + file.getName() + ' / ' + String(error && error.message || error));
   }
   return { fileId: fileId, folderId: destId };

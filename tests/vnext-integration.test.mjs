@@ -1154,8 +1154,9 @@ async function checkAdminCoverageContracts() {
   const relocateStart = source.indexOf('function vNextAdminMoveRegisteredFilesIntoLibrary_');
   const relocateEnd = source.indexOf('function vNextAdminFolderWithinRoot_', relocateStart);
   const relocate = source.slice(relocateStart, relocateEnd);
-  assert.ok(relocate.includes('file.isTrashed()') && relocate.includes('aHub - bHub'),
-    'Library relocate must skip trashed files and move the running Hub last');
+  assert.ok(relocate.includes('file.isTrashed()') && relocate.includes('aHub - bHub') &&
+    relocate.includes("mode: 'PORTAL'") && relocate.includes('vNextAdminTryResolvePortal_'),
+    'Library relocate must skip trashed files, move the running Hub last, and always move the employee Portal');
   assert.ok(source.includes('vNextAdminFindNamedChildFolder_') &&
     source.includes('vNextAdminDetectCurrentSharedDriveId_'),
     'Shared-drive relocate must reuse existing folders/drives instead of creating duplicates');
