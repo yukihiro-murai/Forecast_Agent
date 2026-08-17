@@ -900,6 +900,12 @@ async function checkAdminCoverageContracts() {
   assert.ok(portalMigration.includes('[VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)') &&
     portalMigration.includes('.indexOf(portal.runtimeVersion) < 0'),
   'Portal migration must allow a verified same-version runtime SHA update');
+  assert.ok(portalMigration.includes('vNextPortalRuntimeValidateExistingFiles_(currentContent.files'),
+    'Portal migration must accept the pre-web-entry four-file runtime when verifying the current pin');
+  assert.ok(portalMigration.includes('vNextPortalRuntimeValidateExistingFiles_(restored.files'),
+    'Portal migration rollback must re-verify the previous four-file or five-file runtime');
+  assert.equal(portalMigration.includes('vNextPortalRuntimeValidateFiles_(currentContent.files'), false,
+    'Current Portal content must not be forced through the latest five-file allowlist');
 
   const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
   const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;

@@ -47,10 +47,26 @@ assert.match(
 
 testValidCopy();
 testPortalManifestContract();
+testPortalLegacyExistingFiles();
 testPinnedHistoricalCopy();
 testIdentityGuards();
 testContentGuards();
-process.stdout.write('PASS vNext client runtime copy tests (5 groups)\n');
+process.stdout.write('PASS vNext client runtime copy tests (6 groups)\n');
+
+function testPortalLegacyExistingFiles() {
+  const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();
+  const current = sandbox.vNextPortalRuntimeValidateExistingFiles_(verified.files);
+  assert.equal(current.length, 5);
+  const legacy = verified.files.filter(file => file.name !== 'Portal_Entry');
+  assert.equal(legacy.length, 4);
+  const accepted = sandbox.vNextPortalRuntimeValidateExistingFiles_(legacy);
+  assert.equal(accepted.map(file => file.name).join(','),
+    'Portal_Core,Portal_CreateSidebar,Portal_UX,appsscript');
+  assert.throws(
+    () => sandbox.vNextPortalRuntimeValidateFiles_(legacy),
+    /Portal runtime file count does not match the allowlist/
+  );
+}
 
 function testPortalManifestContract() {
   const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();

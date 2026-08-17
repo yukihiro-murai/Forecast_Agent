@@ -48,6 +48,14 @@ var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
   Portal_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
+// Immutable Portal runtimes before the web entry used this four-file shape.
+// They may be read and rolled back only when the stored SHA-256 pin matches.
+var VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_ = Object.freeze({
+  Portal_Core: 'SERVER_JS',
+  Portal_CreateSidebar: 'HTML',
+  Portal_UX: 'SERVER_JS',
+  appsscript: 'JSON'
+});
 var VNEXT_PORTAL_RUNTIME_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/script.container.ui',
   'https://www.googleapis.com/auth/script.scriptapp',
@@ -563,17 +571,31 @@ function vNextClientRuntimeValidateManifest_(source, expectedScopes) {
 }
 
 function vNextPortalRuntimeValidateFiles_(files) {
-  var expectedNames = Object.keys(VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
+  return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
+}
+
+function vNextPortalRuntimeValidateExistingFiles_(files) {
+  if (vNextClientRuntimeHasExactFileNames_(files, VNEXT_PORTAL_RUNTIME_FILE_TYPES_)) {
+    return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
+  }
+  if (vNextClientRuntimeHasExactFileNames_(files, VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_)) {
+    return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_);
+  }
+  throw new Error('Portal runtime file count does not match the allowlist.');
+}
+
+function vNextPortalRuntimeValidateFilesWithContract_(files, contract) {
+  var expectedNames = Object.keys(contract || {});
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
     throw new Error('Portal runtime file count does not match the allowlist.');
   }
   var byName = {};
   files.forEach(function (file) {
     var name = String(file && file.name || '');
-    if (!Object.prototype.hasOwnProperty.call(VNEXT_PORTAL_RUNTIME_FILE_TYPES_, name) || byName[name]) {
+    if (!Object.prototype.hasOwnProperty.call(contract, name) || byName[name]) {
       throw new Error('Portal runtime file allowlist mismatch: ' + name);
     }
-    if (String(file.type || '') !== VNEXT_PORTAL_RUNTIME_FILE_TYPES_[name] || typeof file.source !== 'string') {
+    if (String(file.type || '') !== contract[name] || typeof file.source !== 'string') {
       throw new Error('Portal runtime file contract mismatch: ' + name);
     }
     byName[name] = { name: name, type: String(file.type), source: file.source };

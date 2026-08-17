@@ -5081,7 +5081,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       }
       const project = vNextClientRuntimeAssertBoundParent_(portal.scriptId, portal.spreadsheetId);
       const currentContent = vNextClientRuntimeGetContent_(portal.scriptId);
-      const currentFiles = vNextPortalRuntimeValidateFiles_(currentContent.files || []);
+      const currentFiles = vNextPortalRuntimeValidateExistingFiles_(currentContent.files || []);
       const currentSha = vNextClientRuntimeFilesSha256_(currentFiles);
       if (currentContent.scriptId && String(currentContent.scriptId) !== portal.scriptId) {
         throw new Error('Current Portal content scriptId mismatch.');
@@ -5188,7 +5188,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           if (contentUpdateAttempted) {
             vNextClientRuntimePutContent_(portal.scriptId, { files: currentFiles });
             const restored = vNextClientRuntimeGetContent_(portal.scriptId);
-            const restoredFiles = vNextPortalRuntimeValidateFiles_(restored.files || []);
+            const restoredFiles = vNextPortalRuntimeValidateExistingFiles_(restored.files || []);
             if (vNextClientRuntimeFilesSha256_(restoredFiles) !== currentSha) {
               throw new Error('restored Portal SHA mismatch');
             }
@@ -11110,7 +11110,7 @@ function vNextAdminRefreshHome_(hub) {
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
   const version = String(runtimeVersion || '');
   return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
-    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0'].indexOf(version) >= 0;
+    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0'].indexOf(version) >= 0;
 }
 
 function vNextAdminResolvePortal_(hub) {
