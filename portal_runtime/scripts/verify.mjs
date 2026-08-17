@@ -9,7 +9,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(scriptDir, '..');
 const targetArg = readArg('--dir') || 'src';
 const targetDir = path.resolve(runtimeRoot, targetArg);
-const expected = ['Portal_Core.js', 'Portal_CreateSidebar.html', 'Portal_UX.js', 'appsscript.json'];
+const expected = ['Portal_Core.js', 'Portal_CreateSidebar.html', 'Portal_Entry.html', 'Portal_UX.js', 'appsscript.json'];
 const actual = (await readdir(targetDir)).filter((name) => /\.(?:js|html|json)$/.test(name)).sort();
 
 if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -23,9 +23,13 @@ const allSource = Object.values(sources).join('\n');
 
 new vm.Script(sources['Portal_Core.js'], { filename: 'Portal_Core.js' });
 new vm.Script(sources['Portal_UX.js'], { filename: 'Portal_UX.js' });
-const inlineScript = sources['Portal_CreateSidebar.html'].match(/<script>([\s\S]*?)<\/script>/);
-if (!inlineScript) throw new Error('Portal creation sidebar inline script is missing.');
-new vm.Script(inlineScript[1], { filename: 'Portal_CreateSidebar.inline.js' });
+const inlineScripts = actual.filter((name) => name.endsWith('.html')).map((name) => {
+  const inlineScript = sources[name].match(/<script>([\s\S]*?)<\/script>/);
+  if (!inlineScript) throw new Error(name + ' inline script is missing.');
+  new vm.Script(inlineScript[1], { filename: name + '.inline.js' });
+  return inlineScript[1];
+});
+const sidebarSource = sources['Portal_CreateSidebar.html'];
 
 const forbidden = [
   /\bDriveApp\b/, /\bUrlFetchApp\b/, /\bPropertiesService\b/,
@@ -66,7 +70,8 @@ if (JSON.stringify(menuItems) !== JSON.stringify(expectedMenu)) {
   throw new Error(`Portal menu must contain only the recovery action: ${JSON.stringify(menuItems)}`);
 }
 
-const calledFunctions = [...sources['Portal_CreateSidebar.html'].matchAll(/\.([A-Za-z_$][\w$]*)\s*\(/g)]
+const htmlJoined = sidebarSource + '\n' + sources['Portal_Entry.html'];
+const calledFunctions = [...htmlJoined.matchAll(/\.([A-Za-z_$][\w$]*)\s*\(/g)]
   .map((match) => match[1])
   .filter((name) => /^vNextPortal/.test(name));
 for (const functionName of new Set(calledFunctions)) {
@@ -91,6 +96,13 @@ if (!/computeDigest\(Utilities\.DigestAlgorithm\.SHA_256/.test(sources['Portal_C
 }
 if (/isForecastOwner|isTeamMember|allowedEmails|emailAllowlist/i.test(serverSource)) {
   throw new Error('Portal runtime must not gate creation by client role or an email allowlist.');
+}
+
+if (!sources['Portal_Entry.html'].includes('vNextPortalGetEntryModel()')) {
+  throw new Error('Employee entry must load vNextPortalGetEntryModel.');
+}
+if (!serverSource.includes('function doGet(') || !serverSource.includes("createHtmlOutputFromFile('Portal_Entry')")) {
+  throw new Error('Portal Web App entry is missing.');
 }
 
 process.stdout.write(`PASS portal runtime verification (${actual.length} files, 4 scopes, 1 menu item)\n`);

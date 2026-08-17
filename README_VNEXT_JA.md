@@ -21,12 +21,17 @@ Forecast vNext は、未来の売上を一点で「当てる」ものではな�
 
 ## 物理構成
 
+- **共有ドライブ「年度計画」**: AutoAnalysis / PulseCycle と同じ社内共有ドライブ。社員の入口と生成ブックの置き場です。
+- **01_社員ポータル**: 年度計画ポータル。Webアプリ入口からもここへ飛びます。
+- **02_クライアント年度ブック / FYyyyy / クライアント名**: 1 client × 1 FY の作業ブック。
+- **03_管理者**: Admin Hub。配下の `監査` に AI raw と凍結backup。
+- **04_テンプレート**: `現行` / `下書き` / `履歴`。
 - **Legacy book**: 現行運用を維持する参照元。vNext初期化では変更しません。
-- **Admin Hub**: registry、job、承認、公式run、release、例外を管理する管理者専用book。Legacyのcopyではなく、空Spreadsheetへ中央Admin runtimeだけをbindingします。
-- **年度計画ポータル**: 全社員が既存Client FY Bookを探し、未作成のclient×FYを申請する共通入口。Admin Hubとは別の最小権限runtimeです。
-- **Master Template**: 実クライアントデータを持たないimmutableなClient FY Book生成release。Client専用runtimeと表示3シートだけを持ちます。
+- **Admin Hub**: registry、job、承認、公式run、release、例外を管理する管理者専用book。
+- **年度計画ポータル**: 全社員が既存Client FY Bookを探し、未作成のclient×FYを申請する共通入口。
+- **社員Web入口**: ポータル runtime の Web アプリ。ポータルへの大きなボタン、既存ブックの状態付き一覧、最下部の管理者リンク。
+- **Master Template**: 実クライアントデータを持たないimmutableなClient FY Book生成release。
 - **Client FY Book**: 1 client × 1 FY。従業員入力、予測・計画、振り返りだけを表示。
-- **Admin Audit Folder**: AI raw JSON、公式凍結時のbackup、監査exportを保存。
 
 管理情報を単に隠すのではなく、Client FY Bookへ置かないことが基本方針です。Client FY Bookの非表示シートは、同一クライアント内の誤編集と認知負荷を抑えるためだけに使います。
 

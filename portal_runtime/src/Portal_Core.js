@@ -5,7 +5,7 @@
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: '年度計画',
-  RUNTIME_VERSION: 'vnext-portal-1.4.0',
+  RUNTIME_VERSION: 'vnext-portal-1.5.0',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -290,6 +290,107 @@ function vNextPortalNormalizeRequestId_(value) {
   var requestId = String(value || '').trim();
   if (!/^PORTAL-REQ-[A-Za-z0-9_-]{8,}$/.test(requestId)) throw new Error('受付番号が不正です。');
   return requestId;
+}
+
+/** Employee launcher used by the published Web App. */
+function vNextPortalGetEntryModel() {
+  try {
+    var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    var data = vNextPortalGetLocalViewData_(spreadsheet);
+    var config = vNextPortalReadConfig_(spreadsheet);
+    return vNextPortalBuildEntryModel_(data, {
+      portalUrl: spreadsheet.getUrl(),
+      adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url),
+      actorEmail: vNextPortalActiveUserEmail_()
+    });
+  } catch (error) {
+    vNextPortalLog_('vNextPortalGetEntryModel failed', error);
+    throw new Error(error && error.message ? error.message : '入口を準備できませんでした。');
+  }
+}
+
+function vNextPortalBuildEntryModel_(data, options) {
+  var opt = options && typeof options === 'object' ? options : {};
+  var directory = (data && data.directory) || [];
+  var requests = (data && data.requests) || [];
+  var seen = {};
+  var books = [];
+  directory.forEach(function (item) {
+    var key = String(item.directoryKey || item.clientName || '') + '|FY' + String(item.fiscalYear || '');
+    seen[key] = true;
+    books.push(vNextPortalEntryBookFromDirectory_(item));
+  });
+  requests.forEach(function (item) {
+    var key = String(item.clientName || '') + '|FY' + String(item.fiscalYear || '');
+    if (seen[key] && item.url) return;
+    if (seen[key] && item.status === 'COMPLETED') return;
+    if (!seen[key] || !item.url) {
+      seen[key] = true;
+      books.push(vNextPortalEntryBookFromRequest_(item));
+    }
+  });
+  books.sort(function (a, b) {
+    if (Number(a.fiscalYear) !== Number(b.fiscalYear)) return Number(b.fiscalYear) - Number(a.fiscalYear);
+    return String(a.clientName).localeCompare(String(b.clientName), 'ja');
+  });
+  return {
+    ok: true,
+    runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
+    portalUrl: String(opt.portalUrl || ''),
+    adminHubUrl: String(opt.adminHubUrl || ''),
+    actorEmail: String(opt.actorEmail || ''),
+    books: books
+  };
+}
+
+function vNextPortalEntryBookFromDirectory_(item) {
+  var state = String(item.state || '').toUpperCase();
+  return {
+    clientName: String(item.clientName || ''),
+    fiscalYear: Number(item.fiscalYear || 0),
+    state: state,
+    stateLabel: vNextPortalDirectoryStateLabel_(state),
+    nextAction: String(item.nextAction || ''),
+    url: String(item.url || ''),
+    tone: vNextPortalEntryTone_(state, false)
+  };
+}
+
+function vNextPortalEntryBookFromRequest_(item) {
+  var status = String(item.status || '').toUpperCase();
+  return {
+    clientName: String(item.clientName || ''),
+    fiscalYear: Number(item.fiscalYear || 0),
+    state: status,
+    stateLabel: VNEXT_PORTAL.REQUEST_STATUS_LABELS[status] || status,
+    nextAction: vNextPortalStatusNextAction_(status, item.detailMessage, Boolean(item.url)),
+    url: String(item.url || ''),
+    tone: vNextPortalEntryTone_(status, true)
+  };
+}
+
+function vNextPortalEntryTone_(state, isRequest) {
+  var key = String(state || '').toUpperCase();
+  if (key === 'OFFICIAL_LOCKED' || key === 'COMPLETED') return 'good';
+  if (key === 'SUBMITTED' || key === 'CHANGES_REQUESTED' || key === 'FAILED' || key === 'REJECTED') return 'warn';
+  if (isRequest && (key === 'PENDING' || key === 'VALIDATING' || key === 'CREATING')) return 'warn';
+  return '';
+}
+
+function vNextPortalReadConfig_(spreadsheet) {
+  var sheet = spreadsheet && spreadsheet.getSheetByName('VN_PORTAL_CONFIG');
+  var out = {};
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach(function (row) {
+    var key = String(row[0] || '').trim();
+    if (key) out[key] = row[1];
+  });
+  return out;
+}
+
+function vNextPortalSafeSpreadsheetUrl_(value) {
+  var url = String(value || '').trim();
+  return /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]{20,}(?:\/|$)/.test(url) ? url : '';
 }
 
 function vNextPortalGetLocalViewData_(spreadsheet) {

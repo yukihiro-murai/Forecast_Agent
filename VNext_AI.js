@@ -290,11 +290,25 @@ function vNextAiWriteRawAudit_(request, researchPrompt, grounded, structurePromp
   try {
     var hub = request && request.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
     if (!hub || typeof hub.getId !== 'function') throw new Error('Admin Hub spreadsheet is unavailable for AI audit.');
-    var hubFile = DriveApp.getFileById(hub.getId());
-    var parents = hubFile.getParents();
-    var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-    var folders = parent.getFoldersByName('Forecast vNext Admin Audit');
-    var folder = folders.hasNext() ? folders.next() : parent.createFolder('Forecast vNext Admin Audit');
+    var destFolder = null;
+    try {
+      if (typeof vNextAdminReadKeyValueSheet_ === 'function') {
+        var config = vNextAdminReadKeyValueSheet_(hub, 'VN_SYSTEM_CONFIG');
+        if (config && config.library_audit_folder_id) {
+          destFolder = DriveApp.getFolderById(String(config.library_audit_folder_id));
+        }
+      }
+    } catch (configError) {
+      destFolder = null;
+    }
+    if (!destFolder) {
+      var hubFile = DriveApp.getFileById(hub.getId());
+      var parents = hubFile.getParents();
+      var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+      var folders = parent.getFoldersByName('Forecast vNext Admin Audit');
+      destFolder = folders.hasNext() ? folders.next() : parent.createFolder('Forecast vNext Admin Audit');
+    }
+    var folder = destFolder;
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
     var safeBook = String(request.bookId || 'BOOK').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
     var payload = {

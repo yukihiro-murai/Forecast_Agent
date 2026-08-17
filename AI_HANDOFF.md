@@ -21,8 +21,8 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `1699b9fb6ba71b8d0f0c3da699ee2819982d59e369c0282e70fb8f5a55f89765` |
-| コード上のPortal runtime | `vnext-portal-1.4.0` |
-| コード上のPortal bundle SHA-256 | `d0f44bcd8e0d9b81d69cb822d2e425d4d8046c162a623c32b37019e84d3bdf58` |
+| コード上のPortal runtime | `vnext-portal-1.5.0` |
+| コード上のPortal bundle SHA-256 | `f180dea8b535f3069f20f470574dfe0a44d8479fb545cf12832a15f443ee5ec0` |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -37,6 +37,8 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 簡易onOpenからは案内を出せない。案内が一度開いたあと、そのブックのproject onOpen triggerで以後は自動表示する。
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
+
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。Hubの「共有ドライブへ整理して移す」で用途別フォルダへ移す。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

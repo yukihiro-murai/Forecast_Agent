@@ -43,8 +43,9 @@ testStatusEventValidation();
 testAppendRequestContract();
 testCreateModel();
 testRequestProgress();
+testEntryModel();
 await testStaticUxContracts();
-process.stdout.write('PASS portal runtime behavior tests (11)\n');
+process.stdout.write('PASS portal runtime behavior tests (12)\n');
 
 function v2Payload(overrides = {}) {
   return {
@@ -270,7 +271,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.4.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.5.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -327,6 +328,29 @@ function testRequestProgress() {
   }
 }
 
+function testEntryModel() {
+  const model = sandbox.vNextPortalBuildEntryModel_({
+    directory: [{
+      directoryKey: '2027|az', clientName: 'アストラゼネカ', fiscalYear: 2027,
+      state: 'SUBMITTED', nextAction: '管理者の承認待ちです。',
+      url: 'https://docs.google.com/spreadsheets/d/1234567890123456789012/edit'
+    }],
+    requests: [{
+      clientName: '新規株式会社', fiscalYear: 2027, status: 'CREATING',
+      detailMessage: '', url: ''
+    }]
+  }, {
+    portalUrl: 'https://docs.google.com/spreadsheets/d/portalportalportalportalpo/edit',
+    adminHubUrl: 'https://docs.google.com/spreadsheets/d/hubhubhubhubhubhubhubhubhu/edit'
+  });
+  assert.equal(model.books.length, 2);
+  assert.equal(model.books[0].clientName, 'アストラゼネカ');
+  assert.equal(model.books[0].tone, 'warn');
+  assert.equal(model.books[1].stateLabel, 'ブック作成中');
+  assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
+  assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
+}
+
 async function testStaticUxContracts() {
   const core = await readFile(path.join(sourceDir, 'Portal_Core.js'), 'utf8');
   const ux = await readFile(path.join(sourceDir, 'Portal_UX.js'), 'utf8');
@@ -377,4 +401,12 @@ async function testStaticUxContracts() {
   assert.equal((html.match(/id="memberRow[1-5]"/g) || []).length, 5);
   assert.match(ux, /vNextPortalDisplayPlanningValue_\(entry\.centerForecast, actualShortage \? '実績不足' : '未算出'\)/,
     'Empty and insufficient forecast values must be explained, not shown as zero');
+  assert.match(ux, /function doGet\(/);
+  assert.match(ux, /createHtmlOutputFromFile\('Portal_Entry'\)/);
+  assert.match(core, /function vNextPortalGetEntryModel\(/);
+  assert.match(core, /function vNextPortalBuildEntryModel_/);
+  const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
+  assert.match(entry, /年度計画ポータルを開く/);
+  assert.match(entry, /vNextPortalGetEntryModel\(\)/);
+  assert.match(entry, /管理者用ハブ/);
 }

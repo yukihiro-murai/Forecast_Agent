@@ -280,11 +280,11 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.4.0');
-  assert.equal(bundle.files.length, 4);
+  assert.equal(bundle.version, 'vnext-portal-1.5.0');
+  assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
-    ['Portal_Core', 'Portal_CreateSidebar', 'Portal_UX', 'appsscript'].sort()
+    ['Portal_Core', 'Portal_CreateSidebar', 'Portal_Entry', 'Portal_UX', 'appsscript'].sort()
   );
   const sourceDir = path.join(root, 'portal_runtime', 'src');
   const generated = [];
@@ -349,7 +349,8 @@ async function checkPortalRuntimeBoundary() {
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   assert.match(adminSidebar, /社員ポータルを準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
-  assert.match(adminSidebar, /vNextAdminContinueEmployeePortalPilotRecovery/);
+  assert.match(adminSidebar, /vNextAdminRelocateLibraryToSharedDrive/);
+  assert.match(adminSidebar, /共有ドライブ「年度計画」へ移す/);
   const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
   assert.match(adminSource, /VN_ADMIN_PORTAL_REQUEST_SCHEMA\s*=\s*'vnext-portal-request-2'/);
   assert.match(adminSource, /function vNextAdminRefreshZacClientCatalog\(/);
@@ -391,7 +392,7 @@ async function checkPortalRuntimeBoundary() {
   assert.ok(adminSource.includes('function vNextAdminPrepareEmployeePortalPilotForManualTest()') &&
     adminSource.includes("answer !== ui.Button.YES") &&
     adminSource.includes('clientRuntimeTests: 10') &&
-    adminSource.includes('portalRuntimeTests: 11'),
+    adminSource.includes('portalRuntimeTests: 12'),
   'The manual Sheet-macro entry must require explicit Admin attestation and record the tested runtime identities');
   const adminMenuStart = adminSource.indexOf('function vNextBuildAdminMenu_()');
   const adminMenuEnd = adminSource.indexOf('/** Optional best-effort hook', adminMenuStart);
@@ -1137,8 +1138,11 @@ async function checkAdminCoverageContracts() {
   assert.equal(sidebar.includes('migrationBookId'), false,
     'Migration controls must not be displayed in the pilot Admin Sidebar');
   assert.ok(source.includes('private_root_folder_id: folder.getId()') &&
-    source.includes('vNextAdminFolderWithinRoot_') && source.includes('vNextAdminAssertClientFileAcl_'),
-    'Client provisioning must stay inside the recorded Admin-private root and verify final file ACL');
+    source.includes('vNextAdminFolderWithinRoot_') && source.includes('vNextAdminAssertClientFileAcl_') &&
+    source.includes("DRIVE_NAME: '年度計画'") &&
+    source.includes('function vNextAdminRelocateLibraryToSharedDrive(') &&
+    source.includes('vNextAdminPrepareLibraryDestinationFolder_'),
+    'Client provisioning must stay inside the recorded library root, with a shared-drive relocate path');
   assert.ok(source.includes('VN_ADMIN_PILOT_INITIAL_LIMIT = 3') &&
     source.includes('VN_ADMIN_PILOT_CANARY_LIMIT = 5'),
     'Pilot provisioning must gate at three and hard-stop after five Clients');

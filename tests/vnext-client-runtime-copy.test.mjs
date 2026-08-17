@@ -54,7 +54,7 @@ process.stdout.write('PASS vNext client runtime copy tests (5 groups)\n');
 
 function testPortalManifestContract() {
   const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();
-  assert.equal(verified.files.length, 4);
+  assert.equal(verified.files.length, 5);
   assert.match(verified.version, /^vnext-portal-\d+\.\d+\.\d+$/);
 }
 

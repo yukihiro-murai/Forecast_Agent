@@ -92,10 +92,22 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.4.0';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.5.0';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
-  'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0'
+  'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
+  'vnext-portal-1.4.0'
 ]);
+const VN_ADMIN_LIBRARY = Object.freeze({
+  DRIVE_NAME: '年度計画',
+  PORTAL: '01_社員ポータル',
+  BOOKS: '02_クライアント年度ブック',
+  ADMIN: '03_管理者',
+  AUDIT: '監査',
+  TEMPLATES: '04_テンプレート',
+  TEMPLATES_CURRENT: '現行',
+  TEMPLATES_DRAFT: '下書き',
+  TEMPLATES_HISTORY: '履歴'
+});
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-2';
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1 = 'vnext-portal-request-1';
 const VN_ADMIN_ZAC_CLIENT_CODE_COLUMN = 40; // AN
@@ -1471,7 +1483,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
         status: 'PASS',
         basis: 'CLIENT_AND_PORTAL_RUNTIME_CONTRACT_TESTS',
         clientRuntimeTests: 10,
-        portalRuntimeTests: 11,
+        portalRuntimeTests: 12,
         integrationContractTests: 'PASS',
         reviewedBy: vNextAdminActor_(),
         evidenceArtifact: vNextAdminRequiredText_(req.evidenceArtifact, 'evidenceArtifact')
@@ -1571,7 +1583,7 @@ function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
       clientRuntimeTests: 10,
       clientRuntimeVersion: clientBundle.version,
       clientRuntimeSha256: clientBundle.sha256,
-      portalRuntimeTests: 11,
+      portalRuntimeTests: 12,
       portalRuntimeVersion: portalBundle.version,
       portalRuntimeSha256: portalBundle.sha256,
       integrationContractTests: 'PASS'
@@ -1629,8 +1641,8 @@ function vNextAdminProvisionSharedPortalInHub_(hub, request) {
       throw new Error('Portal runtime provisioner is not installed.');
     }
     const adminEmails = vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, actor);
-    const folder = vNextAdminPrepareClientDestinationFolder_(hub, req.folderId,
-      'Employee-Portal-' + Utilities.getUuid().slice(0, 8), adminEmails);
+    const folder = vNextAdminPrepareLibraryDestinationFolder_(hub, req.folderId,
+      vNextAdminLibraryPath_('PORTAL'), adminEmails);
     const created = vNextPortalRuntimeCreateBoundSpreadsheet_({
       title: vNextAdminText_(req.title) || '年度計画ポータル', folderId: folder.getId()
     });
@@ -1752,8 +1764,8 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       const now = new Date();
       const pilot = vNextAdminAssertPilotProvisionAllowed_(hub);
       const adminEmails = vNextAdminMergeEmails_(runtime.VNEXT_ADMIN_EMAILS, actor);
-      const folder = vNextAdminPrepareClientDestinationFolder_(hub, req.folderId,
-        clientId + '-FY' + fiscalYear + '-' + bookId.slice(-8), adminEmails);
+      const folder = vNextAdminPrepareLibraryDestinationFolder_(hub, req.folderId,
+        vNextAdminLibraryPath_('CLIENT', fiscalYear, clientName), adminEmails);
       const stagingFolder = folder;
       const forecastOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
       if (forecastOwners.length !== 1) throw new Error('Forecast Ownerを1名だけ指定してください。');
@@ -4937,8 +4949,71 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
 }
 
 /**
+ * Creates the company shared drive 「年度計画」 if needed, builds purpose folders,
+ * and moves Hub / Portal / Client / Template / audit files into that tree.
+ */
+function vNextAdminRelocateLibraryToSharedDrive(request) {
+  return vNextAdminGuard_('vNextAdminRelocateLibraryToSharedDrive', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const reason = vNextAdminRequiredText_(req.reason, 'reason');
+    return vNextAdminWithScriptLock_('relocate-library', function () {
+      const adminEmails = vNextAdminMergeEmails_(
+        vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS, vNextAdminActor_()
+      );
+      const domain = vNextAdminNormalizeDomain_(
+        req.employeeDomain || vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).employee_domain ||
+        vNextGetRuntimeConfig_().VNEXT_EMPLOYEE_DOMAIN || vNextAdminEmailDomain_(vNextAdminActor_())
+      );
+      const library = vNextAdminEnsureSharedLibrary_(hub, {
+        sharedDriveId: vNextAdminText_(req.sharedDriveId),
+        adminEmails: adminEmails,
+        domain: domain
+      });
+      const moved = vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails);
+      vNextAdminWriteSystemConfig_(hub, {
+        private_root_folder_id: library.rootId,
+        shared_drive_id: library.driveId,
+        library_drive_name: VN_ADMIN_LIBRARY.DRIVE_NAME,
+        library_portal_folder_id: library.folders.portal,
+        library_books_folder_id: library.folders.books,
+        library_admin_folder_id: library.folders.admin,
+        library_audit_folder_id: library.folders.audit,
+        library_templates_folder_id: library.folders.templates,
+        library_relocated_at: new Date().toISOString(),
+        library_relocated_by: vNextAdminActor_()
+      });
+      const portal = vNextAdminTryResolvePortal_(hub);
+      if (portal && portal.spreadsheet) {
+        vNextAdminWritePortalConfigValues_(portal.spreadsheet, {
+          admin_hub_url: hub.getUrl(),
+          portal_spreadsheet_url: portal.spreadsheet.getUrl()
+        });
+      }
+      vNextAdminWriteAudit_(hub, 'RELOCATE_LIBRARY', 'DRIVE', library.driveId, 'SUCCESS', {
+        reason: reason, driveName: VN_ADMIN_LIBRARY.DRIVE_NAME, moved: moved,
+        folderUrl: 'https://drive.google.com/drive/folders/' + library.rootId
+      });
+      return {
+        ok: true,
+        driveId: library.driveId,
+        folderUrl: 'https://drive.google.com/drive/folders/' + library.rootId,
+        moved: moved,
+        message: '共有ドライブ「' + VN_ADMIN_LIBRARY.DRIVE_NAME + '」へ整理しました。画面を再読み込みしてください。'
+      };
+    });
+  });
+}
+
+function vNextAdminTryResolvePortal_(hub) {
+  try { return vNextAdminResolvePortal_(hub); }
+  catch (error) { return null; }
+}
+
+/**
  * Updates the one registered employee Portal in place. The request log and
- * directory data stay in the Spreadsheet; only the verified four-file bound
+ * directory data stay in the Spreadsheet; only the verified portal-safe bound
  * runtime and its pinned identity are replaced.
  */
 function vNextAdminUpdateSharedPortalRuntime(request) {
@@ -5197,10 +5272,8 @@ function vNextAdminCreateTemplateDraft(request) {
         };
       }
 
-      const sourceFile = DriveApp.getFileById(source.spreadsheet.getId());
-      const parents = sourceFile.getParents();
-      const folder = vNextAdminPreparePrivateBootstrapFolder_(parents.hasNext() ? parents.next().getId() : '',
-        'Forecast vNext Template Drafts', source.adminEmails);
+      const folder = vNextAdminPrepareLibraryDestinationFolder_(hub, '',
+        vNextAdminLibraryPath_('TEMPLATE_DRAFT'), source.adminEmails);
       const created = vNextClientRuntimeCreateBoundSpreadsheet_({ title: draftName, folderId: folder.getId() });
       if (String(created.runtimeVersion || '') !== String(bundle.version || '') ||
           String(created.bundleSha256 || '') !== String(bundle.sha256 || '')) {
@@ -5332,14 +5405,11 @@ function vNextAdminPublishTemplateRelease(request) {
           throw new Error('Existing release Template identity is inconsistent.');
         }
       } else {
-        const currentTemplateFile = DriveApp.getFileById(
-          vNextAdminRequiredText_(current.template_spreadsheet_id, 'activeRelease.template_spreadsheet_id')
-        );
-        const parentIterator = currentTemplateFile.getParents();
-        const parentId = parentIterator.hasNext() ? parentIterator.next().getId() : '';
+        const dest = vNextAdminPrepareLibraryDestinationFolder_(hub, '',
+          vNextAdminLibraryPath_('TEMPLATE_CURRENT'), adminEmails);
         const created = vNextClientRuntimeCreateBoundSpreadsheet_({
           title: (vNextAdminText_(req.releaseName) || 'Forecast vNext Master Template') + ' [' + releaseId + ']',
-          folderId: parentId
+          folderId: dest.getId()
         });
         if (String(created.runtimeVersion || '') !== String(bundle.version || '') ||
             String(created.bundleSha256 || '') !== String(bundle.sha256 || '')) {
@@ -6276,6 +6346,7 @@ function vNextAdminListTemplateDrafts_(hub) {
 }
 
 function vNextAdminAssertPrivateAdminFile_(file, adminEmails) {
+  if (vNextAdminIsSharedDriveManaged_(file)) return true;
   const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
   const allowed = new Set(vNextAdminMergeEmails_(adminEmails, owner, vNextAdminActor_()));
   if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
@@ -11132,6 +11203,10 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     sheet.getRange(2, 1, values.length, directoryHeaders.length).setValues(values);
   }
   sheet.hideSheet();
+  vNextAdminWritePortalConfigValues_(spreadsheet, {
+    admin_hub_url: hub.getUrl(),
+    portal_spreadsheet_url: spreadsheet.getUrl()
+  });
   return { portalSpreadsheetId: spreadsheet.getId(), rows: rows.length };
 }
 
@@ -12500,23 +12575,183 @@ function vNextAdminResolveDestinationFolder_(folderId, sourceFile) {
   return DriveApp.getRootFolder();
 }
 
+function vNextAdminLibraryPath_(kind, fiscalYear, clientName) {
+  if (kind === 'PORTAL') return [VN_ADMIN_LIBRARY.PORTAL];
+  if (kind === 'ADMIN') return [VN_ADMIN_LIBRARY.ADMIN];
+  if (kind === 'AUDIT') return [VN_ADMIN_LIBRARY.ADMIN, VN_ADMIN_LIBRARY.AUDIT];
+  if (kind === 'TEMPLATE_CURRENT') {
+    return [VN_ADMIN_LIBRARY.TEMPLATES, VN_ADMIN_LIBRARY.TEMPLATES_CURRENT];
+  }
+  if (kind === 'TEMPLATE_DRAFT') {
+    return [VN_ADMIN_LIBRARY.TEMPLATES, VN_ADMIN_LIBRARY.TEMPLATES_DRAFT];
+  }
+  if (kind === 'TEMPLATE_HISTORY') {
+    return [VN_ADMIN_LIBRARY.TEMPLATES, VN_ADMIN_LIBRARY.TEMPLATES_HISTORY];
+  }
+  return [
+    VN_ADMIN_LIBRARY.BOOKS,
+    'FY' + (Number(fiscalYear) >= 2000 ? Number(fiscalYear) : 'unknown'),
+    vNextAdminSafeDriveName_(clientName, 'クライアント')
+  ];
+}
+
+function vNextAdminSafeDriveName_(value, fallback) {
+  const text = String(value || fallback || '未設定')
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (text || fallback || '未設定').slice(0, 80);
+}
+
 function vNextAdminPrepareClientDestinationFolder_(hub, requestedFolderId, label, adminEmails) {
-  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
-  const rootId = String(config.private_root_folder_id || '').trim();
-  if (!rootId) throw new Error('Admin-private root folderがHubに記録されていないためClient生成を停止しました。clean bootstrapを確認してください。');
-  const root = vNextAdminPreparePrivateBootstrapFolder_(rootId, 'Forecast vNext Private', adminEmails);
-  let base = root;
+  const parsed = String(label || '').match(/FY(\d{4})/i);
+  const fiscalYear = parsed ? parsed[1] : 2027;
+  const clientName = String(label || 'クライアント').replace(/-FY\d{4}.*$/i, '');
+  return vNextAdminPrepareLibraryDestinationFolder_(hub, requestedFolderId,
+    vNextAdminLibraryPath_('CLIENT', fiscalYear, clientName || label), adminEmails);
+}
+
+function vNextAdminPrepareLibraryDestinationFolder_(hub, requestedFolderId, pathSegments, adminEmails) {
+  const root = vNextAdminResolveManagedRoot_(hub, adminEmails);
   const requested = String(requestedFolderId || '').trim();
   if (requested) {
-    base = DriveApp.getFolderById(requested);
-    if (!vNextAdminFolderWithinRoot_(base, rootId)) {
-      throw new Error('指定folderはAdmin-private root配下ではないため使用できません。');
+    const folder = DriveApp.getFolderById(requested);
+    if (!vNextAdminFolderWithinRoot_(folder, root.getId())) {
+      throw new Error('指定folderは年度計画ライブラリ配下ではないため使用できません。');
     }
-    base = vNextAdminPreparePrivateBootstrapFolder_(base.getId(), base.getName(), adminEmails);
+    return vNextAdminPrepareManagedFolder_(folder.getId(), folder.getName(), adminEmails);
   }
-  const safe = String(label || 'Client-FY').replace(/[^A-Za-z0-9_.-]+/g, '-').slice(0, 80);
-  const child = base.createFolder('Client-' + safe);
-  return vNextAdminPreparePrivateBootstrapFolder_(child.getId(), child.getName(), adminEmails);
+  return vNextAdminEnsureLibraryPath_(root, pathSegments, adminEmails);
+}
+
+function vNextAdminResolveManagedRoot_(hub, adminEmails) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const rootId = String(config.shared_drive_id || config.private_root_folder_id || '').trim();
+  if (!rootId) throw new Error('年度計画の保存先folderがHubに記録されていないため停止しました。');
+  return vNextAdminPrepareManagedFolder_(rootId, VN_ADMIN_LIBRARY.DRIVE_NAME, adminEmails);
+}
+
+function vNextAdminEnsureLibraryPath_(root, pathSegments, adminEmails) {
+  let current = root;
+  (pathSegments || []).forEach(function (name) {
+    const safe = vNextAdminSafeDriveName_(name, 'folder');
+    const existing = current.getFoldersByName(safe);
+    current = existing.hasNext() ? existing.next() : current.createFolder(safe);
+    current = vNextAdminPrepareManagedFolder_(current.getId(), current.getName(), adminEmails);
+  });
+  return current;
+}
+
+function vNextAdminEnsureSharedLibrary_(hub, options) {
+  const opt = options || {};
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const driveId = String(opt.sharedDriveId || config.shared_drive_id || '').trim() ||
+    vNextAdminFindOrCreateSharedDrive_(VN_ADMIN_LIBRARY.DRIVE_NAME);
+  const root = vNextAdminPrepareManagedFolder_(driveId, VN_ADMIN_LIBRARY.DRIVE_NAME, opt.adminEmails);
+  vNextAdminShareLibraryWithCompany_(driveId, opt.domain, opt.adminEmails);
+  const folders = {
+    portal: vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('PORTAL'), opt.adminEmails).getId(),
+    books: vNextAdminEnsureLibraryPath_(root, [VN_ADMIN_LIBRARY.BOOKS], opt.adminEmails).getId(),
+    admin: vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('ADMIN'), opt.adminEmails).getId(),
+    audit: vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('AUDIT'), opt.adminEmails).getId(),
+    templates: vNextAdminEnsureLibraryPath_(root, [VN_ADMIN_LIBRARY.TEMPLATES], opt.adminEmails).getId()
+  };
+  vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('TEMPLATE_CURRENT'), opt.adminEmails);
+  vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('TEMPLATE_DRAFT'), opt.adminEmails);
+  vNextAdminEnsureLibraryPath_(root, vNextAdminLibraryPath_('TEMPLATE_HISTORY'), opt.adminEmails);
+  return { driveId: driveId, rootId: root.getId(), folders: folders };
+}
+
+function vNextAdminFindOrCreateSharedDrive_(name) {
+  if (typeof Drive === 'undefined' || !Drive.Drives) {
+    throw new Error('共有ドライブを作るには Drive 詳細サービスが必要です。中央配備版へ更新してから再実行してください。');
+  }
+  const listed = Drive.Drives.list({ pageSize: 100 });
+  const drives = (listed && listed.drives) || [];
+  for (let i = 0; i < drives.length; i++) {
+    if (String(drives[i].name || '') === name) return String(drives[i].id);
+  }
+  const created = Drive.Drives.create({ name: name }, Utilities.getUuid());
+  if (!created || !created.id) throw new Error('共有ドライブ「' + name + '」を作成できませんでした。');
+  return String(created.id);
+}
+
+function vNextAdminShareLibraryWithCompany_(driveId, domain, adminEmails) {
+  if (typeof Drive === 'undefined' || !Drive.Permissions) return false;
+  vNextAdminMergeEmails_(adminEmails).forEach(function (email) {
+    try {
+      Drive.Permissions.create(
+        { type: 'user', role: 'organizer', emailAddress: email },
+        driveId, { supportsAllDrives: true, sendNotificationEmail: false }
+      );
+    } catch (ignoredExisting) {}
+  });
+  if (!domain) return true;
+  try {
+    Drive.Permissions.create(
+      { type: 'domain', role: 'fileOrganizer', domain: domain },
+      driveId, { supportsAllDrives: true, sendNotificationEmail: false }
+    );
+    return true;
+  } catch (organizerError) {
+    try {
+      Drive.Permissions.create(
+        { type: 'domain', role: 'writer', domain: domain },
+        driveId, { supportsAllDrives: true, sendNotificationEmail: false }
+      );
+      return true;
+    } catch (writerError) {
+      Logger.log('Shared drive domain sharing skipped: %s', String(writerError));
+      return false;
+    }
+  }
+}
+
+function vNextAdminMoveRegisteredFilesIntoLibrary_(hub, library, adminEmails) {
+  const moved = [];
+  const activeReleaseId = String(vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id || '');
+  const root = vNextAdminPrepareManagedFolder_(library.rootId, VN_ADMIN_LIBRARY.DRIVE_NAME, adminEmails);
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.forEach(function (row) {
+    const spreadsheetId = String(row.spreadsheet_id || '').trim();
+    if (!spreadsheetId || !vNextAdminSpreadsheetAccessible_(spreadsheetId)) return;
+    const mode = String(row.mode || '').toUpperCase();
+    const status = String(row.status || '').toUpperCase();
+    const state = String(row.state || '').toUpperCase();
+    let path = vNextAdminLibraryPath_('ADMIN');
+    if (mode === 'PORTAL') path = vNextAdminLibraryPath_('PORTAL');
+    else if (mode === 'CLIENT') path = vNextAdminLibraryPath_('CLIENT', row.fiscal_year, row.client_name);
+    else if (mode === 'TEMPLATE' && (status === 'DRAFT' || state === 'TEMPLATE_DRAFT')) {
+      path = vNextAdminLibraryPath_('TEMPLATE_DRAFT');
+    } else if (mode === 'TEMPLATE' && String(row.release_id || row.template_release_id || '') === activeReleaseId) {
+      path = vNextAdminLibraryPath_('TEMPLATE_CURRENT');
+    } else if (mode === 'TEMPLATE') path = vNextAdminLibraryPath_('TEMPLATE_HISTORY');
+    else if (mode !== 'ADMIN') return;
+    const dest = vNextAdminEnsureLibraryPath_(root, path, adminEmails);
+    vNextAdminMoveFileToFolder_(spreadsheetId, dest);
+    moved.push({ spreadsheetId: spreadsheetId, mode: mode, folderId: dest.getId() });
+  });
+  const auditDest = vNextAdminPrepareManagedFolder_(library.folders.audit, VN_ADMIN_LIBRARY.AUDIT, adminEmails);
+  const hubParents = DriveApp.getFileById(hub.getId()).getParents();
+  if (hubParents.hasNext()) {
+    const oldAudit = hubParents.next().getFoldersByName('Forecast vNext Admin Audit');
+    if (oldAudit.hasNext()) {
+      const files = oldAudit.next().getFiles();
+      while (files.hasNext()) vNextAdminMoveFileToFolder_(files.next().getId(), auditDest);
+    }
+  }
+  return moved;
+}
+
+function vNextAdminMoveFileToFolder_(fileId, destFolder) {
+  const file = DriveApp.getFileById(fileId);
+  const destId = destFolder.getId();
+  const parents = file.getParents();
+  let alreadyThere = false;
+  while (parents.hasNext()) {
+    if (parents.next().getId() === destId) alreadyThere = true;
+  }
+  if (!alreadyThere) file.moveTo(destFolder);
+  return { fileId: fileId, folderId: destId };
 }
 
 function vNextAdminFolderWithinRoot_(folder, rootId) {
@@ -12540,6 +12775,7 @@ function vNextAdminFolderWithinRoot_(folder, rootId) {
 }
 
 function vNextAdminAssertClientFileAcl_(file, editors, viewers) {
+  if (vNextAdminIsSharedDriveManaged_(file)) return true;
   if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
     throw new Error('Client fileがdomain/anyone共有になっているため生成を停止しました。');
   }
@@ -12568,10 +12804,12 @@ function vNextAdminApplyEmployeeFileSharing_(file, options) {
   if (['CLIENT', 'PORTAL'].indexOf(mode) < 0) throw new Error('Employee sharing is limited to CLIENT/PORTAL files.');
   const policy = String(opt.accessPolicy || 'PRIVATE').toUpperCase();
   if (policy === 'PRIVATE') {
+    if (vNextAdminIsSharedDriveManaged_(file)) return true;
     file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
     return true;
   }
   if (policy !== 'INTERNAL_OPEN') throw new Error('Unsupported employee access policy: ' + policy);
+  if (vNextAdminIsSharedDriveManaged_(file)) return true;
   const domain = vNextAdminNormalizeDomain_(opt.internalDomain);
   const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
   if (!domain || vNextAdminEmailDomain_(owner) !== domain) {
@@ -12586,8 +12824,12 @@ function vNextAdminAssertEmployeeFileSharing_(file, options) {
   const mode = String(opt.targetMode || '').toUpperCase();
   if (['CLIENT', 'PORTAL'].indexOf(mode) < 0) throw new Error('Employee sharing verification is limited to CLIENT/PORTAL files.');
   const policy = String(opt.accessPolicy || 'PRIVATE').toUpperCase();
-  if (policy === 'PRIVATE') return vNextAdminAssertClientFileAcl_(file, opt.editors || [], opt.viewers || []);
+  if (policy === 'PRIVATE') {
+    if (vNextAdminIsSharedDriveManaged_(file)) return true;
+    return vNextAdminAssertClientFileAcl_(file, opt.editors || [], opt.viewers || []);
+  }
   if (policy !== 'INTERNAL_OPEN') throw new Error('Unsupported employee access policy: ' + policy);
+  if (vNextAdminIsSharedDriveManaged_(file)) return true;
   const domain = vNextAdminNormalizeDomain_(opt.internalDomain);
   const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
   if (!domain || vNextAdminEmailDomain_(owner) !== domain) throw new Error('Employee domain verification failed.');
@@ -12616,10 +12858,27 @@ function vNextAdminEmailDomain_(value) {
   return at > 0 && at < email.length - 1 ? email.slice(at + 1) : '';
 }
 
+function vNextAdminPrepareManagedFolder_(folderId, name, adminEmails) {
+  return vNextAdminPreparePrivateBootstrapFolder_(folderId, name, adminEmails);
+}
+
+function vNextAdminIsSharedDriveManaged_(fileOrFolder) {
+  try {
+    if (typeof Drive !== 'undefined' && Drive.Files) {
+      const meta = Drive.Files.get(fileOrFolder.getId(), {
+        fields: 'id,driveId', supportsAllDrives: true
+      });
+      if (meta && meta.driveId) return true;
+    }
+  } catch (error) {}
+  return false;
+}
+
 function vNextAdminPreparePrivateBootstrapFolder_(folderId, name, adminEmails) {
   const folder = folderId
     ? DriveApp.getFolderById(String(folderId))
     : DriveApp.createFolder(String(name || ('Forecast vNext Private ' + new Date().getTime())));
+  if (vNextAdminIsSharedDriveManaged_(folder)) return folder;
   const allowed = new Set(vNextAdminMergeEmails_(adminEmails, vNextAdminActor_()));
   try {
     if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
@@ -12640,6 +12899,7 @@ function vNextAdminPreparePrivateBootstrapFolder_(folderId, name, adminEmails) {
 }
 
 function vNextAdminEnforcePrivateFileAcl_(file, adminEmails) {
+  if (vNextAdminIsSharedDriveManaged_(file)) return true;
   const owner = file.getOwner() ? String(file.getOwner().getEmail() || '').toLowerCase() : '';
   const allowed = new Set(vNextAdminMergeEmails_(adminEmails, owner, vNextAdminActor_()));
   file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);

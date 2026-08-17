@@ -196,6 +196,10 @@
         <div id="adminRuntimeStatus" class="status">Admin runtimeを確認中…</div>
         <label>更新理由（必須）<input id="adminRuntimeReason" placeholder="不具合修正・監査強化など"></label>
         <button id="updateAdminRuntimeButton" class="warn" onclick="updateAdminRuntime()">中央配備版へ更新</button>
+        <h2>共有ドライブへ整理して移す</h2>
+        <p class="muted">AutoAnalysis と同じく、共有ドライブ「年度計画」を作り、ポータル・クライアント・管理者・テンプレートを用途別フォルダへ移します。ブックの中身は変えません。</p>
+        <label>移設理由（必須）<input id="libraryRelocateReason" placeholder="社内共有ドライブへ整理"></label>
+        <button class="warn" onclick="relocateLibrary()">共有ドライブ「年度計画」へ移す</button>
         <h2>Vertex AI接続設定（管理者のみ）</h2>
         <p class="muted">入力した項目だけをHubのScript Propertiesへ保存します。値は画面へ再表示しません。</p>
         <label>Project ID<input id="vertexProjectId"></label>
@@ -850,6 +854,14 @@
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('adminRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({reason});
+      }
+      function relocateLibrary() {
+        const reason = value('libraryRelocateReason');
+        if (!reason) { showStatus('共有ドライブへ移す理由を入力してください。', true); return; }
+        setBusy(true); showStatus('共有ドライブ「年度計画」を用意し、ファイルを整理しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false); showStatus(result); $('libraryRelocateReason').value = ''; load();
+        }).withFailureHandler(onFailure).vNextAdminRelocateLibraryToSharedDrive({reason});
       }
       function requestForecast() {
         setBusy(true);

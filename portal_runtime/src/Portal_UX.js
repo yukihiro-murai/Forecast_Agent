@@ -3,6 +3,19 @@
  * Daily work stays in one guidance sidebar. The top menu is only a recovery path.
  */
 
+function doGet() {
+  try {
+    return HtmlService.createHtmlOutputFromFile('Portal_Entry')
+      .setTitle('年度計画')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  } catch (error) {
+    vNextPortalLog_('doGet failed', error);
+    return HtmlService.createHtmlOutput(
+      '<p>入口を表示できませんでした。社内アカウントで開き直してください。</p>'
+    ).setTitle('年度計画');
+  }
+}
+
 function onOpen(event) {
   return vNextPortalOnOpen_(event);
 }

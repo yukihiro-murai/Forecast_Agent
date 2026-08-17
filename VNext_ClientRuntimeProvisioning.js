@@ -44,6 +44,7 @@ var VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
 var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
   Portal_Core: 'SERVER_JS',
   Portal_CreateSidebar: 'HTML',
+  Portal_Entry: 'HTML',
   Portal_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
@@ -564,7 +565,7 @@ function vNextClientRuntimeValidateManifest_(source, expectedScopes) {
 function vNextPortalRuntimeValidateFiles_(files) {
   var expectedNames = Object.keys(VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
-    throw new Error('Portal runtime must contain exactly three portal files and one manifest.');
+    throw new Error('Portal runtime file count does not match the allowlist.');
   }
   var byName = {};
   files.forEach(function (file) {

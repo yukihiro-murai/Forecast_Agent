@@ -6,7 +6,8 @@
 
 - `ホーム`: 作成依頼の受付・作成中・完成・要確認を一覧表示
 - `FYyyyy`: 1行を「1クライアント × 1年度」とする年度別一覧
-- メニュー（3項目のみ）: `ホームに戻る` / `新しい年度計画を作る` / `使い方・困ったとき`
+- メニュー: `案内を開く` のみ。日常作業は右側の案内
+- Web入口: `doGet` / `Portal_Entry.html`。ポータルへの大きなボタン、既存計画の状態付き一覧、最下部の管理者リンク
 
 専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。作成担当（Forecast Owner）は入力させず、送信時のログインユーザーを自動設定します。
 
@@ -21,6 +22,7 @@
 - `vNextPortalSubmitCreationRequest(input)`
 - `vNextPortalGetRequestProgress(requestId)`
 - `vNextPortalShowRequestOnHome(requestId)`
+- `vNextPortalGetEntryModel()`
 - `vNextPortalGoHome()`
 - `vNextPortalOpenCreateSidebar()`
 - `vNextPortalOpenHelp()`
