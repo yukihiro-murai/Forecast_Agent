@@ -361,6 +361,8 @@
           friendly = '予測に必要な確定実績が5年度未満です。ZACの実績範囲を確認してください。';
         } else if (/Requested release is not ACTIVE/i.test(raw)) {
           friendly = '使用する年度計画の版に不整合がありました。「申請を今すぐ処理」から安全な再開を試してください。';
+        } else if (/stored SHA-256 pin/i.test(raw)) {
+          friendly = 'ポータルの実体が Hub の記録とずれています。受付履歴は消しません。もう一度「最新版へ更新」を押すと上書きできます。';
         }
         showStatus(friendly, true);
         $('statusTechnicalText').textContent = raw;
@@ -834,12 +836,30 @@
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRunOperationalCycle();
       }
+      var portalRuntimeDriftConfirmed = false;
       function updatePortalRuntime() {
         const reason = value('portalRuntimeReason') || '共有ドライブ移設後の最新版';
+        const confirmRuntimeDrift = portalRuntimeDriftConfirmed;
         setBusy(true); showStatus('受付履歴を保ったまま、社員ポータルを検証済み最新版へ更新しています…');
         google.script.run.withSuccessHandler(result => {
+          portalRuntimeDriftConfirmed = false;
           setBusy(false); showStatus(result); $('portalRuntimeReason').value = ''; load();
-        }).withFailureHandler(onFailure).vNextAdminUpdateSharedPortalRuntime({reason});
+        }).withFailureHandler(error => {
+          const raw = (error && error.message) || String(error);
+          if (/stored SHA-256 pin/.test(raw) && !confirmRuntimeDrift) {
+            portalRuntimeDriftConfirmed = true;
+            setBusy(false);
+            showStatus(
+              'ポータルの実体が Hub の記録とずれています。受付履歴は消しません。もう一度「最新版へ更新」を押すと、検証済み最新版で上書きします。',
+              true
+            );
+            $('statusTechnicalText').textContent = raw;
+            $('statusTechnical').classList.remove('hidden');
+            return;
+          }
+          portalRuntimeDriftConfirmed = false;
+          onFailure(error);
+        }).vNextAdminUpdateSharedPortalRuntime({reason, confirmRuntimeDrift});
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }

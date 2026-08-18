@@ -5181,7 +5181,14 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
         throw new Error('Current Portal content scriptId mismatch.');
       }
       if (currentSha !== portal.runtimeSha256) {
-        throw new Error('Current Portal runtime does not match its stored SHA-256 pin.');
+        if (req.confirmRuntimeDrift !== true) {
+          throw new Error(
+            'Current Portal runtime does not match its stored SHA-256 pin.' +
+            ' pinned=' + portal.runtimeSha256 +
+            ' current=' + currentSha +
+            ' files=' + currentFiles.map(function (file) { return file.name; }).join(',')
+          );
+        }
       }
       const hubConfigBefore = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
       const localConfigBefore = vNextAdminReadKeyValueSheet_(portal.spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
@@ -5251,6 +5258,8 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
         vNextAdminProtectClientInternalSheets_(portal.spreadsheet, [VN_ADMIN_PORTAL_REQUEST_SHEET]);
         vNextAdminWriteAudit_(hub, 'UPDATE_EMPLOYEE_PORTAL_RUNTIME', 'PORTAL', portal.portalId, 'SUCCESS', {
           fromVersion: portal.runtimeVersion, fromSha256: portal.runtimeSha256,
+          fromContentSha256: currentSha,
+          pinDrift: currentSha !== portal.runtimeSha256,
           toVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, toSha256: targetSha,
           scriptId: portal.scriptId, spreadsheetId: portal.spreadsheetId,
           parentTitle: project.title, catalogVersion: catalog.catalogVersion, reason: reason
@@ -5886,9 +5895,26 @@ function vNextAdminMenuUpdatePortalRuntime() {
     ui.ButtonSet.OK_CANCEL
   );
   if (choice !== ui.Button.OK) return { cancelled: true };
-  const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
-  ui.alert('完了', result.message || '社員ポータルを更新しました。', ui.ButtonSet.OK);
-  return result;
+  try {
+    const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
+    ui.alert('完了', result.message || '社員ポータルを更新しました。', ui.ButtonSet.OK);
+    return result;
+  } catch (error) {
+    const message = String(error && error.message || error);
+    if (message.indexOf('stored SHA-256 pin') < 0) throw error;
+    const again = ui.alert(
+      'ポータル実体が記録とずれています',
+      '受付履歴は残したまま、検証済み最新版で上書きします。続行しますか？',
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (again !== ui.Button.OK) return { cancelled: true, error: message };
+    const result = vNextAdminUpdateSharedPortalRuntime({
+      reason: 'Admin menu approved portal runtime update after SHA pin drift',
+      confirmRuntimeDrift: true
+    });
+    ui.alert('完了', result.message || '社員ポータルを更新しました。', ui.ButtonSet.OK);
+    return result;
+  }
 }
 
 /**

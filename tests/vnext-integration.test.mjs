@@ -926,6 +926,10 @@ async function checkAdminCoverageContracts() {
   'Portal migration must allow a verified same-version runtime SHA update');
   assert.ok(portalMigration.includes('vNextPortalRuntimeValidateExistingFiles_(currentContent.files'),
     'Portal migration must accept the pre-web-entry four-file runtime when verifying the current pin');
+  assert.ok(portalMigration.includes("Current Portal runtime does not match its stored SHA-256 pin."),
+    'Portal update must refuse a drifted runtime unless an admin confirms the overwrite');
+  assert.ok(portalMigration.includes('req.confirmRuntimeDrift !== true'),
+    'A drifted Portal runtime may be overwritten only after explicit confirmRuntimeDrift');
   assert.ok(portalMigration.includes('vNextPortalRuntimeValidateExistingFiles_(restored.files'),
     'Portal migration rollback must re-verify the previous four-file or five-file runtime');
   assert.equal(portalMigration.includes('vNextPortalRuntimeValidateFiles_(currentContent.files'), false,
