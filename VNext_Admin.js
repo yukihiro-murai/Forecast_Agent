@@ -5124,10 +5124,33 @@ function vNextAdminTryResolvePortal_(hub) {
  */
 function vNextAdminUpdateSharedPortalRuntime(request) {
   return vNextAdminGuard_('vNextAdminUpdateSharedPortalRuntime', function () {
-    const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
-    return vNextAdminWithScriptLock_('update-portal-runtime', function () {
+    return vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request);
+  });
+}
+
+/** Central-source fallback used when Hub is not the active container. */
+function vNextAdminUpdateSharedPortalRuntimeFromSource(request) {
+  return vNextAdminGuard_('vNextAdminUpdateSharedPortalRuntimeFromSource', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not the registered Admin Hub.');
+    }
+    vNextAdminAssertHubAdmin_(hub, true);
+    vNextAdminHydrateHubRuntime_(hub);
+    Object.keys(VN_ADMIN_HEADERS).forEach(function (name) {
+      vNextAdminEnsureTable_(hub, name, VN_ADMIN_HEADERS[name]);
+    });
+    return vNextAdminUpdateSharedPortalRuntimeInHub_(hub, req);
+  });
+}
+
+function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  return vNextAdminWithScriptLock_('update-portal-runtime', function () {
       const reason = vNextAdminText_(req.reason) || '共有ドライブ移設後の最新版';
       const portal = vNextAdminResolvePortal_(hub);
       const target = vNextPortalRuntimeVerifiedBundle_();
@@ -5288,7 +5311,6 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         throw migrationError;
       }
     });
-  });
 }
 
 function vNextAdminWritePortalConfigValues_(portal, values) {
