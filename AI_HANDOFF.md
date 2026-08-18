@@ -118,13 +118,16 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 ## Cursorからの社員ポータル更新
 
-Hub案内の「社員ポータルを最新版へ更新」と同じ検証経路（SHAピン、rollback、監査、同じURLの `/exec` 再公開）を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
+Hub案内の「社員ポータルを最新版へ更新」と同等のファイル更新と、同じURLの `/exec` 再公開を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
 
 Workspace は gcloud / clasp への Drive・Sheets 追加許可をブロックする。Cursor からの入口更新は clasp 標準スコープ（Apps Script ファイル更新と既存 `/exec` の差し替え）だけを使う。Hub 関数の直接実行は使わない。ポータル bound script ID は `deploy/targets.json` の `portalScriptId` に保存済み。以後は:
 
 ```bash
+cd portal_runtime && npm run check && cd ..
 node scripts/publish_employee_portal.mjs
 ```
+
+この経路は Sheets を書けないため、Hub `VN_SYSTEM_CONFIG` の `portal_runtime_version` / `portal_runtime_sha256` は古いまま残る。実体だけが進むので、次に Hub ボタンを押すと必ず SHA ピン不一致として止まり、2回目の確認で通る（正常な挙動）。ピンを揃えたい場合はその2回押しを1度行う。Portal runtime を変えたときは AI_HANDOFF の版とSHAを更新する。
 
 ## Git・GAS反映
 
