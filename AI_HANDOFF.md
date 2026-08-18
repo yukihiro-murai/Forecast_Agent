@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-18 JST（社員入口3層カード、Portal 1.7.0、Cursorから同じURLで入口を公開）  
+最終更新: 2026-08-18 JST（社員入口3層カードを可読性重視で再調整、Portal 1.8.0、Cursorから同じURLで入口を公開）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,8 +21,8 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.0` |
-| コード上のPortal bundle SHA-256 | `331bd88d9c09545ed48c9c03db60fc91fcac27fabae5021681ea7e0c8c23d026` |
+| コード上のPortal runtime | `vnext-portal-1.8.0` |
+| コード上のPortal bundle SHA-256 | `ffda0356b62f12162823b1689afdaa93d2d97a86cc092ab9740c3c1969d1477f` |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -39,7 +39,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。2026-08-18に社内ドメイン向け `/exec` を公開済み。Portal 1.7.0 は入口を「年度予算の策定 / デジタルソリューション部」とし、部署ポータル・クライアントショートカット・管理者ハブの3層カードで開く。既存計画は年度ボタン→クライアントボタン。Hubの「社員ポータルを最新版へ更新」後に入口へ反映する。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。2026-08-18に社内ドメイン向け `/exec` を公開済み。Portal 1.8.0 は入口を「年度予算の策定 / デジタルソリューション部」とし、部署ポータル・クライアントショートカット・管理者ハブの3層カードで開く。既存計画は年度ボタン→クライアントボタン。本文16px、カード間30px、各カードに「何をする場所か」と「できること」を明記し、管理者レイヤーだけグレーで一段落とす。Hubの「社員ポータルを最新版へ更新」後に入口へ反映する。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

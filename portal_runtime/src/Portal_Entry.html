@@ -7,16 +7,19 @@
   <style>
     :root {
       --bg0:#EEF3F8; --bg1:#F7FAFC; --card:#fff; --ink:#0B1F33;
-      --navy:#0B3A66; --muted:#5B6B7C; --line:#E2EAF2; --line-strong:#D3DEEA;
+      --navy:#0B3A66; --muted:#54657A; --line:#E2EAF2; --line-strong:#D3DEEA;
       --accent:#008CDB; --accent-2:#005FA3; --accent-soft:#E7F5FC;
-      --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
-      --admin:#334155; --admin-soft:#F1F5F9; --shadow:0 1px 2px rgba(11,31,51,.04), 0 10px 28px rgba(11,31,51,.07);
-      --radius:16px;
+      --warn-bg:#FFF4E2; --warn-fg:#8F4E00; --good-bg:#E4F6ED; --good-fg:#0C6C33;
+      --quiet-ink:#4B5A6B; --quiet-muted:#7A8896; --quiet-bg:#F7F9FC; --quiet-line:#E6ECF3;
+      --shadow:0 1px 2px rgba(11,31,51,.04), 0 12px 30px rgba(11,31,51,.07);
+      --radius:18px;
     }
     * { box-sizing:border-box; }
     html, body { min-height:100%; }
     body {
-      margin:0; color:var(--ink); font:14px/1.55 "Helvetica Neue","Hiragino Sans","Yu Gothic",sans-serif;
+      margin:0; color:var(--ink);
+      font:16px/1.75 "Helvetica Neue","Hiragino Sans","Yu Gothic",sans-serif;
+      -webkit-font-smoothing:antialiased;
       background:
         radial-gradient(900px 420px at 8% -8%, rgba(0,140,219,.14), transparent 55%),
         radial-gradient(720px 360px at 100% 0%, rgba(11,58,102,.08), transparent 50%),
@@ -27,112 +30,174 @@
       background-image:
         linear-gradient(rgba(11,31,51,.035) 1px, transparent 1px),
         linear-gradient(90deg, rgba(11,31,51,.035) 1px, transparent 1px);
-      background-size:28px 28px;
+      background-size:32px 32px;
       mask-image:radial-gradient(ellipse 80% 55% at 50% 0%, #000 10%, transparent 75%);
     }
-    .page { position:relative; max-width:760px; margin:0 auto; padding:28px 18px 48px; }
-    .brand { display:flex; align-items:flex-start; gap:14px; margin:0 0 22px; padding-left:54px; }
+    .page { position:relative; max-width:820px; margin:0 auto; padding:36px 20px 64px; }
+    .brand { display:flex; align-items:flex-start; gap:16px; margin:0 0 14px; padding-left:62px; }
     .mark {
-      flex:0 0 auto; width:44px; height:44px; border-radius:12px;
+      flex:0 0 auto; width:52px; height:52px; border-radius:14px;
       display:grid; place-items:center; color:#fff;
       background:linear-gradient(180deg, #1AA6EA, var(--accent-2));
     }
-    .mark svg { width:22px; height:22px; display:block; }
-    h1 { color:var(--navy); font-size:22px; font-weight:700; letter-spacing:.01em; line-height:1.25; margin:0; }
-    .dept { margin:4px 0 0; color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.04em; }
-    .error { color:#C0392B; background:#FDECEC; border-radius:12px; padding:12px 14px; margin-bottom:14px; }
+    .mark svg { width:26px; height:26px; display:block; }
+    h1 { color:var(--navy); font-size:30px; font-weight:700; letter-spacing:.01em; line-height:1.3; margin:0; }
+    .dept { margin:6px 0 0; color:var(--muted); font-size:15px; font-weight:600; letter-spacing:.04em; }
+    .lead {
+      margin:0 0 30px; padding-left:62px; max-width:62ch;
+      font-size:16px; color:var(--muted);
+    }
+    .error {
+      color:#A32619; background:#FDECEA; border:1px solid #F6C9C3;
+      border-radius:14px; padding:16px 18px; margin-bottom:18px; font-size:16px;
+    }
     .loading {
-      display:flex; align-items:center; gap:10px; color:var(--muted);
+      display:flex; align-items:center; gap:12px; color:var(--muted); font-size:16px;
       background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-      box-shadow:var(--shadow); padding:18px 20px;
+      box-shadow:var(--shadow); padding:22px 24px;
     }
     .spinner {
-      width:16px; height:16px; border:2px solid var(--line-strong); border-top-color:var(--accent);
+      width:18px; height:18px; border:2px solid var(--line-strong); border-top-color:var(--accent);
       border-radius:50%; animation:spin .8s linear infinite;
     }
-    .layers { display:flex; flex-direction:column; gap:0; }
-    .layer {
-      display:grid; grid-template-columns:40px minmax(0,1fr); gap:14px; align-items:stretch;
-    }
-    .rail { display:flex; flex-direction:column; align-items:center; padding-top:18px; }
+    .layers { display:flex; flex-direction:column; }
+    .layer { display:grid; grid-template-columns:44px minmax(0,1fr); gap:18px; align-items:stretch; }
+    .rail { display:flex; flex-direction:column; align-items:center; padding-top:22px; }
     .step {
-      width:32px; height:32px; border-radius:999px; display:grid; place-items:center;
-      font-size:11px; font-weight:800; letter-spacing:.04em; color:var(--navy);
+      width:38px; height:38px; border-radius:999px; display:grid; place-items:center;
+      font-size:13px; font-weight:800; letter-spacing:.04em; color:var(--navy);
       background:#fff; border:1px solid var(--line-strong); box-shadow:0 1px 2px rgba(11,31,51,.06);
       z-index:1;
     }
-    .spine { width:2px; flex:1; margin:8px 0 -2px; background:linear-gradient(180deg, #C9D7E6, #E7EEF5); }
+    .spine { width:2px; flex:1; margin:10px 0 -2px; background:linear-gradient(180deg, #C9D7E6, #E7EEF5); }
     .layer:last-child .spine, .layer:has(+ .layer.hidden) .spine { display:none; }
     .card {
       background:var(--card); border:1px solid rgba(11,31,51,.06); border-radius:var(--radius);
-      box-shadow:var(--shadow); padding:22px 22px 20px; margin:0 0 16px;
+      box-shadow:var(--shadow); padding:28px 28px 26px; margin:0 0 30px;
     }
-    .card-head { display:flex; align-items:flex-start; gap:12px; margin:0 0 8px; }
+    .card-head { display:flex; align-items:flex-start; gap:16px; margin:0 0 14px; }
     .icon {
-      flex:0 0 auto; width:40px; height:40px; border-radius:12px;
+      flex:0 0 auto; width:46px; height:46px; border-radius:14px;
       display:grid; place-items:center; color:var(--accent-2); background:var(--accent-soft);
     }
-    .icon svg { width:20px; height:20px; display:block; }
-    .icon.admin { color:var(--admin); background:var(--admin-soft); }
+    .icon svg { width:23px; height:23px; display:block; }
+    .head-text { min-width:0; }
     .kicker {
-      margin:0 0 2px; font-size:11px; font-weight:700; letter-spacing:.12em;
+      margin:0 0 3px; font-size:12px; font-weight:700; letter-spacing:.14em;
       text-transform:uppercase; color:var(--muted);
     }
-    .section-title { color:var(--navy); font-size:16px; font-weight:700; margin:0; }
-    .hint { font-size:13px; color:var(--muted); margin:0 0 14px; }
+    .section-title { color:var(--navy); font-size:21px; font-weight:700; line-height:1.4; margin:0; }
+    .purpose { font-size:16px; color:var(--ink); margin:0 0 16px; max-width:60ch; }
+    .can-do { list-style:none; margin:0 0 22px; padding:0; display:grid; gap:8px; }
+    .can-do li {
+      position:relative; padding-left:28px; font-size:15px; color:var(--muted);
+    }
+    .can-do li::before {
+      content:""; position:absolute; left:4px; top:.62em;
+      width:10px; height:6px; border-left:2px solid var(--accent);
+      border-bottom:2px solid var(--accent); transform:rotate(-45deg);
+    }
     a.btn, button.pick {
       font-family:inherit; font-weight:700; cursor:pointer; border:none; text-decoration:none;
     }
     a.btn {
-      display:inline-flex; align-items:center; justify-content:center; gap:8px;
-      min-height:46px; padding:12px 16px; border-radius:10px; font-size:15px;
+      display:inline-flex; align-items:center; justify-content:center; gap:10px;
+      min-height:56px; padding:14px 20px; border-radius:12px; font-size:17px;
     }
     a.btn-primary { width:100%; background:var(--accent); color:#fff; }
     a.btn-primary:hover { background:#007EC6; }
-    a.btn-ghost {
-      width:100%; background:#fff; color:var(--admin); border:1px solid var(--line-strong);
+    a.btn-quiet {
+      background:#fff; color:var(--quiet-ink); border:1px solid var(--line-strong);
+      min-height:48px; font-size:15px; padding:12px 20px;
     }
-    a.btn-ghost:hover { background:var(--admin-soft); }
-    .btn svg { width:16px; height:16px; display:block; }
+    a.btn-quiet:hover { background:#EDF1F6; }
+    .btn svg { width:17px; height:17px; display:block; }
     :focus { outline:none; }
-    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }
+    :focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+    .howto { list-style:none; display:flex; flex-wrap:wrap; gap:10px 18px; margin:0 0 20px; padding:0; }
+    .howto li { display:flex; align-items:center; gap:8px; font-size:15px; color:var(--muted); }
+    .num {
+      display:grid; place-items:center; width:24px; height:24px; border-radius:999px;
+      background:var(--accent-soft); color:var(--accent-2); font-size:12px; font-weight:800;
+    }
+    .field-label {
+      margin:0 0 10px; font-size:14px; font-weight:700; color:var(--navy); letter-spacing:.02em;
+    }
+    .picks { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 22px; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:38px; padding:7px 13px; border-radius:999px;
-      border:1px solid var(--line); background:#fff; color:var(--navy); font-size:13px;
+      min-height:44px; padding:9px 18px; border-radius:999px;
+      border:1px solid var(--line-strong); background:#fff; color:var(--navy); font-size:15px;
     }
+    .pick:hover { border-color:#B3DFF6; background:#F4FBFF; }
     .pick.selected, .pick[aria-pressed="true"] { background:var(--navy); color:#fff; border-color:var(--navy); }
-    .books { display:grid; gap:8px; }
+    .books { display:grid; gap:10px; }
     .book {
-      display:flex; justify-content:space-between; gap:10px; align-items:center;
-      text-decoration:none; color:inherit; min-height:54px;
-      border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#fff;
+      display:flex; justify-content:space-between; gap:14px; align-items:center;
+      text-decoration:none; color:inherit; min-height:66px;
+      border:1px solid var(--line); border-radius:14px; padding:14px 18px; background:#fff;
     }
-    .book:hover { border-color:#B3DFF6; background:#F4FBFF; }
-    .book-name { font-size:15px; font-weight:700; color:var(--navy); }
-    .book-meta { font-size:12px; color:var(--muted); margin-top:2px; }
+    a.book:hover { border-color:#B3DFF6; background:#F4FBFF; }
+    .book-main { min-width:0; }
+    .book-name { font-size:17px; font-weight:700; color:var(--navy); line-height:1.45; }
+    .book-meta { font-size:14px; color:var(--muted); margin-top:2px; }
+    .book-side { display:flex; align-items:center; gap:12px; flex:0 0 auto; }
+    .book-side svg { width:18px; height:18px; display:block; color:var(--accent-2); }
+    .book.locked { background:var(--quiet-bg); border-style:dashed; }
     .chip {
-      display:inline-block; border-radius:99px; padding:3px 10px;
-      font-size:11px; font-weight:700; background:#EEF5FB; color:var(--navy); white-space:nowrap;
+      display:inline-block; border-radius:99px; padding:5px 13px;
+      font-size:13px; font-weight:700; background:#EEF5FB; color:var(--navy); white-space:nowrap;
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
-    .empty { color:var(--muted); padding:8px 2px 2px; }
+    .empty {
+      color:var(--muted); font-size:15px; background:var(--quiet-bg);
+      border:1px dashed var(--quiet-line); border-radius:14px; padding:18px 20px;
+    }
+    .count { font-size:14px; color:var(--muted); margin:0 0 10px; }
     .hidden { display:none !important; }
-    .layer[data-layer="admin"] .card { background:linear-gradient(180deg, #fff, #F8FAFC); }
+    .layer[data-layer="admin"] .card {
+      background:var(--quiet-bg); border-color:var(--quiet-line); box-shadow:none;
+      padding:24px 24px 22px;
+    }
+    .layer[data-layer="admin"] .step {
+      color:var(--quiet-muted); background:var(--quiet-bg);
+      border-color:var(--quiet-line); box-shadow:none;
+    }
+    .layer[data-layer="admin"] .icon {
+      width:38px; height:38px; border-radius:12px; color:var(--quiet-muted); background:#EDF1F6;
+    }
+    .layer[data-layer="admin"] .icon svg { width:19px; height:19px; }
+    .layer[data-layer="admin"] .card-head { gap:13px; margin-bottom:10px; }
+    .layer[data-layer="admin"] .section-title { color:var(--quiet-ink); font-size:18px; }
+    .layer[data-layer="admin"] .kicker { color:var(--quiet-muted); }
+    .layer[data-layer="admin"] .purpose { color:var(--quiet-muted); font-size:15px; margin-bottom:18px; }
+    .tag {
+      display:inline-block; margin-left:10px; padding:3px 10px; border-radius:99px;
+      background:#E7EBF1; color:var(--quiet-muted); font-size:12px; font-weight:700;
+      letter-spacing:.02em; vertical-align:middle;
+    }
+    .foot {
+      margin:6px 0 0; padding-left:62px; color:var(--quiet-muted); font-size:13px;
+      display:flex; flex-wrap:wrap; gap:6px 14px;
+    }
     @keyframes spin { to { transform:rotate(360deg); } }
     @media (prefers-reduced-motion:reduce) {
       .spinner { animation:none; }
       a.btn, .book, .pick { transition:none; }
     }
-    @media (max-width:560px) {
-      .page { padding:20px 14px 36px; }
-      .brand { padding-left:0; }
-      h1 { font-size:20px; }
+    @media (max-width:640px) {
+      .page { padding:24px 16px 44px; }
+      .brand { padding-left:0; gap:14px; }
+      .lead, .foot { padding-left:0; }
+      h1 { font-size:25px; }
+      .mark { width:46px; height:46px; }
       .layer { grid-template-columns:minmax(0,1fr); }
       .rail { display:none; }
-      .card { padding:18px 16px 16px; }
+      .card { padding:22px 18px 20px; margin-bottom:22px; }
+      .section-title { font-size:19px; }
+      .book { flex-direction:column; align-items:flex-start; gap:8px; }
+      .book-side { width:100%; justify-content:space-between; }
     }
   </style>
 </head>
@@ -150,6 +215,10 @@
         <p class="dept">デジタルソリューション部</p>
       </div>
     </header>
+    <p class="lead">
+      年度ごとの売上計画を、クライアント単位で作って共有する入口です。
+      新しく作るときは 01、すでにある計画を見るときは 02 を使います。
+    </p>
 
     <div id="error" class="error hidden" role="alert"></div>
     <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span>読み込んでいます…</div>
@@ -168,12 +237,19 @@
                   <rect x="14" y="14" width="7" height="7" rx="1.5"/>
                 </svg>
               </div>
-              <div>
+              <div class="head-text">
                 <p class="kicker">部署レイヤー</p>
                 <h2 class="section-title">年度計画ポータル</h2>
               </div>
             </div>
-            <p class="hint">部署全体で使う作成・進捗の入口です。新しい年度・クライアントの計画はここから作ります。</p>
+            <p class="purpose">
+              部署の作業をここから始めます。計画がまだ無いクライアントや新しい年度は、この中で作成を依頼します。
+            </p>
+            <ul class="can-do">
+              <li>年度とクライアントを選んで、新しい計画の作成を依頼する</li>
+              <li>依頼した計画が今どの段階かを確認する</li>
+              <li>部署が担当している計画を一覧で見る</li>
+            </ul>
             <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">
               年度計画ポータルを開く
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -193,14 +269,22 @@
                   <path d="M14 3v5h5M8 13h8M8 17h5"/>
                 </svg>
               </div>
-              <div>
+              <div class="head-text">
                 <p class="kicker">クライアントレイヤー</p>
                 <h2 class="section-title">個別シートへのショートカット</h2>
               </div>
             </div>
-            <p class="hint">年度を押してからクライアントを押すと、担当シートを直接開けます。社内の誰でも状況を確認できます。</p>
-            <div id="years" class="picks" role="group" aria-label="年度"></div>
-            <div id="books" class="books"></div>
+            <p class="purpose">
+              すでにある計画を、担当シートとして直接開きます。入力・予測の確認や修正はシートの中で行います。担当者でなくても、状況を見るだけなら社内の誰でも開けます。
+            </p>
+            <ol class="howto">
+              <li><span class="num" aria-hidden="true">1</span>年度を選ぶ</li>
+              <li><span class="num" aria-hidden="true">2</span>クライアントを押すとシートが開く</li>
+            </ol>
+            <p class="field-label" id="yearsLabel">年度</p>
+            <div id="years" class="picks" role="group" aria-labelledby="yearsLabel"></div>
+            <p id="booksCount" class="count hidden"></p>
+            <div id="books" class="books" aria-live="polite"></div>
           </section>
         </article>
 
@@ -214,13 +298,15 @@
                   <path d="m9.2 12.2 2.1 2.1 3.6-3.8"/>
                 </svg>
               </div>
-              <div>
+              <div class="head-text">
                 <p class="kicker">管理者レイヤー</p>
-                <h2 class="section-title">管理者用ハブ</h2>
+                <h2 class="section-title">管理者用ハブ<span class="tag">運用担当だけ</span></h2>
               </div>
             </div>
-            <p class="hint">承認、配備、運用設定など、管理者向けの操作はこちらです。通常の計画作業では使いません。</p>
-            <a id="adminButton" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">
+            <p class="purpose">
+              提出された計画の承認、シートの配備、運用設定をまとめた場所です。ふだんの計画作業では開く必要はありません。
+            </p>
+            <a id="adminButton" class="btn btn-quiet hidden" href="#" target="_blank" rel="noopener">
               管理者用ハブを開く
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M7 17 17 7M8 7h9v9"/>
@@ -230,6 +316,12 @@
           </section>
         </article>
       </div>
+
+      <footer class="foot">
+        <span id="footActor" class="hidden"></span>
+        <span id="footVersion" class="hidden"></span>
+        <span>表示が古いときは、この画面を再読み込みしてください。</span>
+      </footer>
     </div>
   </div>
 
@@ -253,10 +345,15 @@
     function paintYears() {
       var years = entryModel.years || [];
       var box = document.getElementById('years');
+      var label = document.getElementById('yearsLabel');
       if (!years.length) {
         box.innerHTML = '';
+        box.classList.add('hidden');
+        label.classList.add('hidden');
         return;
       }
+      box.classList.remove('hidden');
+      label.classList.remove('hidden');
       box.innerHTML = years.map(function (year) {
         var pressed = Number(year) === Number(selectedYear) ? 'true' : 'false';
         var selected = pressed === 'true' ? ' selected' : '';
@@ -274,24 +371,38 @@
     }
     function paintBooks() {
       var box = document.getElementById('books');
+      var count = document.getElementById('booksCount');
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
+      count.classList.add('hidden');
       if (!(entryModel.books || []).length) {
-        box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のポータルから作成してください。</div>';
+        box.innerHTML = '<div class="empty">まだ計画がありません。上の「年度計画ポータルを開く」から、最初の年度とクライアントを登録してください。</div>';
         return;
       }
       if (!rows.length) {
-        box.innerHTML = '<div class="empty">この年度の計画はまだありません。別の年度を選ぶか、上のポータルから作成してください。</div>';
+        box.innerHTML = '<div class="empty">FY' + escapeHtml(selectedYear) +
+          ' の計画はまだありません。ほかの年度を選ぶか、上のポータルから作成してください。</div>';
         return;
       }
+      count.textContent = selectedYear
+        ? 'FY' + selectedYear + ' の計画 ' + rows.length + '件'
+        : '計画 ' + rows.length + '件';
+      count.classList.remove('hidden');
       box.innerHTML = rows.map(function (book) {
-        var body =
-          '<div><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
-          '<div class="book-meta">' + (book.nextAction ? escapeHtml(book.nextAction) : 'FY' + escapeHtml(book.fiscalYear)) + '</div></div>' +
-          '<span class="' + chipClass(book.tone) + '">' + escapeHtml(book.stateLabel) + '</span>';
+        var meta = 'FY' + escapeHtml(book.fiscalYear);
+        if (book.nextAction) meta += '　' + escapeHtml(book.nextAction);
+        var main =
+          '<div class="book-main"><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
+          '<div class="book-meta">' + meta + '</div></div>';
+        var chip = '<span class="' + chipClass(book.tone) + '">' + escapeHtml(book.stateLabel) + '</span>';
+        var arrow =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+          'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M7 17 17 7M8 7h9v9"/></svg>';
         if (book.url) {
-          return '<a class="book" href="' + escapeHtml(book.url) + '" target="_blank" rel="noopener">' + body + '</a>';
+          return '<a class="book" href="' + escapeHtml(book.url) + '" target="_blank" rel="noopener">' +
+            main + '<div class="book-side">' + chip + arrow + '</div></a>';
         }
-        return '<div class="book">' + body + '</div>';
+        return '<div class="book locked">' + main + '<div class="book-side">' + chip + '</div></div>';
       }).join('');
     }
     function render(model) {
@@ -308,6 +419,16 @@
       } else {
         adminButton.classList.add('hidden');
         adminUnavailable.classList.remove('hidden');
+      }
+      var footActor = document.getElementById('footActor');
+      if (model.actorEmail) {
+        footActor.textContent = 'ログイン中: ' + model.actorEmail;
+        footActor.classList.remove('hidden');
+      }
+      var footVersion = document.getElementById('footVersion');
+      if (model.runtimeVersion) {
+        footVersion.textContent = '版 ' + model.runtimeVersion;
+        footVersion.classList.remove('hidden');
       }
       var years = entryModel.years || [];
       var remembered = 0;

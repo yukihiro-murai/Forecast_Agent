@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.8.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -420,4 +420,14 @@ async function testStaticUxContracts() {
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す/);
   assert.match(entry, /管理者用ハブ/);
+  assert.match(entry, /font:16px\/1\.75/,
+    'Employee entry must use a 16px reading base, not the 14px sidebar scale');
+  assert.match(entry, /class="purpose"/,
+    'Each layer must state what the place is for');
+  assert.match(entry, /class="can-do"/,
+    'The department layer must list what an employee can actually do there');
+  assert.match(entry, /\.layer\[data-layer="admin"\] \.card \{[^}]*box-shadow:none/,
+    'The admin layer must be visually quieter than the two employee layers');
+  assert.match(entry, /id="books"[^>]*aria-live="polite"/,
+    'Year switching must announce the refreshed client list');
 }
