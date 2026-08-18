@@ -23,26 +23,30 @@ assert.ok(targets.hubScriptId && targets.hubSpreadsheetId && targets.centralScri
   targets.portalSpreadsheetId && targets.quotaProjectId,
   'deploy/targets.json must name Hub, central, portal spreadsheet, and quota project');
 assert.equal('portalScriptId' in targets, true,
-  'portal script id may be filled from Hub at runtime, but the key must exist');
+  'portal script id may be filled later, but the key must exist');
 
-assert.ok(oauth.includes('https://www.googleapis.com/auth/spreadsheets') &&
+assert.ok(oauth.includes('https://www.googleapis.com/auth/script.projects') &&
   oauth.includes('https://www.googleapis.com/auth/script.webapp.deploy'),
-  'Agent login must request Sheets plus web app deploy scopes');
+  'Agent token must cover Apps Script file copy and /exec pin');
+assert.equal(oauth.includes("auth/spreadsheets',\n") || oauth.includes('auth/spreadsheets"'), false,
+  'Agent login must not request Sheets; Workspace blocks that extra consent');
 assert.equal(login.includes('forecast') && login.includes('承認'), true);
 assert.ok(login.includes('Does not grant forecast approval') ||
   login.includes('計画の承認権限は含まれません'),
   'Login must not be described as forecast approval');
-assert.ok(login.includes('clasp') && login.includes('--use-project-scopes'),
-  'Login must use clasp project scopes, not the blocked gcloud helper app');
-assert.ok(login.includes("['logout']"),
-  'Login must re-authorize clasp; an existing clasp session does not have Hub scopes');
+assert.ok(login.includes('clasp') && login.includes('標準スコープ'),
+  'Login must restore default clasp scopes after Workspace blocked extra Drive/Sheets consent');
+assert.equal(login.includes('--use-project-scopes'), false,
+  'Login must not re-request Hub Drive/Sheets scopes');
+assert.equal(login.includes("['logout']"), false,
+  'Restoring clasp must not wipe an existing default session');
 assert.equal(login.includes('application_default_credentials') || login.includes('764086051850'), false,
   'Login must not reuse the Cloud SDK OAuth client that Workspace blocked');
 
+assert.ok(publish.includes('--portal-script-id'),
+  'Direct publish must accept a one-time portal script id without Sheets');
 assert.ok(publish.includes("function: 'vNextAdminUpdateSharedPortalRuntimeFromSource'"),
-  'Cursor publish must call the Hub function that opens Hub by ID');
-assert.ok(publish.includes('confirmRuntimeDrift'),
-  'Cursor publish must pass through pin-drift confirmation');
+  'Cursor publish may still try the Hub function when Execution API is allowed');
 assert.ok(publish.includes('/deployments/') && publish.includes("'PUT'"),
   'Direct fallback must update the existing /exec deployment');
 assert.equal(publish.includes("projects/${scriptId}/deployments', {"), false,

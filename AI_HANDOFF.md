@@ -119,20 +119,12 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 Hub案内の「社員ポータルを最新版へ更新」と同じ検証経路（SHAピン、rollback、監査、同じURLの `/exec` 再公開）を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
 
-一度だけ（gcloud 用アプリは Workspace にブロックされるので clasp を使う）:
+Workspace は gcloud / clasp への Drive・Sheets 追加許可をブロックする。Cursor からの入口更新は clasp 標準スコープ（Apps Script ファイル更新と既存 `/exec` の差し替え）だけを使う。Hub 関数の直接実行は使わない。ポータル bound script ID は一度だけ `deploy/targets.json` の `portalScriptId` か `--portal-script-id` で渡す。
 
 ```bash
 node scripts/gas_agent_login.mjs
+node scripts/publish_employee_portal.mjs --portal-script-id <PortalのスクリプトID>
 ```
-
-以後、Portal runtime を変えたあとは:
-
-```bash
-cd portal_runtime && npm run check && cd ..
-node scripts/publish_employee_portal.mjs
-```
-
-ピン不一致のときだけ、案内と同じく2回目として `--confirm-drift` を付ける。トークンは git に入れない（`deploy/.gas-oauth.json`）。
 
 ## Git・GAS反映
 

@@ -9,16 +9,9 @@ export const TARGETS_PATH = path.join(REPO_ROOT, 'deploy/targets.json');
 export const CACHE_PATH = path.join(REPO_ROOT, 'deploy/cache.json');
 
 export const AGENT_SCOPES = Object.freeze([
-  'https://www.googleapis.com/auth/cloud-platform',
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/script.container.ui',
   'https://www.googleapis.com/auth/script.deployments',
-  'https://www.googleapis.com/auth/script.external_request',
   'https://www.googleapis.com/auth/script.projects',
-  'https://www.googleapis.com/auth/script.scriptapp',
-  'https://www.googleapis.com/auth/script.webapp.deploy',
-  'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/userinfo.email'
+  'https://www.googleapis.com/auth/script.webapp.deploy'
 ]);
 
 export const ADMIN_SOURCE_FILES = Object.freeze([
@@ -149,9 +142,11 @@ export async function getAgentAccessToken() {
 
 export async function googleApi(record, method, url, body, timeoutMs = 60_000) {
   const headers = {
-    Authorization: 'Bearer ' + record.access_token,
-    'x-goog-user-project': record.quotaProjectId || 'proofreading-broker-ai'
+    Authorization: 'Bearer ' + record.access_token
   };
+  if (/sheets\.googleapis\.com/.test(url) && record.quotaProjectId) {
+    headers['x-goog-user-project'] = record.quotaProjectId;
+  }
   const options = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';

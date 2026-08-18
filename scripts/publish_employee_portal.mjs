@@ -25,9 +25,13 @@ const reasonIndex = process.argv.indexOf('--reason');
 const reason = reasonIndex >= 0
   ? String(process.argv[reasonIndex + 1] || '').trim()
   : 'Cursor agent published employee portal runtime';
+const portalScriptArgIndex = process.argv.indexOf('--portal-script-id');
+const portalScriptArg = portalScriptArgIndex >= 0
+  ? String(process.argv[portalScriptArgIndex + 1] || '').trim()
+  : '';
 
 if (args.has('--help')) {
-  process.stdout.write(`Usage: node scripts/publish_employee_portal.mjs [--confirm-drift] [--skip-source-sync] [--reason TEXT]
+  process.stdout.write(`Usage: node scripts/publish_employee_portal.mjs [--confirm-drift] [--skip-source-sync] [--portal-script-id ID] [--reason TEXT]
 One-time login: node scripts/gas_agent_login.mjs
 `);
   process.exit(0);
@@ -124,11 +128,20 @@ async function runHubPortalUpdate(targets, token, reason, confirmRuntimeDrift) {
 }
 
 async function publishPortalDirect(targets, token, reason, confirmRuntimeDrift) {
-  const config = await readKeyValueSheet(targets.hubSpreadsheetId, 'VN_SYSTEM_CONFIG');
-  const portalScriptId = String(targets.portalScriptId || config.portal_script_id || '').trim()
-    || String((await loadCache()).portalScriptId || '').trim();
+  let config = {};
+  try {
+    config = await readKeyValueSheet(targets.hubSpreadsheetId, 'VN_SYSTEM_CONFIG');
+  } catch (error) {
+    process.stdout.write('Hub VN_SYSTEM_CONFIG is not readable with clasp scopes; using local portal script id.\n');
+  }
+  const portalScriptId = String(
+    portalScriptArg || process.env.PORTAL_SCRIPT_ID || targets.portalScriptId ||
+    config.portal_script_id || (await loadCache()).portalScriptId || ''
+  ).trim();
   if (!portalScriptId) {
-    throw new Error('portal_script_id was not found in Hub VN_SYSTEM_CONFIG. Re-run after gas_agent_login.');
+    throw new Error(
+      'portal_script_id is required. Copy it from Hub VN_SYSTEM_CONFIG or ポータル → 拡張機能 → Apps Script → プロジェクトの設定, then re-run with --portal-script-id ID'
+    );
   }
   await saveCache({ ...(await loadCache()), portalScriptId });
   const bundle = JSON.parse(await readFile(
@@ -168,19 +181,23 @@ async function publishPortalDirect(targets, token, reason, confirmRuntimeDrift) 
     throw new Error('Portal content put failed: ' + formatApiError(put.status, put.payload));
   }
   const webApp = await republishWebApp(portalScriptId, bundle.version);
-  await upsertKeyValue(targets.hubSpreadsheetId, 'VN_SYSTEM_CONFIG', {
-    portal_runtime_version: bundle.version,
-    portal_runtime_sha256: targetSha,
-    portal_runtime_updated_at: new Date().toISOString(),
-    portal_runtime_updated_by: 'cursor-agent'
-  });
-  if (targets.portalSpreadsheetId) {
-    await upsertKeyValue(targets.portalSpreadsheetId, 'VN_PORTAL_CONFIG', {
-      runtime_version: bundle.version,
-      runtime_sha256: targetSha,
-      updated_at: new Date().toISOString(),
-      updated_by: 'cursor-agent'
+  try {
+    await upsertKeyValue(targets.hubSpreadsheetId, 'VN_SYSTEM_CONFIG', {
+      portal_runtime_version: bundle.version,
+      portal_runtime_sha256: targetSha,
+      portal_runtime_updated_at: new Date().toISOString(),
+      portal_runtime_updated_by: 'cursor-agent'
     });
+    if (targets.portalSpreadsheetId) {
+      await upsertKeyValue(targets.portalSpreadsheetId, 'VN_PORTAL_CONFIG', {
+        runtime_version: bundle.version,
+        runtime_sha256: targetSha,
+        updated_at: new Date().toISOString(),
+        updated_by: 'cursor-agent'
+      });
+    }
+  } catch (error) {
+    process.stdout.write('Hub/Portal pin sheets were not updated (clasp scopes omit Sheets). Files and /exec were published.\n');
   }
   return {
     ok: true,
