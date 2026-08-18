@@ -32,6 +32,12 @@ assert.equal(login.includes('forecast') && login.includes('承認'), true);
 assert.ok(login.includes('Does not grant forecast approval') ||
   login.includes('計画の承認権限は含まれません'),
   'Login must not be described as forecast approval');
+assert.ok(login.includes('clasp') && login.includes('--use-project-scopes'),
+  'Login must use clasp project scopes, not the blocked gcloud helper app');
+assert.ok(login.includes("['logout']"),
+  'Login must re-authorize clasp; an existing clasp session does not have Hub scopes');
+assert.equal(login.includes('application_default_credentials') || login.includes('764086051850'), false,
+  'Login must not reuse the Cloud SDK OAuth client that Workspace blocked');
 
 assert.ok(publish.includes("function: 'vNextAdminUpdateSharedPortalRuntimeFromSource'"),
   'Cursor publish must call the Hub function that opens Hub by ID');

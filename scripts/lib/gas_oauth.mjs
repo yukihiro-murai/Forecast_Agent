@@ -60,15 +60,18 @@ export async function saveCache(cache) {
   await writeFile(CACHE_PATH, `${JSON.stringify(cache, null, 2)}\n`);
 }
 
-export async function loadCloudSdkClient() {
-  const adcPath = path.join(os.homedir(), '.config/gcloud/application_default_credentials.json');
-  const adc = JSON.parse(await readFile(adcPath, 'utf8'));
-  if (!adc.client_id || !adc.client_secret) {
-    throw new Error('gcloud ADC is missing an OAuth client. Run gcloud auth application-default login.');
-  }
+export async function loadClaspTokenRecord() {
+  const clasprc = JSON.parse(await readFile(path.join(os.homedir(), '.clasprc.json'), 'utf8'));
+  const token = clasprc.tokens && clasprc.tokens.default;
+  if (!token || !token.refresh_token) return null;
   return {
-    client_id: adc.client_id,
-    client_secret: adc.client_secret
+    quotaProjectId: (await loadTargets()).quotaProjectId,
+    client_id: token.client_id,
+    client_secret: token.client_secret,
+    refresh_token: token.refresh_token,
+    access_token: token.access_token,
+    expiry_date: token.expiry_date || 0,
+    scope: token.scope || ''
   };
 }
 
@@ -116,16 +119,23 @@ export function missingAgentScopes(scopeText) {
 
 export async function getAgentAccessToken() {
   const saved = await loadAgentTokenRecord();
-  if (!saved || !saved.refresh_token) {
+  const clasp = await loadClaspTokenRecord().catch(() => null);
+  let record = saved && saved.refresh_token ? saved : clasp;
+  if (!record || !record.refresh_token) {
     throw new Error('Agent Google login is missing. Run: node scripts/gas_agent_login.mjs');
   }
-  let record = saved;
   if (!record.access_token || Number(record.expiry_date || 0) < Date.now() + 60_000) {
     if (!record.client_secret) {
-      const sdk = await loadCloudSdkClient();
-      record = { ...record, client_id: record.client_id || sdk.client_id, client_secret: sdk.client_secret };
+      throw new Error('Agent Google login is missing a client secret. Run: node scripts/gas_agent_login.mjs');
     }
     record = await refreshAccessToken(record);
+    await saveAgentToken(record);
+  }
+  if (!record.scope) {
+    const info = await fetch('https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' +
+      encodeURIComponent(record.access_token));
+    const payload = await info.json();
+    record = { ...record, scope: payload.scope || '' };
     await saveAgentToken(record);
   }
   const missing = missingAgentScopes(record.scope);
@@ -133,7 +143,8 @@ export async function getAgentAccessToken() {
     throw new Error('Agent Google login is missing scopes: ' + missing.join(', ') +
       '. Run: node scripts/gas_agent_login.mjs');
   }
-  return record;
+  const targets = await loadTargets();
+  return { ...record, quotaProjectId: record.quotaProjectId || targets.quotaProjectId };
 }
 
 export async function googleApi(record, method, url, body, timeoutMs = 60_000) {

@@ -119,7 +119,7 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 Hub案内の「社員ポータルを最新版へ更新」と同じ検証経路（SHAピン、rollback、監査、同じURLの `/exec` 再公開）を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
 
-一度だけ:
+一度だけ（gcloud 用アプリは Workspace にブロックされるので clasp を使う）:
 
 ```bash
 node scripts/gas_agent_login.mjs
