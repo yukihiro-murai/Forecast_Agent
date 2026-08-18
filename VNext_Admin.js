@@ -7598,7 +7598,16 @@ function vNextAdminClaimNextJob_(hub) {
 /** Portal faults are isolated so they cannot stop unrelated forecast and health jobs. */
 function vNextAdminHarvestPortalRequestsSafely_(hub) {
   try {
-    return vNextAdminHarvestPortalRequests_(hub);
+    const harvested = vNextAdminHarvestPortalRequests_(hub);
+    // A Portal fault that has stopped reproducing must not keep an admin
+    // 要確認 row open forever; the next successful sweep is the evidence.
+    try {
+      vNextAdminResolveOpenExceptions_(hub, '', ['PORTAL_HARVEST_FAILED'], 'EMPLOYEE_PORTAL');
+    } catch (resolveError) {
+      Logger.log('Portal harvest exception resolve skipped: %s',
+        String(resolveError && resolveError.message || resolveError));
+    }
+    return harvested;
   } catch (error) {
     const detail = String(error && error.message || error).slice(0, 1200);
     Logger.log('Portal request harvest isolated: %s', detail);

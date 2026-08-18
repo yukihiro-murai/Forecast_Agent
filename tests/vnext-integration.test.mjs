@@ -971,6 +971,7 @@ async function checkAdminCoverageContracts() {
   const originalPortalHarvest = sandbox.vNextAdminHarvestPortalRequests_;
   const originalReadTableForPortal = sandbox.vNextAdminReadTable_;
   const originalAppendExceptionForPortal = sandbox.vNextAdminAppendException_;
+  const originalResolveExceptions = sandbox.vNextAdminResolveOpenExceptions_;
   let isolatedPortalExceptions = 0;
   sandbox.vNextAdminHarvestPortalRequests_ = () => { throw new Error('portal-offline'); };
   sandbox.vNextAdminReadTable_ = () => ({rows:[]});
@@ -981,10 +982,23 @@ async function checkAdminCoverageContracts() {
     assert.match(isolated.isolatedError, /portal-offline/);
     assert.equal(isolatedPortalExceptions, 1,
       'A Portal harvest failure must be isolated and surfaced without throwing out of the scheduler');
+    let resolvedPortalExceptions = null;
+    sandbox.vNextAdminHarvestPortalRequests_ = () => ({configured: true, queued: 0});
+    sandbox.vNextAdminResolveOpenExceptions_ = (_hub, bookId, types, sourceRef) => {
+      resolvedPortalExceptions = {bookId, types, sourceRef};
+      return 1;
+    };
+    sandbox.vNextAdminHarvestPortalRequestsSafely_({});
+    assert.equal(resolvedPortalExceptions && resolvedPortalExceptions.bookId, '');
+    assert.equal(resolvedPortalExceptions && resolvedPortalExceptions.sourceRef, 'EMPLOYEE_PORTAL');
+    assert.equal((resolvedPortalExceptions && resolvedPortalExceptions.types || []).join(','),
+      'PORTAL_HARVEST_FAILED',
+      'A recovered Portal must close its own harvest exception instead of leaving it open forever');
   } finally {
     sandbox.vNextAdminHarvestPortalRequests_ = originalPortalHarvest;
     sandbox.vNextAdminReadTable_ = originalReadTableForPortal;
     sandbox.vNextAdminAppendException_ = originalAppendExceptionForPortal;
+    sandbox.vNextAdminResolveOpenExceptions_ = originalResolveExceptions;
   }
 
   const originalReadTableForLease = sandbox.vNextAdminReadTable_;
