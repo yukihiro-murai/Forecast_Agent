@@ -28,6 +28,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
 | Admin Hub bound Script ID | `1ANVtOBzPo90DveLcmTYokpEycr4iOphMaKZrhyjvzUizEQUjGqHRScxw` |
 | 社員ポータル Spreadsheet ID | `16uiBgEF6Pz6N3UUpPU1DPJ6axelYRDJ3WuXFJUWy1dU` |
+| 社員ポータル bound Script ID | `1tib95QQqAbsJOrH36yPIih32EGoi5Ou2075FIzCMCeDZ6rijEwKv6LWH` |
 | ライブ ACTIVE Template / Model | まだ `vnext-client-1.7.0` / `model-portal-BEFDD31F149CE292A6CD`。Hubで新pair発行とポータル更新が必要 |
 
 ## 操作面（2026-08-17）
@@ -119,11 +120,10 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 Hub案内の「社員ポータルを最新版へ更新」と同じ検証経路（SHAピン、rollback、監査、同じURLの `/exec` 再公開）を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
 
-Workspace は gcloud / clasp への Drive・Sheets 追加許可をブロックする。Cursor からの入口更新は clasp 標準スコープ（Apps Script ファイル更新と既存 `/exec` の差し替え）だけを使う。Hub 関数の直接実行は使わない。ポータル bound script ID は一度だけ `deploy/targets.json` の `portalScriptId` か `--portal-script-id` で渡す。
+Workspace は gcloud / clasp への Drive・Sheets 追加許可をブロックする。Cursor からの入口更新は clasp 標準スコープ（Apps Script ファイル更新と既存 `/exec` の差し替え）だけを使う。Hub 関数の直接実行は使わない。ポータル bound script ID は `deploy/targets.json` の `portalScriptId` に保存済み。以後は:
 
 ```bash
-node scripts/gas_agent_login.mjs
-node scripts/publish_employee_portal.mjs --portal-script-id <PortalのスクリプトID>
+node scripts/publish_employee_portal.mjs
 ```
 
 ## Git・GAS反映
