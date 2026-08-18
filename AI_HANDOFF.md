@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-18 JST（社員入口を3層カードへ再構成、Portal 1.7.0）  
+最終更新: 2026-08-18 JST（社員入口3層カード、Portal 1.7.0、Cursorから同じURLで入口を公開）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -115,6 +115,25 @@ npm run check
 
 Client/Portalのsourceを変更した場合はbundle再生成を省略しない。integration testのSHA不一致は、sourceと生成bundleのどちらかが古いことを示す。
 
+## Cursorからの社員ポータル更新
+
+Hub案内の「社員ポータルを最新版へ更新」と同じ検証経路（SHAピン、rollback、監査、同じURLの `/exec` 再公開）を、このマシンの Google ログインで実行する。計画の承認・差戻し・公式化は対象外。
+
+一度だけ:
+
+```bash
+node scripts/gas_agent_login.mjs
+```
+
+以後、Portal runtime を変えたあとは:
+
+```bash
+cd portal_runtime && npm run check && cd ..
+node scripts/publish_employee_portal.mjs
+```
+
+ピン不一致のときだけ、案内と同じく2回目として `--confirm-drift` を付ける。トークンは git に入れない（`deploy/.gas-oauth.json`）。
+
 ## Git・GAS反映
 
 1. 対象ファイルだけ`git add`する。
@@ -181,3 +200,4 @@ Apps Script の実行履歴は Google 側の記録のため、このリセット
 - ライブUAT対象のstateと、実行した外部操作
 - PASS/FAILしたtest
 - 未解決事項と、次の具体的な1操作
+- Cursor が社員入口を更新する場合は `node scripts/gas_agent_login.mjs` 済みか

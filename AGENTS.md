@@ -22,6 +22,7 @@
 3. `git push origin <branch>` (新規ブランチは `git push -u origin <branch>`)。
 4. push が拒否されても force push はしない。fetch して状況を報告する。
 5. `.clasp.json` があるプロジェクトでは、git push 後に `clasp status` で対象ファイルを確認してから `clasp push` で GAS に反映する。`.clasp.json` が無いプロジェクトでは、GAS エディタへの手動反映が別途必要なことをユーザーに伝える。
+6. 社員ポータルの Web 入口（`/exec`）まで反映する場合は、Hub ボタンの代わりに `node scripts/publish_employee_portal.mjs` を使う。未ログインなら先に `node scripts/gas_agent_login.mjs`（計画の承認・差戻し・公式化は含まない）。
 
 ### 禁止事項
 

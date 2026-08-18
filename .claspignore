@@ -6,3 +6,5 @@
 !appsscript.json
 client_runtime/**
 portal_runtime/**
+scripts/**
+deploy/**

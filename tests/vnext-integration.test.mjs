@@ -1032,6 +1032,7 @@ async function checkAdminCoverageContracts() {
     'function vNextAdminRelocateLibraryToSharedDrive(',
     'function vNextAdminRelocateLibraryToSharedDriveFromSource(',
     'function vNextAdminUpdateSharedPortalRuntimeFromSource(',
+    'SpreadsheetApp.openById(hubId)',
     "VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION = 'RESET_GENERATED_CLIENTS'"
   ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
   const resetStart = source.indexOf('function vNextAdminResetGeneratedClientsInHub_');
