@@ -296,6 +296,23 @@ function vNextGetRuntimeConfig_() {
 }
 
 /**
+ * Cheap Hub identity for onOpen. Sheet names only; no config reads, registry
+ * scans, or Script Property writes. Identity checks belong in click handlers.
+ */
+function vNextAdminLooksLikeHub_(spreadsheet) {
+  try {
+    const ss = spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return false;
+    const names = {};
+    ss.getSheets().forEach(function (sheet) { names[sheet.getName()] = true; });
+    return !!(names[VN_ADMIN_SHEETS.REGISTRY] && names[VN_ADMIN_SHEETS.JOBS] && names[VN_ADMIN_SHEETS.RELEASES]);
+  } catch (err) {
+    Logger.log('vNextAdminLooksLikeHub_ error: %s', String(err && err.message || err));
+    return false;
+  }
+}
+
+/**
  * Global mode detector consumed by the shared vNext onOpen router.
  * Returns one of LEGACY / ADMIN / TEMPLATE / CLIENT.
  */
@@ -338,7 +355,7 @@ function vNextIsAdminHub_() {
 function vNextBuildAdminMenu_() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) return false;
+    if (!vNextAdminLooksLikeHub_(ss)) return false;
     const ui = SpreadsheetApp.getUi();
     ui.createMenu(VN_ADMIN_MENU_NAME)
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
@@ -474,12 +491,17 @@ function vNextBuildTemplateMenu_() {
 function vNextAdminInstalledGuidanceOnOpen(e) {
   try {
     const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (vNextAdminLooksLikeHub_(active)) {
+      SpreadsheetApp.getUi().showSidebar(
+        HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar').setTitle(VN_ADMIN_MENU_NAME)
+      );
+      return true;
+    }
     const mode = vNextDetectBookMode_(active);
-    if (mode !== 'ADMIN' && mode !== 'TEMPLATE' && mode !== 'LEGACY') return false;
-    if (mode === 'ADMIN' && !vNextAdminIsRegisteredHub_(active)) return false;
-    const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
-      .setTitle(VN_ADMIN_MENU_NAME);
-    SpreadsheetApp.getUi().showSidebar(html);
+    if (mode !== 'TEMPLATE' && mode !== 'LEGACY') return false;
+    SpreadsheetApp.getUi().showSidebar(
+      HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar').setTitle(VN_ADMIN_MENU_NAME)
+    );
     return true;
   } catch (err) {
     Logger.log('vNextAdminInstalledGuidanceOnOpen skipped: %s', String(err && err.message || err));
@@ -529,7 +551,8 @@ function vNextAdminOpenSidebar() {
 function vNextAdminGetSidebarModel() {
   return vNextAdminGuard_('vNextAdminGetSidebarModel', function () {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const mode = vNextDetectBookMode_(ss);
+    const hubLike = vNextAdminLooksLikeHub_(ss);
+    const mode = hubLike ? 'ADMIN' : vNextDetectBookMode_(ss);
     const runtime = vNextGetRuntimeConfig_();
     const model = {
       mode: mode,
@@ -551,7 +574,7 @@ function vNextAdminGetSidebarModel() {
       pendingApprovals: [],
       recentJobs: [],
       portalRequests: {
-        configured: false, unavailable: false, spreadsheetUrl: '',
+        loading: true, configured: true, unavailable: false, spreadsheetUrl: '',
         counts: { waiting: 0, processing: 0, failed: 0, completed: 0 },
         attention: []
       },
@@ -575,19 +598,21 @@ function vNextAdminGetSidebarModel() {
       stagedTemplateReleases: [],
       emptyPilotUpgradeCandidates: [],
       operations: {},
-      pilot: {}
+      pilot: { loading: true }
     };
     if (mode === 'ADMIN') {
-      if (!vNextAdminIsRegisteredHub_(ss)) throw new Error('Admin Hubの登録情報を確認できません。');
-      vNextAdminAssertHubAdmin_(ss, false);
+      let hubConfig = vNextAdminAssertHubAdminFast_(ss);
+      if (!String(hubConfig.book_id || '')) {
+        hubConfig = Object.assign({}, hubConfig, vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET));
+      }
       model.automationInstalled = vNextAdminAutomationInstalled_();
-      // The sidebar is opened frequently. Read each operational table once and
-      // derive every card from those snapshots instead of repeatedly scanning
-      // the same ranges through helper calls.
       const exceptionRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.EXCEPTIONS).rows;
       const jobRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.JOBS).rows;
       const approvalRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.APPROVALS).rows;
       const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
+      if (!vNextAdminIsRegisteredHubFromRows_(ss, hubConfig, registryRows)) {
+        throw new Error('Admin Hubの登録情報を確認できません。');
+      }
       const openExceptions = exceptionRows.filter(function (row) {
         return String(row.status || 'OPEN').toUpperCase() === 'OPEN' &&
           String(row.exception_type || '').toUpperCase() !== 'APPROVAL_PENDING';
@@ -611,7 +636,6 @@ function vNextAdminGetSidebarModel() {
           String(row.status || '').toUpperCase() !== 'ARCHIVED';
       }).length;
       model.operations = vNextAdminOperationalMetrics_(ss, model.automationInstalled, jobRows);
-      model.pilot = vNextAdminPilotStatus_(ss);
       const severityRank = { ERROR: 0, WARN: 1, INFO: 2 };
       const registryByBook = {};
       registryRows.forEach(function (row) { if (row.book_id) registryByBook[String(row.book_id)] = row; });
@@ -629,72 +653,79 @@ function vNextAdminGetSidebarModel() {
         return new Date(a.requestedAt || 0).getTime() - new Date(b.requestedAt || 0).getTime();
       }).slice(0, 20);
       model.recentJobs = vNextAdminJobsForSidebar_(jobRows).slice(0, 8);
-      model.portalRequests = vNextAdminPortalRequestsForSidebar_(ss);
-      model.counts.portalAttention = Number(model.portalRequests.counts.failed || 0);
       model.counts.actualDataIssues = openExceptions.filter(vNextAdminIsActualDataIssue_).length;
       const safeRetryCandidates = jobRows.filter(vNextAdminIsKnownSafeRetryCandidate_).length;
-      model.counts.attention = model.counts.exceptions + model.counts.pendingApprovals +
-        model.counts.portalAttention;
+      model.counts.attention = model.counts.exceptions + model.counts.pendingApprovals;
       model.attention = vNextAdminAttentionSummary_(model, safeRetryCandidates);
-      const activeTemplate = vNextAdminResolveRelease_(ss,
-        vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET).active_release_id || '');
-      model.activeTemplateReleaseId = String(activeTemplate.release_id || '');
-      model.templateRuntimeVersion = String(activeTemplate.client_runtime_version || '');
-      const unfinishedEmptyUpgradesByBook = {};
-      vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.MIGRATIONS).rows.forEach(function (row) {
-        if (/^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase())) {
-          unfinishedEmptyUpgradesByBook[String(row.book_id || '')] = row;
-        }
-      });
-      model.emptyPilotUpgradeCandidates = registryRows.filter(function (row) {
-        const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
-        return String(row.mode || '').toUpperCase() === 'CLIENT' &&
-          String(row.status || '').toUpperCase() === 'ACTIVE' &&
-          String(row.state || '').toUpperCase() === 'INPUT_OPEN' &&
-          !String(row.current_official_id || '') &&
-          (String(row.template_release_id || '') !== String(activeTemplate.release_id || '') || !!unfinished);
-      }).map(function (row) {
-        const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
-        return {
-          bookId: String(row.book_id || ''), clientName: String(row.client_name || ''),
-          fiscalYear: Number(row.fiscal_year || 0), spreadsheetUrl: String(row.spreadsheet_url || ''),
-          currentReleaseId: String(row.template_release_id || ''),
-          targetReleaseId: String(activeTemplate.release_id || ''),
-          recoveryRequired: !!unfinished,
-          migrationId: unfinished ? String(unfinished.migration_id || '') : '',
-          migrationStatus: unfinished ? String(unfinished.status || '') : ''
-        };
-      }).sort(function (a, b) {
-        return a.clientName.localeCompare(b.clientName, 'ja') || a.fiscalYear - b.fiscalYear;
-      });
-      const hubConfig = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET);
-      model.adminRuntimeSha256 = String(hubConfig.admin_runtime_sha256 || '');
-      model.adminRuntimeUpdatable = Boolean(
-        String(hubConfig.admin_source_script_id || '') && String(hubConfig.admin_hub_script_id || '') &&
-        String(hubConfig.admin_hub_script_id || '') === String(ScriptApp.getScriptId())
-      );
-      model.portalRuntimeVersion = String(hubConfig.portal_runtime_version || '');
-      model.portalRuntimeSha256 = String(hubConfig.portal_runtime_sha256 || '');
-      model.portalRuntimeUpdatable = Boolean(
-        String(hubConfig.portal_spreadsheet_id || '') && String(hubConfig.portal_script_id || '') &&
-        [VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
-          .indexOf(model.portalRuntimeVersion) >= 0
-      );
-      const catalogRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.CATALOG).rows;
-      model.clientCatalogActiveCount = catalogRows.filter(function (row) {
-        return vNextAdminBool_(row.is_active) &&
-          String(row.catalog_version || '') === String(hubConfig.zac_client_catalog_version || '');
-      }).length;
-      model.clientCatalogVersion = String(hubConfig.zac_client_catalog_version || '');
-      model.clientCatalogRefreshedAt = String(hubConfig.zac_client_catalog_refreshed_at || '');
-      const catalogRefreshedMs = new Date(model.clientCatalogRefreshedAt || 0).getTime();
-      model.clientCatalogStale = !isFinite(catalogRefreshedMs) ||
-        Date.now() - catalogRefreshedMs >= VN_ADMIN_ZAC_CATALOG_STALE_MS;
-      const activeModel = vNextAdminTryResolveActiveModelRelease_(ss);
-      model.activeModelReleaseId = activeModel && activeModel.model_release_id || '';
-      model.modelReleases = vNextAdminLatestModelReleaseSummaries_(ss);
-      model.templateDrafts = vNextAdminListTemplateDrafts_(ss);
-      model.stagedTemplateReleases = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.RELEASES).rows
+      vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
+      model.activeTemplateReleaseId = String(hubConfig.active_release_id || '');
+    }
+    return vNextAdminJsonSafe_(model);
+  });
+}
+
+/** Second paint: Portal spreadsheet, catalog, model/release details. */
+function vNextAdminGetSidebarDetailModel() {
+  return vNextAdminGuard_('vNextAdminGetSidebarDetailModel', function () {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!vNextAdminLooksLikeHub_(ss)) return {};
+    let hubConfig = vNextAdminAssertHubAdminFast_(ss);
+    if (!String(hubConfig.book_id || '')) {
+      hubConfig = Object.assign({}, hubConfig, vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET));
+    }
+    vNextAdminHydrateLocalRuntime_(ss, hubConfig);
+    const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
+    const portalRequests = vNextAdminPortalRequestsForSidebar_(ss);
+    const activeTemplate = vNextAdminResolveRelease_(ss, hubConfig.active_release_id || '');
+    const unfinishedEmptyUpgradesByBook = {};
+    vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.MIGRATIONS).rows.forEach(function (row) {
+      if (/^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase())) {
+        unfinishedEmptyUpgradesByBook[String(row.book_id || '')] = row;
+      }
+    });
+    const emptyPilotUpgradeCandidates = registryRows.filter(function (row) {
+      const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
+      return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+        String(row.status || '').toUpperCase() === 'ACTIVE' &&
+        String(row.state || '').toUpperCase() === 'INPUT_OPEN' &&
+        !String(row.current_official_id || '') &&
+        (String(row.template_release_id || '') !== String(activeTemplate.release_id || '') || !!unfinished);
+    }).map(function (row) {
+      const unfinished = unfinishedEmptyUpgradesByBook[String(row.book_id || '')];
+      return {
+        bookId: String(row.book_id || ''), clientName: String(row.client_name || ''),
+        fiscalYear: Number(row.fiscal_year || 0), spreadsheetUrl: String(row.spreadsheet_url || ''),
+        currentReleaseId: String(row.template_release_id || ''),
+        targetReleaseId: String(activeTemplate.release_id || ''),
+        recoveryRequired: !!unfinished,
+        migrationId: unfinished ? String(unfinished.migration_id || '') : '',
+        migrationStatus: unfinished ? String(unfinished.status || '') : ''
+      };
+    }).sort(function (a, b) {
+      return a.clientName.localeCompare(b.clientName, 'ja') || a.fiscalYear - b.fiscalYear;
+    });
+    const catalogRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.CATALOG).rows;
+    const catalogVersion = String(hubConfig.zac_client_catalog_version || '');
+    const catalogRefreshedAt = String(hubConfig.zac_client_catalog_refreshed_at || '');
+    const catalogRefreshedMs = new Date(catalogRefreshedAt || 0).getTime();
+    const activeModel = vNextAdminTryResolveActiveModelRelease_(ss);
+    const model = {
+      portalRequests: portalRequests,
+      counts: { portalAttention: Number(portalRequests.counts.failed || 0) },
+      activeTemplateReleaseId: String(activeTemplate.release_id || ''),
+      templateRuntimeVersion: String(activeTemplate.client_runtime_version || ''),
+      emptyPilotUpgradeCandidates: emptyPilotUpgradeCandidates,
+      clientCatalogActiveCount: catalogRows.filter(function (row) {
+        return vNextAdminBool_(row.is_active) && String(row.catalog_version || '') === catalogVersion;
+      }).length,
+      clientCatalogVersion: catalogVersion,
+      clientCatalogRefreshedAt: catalogRefreshedAt,
+      clientCatalogStale: !isFinite(catalogRefreshedMs) ||
+        Date.now() - catalogRefreshedMs >= VN_ADMIN_ZAC_CATALOG_STALE_MS,
+      activeModelReleaseId: activeModel && activeModel.model_release_id || '',
+      modelReleases: vNextAdminLatestModelReleaseSummaries_(ss),
+      templateDrafts: vNextAdminListTemplateDrafts_(ss),
+      stagedTemplateReleases: vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.RELEASES).rows
         .filter(function (row) { return String(row.status || '').toUpperCase() === 'STAGED'; })
         .map(function (row) {
           return {
@@ -702,10 +733,69 @@ function vNextAdminGetSidebarModel() {
             templateSpreadsheetId: String(row.template_spreadsheet_id || ''),
             templateContentSha256: String(row.template_content_sha256 || ''), createdAt: row.created_at || ''
           };
-        });
-    }
+        }),
+      pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss)
+    };
+    vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
     return vNextAdminJsonSafe_(model);
   });
+}
+
+function vNextAdminApplyHubRuntimeFlags_(model, hubConfig) {
+  const config = hubConfig || {};
+  model.adminRuntimeSha256 = String(config.admin_runtime_sha256 || '');
+  model.adminRuntimeUpdatable = Boolean(
+    String(config.admin_source_script_id || '') && String(config.admin_hub_script_id || '') &&
+    String(config.admin_hub_script_id || '') === String(ScriptApp.getScriptId())
+  );
+  model.portalRuntimeVersion = String(config.portal_runtime_version || '');
+  model.portalRuntimeSha256 = String(config.portal_runtime_sha256 || '');
+  model.portalRuntimeUpdatable = Boolean(
+    String(config.portal_spreadsheet_id || '') && String(config.portal_script_id || '') &&
+    [VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
+      .indexOf(model.portalRuntimeVersion) >= 0
+  );
+  if (!model.clientCatalogVersion) {
+    model.clientCatalogVersion = String(config.zac_client_catalog_version || '');
+    model.clientCatalogRefreshedAt = String(config.zac_client_catalog_refreshed_at || '');
+    const catalogRefreshedMs = new Date(model.clientCatalogRefreshedAt || 0).getTime();
+    model.clientCatalogStale = !isFinite(catalogRefreshedMs) ||
+      Date.now() - catalogRefreshedMs >= VN_ADMIN_ZAC_CATALOG_STALE_MS;
+  }
+  return model;
+}
+
+function vNextAdminIsRegisteredHubFromRows_(ss, hubConfig, registryRows) {
+  const routing = hubConfig || {};
+  const bookId = String(routing.book_id || '');
+  if (String(routing.mode || '').toUpperCase() !== 'ADMIN' || !bookId) return false;
+  return (registryRows || []).some(function (row) {
+    return String(row.book_id || '') === bookId &&
+      String(row.mode || '').toUpperCase() === 'ADMIN' &&
+      String(row.spreadsheet_id || '') === String(ss.getId());
+  });
+}
+
+function vNextAdminPilotStatusFromRegistry_(registryRows, hub) {
+  const clientCount = (registryRows || []).filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() !== 'ARCHIVED';
+  }).length;
+  const approvedRow = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
+    return String(row.setting_key || '') === 'PILOT_CANARY_APPROVED';
+  });
+  const canaryApproved = String(approvedRow && approvedRow.setting_value || '').toLowerCase() === 'true';
+  const limit = canaryApproved ? VN_ADMIN_PILOT_CANARY_LIMIT : VN_ADMIN_PILOT_INITIAL_LIMIT;
+  return {
+    clientCount: clientCount, initialLimit: VN_ADMIN_PILOT_INITIAL_LIMIT,
+    hardLimit: VN_ADMIN_PILOT_CANARY_LIMIT, canaryApproved: canaryApproved,
+    currentLimit: limit, phase: canaryApproved ? 'CANARY' : 'INITIAL_PILOT',
+    blocked: clientCount >= limit,
+    blockedReason: clientCount >= VN_ADMIN_PILOT_CANARY_LIMIT
+      ? '5冊canary上限に達しています。30冊展開は実測検証後のreleaseで開放します。'
+      : (clientCount >= VN_ADMIN_PILOT_INITIAL_LIMIT && !canaryApproved
+        ? '初期pilot 3冊の結果を確認し、Canary承認後に4〜5冊目を作成できます。' : '')
+  };
 }
 
 /** Converts internal exception codes into a short, decision-oriented Admin card. */
@@ -2101,26 +2191,7 @@ function vNextAdminApprovePilotCanary(request) {
 }
 
 function vNextAdminPilotStatus_(hub) {
-  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows;
-  const clientCount = rows.filter(function (row) {
-    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
-      String(row.status || '').toUpperCase() !== 'ARCHIVED';
-  }).length;
-  const approvedRow = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
-    return String(row.setting_key || '') === 'PILOT_CANARY_APPROVED';
-  });
-  const canaryApproved = String(approvedRow && approvedRow.setting_value || '').toLowerCase() === 'true';
-  const limit = canaryApproved ? VN_ADMIN_PILOT_CANARY_LIMIT : VN_ADMIN_PILOT_INITIAL_LIMIT;
-  return {
-    clientCount: clientCount, initialLimit: VN_ADMIN_PILOT_INITIAL_LIMIT,
-    hardLimit: VN_ADMIN_PILOT_CANARY_LIMIT, canaryApproved: canaryApproved,
-    currentLimit: limit, phase: canaryApproved ? 'CANARY' : 'INITIAL_PILOT',
-    blocked: clientCount >= limit,
-    blockedReason: clientCount >= VN_ADMIN_PILOT_CANARY_LIMIT
-      ? '5冊canary上限に達しています。30冊展開は実測検証後のreleaseで開放します。'
-      : (clientCount >= VN_ADMIN_PILOT_INITIAL_LIMIT && !canaryApproved
-        ? '初期pilot 3冊の結果を確認し、Canary承認後に4〜5冊目を作成できます。' : '')
-  };
+  return vNextAdminPilotStatusFromRegistry_(vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows, hub);
 }
 
 function vNextAdminAssertPilotProvisionAllowed_(hub) {
@@ -12614,6 +12685,22 @@ function vNextAdminAssertRuntimeConfigurator_() {
   const admins = vNextAdminMergeEmails_(PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'));
   if (actor !== owner && admins.indexOf(actor) < 0) throw new Error('この設定を変更できるのはファイル所有者または管理者だけです。');
   return true;
+}
+
+function vNextAdminAssertHubAdminFast_(hub) {
+  const routing = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  try {
+    const actor = String(vNextAdminActor_() || '').toLowerCase();
+    const admins = vNextAdminMergeEmails_(
+      routing.admin_emails,
+      PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS')
+    );
+    if (actor && admins.indexOf(actor) >= 0) return routing;
+  } catch (err) {
+    Logger.log('Fast Hub admin check fallback: %s', String(err && err.message || err));
+  }
+  vNextAdminAssertHubAdmin_(hub, false);
+  return Object.assign({}, routing, vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_BOOK_CONFIG_SHEET));
 }
 
 function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {

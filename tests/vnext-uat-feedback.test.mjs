@@ -144,6 +144,10 @@ function checkEmployeeInteractionContract() {
   assert.match(openMenu, /addItem\('案内を開く'/);
   assert.doesNotMatch(openMenu, /自分の情報を入力|予測ダッシュボード|使い方・困ったとき/,
     'Daily employee actions must live in the guidance sidebar, not the top menu');
+  const hubOpen = functionSource(ux, 'vNextHandleOnOpen_', 'vNextBuildClientMenu_');
+  assert.match(hubOpen, /vNextAdminLooksLikeHub_/);
+  assert.doesNotMatch(hubOpen, /vNextIsAdminHub_/,
+    'Hub onOpen must not wait on registered-hub verification before the menu appears');
   assert.match(ux, /function vNextInstalledGuidanceOnOpen\(e\)[\s\S]*vNextUxOpenGuidanceShellQuietly_/,
     'Automatic guidance must run from an installable open trigger');
   assert.match(ux, /ScriptApp\.getProjectTriggers\(\)/,

@@ -59,7 +59,7 @@ var VNEXT_UX_ANALYTICS_HEADERS_ = Object.freeze([
 /** legacy onOpenから呼ぶ安全なrouter。Admin Hubのmenu builderは別moduleへ委譲する。 */
 function vNextHandleOnOpen_() {
   try {
-    if (typeof vNextIsAdminHub_ === 'function' && vNextIsAdminHub_()) {
+    if (typeof vNextAdminLooksLikeHub_ === 'function' && vNextAdminLooksLikeHub_()) {
       return typeof vNextBuildAdminMenu_ === 'function' ? Boolean(vNextBuildAdminMenu_()) : false;
     }
     // Templateにはclient用BOOK_METAが無い。Core contextより先に物理modeを判定し、

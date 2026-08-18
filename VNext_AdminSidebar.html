@@ -90,7 +90,7 @@
       </details>
     </div>
 
-    <div id="adminPanel" class="hidden">
+    <div id="adminPanel">
       <div class="card">
         <h2>最初にやること（1回だけ）</h2>
         <p class="muted">検証データを消してから置き場を整え、社員入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
@@ -367,10 +367,31 @@
         $('statusTechnical').classList.remove('hidden');
       }
       function load() {
-        google.script.run.withSuccessHandler(render).withFailureHandler(onFailure).vNextAdminGetSidebarModel();
+        google.script.run.withSuccessHandler(function (model) {
+          render(model);
+          google.script.run.withSuccessHandler(mergeSidebarDetails)
+            .withFailureHandler(function (error) {
+              showStatus('一部の詳細を読み込めませんでした。主要操作は利用できます。', true);
+              $('statusTechnicalText').textContent = (error && error.message) || String(error);
+              $('statusTechnical').classList.remove('hidden');
+            })
+            .vNextAdminGetSidebarDetailModel();
+        }).withFailureHandler(onFailure).vNextAdminGetSidebarModel();
       }
-      function render(model) {
-        setBusy(false);
+      function mergeSidebarDetails(detail) {
+        if (!detail || !sidebarModel) return;
+        if (detail.counts) Object.assign(sidebarModel.counts, detail.counts);
+        Object.keys(detail).forEach(function (key) {
+          if (key === 'counts') return;
+          sidebarModel[key] = detail[key];
+        });
+        sidebarModel.counts.attention = Number(sidebarModel.counts.exceptions || 0) +
+          Number(sidebarModel.counts.pendingApprovals || 0) +
+          Number(sidebarModel.counts.portalAttention || 0);
+        render(sidebarModel, true);
+      }
+      function render(model, keepBusy) {
+        if (!keepBusy) setBusy(false);
         sidebarModel = model;
         $('mode').textContent = model.mode === 'ADMIN' ? '管理者用' : model.mode;
         $('book').textContent = model.spreadsheetName;
@@ -400,12 +421,18 @@
                 `最終自動更新：${operations.lastSweepSucceededAt || 'まだ実行されていません'}`;
           $('operationsStatus').classList.toggle('error', !!(operations.schedulerStale || operations.queueStale));
           const pilot = model.pilot || {};
-          $('pilotStatus').textContent =
-            `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
-            (pilot.blockedReason || '現在の範囲で次のbookを生成できます。');
-          $('pilotStatus').classList.toggle('error', !!pilot.blocked);
-          $('pilotCanaryApproval').classList.toggle('hidden',
-            !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
+          if (pilot.loading) {
+            $('pilotStatus').textContent = 'Pilot展開状況を確認中…';
+            $('pilotStatus').classList.remove('error');
+            $('pilotCanaryApproval').classList.add('hidden');
+          } else {
+            $('pilotStatus').textContent =
+              `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
+              (pilot.blockedReason || '現在の範囲で次のbookを生成できます。');
+            $('pilotStatus').classList.toggle('error', !!pilot.blocked);
+            $('pilotCanaryApproval').classList.toggle('hidden',
+              !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
+          }
           $('installAutomation').classList.toggle('hidden', !!model.automationInstalled);
           renderExceptions(model.topExceptions || []);
           renderApprovals(model.pendingApprovals || []);
@@ -596,6 +623,10 @@
       function renderPortalRequests(model) {
         const root = $('portalRequests');
         root.innerHTML = '';
+        if (model.loading) {
+          root.textContent = '社員からの依頼を確認中…';
+          return;
+        }
         if (model.unavailable) {
           const warning = document.createElement('div');
           warning.className = 'item-label item-error';

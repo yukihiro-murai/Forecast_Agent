@@ -86,8 +86,19 @@ const menuSource = source.slice(menuStart, menuEnd);
 assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 3,
   'The normal Admin menu is a recovery item plus nested irregular ops');
 assert.match(menuSource, /addSubMenu/);
-assert.doesNotMatch(menuSource, /vNextAdminMenuRunOperationalCycle/,
-  'Daily run-now stays in the sidebar, not the top menu');
+assert.doesNotMatch(menuSource, /vNextDetectBookMode_|vNextAdminIsRegisteredHub_|vNextAdminHydrateLocalRuntime_/,
+  'Hub menu construction must not wait on config, registry, or property hydration');
+assert.match(menuSource, /vNextAdminLooksLikeHub_/);
+assert.ok(source.includes('function vNextAdminGetSidebarDetailModel()') &&
+  sidebar.includes('vNextAdminGetSidebarDetailModel'),
+  'Hub sidebar first paint must not wait on the deferred detail RPC');
+assert.doesNotMatch(sidebar, /id="adminPanel" class="hidden"/);
+assert.equal(sandbox.vNextAdminIsRegisteredHubFromRows_({ getId: () => 'HUB' }, {
+  mode: 'ADMIN', book_id: 'B1'
+}, [{ book_id: 'B1', mode: 'ADMIN', spreadsheet_id: 'HUB' }]), true);
+assert.equal(sandbox.vNextAdminIsRegisteredHubFromRows_({ getId: () => 'HUB' }, {
+  mode: 'ADMIN', book_id: 'B1'
+}, [{ book_id: 'B1', mode: 'CLIENT', spreadsheet_id: 'HUB' }]), false);
 assert.equal(/Pilot|runtime|Release|\u5f85\u6a5fjob/.test(menuSource), false);
 assert.ok(source.includes('function vNextAdminRunOperationalCycle()') &&
   source.includes("vNextAdminWithScriptLock_('admin-run-operational-cycle'") &&

@@ -414,6 +414,30 @@ async function checkPortalRuntimeBoundary() {
     'Hub must auto-open guidance from an installable project trigger, not simple onOpen');
   assert.doesNotMatch(adminMenu, /showSidebar/,
     'Simple Hub onOpen must not call authorized Ui.showSidebar');
+  assert.match(adminMenu, /vNextAdminLooksLikeHub_/);
+  assert.doesNotMatch(adminMenu, /vNextDetectBookMode_|vNextAdminIsRegisteredHub_|vNextAdminHydrateLocalRuntime_/,
+    'Hub menu construction must not wait on config, registry, or property hydration');
+  const installedStart = adminSource.indexOf('function vNextAdminInstalledGuidanceOnOpen(');
+  const installedEnd = adminSource.indexOf('function vNextAdminEnsureGuidanceOnOpenTrigger_(', installedStart);
+  const installed = adminSource.slice(installedStart, installedEnd);
+  const likeIdx = installed.indexOf('vNextAdminLooksLikeHub_');
+  const showIdx = installed.indexOf('showSidebar');
+  const detectIdx = installed.indexOf('vNextDetectBookMode_');
+  assert.ok(likeIdx >= 0 && showIdx > likeIdx && detectIdx > showIdx,
+    'Hub auto-sidebar must appear before config detection');
+  assert.doesNotMatch(installed, /vNextAdminIsRegisteredHub_\(/);
+  const getModelStart = adminSource.indexOf('function vNextAdminGetSidebarModel()');
+  const getModelEnd = adminSource.indexOf('function vNextAdminGetSidebarDetailModel()', getModelStart);
+  const getModel = adminSource.slice(getModelStart, getModelEnd);
+  assert.ok(getModelEnd > getModelStart, 'Hub sidebar must split first paint from deferred details');
+  assert.doesNotMatch(getModel, /vNextAdminPortalRequestsForSidebar_/);
+  assert.doesNotMatch(getModel, /vNextAdminLatestModelReleaseSummaries_/);
+  assert.doesNotMatch(getModel, /vNextAdminListTemplateDrafts_/);
+  assert.doesNotMatch(getModel, /VN_ADMIN_SHEETS\.CATALOG/);
+  assert.match(adminSource, /function vNextAdminGetSidebarDetailModel\(\)[\s\S]*vNextAdminPortalRequestsForSidebar_/);
+  assert.match(adminSidebar, /vNextAdminGetSidebarDetailModel/);
+  assert.match(adminSidebar, /id="adminPanel">/);
+  assert.doesNotMatch(adminSidebar, /id="adminPanel" class="hidden"/);
   assert.ok(!adminMenu.includes('vNextAdminContinueEmployeePortalPilotRecoveryForManualTest'),
     'One-time Portal bootstrap recovery must stay out of the normal Admin menu');
   assert.ok(!adminMenu.includes("'vNextAdminPrepareEmployeePortalPilotForManualTest'"),
