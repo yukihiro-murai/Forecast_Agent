@@ -6,13 +6,13 @@
 function doGet() {
   try {
     return HtmlService.createHtmlOutputFromFile('Portal_Entry')
-      .setTitle('年度計画')
+      .setTitle('年度予算の策定')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (error) {
     vNextPortalLog_('doGet failed', error);
     return HtmlService.createHtmlOutput(
       '<p>入口を表示できませんでした。社内アカウントで開き直してください。</p>'
-    ).setTitle('年度計画');
+    ).setTitle('年度予算の策定');
   }
 }
 
@@ -176,12 +176,12 @@ function vNextPortalRenderHome_(sheet, data) {
     return String(b.updatedAt || b.requestedAt).localeCompare(String(a.updatedAt || a.requestedAt));
   }).slice(0, 20);
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
-  sheet.getRange('A1').setValue('年度計画ポータル')
-    .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('既存の計画は入口の年度ボタンとクライアントボタンから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
-    .setFontSize(10).setFontColor('#5f6368');
+  sheet.getRange('A1').setValue('年度予算の策定　デジタルソリューション部')
+    .setFontSize(16).setFontWeight('bold').setFontColor('#0B3A66');
+  sheet.getRange('A2').setValue('部署ポータルです。既存の計画は入口の年度ボタンとクライアントボタンから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
+    .setFontSize(10).setFontColor('#5B6B7C');
   sheet.getRange('A3').setValue('作成依頼の状況')
-    .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
+    .setFontSize(11).setFontWeight('bold').setFontColor('#0B1F33');
   sheet.getRange('E3').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('F3').setValue(vNextPortalDisplayDateTime_(new Date()))
     .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
@@ -224,10 +224,10 @@ function vNextPortalRenderHome_(sheet, data) {
 function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   var entries = vNextPortalFiscalYearEntries_(fiscalYear, data);
   vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
-  sheet.getRange('A1').setValue('FY' + fiscalYear + ' 年度計画')
-    .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
+  sheet.getRange('A1').setValue('FY' + fiscalYear + ' 年度予算')
+    .setFontSize(16).setFontWeight('bold').setFontColor('#0B3A66');
   sheet.getRange('A2').setValue('クライアントを選び、「開く」から専用ブックへ進んでください。')
-    .setFontSize(10).setFontColor('#5f6368');
+    .setFontSize(10).setFontColor('#5B6B7C');
   sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
     .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');

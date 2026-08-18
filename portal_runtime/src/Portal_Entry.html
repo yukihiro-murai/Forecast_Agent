@@ -6,48 +6,108 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
-      --bg:#F5F8FB; --card:#fff; --primary:#00A0E9; --navy:#004080;
-      --text:#1F2A37; --muted:#6B7A8C; --line:#E3EAF2;
+      --bg0:#EEF3F8; --bg1:#F7FAFC; --card:#fff; --ink:#0B1F33;
+      --navy:#0B3A66; --muted:#5B6B7C; --line:#E2EAF2; --line-strong:#D3DEEA;
+      --accent:#008CDB; --accent-2:#005FA3; --accent-soft:#E7F5FC;
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
+      --admin:#334155; --admin-soft:#F1F5F9; --shadow:0 1px 2px rgba(11,31,51,.04), 0 10px 28px rgba(11,31,51,.07);
+      --radius:16px;
     }
     * { box-sizing:border-box; }
+    html, body { min-height:100%; }
     body {
-      font-family:"Helvetica Neue","Yu Gothic",sans-serif;
-      max-width:720px; margin:24px auto; padding:0 16px 40px;
-      color:var(--text); background:var(--bg); font-size:14px; line-height:1.5;
+      margin:0; color:var(--ink); font:14px/1.55 "Helvetica Neue","Hiragino Sans","Yu Gothic",sans-serif;
+      background:
+        radial-gradient(900px 420px at 8% -8%, rgba(0,140,219,.14), transparent 55%),
+        radial-gradient(720px 360px at 100% 0%, rgba(11,58,102,.08), transparent 50%),
+        linear-gradient(180deg, var(--bg1), var(--bg0));
     }
-    h1 { color:var(--navy); font-size:22px; font-weight:700; margin:0; }
-    .tag { font-size:13px; color:var(--muted); margin:4px 0 0; }
-    .brand { margin-bottom:18px; }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none;
+      background-image:
+        linear-gradient(rgba(11,31,51,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(11,31,51,.035) 1px, transparent 1px);
+      background-size:28px 28px;
+      mask-image:radial-gradient(ellipse 80% 55% at 50% 0%, #000 10%, transparent 75%);
+    }
+    .page { position:relative; max-width:760px; margin:0 auto; padding:28px 18px 48px; }
+    .brand { display:flex; align-items:flex-start; gap:14px; margin:0 0 22px; padding-left:54px; }
+    .mark {
+      flex:0 0 auto; width:44px; height:44px; border-radius:12px;
+      display:grid; place-items:center; color:#fff;
+      background:linear-gradient(180deg, #1AA6EA, var(--accent-2));
+    }
+    .mark svg { width:22px; height:22px; display:block; }
+    h1 { color:var(--navy); font-size:22px; font-weight:700; letter-spacing:.01em; line-height:1.25; margin:0; }
+    .dept { margin:4px 0 0; color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.04em; }
+    .error { color:#C0392B; background:#FDECEC; border-radius:12px; padding:12px 14px; margin-bottom:14px; }
+    .loading {
+      display:flex; align-items:center; gap:10px; color:var(--muted);
+      background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:18px 20px;
+    }
+    .spinner {
+      width:16px; height:16px; border:2px solid var(--line-strong); border-top-color:var(--accent);
+      border-radius:50%; animation:spin .8s linear infinite;
+    }
+    .layers { display:flex; flex-direction:column; gap:0; }
+    .layer {
+      display:grid; grid-template-columns:40px minmax(0,1fr); gap:14px; align-items:stretch;
+    }
+    .rail { display:flex; flex-direction:column; align-items:center; padding-top:18px; }
+    .step {
+      width:32px; height:32px; border-radius:999px; display:grid; place-items:center;
+      font-size:11px; font-weight:800; letter-spacing:.04em; color:var(--navy);
+      background:#fff; border:1px solid var(--line-strong); box-shadow:0 1px 2px rgba(11,31,51,.06);
+      z-index:1;
+    }
+    .spine { width:2px; flex:1; margin:8px 0 -2px; background:linear-gradient(180deg, #C9D7E6, #E7EEF5); }
+    .layer:last-child .spine, .layer:has(+ .layer.hidden) .spine { display:none; }
     .card {
-      background:var(--card); border-radius:12px;
-      box-shadow:0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
-      padding:22px; margin:14px 0;
+      background:var(--card); border:1px solid rgba(11,31,51,.06); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:22px 22px 20px; margin:0 0 16px;
     }
-    .hero p { margin:8px 0 0; color:var(--muted); }
-    a.btn, button, .pick {
+    .card-head { display:flex; align-items:flex-start; gap:12px; margin:0 0 8px; }
+    .icon {
+      flex:0 0 auto; width:40px; height:40px; border-radius:12px;
+      display:grid; place-items:center; color:var(--accent-2); background:var(--accent-soft);
+    }
+    .icon svg { width:20px; height:20px; display:block; }
+    .icon.admin { color:var(--admin); background:var(--admin-soft); }
+    .kicker {
+      margin:0 0 2px; font-size:11px; font-weight:700; letter-spacing:.12em;
+      text-transform:uppercase; color:var(--muted);
+    }
+    .section-title { color:var(--navy); font-size:16px; font-weight:700; margin:0; }
+    .hint { font-size:13px; color:var(--muted); margin:0 0 14px; }
+    a.btn, button.pick {
       font-family:inherit; font-weight:700; cursor:pointer; border:none; text-decoration:none;
     }
-    a.btn-primary {
-      display:block; text-align:center; background:var(--primary); color:#fff;
-      padding:14px 16px; font-size:16px; margin-top:16px; border-radius:8px;
+    a.btn {
+      display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      min-height:46px; padding:12px 16px; border-radius:10px; font-size:15px;
     }
+    a.btn-primary { width:100%; background:var(--accent); color:#fff; }
+    a.btn-primary:hover { background:#007EC6; }
+    a.btn-ghost {
+      width:100%; background:#fff; color:var(--admin); border:1px solid var(--line-strong);
+    }
+    a.btn-ghost:hover { background:var(--admin-soft); }
+    .btn svg { width:16px; height:16px; display:block; }
     :focus { outline:none; }
-    :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-    .section-title { color:var(--navy); font-size:15px; font-weight:700; margin:0 0 4px; }
-    .hint { font-size:12px; color:var(--muted); margin:0 0 12px; }
-    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; border-radius:8px;
-      border:1px solid var(--line); background:#fff; color:var(--navy); font-size:14px;
+      min-height:38px; padding:7px 13px; border-radius:999px;
+      border:1px solid var(--line); background:#fff; color:var(--navy); font-size:13px;
     }
     .pick.selected, .pick[aria-pressed="true"] { background:var(--navy); color:#fff; border-color:var(--navy); }
     .books { display:grid; gap:8px; }
     .book {
       display:flex; justify-content:space-between; gap:10px; align-items:center;
-      text-decoration:none; color:inherit; min-height:52px;
-      border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff;
+      text-decoration:none; color:inherit; min-height:54px;
+      border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#fff;
     }
     .book:hover { border-color:#B3DFF6; background:#F4FBFF; }
     .book-name { font-size:15px; font-weight:700; color:var(--navy); }
@@ -58,40 +118,119 @@
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
-    .empty, .loading { color:var(--muted); padding:12px 0; }
-    .error { color:#C0392B; background:#FDECEC; border-radius:8px; padding:10px 12px; }
-    .footer { margin-top:28px; border-top:1px solid var(--line); padding-top:12px; }
-    .tiny { font-size:12px; color:var(--muted); }
-    .tiny a { color:var(--muted); }
+    .empty { color:var(--muted); padding:8px 2px 2px; }
     .hidden { display:none !important; }
+    .layer[data-layer="admin"] .card { background:linear-gradient(180deg, #fff, #F8FAFC); }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @media (prefers-reduced-motion:reduce) {
+      .spinner { animation:none; }
+      a.btn, .book, .pick { transition:none; }
+    }
+    @media (max-width:560px) {
+      .page { padding:20px 14px 36px; }
+      .brand { padding-left:0; }
+      h1 { font-size:20px; }
+      .layer { grid-template-columns:minmax(0,1fr); }
+      .rail { display:none; }
+      .card { padding:18px 16px 16px; }
+    }
   </style>
 </head>
 <body>
-  <div class="brand">
-    <h1>年度計画</h1>
-    <p class="tag">クライアント別の年間売上計画</p>
-  </div>
+  <div class="page">
+    <header class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5v-7Z"/>
+          <path d="M12 12.5 20 8.5M12 12.5 4 8.5M12 12.5V20"/>
+        </svg>
+      </div>
+      <div>
+        <h1>年度予算の策定</h1>
+        <p class="dept">デジタルソリューション部</p>
+      </div>
+    </header>
 
-  <div id="error" class="error hidden" role="alert"></div>
-  <div id="loading" class="loading">読み込んでいます…</div>
+    <div id="error" class="error hidden" role="alert"></div>
+    <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span>読み込んでいます…</div>
 
-  <div id="app" class="hidden">
-    <section class="card hero">
-      <div class="section-title">はじめる</div>
-      <p>すでにある計画は、年度を押してからクライアントを押して開きます。まだ無いときだけポータルで作成します。</p>
-      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい年度計画を作る</a>
-    </section>
+    <div id="app" class="hidden">
+      <div class="layers">
+        <article class="layer" data-layer="department">
+          <div class="rail" aria-hidden="true"><span class="step">01</span><span class="spine"></span></div>
+          <section class="card">
+            <div class="card-head">
+              <div class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                  <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                  <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                  <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+                </svg>
+              </div>
+              <div>
+                <p class="kicker">部署レイヤー</p>
+                <h2 class="section-title">年度計画ポータル</h2>
+              </div>
+            </div>
+            <p class="hint">部署全体で使う作成・進捗の入口です。新しい年度・クライアントの計画はここから作ります。</p>
+            <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">
+              年度計画ポータルを開く
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 17 17 7M8 7h9v9"/>
+              </svg>
+            </a>
+          </section>
+        </article>
 
-    <section class="card">
-      <div class="section-title">いま進んでいる計画</div>
-      <p class="hint">先に年度、次にクライアントを押してください。名前を入力する必要はありません。</p>
-      <div id="years" class="picks" role="group" aria-label="年度"></div>
-      <div id="books" class="books"></div>
-    </section>
+        <article class="layer" data-layer="clients">
+          <div class="rail" aria-hidden="true"><span class="step">02</span><span class="spine"></span></div>
+          <section class="card">
+            <div class="card-head">
+              <div class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M7 3h7l5 5v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+                  <path d="M14 3v5h5M8 13h8M8 17h5"/>
+                </svg>
+              </div>
+              <div>
+                <p class="kicker">クライアントレイヤー</p>
+                <h2 class="section-title">個別シートへのショートカット</h2>
+              </div>
+            </div>
+            <p class="hint">年度を押してからクライアントを押すと、担当シートを直接開けます。社内の誰でも状況を確認できます。</p>
+            <div id="years" class="picks" role="group" aria-label="年度"></div>
+            <div id="books" class="books"></div>
+          </section>
+        </article>
 
-    <footer class="footer">
-      <p class="tiny" id="adminLine"></p>
-    </footer>
+        <article class="layer" data-layer="admin" id="adminLayer">
+          <div class="rail" aria-hidden="true"><span class="step">03</span></div>
+          <section class="card">
+            <div class="card-head">
+              <div class="icon admin" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3 20 6.5v5.2c0 4.7-3.2 8.1-8 9.8-4.8-1.7-8-5.1-8-9.8V6.5L12 3z"/>
+                  <path d="m9.2 12.2 2.1 2.1 3.6-3.8"/>
+                </svg>
+              </div>
+              <div>
+                <p class="kicker">管理者レイヤー</p>
+                <h2 class="section-title">管理者用ハブ</h2>
+              </div>
+            </div>
+            <p class="hint">承認、配備、運用設定など、管理者向けの操作はこちらです。通常の計画作業では使いません。</p>
+            <a id="adminButton" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">
+              管理者用ハブを開く
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 17 17 7M8 7h9v9"/>
+              </svg>
+            </a>
+            <p id="adminUnavailable" class="empty hidden">この環境では管理者用ハブがまだ設定されていません。</p>
+          </section>
+        </article>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -137,11 +276,11 @@
       var box = document.getElementById('books');
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
-        box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のボタンから作成してください。</div>';
+        box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のポータルから作成してください。</div>';
         return;
       }
       if (!rows.length) {
-        box.innerHTML = '<div class="empty">この年度の計画はまだありません。別の年度を選ぶか、上のボタンから作成してください。</div>';
+        box.innerHTML = '<div class="empty">この年度の計画はまだありません。別の年度を選ぶか、上のポータルから作成してください。</div>';
         return;
       }
       box.innerHTML = rows.map(function (book) {
@@ -160,11 +299,15 @@
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       document.getElementById('portalButton').href = model.portalUrl;
-      var admin = document.getElementById('adminLine');
+      var adminButton = document.getElementById('adminButton');
+      var adminUnavailable = document.getElementById('adminUnavailable');
       if (model.adminHubUrl) {
-        admin.innerHTML = '<a href="' + escapeHtml(model.adminHubUrl) + '" target="_blank" rel="noopener">管理者用ハブ</a>';
+        adminButton.href = model.adminHubUrl;
+        adminButton.classList.remove('hidden');
+        adminUnavailable.classList.add('hidden');
       } else {
-        admin.textContent = '';
+        adminButton.classList.add('hidden');
+        adminUnavailable.classList.remove('hidden');
       }
       var years = entryModel.years || [];
       var remembered = 0;
