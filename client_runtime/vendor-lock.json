@@ -2,9 +2,9 @@
   "version": 1,
   "sources": {
     "VNext_UX.js": {
-      "sourceSha256": "2f911e50ab3fd1df287ea350a5331fb645e65fd0ecae2c849a60fb414eb7c31c",
+      "sourceSha256": "f65b70947dd3e0e07a6420dd0ff4e5eac2be0c8b3547e7261e9c7c5b93cf4a7b",
       "vendoredFile": "src/VNext_UX.js",
-      "vendoredSha256": "707c7db17c7e4739e2dfdd4a9c80950d4ef40651ba75054e280ef2eeb513fd2a"
+      "vendoredSha256": "7c88ddc7379739930ac31a165822b8b9188b12c22c5b4d8d17c6abd405433ede"
     },
     "VNext_InputSidebar.html": {
       "sourceSha256": "0b941916cbf9500ebc074a3923ec735a500e898625d5501a086ae16a85eb24b0",

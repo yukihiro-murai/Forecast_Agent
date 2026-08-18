@@ -16,6 +16,16 @@ function doGet() {
   }
 }
 
+function vNextPortalPrepareOpenExperience() {
+  try {
+    var installed = vNextPortalEnsureGuidanceOnOpenTrigger_();
+    return { ok: true, installed: installed };
+  } catch (error) {
+    vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', error);
+    return { ok: false };
+  }
+}
+
 function onOpen(event) {
   return vNextPortalOnOpen_(event);
 }
@@ -133,7 +143,7 @@ function vNextPortalOpenHelp() {
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
       '</style></head><body><h2>年度計画ポータルの使い方</h2>' +
-      '<div class="step"><b>1. 探す</b><br>対象年度のFYタブでクライアント名を検索し、「開く」から専用ブックへ移動します。</div>' +
+      '<div class="step"><b>1. 開く</b><br>入口の年度ボタンとクライアントボタンから、すでにある計画を選びます。</div>' +
       '<div class="step"><b>2. なければ作る</b><br>右側の案内から「新しい年度計画を作る」を選びます。候補確認後に作成依頼を送ります。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</div>' +
       '<div class="note">このポータルではセルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</div>' +
@@ -168,7 +178,7 @@ function vNextPortalRenderHome_(sheet, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
   sheet.getRange('A1').setValue('年度計画ポータル')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('既存の計画はFYタブから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
+  sheet.getRange('A2').setValue('既存の計画は入口の年度ボタンとクライアントボタンから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');

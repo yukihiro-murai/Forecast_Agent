@@ -6,78 +6,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
-      --bg: #F5F8FB;
-      --card: #FFFFFF;
-      --primary: #00A0E9;
-      --navy: #004080;
-      --text: #1F2A37;
-      --muted: #6B7A8C;
-      --line: #E3EAF2;
-      --warn-bg: #FFF6E8;
-      --warn-fg: #A65C00;
-      --good-bg: #E8F7EF;
-      --good-fg: #0F7B3A;
-      --chip: #EEF5FB;
-      --radius: 12px;
-      --shadow: 0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
+      --bg:#F5F8FB; --card:#fff; --primary:#00A0E9; --navy:#004080;
+      --text:#1F2A37; --muted:#6B7A8C; --line:#E3EAF2;
+      --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing:border-box; }
     body {
-      font-family: "Helvetica Neue", "Yu Gothic", sans-serif;
-      max-width: 720px; margin: 24px auto; padding: 0 16px 40px;
-      color: var(--text); background: var(--bg); font-size: 14px; line-height: 1.5;
+      font-family:"Helvetica Neue","Yu Gothic",sans-serif;
+      max-width:720px; margin:24px auto; padding:0 16px 40px;
+      color:var(--text); background:var(--bg); font-size:14px; line-height:1.5;
     }
-    h1 { color: var(--navy); font-size: 22px; font-weight: 700; margin: 0; }
-    .tag { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
-    .brand { margin-bottom: 18px; }
+    h1 { color:var(--navy); font-size:22px; font-weight:700; margin:0; }
+    .tag { font-size:13px; color:var(--muted); margin:4px 0 0; }
+    .brand { margin-bottom:18px; }
     .card {
-      background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
-      padding: 22px; margin: 14px 0;
+      background:var(--card); border-radius:12px;
+      box-shadow:0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
+      padding:22px; margin:14px 0;
     }
-    .hero p { margin: 8px 0 0; color: var(--muted); }
-    a.btn, button {
-      display: block; text-align: center; text-decoration: none; border: none;
-      border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: 700;
+    .hero p { margin:8px 0 0; color:var(--muted); }
+    a.btn, button, .pick {
+      font-family:inherit; font-weight:700; cursor:pointer; border:none; text-decoration:none;
     }
-    a.btn-primary, button.primary {
-      background: var(--primary); color: #fff; padding: 14px 16px; font-size: 16px; margin-top: 16px;
+    a.btn-primary {
+      display:block; text-align:center; background:var(--primary); color:#fff;
+      padding:14px 16px; font-size:16px; margin-top:16px; border-radius:8px;
     }
-    a.btn-secondary {
-      background: #fff; color: var(--navy); border: 1px solid var(--line);
-      padding: 12px 16px; font-size: 14px; margin-top: 8px;
+    :focus { outline:none; }
+    :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+    .section-title { color:var(--navy); font-size:15px; font-weight:700; margin:0 0 4px; }
+    .hint { font-size:12px; color:var(--muted); margin:0 0 12px; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+    .pick {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-height:40px; padding:8px 14px; border-radius:8px;
+      border:1px solid var(--line); background:#fff; color:var(--navy); font-size:14px;
     }
-    :focus { outline: none; }
-    :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    .toolbar { display: flex; gap: 8px; margin: 4px 0 12px; }
-    input[type=search] {
-      flex: 1; height: 40px; padding: 8px 12px; border: 1px solid var(--line);
-      border-radius: 8px; font: inherit; color: var(--text); background: #fff;
-    }
-    .section-title { color: var(--navy); font-size: 15px; font-weight: 700; margin: 0 0 4px; }
-    .hint { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+    .pick.selected, .pick[aria-pressed="true"] { background:var(--navy); color:#fff; border-color:var(--navy); }
+    .books { display:grid; gap:8px; }
     .book {
-      display: block; text-decoration: none; color: inherit;
-      border: 1px solid var(--line); border-radius: var(--radius);
-      padding: 14px 16px; margin: 8px 0; background: #fff;
+      display:flex; justify-content:space-between; gap:10px; align-items:center;
+      text-decoration:none; color:inherit; min-height:52px;
+      border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff;
     }
-    .book:hover { border-color: #B3DFF6; background: #F4FBFF; }
-    .book-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-    .book-name { font-size: 15px; font-weight: 700; color: var(--navy); }
-    .book-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .book:hover { border-color:#B3DFF6; background:#F4FBFF; }
+    .book-name { font-size:15px; font-weight:700; color:var(--navy); }
+    .book-meta { font-size:12px; color:var(--muted); margin-top:2px; }
     .chip {
-      display: inline-block; border-radius: 99px; padding: 3px 10px;
-      font-size: 11px; font-weight: 700; background: var(--chip); color: var(--navy);
-      white-space: nowrap;
+      display:inline-block; border-radius:99px; padding:3px 10px;
+      font-size:11px; font-weight:700; background:#EEF5FB; color:var(--navy); white-space:nowrap;
     }
-    .chip.warn { background: var(--warn-bg); color: var(--warn-fg); }
-    .chip.good { background: var(--good-bg); color: var(--good-fg); }
-    .empty { color: var(--muted); padding: 12px 0; }
-    .loading { color: var(--muted); padding: 20px 0; }
-    .error { color: #C0392B; background: #FDECEC; border-radius: 8px; padding: 10px 12px; }
-    .footer { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 12px; }
-    .tiny { font-size: 12px; color: var(--muted); }
-    .tiny a { color: var(--muted); }
-    .hidden { display: none !important; }
+    .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
+    .chip.good { background:var(--good-bg); color:var(--good-fg); }
+    .empty, .loading { color:var(--muted); padding:12px 0; }
+    .error { color:#C0392B; background:#FDECEC; border-radius:8px; padding:10px 12px; }
+    .footer { margin-top:28px; border-top:1px solid var(--line); padding-top:12px; }
+    .tiny { font-size:12px; color:var(--muted); }
+    .tiny a { color:var(--muted); }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
@@ -92,17 +78,15 @@
   <div id="app" class="hidden">
     <section class="card hero">
       <div class="section-title">はじめる</div>
-      <p>新しい年度・クライアントの計画は、ポータルから作成します。すでにある計画は下の一覧から開けます。</p>
-      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">年度計画ポータルを開く</a>
+      <p>すでにある計画は、年度を押してからクライアントを押して開きます。まだ無いときだけポータルで作成します。</p>
+      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい年度計画を作る</a>
     </section>
 
     <section class="card">
       <div class="section-title">いま進んでいる計画</div>
-      <p class="hint">社内の誰でも開いて状況を確認できます。</p>
-      <div class="toolbar">
-        <input id="search" type="search" placeholder="クライアント名で探す" aria-label="クライアント名で探す">
-      </div>
-      <div id="books"></div>
+      <p class="hint">先に年度、次にクライアントを押してください。名前を入力する必要はありません。</p>
+      <div id="years" class="picks" role="group" aria-label="年度"></div>
+      <div id="books" class="books"></div>
     </section>
 
     <footer class="footer">
@@ -111,6 +95,8 @@
   </div>
 
   <script>
+    var entryModel = null;
+    var selectedYear = 0;
     function chipClass(tone) {
       if (tone === 'warn') return 'chip warn';
       if (tone === 'good') return 'chip good';
@@ -120,54 +106,85 @@
       return String(value == null ? '' : value)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    function booksForYear(year) {
+      return (entryModel.books || []).filter(function (book) {
+        return Number(book.fiscalYear) === Number(year);
+      });
+    }
+    function paintYears() {
+      var years = entryModel.years || [];
+      var box = document.getElementById('years');
+      if (!years.length) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = years.map(function (year) {
+        var pressed = Number(year) === Number(selectedYear) ? 'true' : 'false';
+        var selected = pressed === 'true' ? ' selected' : '';
+        return '<button type="button" class="pick' + selected + '" data-year="' + year +
+          '" aria-pressed="' + pressed + '">FY' + year + '</button>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('[data-year]'), function (button) {
+        button.addEventListener('click', function () {
+          selectedYear = Number(button.getAttribute('data-year'));
+          try { sessionStorage.setItem('vnext-entry-year', String(selectedYear)); } catch (ignored) {}
+          paintYears();
+          paintBooks();
+        });
+      });
+    }
+    function paintBooks() {
+      var box = document.getElementById('books');
+      var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
+      if (!(entryModel.books || []).length) {
+        box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のボタンから作成してください。</div>';
+        return;
+      }
+      if (!rows.length) {
+        box.innerHTML = '<div class="empty">この年度の計画はまだありません。別の年度を選ぶか、上のボタンから作成してください。</div>';
+        return;
+      }
+      box.innerHTML = rows.map(function (book) {
+        var body =
+          '<div><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
+          '<div class="book-meta">' + (book.nextAction ? escapeHtml(book.nextAction) : 'FY' + escapeHtml(book.fiscalYear)) + '</div></div>' +
+          '<span class="' + chipClass(book.tone) + '">' + escapeHtml(book.stateLabel) + '</span>';
+        if (book.url) {
+          return '<a class="book" href="' + escapeHtml(book.url) + '" target="_blank" rel="noopener">' + body + '</a>';
+        }
+        return '<div class="book">' + body + '</div>';
+      }).join('');
+    }
     function render(model) {
+      entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       document.getElementById('portalButton').href = model.portalUrl;
-      const admin = document.getElementById('adminLine');
+      var admin = document.getElementById('adminLine');
       if (model.adminHubUrl) {
         admin.innerHTML = '<a href="' + escapeHtml(model.adminHubUrl) + '" target="_blank" rel="noopener">管理者用ハブ</a>';
       } else {
         admin.textContent = '';
       }
-      const books = model.books || [];
-      const box = document.getElementById('books');
-      function paint(filter) {
-        const q = String(filter || '').trim().toLowerCase();
-        const rows = books.filter(function (book) {
-          if (!q) return true;
-          return String(book.clientName || '').toLowerCase().indexOf(q) >= 0 ||
-            String(book.fiscalYear || '').indexOf(q) >= 0;
-        });
-        if (!rows.length) {
-          box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のボタンから作成してください。</div>';
-          return;
-        }
-        box.innerHTML = rows.map(function (book) {
-          const body =
-            '<div class="book-top">' +
-              '<div><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
-              '<div class="book-meta">FY' + escapeHtml(book.fiscalYear) +
-                (book.nextAction ? ' · ' + escapeHtml(book.nextAction) : '') + '</div></div>' +
-              '<span class="' + chipClass(book.tone) + '">' + escapeHtml(book.stateLabel) + '</span>' +
-            '</div>';
-          if (book.url) {
-            return '<a class="book" href="' + escapeHtml(book.url) + '" target="_blank" rel="noopener">' + body + '</a>';
-          }
-          return '<div class="book">' + body + '</div>';
-        }).join('');
-      }
-      paint('');
-      document.getElementById('search').addEventListener('input', function (event) {
-        paint(event.target.value);
+      var years = entryModel.years || [];
+      var remembered = 0;
+      try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}
+      selectedYear = 0;
+      years.forEach(function (year) {
+        if (!selectedYear && Number(year) === remembered) selectedYear = Number(year);
       });
+      if (!selectedYear && years.length) selectedYear = Number(years[0]);
+      paintYears();
+      paintBooks();
     }
     function fail(message) {
       document.getElementById('loading').classList.add('hidden');
-      const el = document.getElementById('error');
+      var el = document.getElementById('error');
       el.textContent = message;
       el.classList.remove('hidden');
     }
+    google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
+      .vNextPortalPrepareOpenExperience();
     google.script.run
       .withSuccessHandler(render)
       .withFailureHandler(function (error) {

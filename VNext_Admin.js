@@ -92,10 +92,10 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.5.0';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.6.0';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
-  'vnext-portal-1.4.0'
+  'vnext-portal-1.4.0', 'vnext-portal-1.5.0'
 ]);
 const VN_ADMIN_LIBRARY = Object.freeze({
   DRIVE_NAME: '年度計画',
@@ -11110,7 +11110,7 @@ function vNextAdminRefreshHome_(hub) {
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
   const version = String(runtimeVersion || '');
   return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
-    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0'].indexOf(version) >= 0;
+    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0', 'vnext-portal-1.5.0'].indexOf(version) >= 0;
 }
 
 function vNextAdminResolvePortal_(hub) {

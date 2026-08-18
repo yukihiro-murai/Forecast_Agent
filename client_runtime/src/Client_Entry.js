@@ -5,20 +5,20 @@
 
 function onOpen(e) {
   try {
-    var mode = vNextClientDetectMode_();
-    if (mode === 'TEMPLATE') {
-      SpreadsheetApp.getUi().createMenu('年度計画')
-        .addItem('案内を開く', 'vNextOpenTemplateGuidance')
-        .addToUi();
-      return;
-    }
-    if (mode !== 'CLIENT') {
-      Logger.log('[vNext Client] onOpen skipped because mode is not CLIENT.');
-      return;
-    }
-    vNextHandleOnOpen_(e);
+    SpreadsheetApp.getUi().createMenu('年度計画')
+      .addItem('案内を開く', 'vNextClientOpenGuidanceFromMenu')
+      .addToUi();
   } catch (error) {
     Logger.log('[vNext Client] onOpen failed: ' + vNextClientErrorText_(error));
+  }
+}
+
+function vNextClientOpenGuidanceFromMenu() {
+  try {
+    if (vNextClientDetectMode_() === 'TEMPLATE') return vNextOpenTemplateGuidance();
+    return vNextGoHomeAndShowGuidance();
+  } catch (error) {
+    Logger.log('[vNext Client] menu guidance failed: ' + vNextClientErrorText_(error));
   }
 }
 

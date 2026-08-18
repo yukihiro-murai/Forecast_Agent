@@ -5,7 +5,7 @@
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: '年度計画',
-  RUNTIME_VERSION: 'vnext-portal-1.5.0',
+  RUNTIME_VERSION: 'vnext-portal-1.6.0',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -15,6 +15,8 @@ var VNEXT_PORTAL = Object.freeze({
   CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG',
   CLIENT_CATALOG_CACHE_KEY: 'vnext-portal-client-catalog-v1',
   CLIENT_CATALOG_CACHE_SECONDS: 300,
+  ENTRY_CACHE_KEY: 'vnext-portal-entry-model-v1',
+  ENTRY_CACHE_SECONDS: 45,
   PAYLOAD_KEYS: Object.freeze([
     'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
@@ -184,6 +186,7 @@ function vNextPortalSubmitCreationRequest(input) {
       vNextPortalValidateRequestPayload_(payload);
       var requestJson = vNextPortalCanonicalJson_(payload);
       var requestHash = vNextPortalSha256Hex_(requestJson);
+      vNextPortalClearEntryCache_();
       vNextPortalAppendRow_(spreadsheet, VNEXT_PORTAL.REQUEST_SHEET, VNEXT_PORTAL.REQUEST_HEADERS, {
         request_event_id: 'PORTAL-REQEV-' + Utilities.getUuid(),
         request_id: requestId,
@@ -296,13 +299,20 @@ function vNextPortalNormalizeRequestId_(value) {
 function vNextPortalGetEntryModel() {
   try {
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    var cached = vNextPortalReadEntryCache_();
+    if (cached) {
+      cached.actorEmail = vNextPortalActiveUserEmail_();
+      return cached;
+    }
     var data = vNextPortalGetLocalViewData_(spreadsheet);
     var config = vNextPortalReadConfig_(spreadsheet);
-    return vNextPortalBuildEntryModel_(data, {
+    var model = vNextPortalBuildEntryModel_(data, {
       portalUrl: spreadsheet.getUrl(),
       adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url),
       actorEmail: vNextPortalActiveUserEmail_()
     });
+    vNextPortalWriteEntryCache_(model);
+    return model;
   } catch (error) {
     vNextPortalLog_('vNextPortalGetEntryModel failed', error);
     throw new Error(error && error.message ? error.message : '入口を準備できませんでした。');
@@ -333,14 +343,63 @@ function vNextPortalBuildEntryModel_(data, options) {
     if (Number(a.fiscalYear) !== Number(b.fiscalYear)) return Number(b.fiscalYear) - Number(a.fiscalYear);
     return String(a.clientName).localeCompare(String(b.clientName), 'ja');
   });
+  var years = [];
+  books.forEach(function (book) {
+    var year = Number(book.fiscalYear || 0);
+    if (year && years.indexOf(year) < 0) years.push(year);
+  });
+  years.sort(function (a, b) { return b - a; });
   return {
     ok: true,
     runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
     portalUrl: String(opt.portalUrl || ''),
     adminHubUrl: String(opt.adminHubUrl || ''),
     actorEmail: String(opt.actorEmail || ''),
+    years: years,
     books: books
   };
+}
+
+function vNextPortalReadEntryCache_() {
+  try {
+    if (typeof CacheService === 'undefined') return null;
+    var cache = CacheService.getDocumentCache();
+    var raw = cache && cache.get(VNEXT_PORTAL.ENTRY_CACHE_KEY);
+    if (!raw) return null;
+    var parsed = JSON.parse(raw);
+    if (!parsed || parsed.ok !== true || !Array.isArray(parsed.books) || !Array.isArray(parsed.years)) return null;
+    return parsed;
+  } catch (cacheReadError) {
+    return null;
+  }
+}
+
+function vNextPortalWriteEntryCache_(model) {
+  try {
+    if (typeof CacheService === 'undefined' || !model) return;
+    var cache = CacheService.getDocumentCache();
+    if (!cache) return;
+    cache.put(VNEXT_PORTAL.ENTRY_CACHE_KEY, JSON.stringify({
+      ok: true,
+      runtimeVersion: model.runtimeVersion,
+      portalUrl: model.portalUrl,
+      adminHubUrl: model.adminHubUrl,
+      years: model.years || [],
+      books: model.books || []
+    }), VNEXT_PORTAL.ENTRY_CACHE_SECONDS);
+  } catch (cacheWriteError) {
+    vNextPortalLog_('entry cache write skipped', cacheWriteError);
+  }
+}
+
+function vNextPortalClearEntryCache_() {
+  try {
+    if (typeof CacheService === 'undefined') return;
+    var cache = CacheService.getDocumentCache();
+    if (cache) cache.remove(VNEXT_PORTAL.ENTRY_CACHE_KEY);
+  } catch (cacheClearError) {
+    vNextPortalLog_('entry cache clear skipped', cacheClearError);
+  }
 }
 
 function vNextPortalEntryBookFromDirectory_(item) {

@@ -74,11 +74,6 @@ function vNextBuildClientMenu_() {
     SpreadsheetApp.getUi().createMenu(VNEXT_UX_CONFIG_.MENU_NAME)
       .addItem('案内を開く', 'vNextGoHomeAndShowGuidance')
       .addToUi();
-    try {
-      vNextUxActivateSheet_(VNEXT_UX_CONFIG_.HOME_SHEET, 'A1');
-    } catch (refreshError) {
-      Logger.log('vNextBuildClientMenu_ initial activation warning: ' + vNextUxErrorText_(refreshError));
-    }
     return true;
   } catch (err) {
     Logger.log('vNextBuildClientMenu_ error: ' + vNextUxErrorText_(err));

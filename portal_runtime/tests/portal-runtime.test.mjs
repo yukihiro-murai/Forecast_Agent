@@ -19,7 +19,8 @@ const sandbox = {
   CacheService: {
     getDocumentCache: () => ({
       get: key => cacheValues.get(key) || null,
-      put: (key, value) => cacheValues.set(key, value)
+      put: (key, value) => cacheValues.set(key, value),
+      remove: key => cacheValues.delete(key)
     })
   },
   Utilities: {
@@ -271,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.5.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.6.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -344,6 +345,7 @@ function testEntryModel() {
     adminHubUrl: 'https://docs.google.com/spreadsheets/d/hubhubhubhubhubhubhubhubhu/edit'
   });
   assert.equal(model.books.length, 2);
+  assert.equal(model.years.join(','), '2027');
   assert.equal(model.books[0].clientName, 'アストラゼネカ');
   assert.equal(model.books[0].tone, 'warn');
   assert.equal(model.books[1].stateLabel, 'ブック作成中');
@@ -406,7 +408,10 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /年度計画ポータルを開く/);
+  assert.match(entry, /年度計画ポータルを開く|新しい年度計画を作る/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
+  assert.match(entry, /vNextPortalPrepareOpenExperience\(\)/);
+  assert.match(entry, /data-year/);
+  assert.doesNotMatch(entry, /クライアント名で探す/);
   assert.match(entry, /管理者用ハブ/);
 }

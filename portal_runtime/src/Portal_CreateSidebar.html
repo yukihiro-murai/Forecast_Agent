@@ -26,7 +26,15 @@
     input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
       outline:3px solid #aecbfa; outline-offset:2px;
     }
-    input[type="search"] { appearance:auto; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px; }
+    .pick {
+      display:inline-flex; align-items:center; justify-content:center; text-align:center;
+      min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:8px;
+      background:#fff; color:var(--dark); font:inherit; font-weight:600; cursor:pointer;
+    }
+    .pick.selected { background:var(--blue); color:#fff; border-color:var(--blue); }
+    .pick-grid { display:grid; gap:8px; max-height:280px; overflow:auto; margin-top:6px; }
+    .pick-grid .pick { justify-content:flex-start; width:100%; }
     .hint { color:var(--muted); font-size:12px; margin-top:4px; }
     .member-row { margin-top:8px; }
     .member-row label { margin:0 0 4px; color:var(--muted); font-size:12px; font-weight:normal; }
@@ -82,13 +90,13 @@
   <main>
     <section id="homePanel">
       <h1>次にすること</h1>
-      <p class="lead">既存の計画は左のFYタブから開きます。まだ無いときは、下のボタンから作成します。</p>
+      <p class="lead">既存の計画は入口の年度・クライアントボタンから開きます。まだ無いときは、下のボタンから作成します。</p>
       <div class="home-actions">
         <button class="primary" type="button" id="startCreateButton" style="width:100%">新しい年度計画を作る</button>
       </div>
       <details class="card" style="margin-top:16px">
         <summary>使い方・困ったとき</summary>
-        <p style="margin-top:10px"><b>1. 探す</b><br>対象年度のFYタブでクライアント名を検索し、「開く」から専用ブックへ移動します。</p>
+        <p style="margin-top:10px"><b>1. 開く</b><br>入口で年度ボタン、続けてクライアントボタンを押します。名前の手入力は不要です。</p>
         <p style="margin-top:8px"><b>2. なければ作る</b><br>上のボタンから作成します。候補確認後に作成依頼を送ります。</p>
         <p style="margin-top:8px"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</p>
         <p class="hint" style="margin-top:10px">セルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</p>
@@ -109,18 +117,18 @@
       <div class="identity">作成担当：<strong id="requester">確認中…</strong></div>
 
       <label class="required" for="fiscalYear">対象年度</label>
-      <select id="fiscalYear" required disabled aria-describedby="fiscalYearHint"></select>
-      <div class="hint" id="fiscalYearHint">年度は4月から翌年3月です。</div>
+      <div id="fiscalYearButtons" class="picks" role="group" aria-label="対象年度"></div>
+      <select id="fiscalYear" class="sr-only" required disabled aria-describedby="fiscalYearHint"></select>
+      <div class="hint" id="fiscalYearHint">年度は4月から翌年3月です。ボタンで選んでください。</div>
 
-      <label for="clientSearch">クライアントを絞り込む</label>
-      <input id="clientSearch" type="search" placeholder="名称の一部を入力" disabled aria-controls="clientKey" aria-describedby="clientCount">
+      <label for="clientSearch">クライアントの絞り込み（任意）</label>
+      <input id="clientSearch" type="search" placeholder="必要なときだけ入力" disabled aria-controls="clientButtons" aria-describedby="clientCount">
       <div class="hint" id="clientCount">ZAC一覧を読み込んでいます。</div>
 
       <label class="required" for="clientKey">クライアント</label>
-      <select id="clientKey" required disabled aria-describedby="catalogInfo">
-        <option value="">ZACの一覧を読み込んでいます…</option>
-      </select>
-      <div class="hint" id="catalogInfo">クライアント名とIDの手入力は不要です。</div>
+      <div id="clientButtons" class="pick-grid" role="group" aria-label="クライアント"></div>
+      <select id="clientKey" class="sr-only" required disabled aria-describedby="catalogInfo"></select>
+      <div class="hint" id="catalogInfo">表示された正式名称を押してください。手入力は不要です。</div>
 
       <fieldset aria-describedby="memberHint">
         <legend class="required">関与メンバー</legend>
@@ -211,7 +219,8 @@
       'previewButton','submitButton','addMemberButton','confirmSimilarDuplicates','similarConfirmWrap',
       'submission','submissionTitle','submissionTarget','submissionId','statusLabel','statusAction',
       'statusWait','statusUpdated','statusCheckNote','openBookLink','refreshStatusButton','showHomeButton',
-      'phase1','phase2','phase3','phase4','homePanel','createPanel','startCreateButton','backToHomeButton'
+      'phase1','phase2','phase3','phase4','homePanel','createPanel','startCreateButton','backToHomeButton',
+      'fiscalYearButtons','clientButtons'
     ]);
     var elements = {};
     elementIds.forEach(function(id) { elements[id] = document.getElementById(id); });
@@ -270,12 +279,30 @@
       }
       elements.lead.textContent = model.instructions || elements.lead.textContent;
       elements.fiscalYear.textContent = '';
+      elements.fiscalYearButtons.textContent = '';
       model.fiscalYears.forEach(function(year) {
         var option = document.createElement('option');
         option.value = year;
         option.textContent = 'FY' + year;
         if (Number(year) === Number(model.defaultFiscalYear)) option.selected = true;
         elements.fiscalYear.appendChild(option);
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'pick' + (Number(year) === Number(model.defaultFiscalYear) ? ' selected' : '');
+        button.textContent = 'FY' + year;
+        button.setAttribute('aria-pressed', Number(year) === Number(model.defaultFiscalYear) ? 'true' : 'false');
+        button.addEventListener('click', function() {
+          if (busy || submitted) return;
+          elements.fiscalYear.value = String(year);
+          Array.prototype.forEach.call(elements.fiscalYearButtons.querySelectorAll('.pick'), function(item) {
+            var on = item.textContent === 'FY' + year;
+            item.className = 'pick' + (on ? ' selected' : '');
+            item.setAttribute('aria-pressed', on ? 'true' : 'false');
+          });
+          invalidatePreview();
+          updatePreviewState();
+        });
+        elements.fiscalYearButtons.appendChild(button);
       });
       elements.requester.textContent = model.requesterEmail || '確認できません';
       elements.catalogInfo.textContent = 'ZAC一覧更新：' + displayDateTime(model.catalogSyncedAt);
@@ -297,24 +324,47 @@
       var matches = catalogClients.filter(function(client) {
         return !normalizedQuery || normalizeSearchText(client.name).indexOf(normalizedQuery) >= 0;
       });
-      var visible = matches.slice();
       var selected = catalogClients.filter(function(client) { return client.key === selectedKey; })[0];
-      var selectedMatches = selected && visible.some(function(client) { return client.key === selectedKey; });
+      var selectedMatches = selected && matches.some(function(client) { return client.key === selectedKey; });
+      if (!selectedMatches) selectedKey = '';
       elements.clientKey.textContent = '';
       var placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = matches.length ? '選択してください' : '該当するクライアントはありません';
+      placeholder.value = selectedKey;
+      placeholder.textContent = selected && selectedMatches ? selected.name : '';
       elements.clientKey.appendChild(placeholder);
-      visible.forEach(function(client) {
-        var option = document.createElement('option');
-        option.value = client.key;
-        option.textContent = client.name;
-        elements.clientKey.appendChild(option);
-      });
-      if (selectedMatches) elements.clientKey.value = selectedKey;
+      if (selectedKey) elements.clientKey.value = selectedKey;
+      elements.clientButtons.textContent = '';
+      if (!matches.length) {
+        var empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.textContent = '該当するクライアントはありません。絞り込みを消してください。';
+        elements.clientButtons.appendChild(empty);
+      } else {
+        matches.forEach(function(client) {
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'pick' + (client.key === selectedKey ? ' selected' : '');
+          button.textContent = client.name;
+          button.setAttribute('aria-pressed', client.key === selectedKey ? 'true' : 'false');
+          button.addEventListener('click', function() {
+            if (busy || submitted) return;
+            elements.clientKey.textContent = '';
+            var option = document.createElement('option');
+            option.value = client.key;
+            option.textContent = client.name;
+            option.selected = true;
+            elements.clientKey.appendChild(option);
+            elements.clientKey.value = client.key;
+            renderClientOptions(elements.clientSearch.value);
+            invalidatePreview();
+            updatePreviewState();
+          });
+          elements.clientButtons.appendChild(button);
+        });
+      }
       elements.clientCount.textContent = normalizedQuery
         ? matches.length + '件に絞り込み（全' + catalogClients.length + '件）'
-        : 'ZAC登録 ' + catalogClients.length + '件';
+        : 'ZAC登録 ' + catalogClients.length + '件。正式名称を押してください。';
     }
 
     function filterClients() {

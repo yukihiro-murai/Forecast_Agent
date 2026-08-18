@@ -139,6 +139,8 @@ function checkEmployeeInteractionContract() {
     'Client onOpen must not block guidance on identity or full view rendering');
   assert.doesNotMatch(openMenu, /vNextUxOpenGuidanceShellQuietly_|showSidebar/,
     'Simple onOpen must not call authorized Ui.showSidebar');
+  assert.doesNotMatch(openMenu, /vNextUxActivateSheet_/,
+    'Simple onOpen must not activate sheets before the menu can appear');
   assert.match(openMenu, /addItem\('案内を開く'/);
   assert.doesNotMatch(openMenu, /自分の情報を入力|予測ダッシュボード|使い方・困ったとき/,
     'Daily employee actions must live in the guidance sidebar, not the top menu');
