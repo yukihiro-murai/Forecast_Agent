@@ -5163,10 +5163,16 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
       if (portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION && portal.runtimeSha256 === targetSha) {
         const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
+        const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId);
+        vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
+          scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
+          webAppUrl: webApp.webAppUrl, runtimeVersion: portal.runtimeVersion, reused: true
+        });
         return {
           ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
           runtimeSha256: portal.runtimeSha256, catalog: catalog,
-          message: '社員ポータルは最新版です。ZACクライアント候補だけを更新しました。'
+          webAppUrl: webApp.webAppUrl, webAppVersion: webApp.versionNumber,
+          message: '社員ポータルのファイルは最新版です。社員向けWeb入口を同じURLのまま公開し直しました。入口をハード再読み込みしてください。'
         };
       }
       if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
@@ -5201,6 +5207,7 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
       let contentUpdateAttempted = false;
       let tablesExpanded = false;
       let pinsUpdated = false;
+      let migrated = null;
       try {
         // Freeze employee appends during the small cross-file migration window.
         vNextAdminProtectInternalSheets_(portal.spreadsheet,
@@ -5264,10 +5271,9 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
           scriptId: portal.scriptId, spreadsheetId: portal.spreadsheetId,
           parentTitle: project.title, catalogVersion: catalog.catalogVersion, reason: reason
         });
-        return {
+        migrated = {
           ok: true, reused: false, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
-          runtimeSha256: targetSha, catalog: catalog,
-          message: '社員ポータルを最新版へ更新しました。Portalを再読み込みしてください。'
+          runtimeSha256: targetSha, catalog: catalog
         };
       } catch (migrationError) {
         const rollbackErrors = [];
@@ -5319,7 +5325,91 @@ function vNextAdminUpdateSharedPortalRuntimeInHub_(hub, request) {
         }
         throw migrationError;
       }
+      const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId);
+      vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
+        scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
+        webAppUrl: webApp.webAppUrl, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, reused: false
+      });
+      migrated.webAppUrl = webApp.webAppUrl;
+      migrated.webAppVersion = webApp.versionNumber;
+      migrated.message = '社員ポータルを最新版へ更新し、社員向けWeb入口も同じURLのまま公開しました。入口をハード再読み込みしてください。';
+      return migrated;
     });
+}
+
+/**
+ * Pins the existing employee /exec deployment to a new Apps Script version.
+ * Does not create a second Web App URL. Publish is outside the runtime
+ * rollback window so a failed redeploy cannot undo a verified file copy.
+ */
+function vNextAdminPublishPortalWebApp_(scriptId) {
+  const id = vNextClientRuntimeValidateScriptId_(scriptId, 'scriptId');
+  const created = vNextClientRuntimeApiRequest_(
+    '/projects/' + encodeURIComponent(id) + '/versions',
+    'post',
+    { description: VN_ADMIN_PORTAL_RUNTIME_VERSION + ' employee web entry' }
+  );
+  const versionNumber = Number(created && created.versionNumber || 0);
+  if (!versionNumber) throw new Error('Portal web app version was not created.');
+  const listed = vNextClientRuntimeApiRequest_(
+    '/projects/' + encodeURIComponent(id) + '/deployments',
+    'get'
+  );
+  const selected = vNextAdminSelectPortalWebAppDeployment_(listed.deployments || []);
+  const updated = vNextClientRuntimeApiRequest_(
+    '/projects/' + encodeURIComponent(id) + '/deployments/' +
+      encodeURIComponent(selected.deploymentId),
+    'put',
+    {
+      deploymentConfig: {
+        versionNumber: versionNumber,
+        manifestFileName: (selected.deploymentConfig &&
+          selected.deploymentConfig.manifestFileName) || 'appsscript',
+        description: VN_ADMIN_PORTAL_RUNTIME_VERSION
+      }
+    }
+  );
+  const webAppUrl = vNextAdminWebAppUrlFromDeployment_(updated) ||
+    vNextAdminWebAppUrlFromDeployment_(selected);
+  if (!webAppUrl) throw new Error('Portal web app URL was missing after republish.');
+  return { versionNumber: versionNumber, webAppUrl: webAppUrl, deploymentId: selected.deploymentId };
+}
+
+function vNextAdminWebAppUrlFromDeployment_(deployment) {
+  const entries = (deployment && deployment.entryPoints) || [];
+  for (let i = 0; i < entries.length; i++) {
+    if (String(entries[i].entryPointType || '') !== 'WEB_APP') continue;
+    const url = String((entries[i].webApp || {}).url || '');
+    if (url) return url;
+  }
+  return '';
+}
+
+function vNextAdminSelectPortalWebAppDeployment_(deployments) {
+  const webApps = (deployments || []).map(function (deployment) {
+    const url = vNextAdminWebAppUrlFromDeployment_(deployment);
+    if (!url) return null;
+    return { deployment: deployment, url: url };
+  }).filter(Boolean);
+  if (!webApps.length) {
+    throw new Error('Portal web app deployment was not found. Publish /exec once from the Apps Script editor, then retry.');
+  }
+  const versioned = webApps.filter(function (item) {
+    return Number(item.deployment.deploymentConfig &&
+      item.deployment.deploymentConfig.versionNumber || 0) > 0;
+  });
+  const pool = versioned.length ? versioned : webApps;
+  if (pool.length === 1) return pool[0].deployment;
+  const domain = pool.filter(function (item) {
+    const entries = item.deployment.entryPoints || [];
+    return entries.some(function (entry) {
+      const access = String(((entry.webApp || {}).entryPointConfig || {}).access || '').toUpperCase();
+      return access === 'DOMAIN';
+    });
+  });
+  if (domain.length === 1) return domain[0].deployment;
+  throw new Error('Multiple Portal web app deployments exist: ' +
+    pool.map(function (item) { return item.url; }).join(', '));
 }
 
 function vNextAdminWritePortalConfigValues_(portal, values) {
