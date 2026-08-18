@@ -31,7 +31,8 @@ const portalScriptArg = portalScriptArgIndex >= 0
   : '';
 
 if (args.has('--help')) {
-  process.stdout.write(`Usage: node scripts/publish_employee_portal.mjs [--confirm-drift] [--skip-source-sync] [--portal-script-id ID] [--reason TEXT]
+  process.stdout.write(`Usage: node scripts/publish_employee_portal.mjs [--confirm-drift] [--skip-source-sync] [--sync-only] [--portal-script-id ID] [--reason TEXT]
+--sync-only copies the 18 Admin files to central and Hub without touching /exec.
 One-time login: node scripts/gas_agent_login.mjs
 `);
   process.exit(0);
@@ -45,6 +46,7 @@ if (!skipSourceSync) {
   await syncAdminProject(targets.hubScriptId, 'hub');
   await syncAdminProject(targets.centralScriptId, 'central');
 }
+if (args.has('--sync-only')) process.exit(0);
 
 const run = await runHubPortalUpdate(targets, token, reason, confirmRuntimeDrift);
 if (run.ok) {

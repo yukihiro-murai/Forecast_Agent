@@ -1035,6 +1035,12 @@ async function checkAdminCoverageContracts() {
     'SpreadsheetApp.openById(hubId)',
     "VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION = 'RESET_GENERATED_CLIENTS'"
   ]) assert.ok(source.includes(contract), `missing Admin coverage contract: ${contract}`);
+  const portalSupportedVersions = vm.runInContext(
+    '[VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)', sandbox);
+  portalSupportedVersions.forEach(version => {
+    assert.equal(sandbox.vNextAdminPortalUsesV2Tables_(version), version !== 'vnext-portal-1.0.0',
+      `Bumping the Portal target must not reclassify ${version} table columns`);
+  });
   const resetStart = source.indexOf('function vNextAdminResetGeneratedClientsInHub_');
   const resetEnd = source.indexOf('function vNextAdminProtectedSpreadsheetIds_', resetStart);
   const reset = source.slice(resetStart, resetEnd);

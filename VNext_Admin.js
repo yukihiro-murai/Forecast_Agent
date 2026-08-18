@@ -97,6 +97,7 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0'
 ]);
+const VN_ADMIN_PORTAL_V1_TABLE_RUNTIME_VERSIONS = Object.freeze(['vnext-portal-1.0.0']);
 const VN_ADMIN_LIBRARY = Object.freeze({
   DRIVE_NAME: '年度計画',
   PORTAL: '01_社員ポータル',
@@ -11316,10 +11317,13 @@ function vNextAdminRefreshHome_(hub) {
   sheet.setFrozenRows(2);
 }
 
+/**
+ * Enumerate the closed v1 set instead of the growing v2 set. Listing v2
+ * versions made every target bump silently reclassify the previous release as
+ * v1 and fail the exact-header contract against a live v2 Portal.
+ */
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
-  const version = String(runtimeVersion || '');
-  return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
-    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0', 'vnext-portal-1.5.0'].indexOf(version) >= 0;
+  return VN_ADMIN_PORTAL_V1_TABLE_RUNTIME_VERSIONS.indexOf(String(runtimeVersion || '')) < 0;
 }
 
 function vNextAdminResolvePortal_(hub) {
