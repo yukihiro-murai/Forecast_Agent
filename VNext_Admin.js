@@ -97,6 +97,8 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.8.0'
 ]);
+const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
+  'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
 const VN_ADMIN_LIBRARY = Object.freeze({
   DRIVE_NAME: '年度計画',
   PORTAL: '01_社員ポータル',
@@ -5137,10 +5139,21 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       const targetFiles = vNextPortalRuntimeValidateFiles_(target.files || []);
       const targetSha = vNextClientRuntimeFilesSha256_(targetFiles);
       if (targetSha !== String(target.sha256 || '')) throw new Error('Target Portal bundle hash mismatch.');
-      if (portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION && portal.runtimeSha256 === targetSha) {
+      const project = vNextClientRuntimeAssertBoundParent_(portal.scriptId, portal.spreadsheetId);
+      const currentContent = vNextClientRuntimeGetContent_(portal.scriptId);
+      const currentFiles = vNextPortalRuntimeValidateExistingFiles_(currentContent.files || []);
+      const currentSha = vNextClientRuntimeFilesSha256_(currentFiles);
+      if (currentContent.scriptId && String(currentContent.scriptId) !== portal.scriptId) {
+        throw new Error('Current Portal content scriptId mismatch.');
+      }
+      const expectedWebAppUrl = vNextAdminEmployeePortalWebAppUrl_(hub);
+      if (currentSha === targetSha &&
+          portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION &&
+          portal.runtimeSha256 === targetSha) {
         const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
-        const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId);
+        const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
+        vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
         vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
           scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
           webAppUrl: webApp.webAppUrl, runtimeVersion: portal.runtimeVersion, reused: true
@@ -5155,16 +5168,6 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
           .indexOf(portal.runtimeVersion) < 0) {
         throw new Error('Portal runtime migration source version is not allowlisted: ' + portal.runtimeVersion);
-      }
-      const project = vNextClientRuntimeAssertBoundParent_(portal.scriptId, portal.spreadsheetId);
-      const currentContent = vNextClientRuntimeGetContent_(portal.scriptId);
-      const currentFiles = vNextPortalRuntimeValidateExistingFiles_(currentContent.files || []);
-      const currentSha = vNextClientRuntimeFilesSha256_(currentFiles);
-      if (currentContent.scriptId && String(currentContent.scriptId) !== portal.scriptId) {
-        throw new Error('Current Portal content scriptId mismatch.');
-      }
-      if (currentSha !== portal.runtimeSha256) {
-        throw new Error('Current Portal runtime does not match its stored SHA-256 pin.');
       }
       const hubConfigBefore = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
       const localConfigBefore = vNextAdminReadKeyValueSheet_(portal.spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
@@ -5293,7 +5296,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         }
         throw migrationError;
       }
-      const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId);
+      const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
+      vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
       vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
         scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
         webAppUrl: webApp.webAppUrl, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, reused: false
@@ -5311,7 +5315,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
  * Does not create a second Web App URL. Publish is outside the runtime
  * rollback window so a failed redeploy cannot undo a verified file copy.
  */
-function vNextAdminPublishPortalWebApp_(scriptId) {
+function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
   const id = vNextClientRuntimeValidateScriptId_(scriptId, 'scriptId');
   const created = vNextClientRuntimeApiRequest_(
     '/projects/' + encodeURIComponent(id) + '/versions',
@@ -5324,10 +5328,16 @@ function vNextAdminPublishPortalWebApp_(scriptId) {
     '/projects/' + encodeURIComponent(id) + '/deployments',
     'get'
   );
-  const selected = vNextAdminSelectPortalWebAppDeployment_(listed.deployments || []);
-  const updated = vNextClientRuntimeApiRequest_(
+  const selected = vNextAdminSelectPortalWebAppDeployment_(listed.deployments || [], expectedUrl);
+  const selectedId = String(selected.deploymentId || '');
+  const requiredId = vNextAdminRequiredPortalWebAppDeploymentId_(
+    listed.deployments || [], expectedUrl);
+  if (requiredId && selectedId !== requiredId) {
+    throw new Error('Refusing to republish a different employee Web App URL.');
+  }
+  vNextClientRuntimeApiRequest_(
     '/projects/' + encodeURIComponent(id) + '/deployments/' +
-      encodeURIComponent(selected.deploymentId),
+      encodeURIComponent(selectedId),
     'put',
     {
       deploymentConfig: {
@@ -5338,10 +5348,24 @@ function vNextAdminPublishPortalWebApp_(scriptId) {
       }
     }
   );
-  const webAppUrl = vNextAdminWebAppUrlFromDeployment_(updated) ||
+  const verified = vNextClientRuntimeApiRequest_(
+    '/projects/' + encodeURIComponent(id) + '/deployments/' +
+      encodeURIComponent(selectedId),
+    'get'
+  );
+  const pinnedVersion = Number(verified && verified.deploymentConfig &&
+    verified.deploymentConfig.versionNumber || 0);
+  if (pinnedVersion !== versionNumber) {
+    throw new Error('Portal /exec is still pinned to version ' + pinnedVersion +
+      '; expected ' + versionNumber + '.');
+  }
+  const webAppUrl = vNextAdminWebAppUrlFromDeployment_(verified) ||
     vNextAdminWebAppUrlFromDeployment_(selected);
   if (!webAppUrl) throw new Error('Portal web app URL was missing after republish.');
-  return { versionNumber: versionNumber, webAppUrl: webAppUrl, deploymentId: selected.deploymentId };
+  if (requiredId && webAppUrl.indexOf(requiredId) < 0) {
+    throw new Error('Portal /exec URL changed during republish.');
+  }
+  return { versionNumber: versionNumber, webAppUrl: webAppUrl, deploymentId: selectedId };
 }
 
 function vNextAdminWebAppUrlFromDeployment_(deployment) {
@@ -5354,7 +5378,65 @@ function vNextAdminWebAppUrlFromDeployment_(deployment) {
   return '';
 }
 
-function vNextAdminSelectPortalWebAppDeployment_(deployments) {
+function vNextAdminWebAppDeploymentIdFromUrl_(url) {
+  const match = String(url || '').match(/\/s\/(AKfycb[A-Za-z0-9_-]+)/);
+  return match ? match[1] : '';
+}
+
+function vNextAdminRequiredPortalWebAppDeploymentId_(deployments, expectedUrl) {
+  const urlId = vNextAdminWebAppDeploymentIdFromUrl_(expectedUrl);
+  if (urlId) return urlId;
+  const bookmarkId = VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID;
+  const present = (deployments || []).some(function (deployment) {
+    return String(deployment.deploymentId || '') === bookmarkId ||
+      String(vNextAdminWebAppUrlFromDeployment_(deployment)).indexOf(bookmarkId) >= 0;
+  });
+  return present ? bookmarkId : '';
+}
+
+function vNextAdminEmployeePortalWebAppUrl_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const fromConfig = String((config && config.portal_web_app_url) || '').trim();
+  if (fromConfig) return fromConfig;
+  const row = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (item) {
+    return String(item.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
+  });
+  if (!row || !row.setting_value) return '';
+  try {
+    const parsed = JSON.parse(String(row.setting_value));
+    return String(parsed && parsed.webAppUrl || '').trim();
+  } catch (error) {
+    return '';
+  }
+}
+
+function vNextAdminRememberPortalWebAppUrl_(hub, portal, webAppUrl) {
+  const url = String(webAppUrl || '').trim();
+  if (!url) return;
+  vNextAdminWriteSystemConfig_(hub, { portal_web_app_url: url });
+  const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (item) {
+    return String(item.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
+  });
+  let parsed = {};
+  if (existing && existing.setting_value) {
+    try { parsed = JSON.parse(String(existing.setting_value)) || {}; }
+    catch (error) { parsed = {}; }
+  }
+  parsed.webAppUrl = url;
+  if (portal) {
+    if (portal.portalId) parsed.portalId = portal.portalId;
+    if (portal.spreadsheetId) parsed.spreadsheetId = portal.spreadsheetId;
+    if (portal.scriptId) parsed.scriptId = portal.scriptId;
+  }
+  vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'EMPLOYEE_PORTAL_JSON', {
+    setting_key: 'EMPLOYEE_PORTAL_JSON',
+    setting_value: vNextAdminCanonicalJson_(parsed),
+    value_type: 'JSON', scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
+    updated_by: vNextAdminActor_(), note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+  });
+}
+
+function vNextAdminSelectPortalWebAppDeployment_(deployments, expectedUrl) {
   const webApps = (deployments || []).map(function (deployment) {
     const url = vNextAdminWebAppUrlFromDeployment_(deployment);
     if (!url) return null;
@@ -5362,6 +5444,15 @@ function vNextAdminSelectPortalWebAppDeployment_(deployments) {
   }).filter(Boolean);
   if (!webApps.length) {
     throw new Error('Portal web app deployment was not found. Publish /exec once from the Apps Script editor, then retry.');
+  }
+  const preferredId = vNextAdminRequiredPortalWebAppDeploymentId_(deployments, expectedUrl);
+  const matched = preferredId ? webApps.filter(function (item) {
+    return String(item.deployment.deploymentId || '') === preferredId ||
+      item.url.indexOf(preferredId) >= 0;
+  }) : [];
+  if (matched.length === 1) return matched[0].deployment;
+  if (preferredId && !matched.length) {
+    throw new Error('Bookmarked employee /exec was not found among Portal deployments.');
   }
   const versioned = webApps.filter(function (item) {
     return Number(item.deployment.deploymentConfig &&

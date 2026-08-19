@@ -930,15 +930,43 @@ async function checkAdminCoverageContracts() {
     'Portal migration rollback must re-verify the previous four-file or five-file runtime');
   assert.equal(portalMigration.includes('vNextPortalRuntimeValidateFiles_(currentContent.files'), false,
     'Current Portal content must not be forced through the latest five-file allowlist');
-  assert.ok(portalMigration.includes('vNextAdminPublishPortalWebApp_(portal.scriptId)'),
+  assert.ok(portalMigration.includes('vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl)'),
     'Portal update must republish the existing employee web app after a verified runtime copy');
   assert.ok(portalMigration.includes("'/deployments/' +") && portalMigration.includes("'put'"),
     'Portal web entry must update the existing deployment instead of creating a new /exec URL');
   assert.equal(portalMigration.includes("'/deployments', 'post'"), false,
     'Portal web entry republish must not create a second Web App URL');
-  assert.ok(portalMigration.lastIndexOf('vNextAdminPublishPortalWebApp_(portal.scriptId)') >
+  assert.ok(portalMigration.lastIndexOf('vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl)') >
     portalMigration.lastIndexOf('throw migrationError'),
     'Web app republish must run after the runtime rollback window so a failed /exec pin cannot undo files');
+  assert.ok(portalMigration.indexOf('vNextClientRuntimeGetContent_(portal.scriptId)') <
+    portalMigration.indexOf('if (currentSha === targetSha &&'),
+    'Live Portal files must be hashed before Hub pin reuse can skip the copy');
+  assert.equal(portalMigration.includes('does not match its stored SHA-256 pin.'), false,
+    'A drifted live Portal must be overwritten with the verified target instead of aborting');
+  assert.ok(portalMigration.includes('vNextAdminEmployeePortalWebAppUrl_(hub)'),
+    'Portal republish must prefer the bookmarked employee /exec stored on the Hub');
+  assert.ok(source.includes('AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH'),
+    'Employee /exec republish must pin the bookmarked deployment, not HEAD');
+  const bookmarkId = 'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
+  const webAppEntry = (id, versionNumber) => ({
+    deploymentId: id,
+    deploymentConfig: versionNumber ? { versionNumber: versionNumber } : {},
+    entryPoints: [{
+      entryPointType: 'WEB_APP',
+      webApp: { url: 'https://script.google.com/a/macros/example.com/s/' + id + '/exec' }
+    }]
+  });
+  assert.equal(sandbox.vNextAdminWebAppDeploymentIdFromUrl_(
+    'https://script.google.com/a/macros/bigm2y.com/s/' + bookmarkId + '/exec'
+  ), bookmarkId);
+  assert.equal(sandbox.vNextAdminSelectPortalWebAppDeployment_([
+    webAppEntry('AKfycbwHEADONLYDEPLOYMENTID0000000000000000000000'),
+    webAppEntry(bookmarkId, 8)
+  ]).deploymentId, bookmarkId, 'Existing employee /exec must win over HEAD');
+  assert.throws(() => sandbox.vNextAdminSelectPortalWebAppDeployment_([
+    webAppEntry('AKfycbwHEADONLYDEPLOYMENTID0000000000000000000000', 3)
+  ], 'https://script.google.com/macros/s/' + bookmarkId + '/exec'), /Bookmarked employee \/exec/);
   const adminManifest = JSON.parse(await readFile(path.join(root, 'appsscript.json'), 'utf8'));
   assert.ok(adminManifest.oauthScopes.includes('https://www.googleapis.com/auth/script.deployments'),
     'Admin project must request deployment scope to pin the employee /exec version');

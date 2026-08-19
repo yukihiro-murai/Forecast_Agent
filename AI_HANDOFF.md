@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-19 JST（社員入口 01/02/03 案内。ポータル更新後に同じ `/exec` を再公開）  
+最終更新: 2026-08-19 JST（社員 `/exec` を Portal 1.7.0 の同一URLへ直接ピン済み）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -23,6 +23,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
 | コード上のPortal runtime | `vnext-portal-1.7.0` |
 | コード上のPortal bundle SHA-256 | `d42ef79e91716f31cb87967ecae3cc81bba1433115bd2716806802f966807cc4` |
+| 社員 `/exec` | 同一URLのまま version 9 / `vnext-portal-1.7.0` にピン済み。ハード再読み込みで 01/02/03 入口になる |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -38,7 +39,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。2026-08-18に社内ドメイン向け `/exec` を公開済み。Portal 1.7.0 は 01で新しい個別シート、02で作成済みシート、03で管理者の承認・整備へ進む。Hubの「社員ポータルを最新版へ更新」は bound ファイル更新のあと、同じ `/exec` URL の Web アプリを新バージョンへ差し替える。ライブ入口は 2026-08-19 時点で別ブランチの 1.8.0 画面のまま。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。社内ドメイン向け `/exec` は 2026-08-19 に clasp で version 9（Portal 1.7.0、01/02/03）へ同じURLのまま差し替えた。Hubのピン一致だけでファイルコピーを飛ばすと、別ブランチの 1.8.0 が `/exec` に残る。ライブファイルの SHA を見てからコピーし、ブックマーク済み deployment だけを PUT する。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
