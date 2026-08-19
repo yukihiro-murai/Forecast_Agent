@@ -411,7 +411,7 @@ async function testStaticUxContracts() {
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
   assert.match(entry, /申請入口を開く（新規申請）/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
-  assert.match(entry, /vNextPortalPrepareOpenExperience\(\)/);
+  assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
   assert.match(entry, /管理ハブを開く/);

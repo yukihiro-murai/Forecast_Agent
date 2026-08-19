@@ -43,7 +43,7 @@ assert.equal(portalException.clientName, 'AstraZeneca');
 assert.equal(portalException.fiscalYear, 2027);
 assert.equal(portalException.actionType, 'RUN_NOW');
 
-sandbox.vNextAdminResolvePortal_ = () => ({
+sandbox.vNextAdminResolvePortalForRead_ = () => ({
   spreadsheet: { getUrl: () => 'https://docs.google.com/spreadsheets/d/PORTAL_1/edit' }
 });
 sandbox.vNextAdminReadTable_ = () => ({ rows: [

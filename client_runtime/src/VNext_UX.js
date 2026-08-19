@@ -518,43 +518,58 @@ function vNextSubmitPlan(payload) {
 /** Sidebarとsheet viewが共通利用する、機微情報を含めないview model。 */
 function vNextGetClientViewModel() {
   try {
-    var context = vNextUxGetBookContext_();
-    vNextUxAssertClientBook_(context);
-    var forecast = vNextUxGetLatestForecast_(context);
-    var action = vNextUxGetPrimaryAction_(context);
-    var bands = vNextUxBuildAmountBands_(forecast, context);
-    return {
-      ok: true,
-      bookId: context.bookId || '',
-      clientName: context.clientName || 'クライアント未設定',
-      fiscalYear: context.fiscalYear || '',
-      asOf: vNextUxDateText_(context.asOf),
-      cutoff: vNextUxDateText_(context.cutoff),
-      state: context.state,
-      stateLabel: VNEXT_UX_STATE_LABELS_[context.state] || context.state,
-      roleLabel: vNextUxRoleLabel_(context),
-      isForecastOwner: Boolean(context.isForecastOwner),
-      isTeamMember: Boolean(context.isTeamMember),
-      isInternalUser: Boolean(context.isInternalUser),
-      canContribute: Boolean(context.canContribute),
-      canInput: Boolean(context.canContribute) && VNEXT_UX_CONFIG_.INPUT_STATES.indexOf(context.state) >= 0,
-      inputLockMessage: vNextUxInputLockMessage_(context.state),
-      inputStatus: context.inputStatus || {},
-      canOverrideInput: vNextUxCanOverrideInput_(context),
-      latestOwnEvidence: context.latestOwnEvidence || null,
-      amountBands: bands,
-      amountBandBasis: bands.length && bands[0].available
-        ? 'このクライアントの年間売上基準 ' + vNextUxFormatMoney_(bands[0].basisAmount)
-        : '年間売上基準を確認できないため、金額入力を選んでください。',
-      primaryAction: action,
-      stateNotice: vNextUxStateIssue_(context),
-      forecast: vNextUxForecastForView_(context, forecast),
-      version: context.version || ''
-    };
+    return vNextBuildClientViewModel_(vNextUxGetBookContext_());
   } catch (err) {
     Logger.log('vNextGetClientViewModel error: ' + vNextUxErrorText_(err));
     throw new Error('画面情報を取得できませんでした。再読み込みしても直らない場合は管理ハブ担当者へ連絡してください。');
   }
+}
+
+/** 3画面を再描画してからview modelを1回で返す。Refresh操作のRPC往復を減らす。 */
+function vNextRefreshEmployeeViewsAndGetClientViewModel() {
+  try {
+    var context = vNextUxGetBookContext_();
+    vNextRefreshEmployeeViews(context);
+    return vNextBuildClientViewModel_(context);
+  } catch (err) {
+    Logger.log('vNextRefreshEmployeeViewsAndGetClientViewModel error: ' + vNextUxErrorText_(err));
+    throw new Error('画面情報を取得できませんでした。再読み込みしても直らない場合は管理ハブ担当者へ連絡してください。');
+  }
+}
+
+function vNextBuildClientViewModel_(context) {
+  vNextUxAssertClientBook_(context);
+  var forecast = vNextUxGetLatestForecast_(context);
+  var action = vNextUxGetPrimaryAction_(context);
+  var bands = vNextUxBuildAmountBands_(forecast, context);
+  return {
+    ok: true,
+    bookId: context.bookId || '',
+    clientName: context.clientName || 'クライアント未設定',
+    fiscalYear: context.fiscalYear || '',
+    asOf: vNextUxDateText_(context.asOf),
+    cutoff: vNextUxDateText_(context.cutoff),
+    state: context.state,
+    stateLabel: VNEXT_UX_STATE_LABELS_[context.state] || context.state,
+    roleLabel: vNextUxRoleLabel_(context),
+    isForecastOwner: Boolean(context.isForecastOwner),
+    isTeamMember: Boolean(context.isTeamMember),
+    isInternalUser: Boolean(context.isInternalUser),
+    canContribute: Boolean(context.canContribute),
+    canInput: Boolean(context.canContribute) && VNEXT_UX_CONFIG_.INPUT_STATES.indexOf(context.state) >= 0,
+    inputLockMessage: vNextUxInputLockMessage_(context.state),
+    inputStatus: context.inputStatus || {},
+    canOverrideInput: vNextUxCanOverrideInput_(context),
+    latestOwnEvidence: context.latestOwnEvidence || null,
+    amountBands: bands,
+    amountBandBasis: bands.length && bands[0].available
+      ? 'このクライアントの年間売上基準 ' + vNextUxFormatMoney_(bands[0].basisAmount)
+      : '年間売上基準を確認できないため、金額入力を選んでください。',
+    primaryAction: action,
+    stateNotice: vNextUxStateIssue_(context),
+    forecast: vNextUxForecastForView_(context, forecast),
+    version: context.version || ''
+  };
 }
 
 /** 入力内容を保存せず、金額影響と保存内容を確認する。 */

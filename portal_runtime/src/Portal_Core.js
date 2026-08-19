@@ -307,6 +307,10 @@ function vNextPortalNormalizeRequestId_(value) {
 /** Employee launcher used by the published Web App. */
 function vNextPortalGetEntryModel() {
   try {
+    try { vNextPortalPrepareOpenExperience(); }
+    catch (prepareError) {
+      vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', prepareError);
+    }
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     var cached = vNextPortalReadEntryCache_();
     if (cached) return cached;

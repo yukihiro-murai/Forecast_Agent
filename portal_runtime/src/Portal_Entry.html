@@ -355,8 +355,6 @@
       el.textContent = message;
       el.classList.remove('hidden');
     }
-    google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
-      .vNextPortalPrepareOpenExperience();
     google.script.run
       .withSuccessHandler(render)
       .withFailureHandler(function (error) {

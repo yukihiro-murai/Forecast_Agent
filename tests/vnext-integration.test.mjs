@@ -755,9 +755,9 @@ async function checkAdminCoverageContracts() {
     'https://docs.google.com/spreadsheets/d/ABC_123/edit'
   ), 'https://docs.google.com/spreadsheets/d/ABC_123/edit');
   assert.equal(sandbox.vNextAdminSidebarSpreadsheetUrl_('https://example.com/not-allowed'), '');
-  const originalResolvePortal = sandbox.vNextAdminResolvePortal_;
+  const originalResolvePortal = sandbox.vNextAdminResolvePortalForRead_;
   const originalPortalReadTable = sandbox.vNextAdminReadTable_;
-  sandbox.vNextAdminResolvePortal_ = () => ({
+  sandbox.vNextAdminResolvePortalForRead_ = () => ({
     spreadsheet:{getUrl:() => 'https://docs.google.com/spreadsheets/d/PORTAL_1/edit'}
   });
   sandbox.vNextAdminReadTable_ = () => ({rows:[
@@ -773,7 +773,7 @@ async function checkAdminCoverageContracts() {
       'Portal status projection must ignore a status that is inconsistent with its append-only event type');
     assert.equal(portalProjection.attention[1].clientName, 'Client');
   } finally {
-    sandbox.vNextAdminResolvePortal_ = originalResolvePortal;
+    sandbox.vNextAdminResolvePortalForRead_ = originalResolvePortal;
     sandbox.vNextAdminReadTable_ = originalPortalReadTable;
   }
   assert.equal(sandbox.vNextAdminAttentionSummary_({

@@ -679,7 +679,6 @@ function vNextAdminGetSidebarDetailModel() {
     if (!String(hubConfig.book_id || '')) {
       hubConfig = Object.assign({}, hubConfig, vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET));
     }
-    vNextAdminHydrateLocalRuntime_(ss, hubConfig);
     const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
     const portalRequests = vNextAdminPortalRequestsForSidebar_(ss);
     const activeTemplate = vNextAdminResolveRelease_(ss, hubConfig.active_release_id || '');
@@ -925,7 +924,7 @@ function vNextAdminPortalRequestsForSidebar_(hub) {
     counts: { waiting: 0, processing: 0, failed: 0, completed: 0 }, attention: []
   };
   let portal;
-  try { portal = vNextAdminResolvePortal_(hub); }
+  try { portal = vNextAdminResolvePortalForRead_(hub); }
   catch (error) {
     if (!/not configured/i.test(String(error && error.message || error))) output.unavailable = true;
     return output;
@@ -2155,6 +2154,7 @@ function vNextAdminInstallPilotAutomationFromSource(request) {
       if (!existing.length) {
         ScriptApp.newTrigger(VN_ADMIN_SCHEDULED_HANDLER).timeBased().everyMinutes(5).create();
       }
+      vNextAdminClearAutomationInstalledCache_();
       PropertiesService.getScriptProperties().setProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID', hubId);
       vNextAdminWriteSystemConfig_(hub, {
         pilot_worker_script_id: ScriptApp.getScriptId(), pilot_worker_mode: 'CENTRAL_SOURCE_FALLBACK',
@@ -2684,6 +2684,7 @@ function vNextAdminInstallAutomation() {
       if (!existing.length) {
         ScriptApp.newTrigger(VN_ADMIN_SCHEDULED_HANDLER).timeBased().everyMinutes(5).create();
       }
+      vNextAdminClearAutomationInstalledCache_();
       try { vNextAdminEnsureGuidanceOnOpenTrigger_(); }
       catch (guidanceTriggerError) {
         Logger.log('Install automation guidance trigger skipped: %s',
@@ -11373,6 +11374,15 @@ function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
       'vnext-portal-1.7.6', 'vnext-portal-1.8.0'].indexOf(version) >= 0;
 }
 
+/** Read-only Portal open for sidebar projections. Skips header repair and protection writes. */
+function vNextAdminResolvePortalForRead_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const spreadsheetId = String(config.portal_spreadsheet_id ||
+    PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
+  if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
+  return { spreadsheet: SpreadsheetApp.openById(spreadsheetId), spreadsheetId: spreadsheetId };
+}
+
 function vNextAdminResolvePortal_(hub) {
   const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   const spreadsheetId = String(config.portal_spreadsheet_id ||
@@ -12855,15 +12865,29 @@ function vNextAdminResolveHubForAutomation_() {
   return hub;
 }
 
+const VN_ADMIN_AUTOMATION_CACHE_KEY_ = 'vnext_admin_automation_installed';
+const VN_ADMIN_AUTOMATION_CACHE_TTL_SEC_ = 120;
+
 function vNextAdminAutomationInstalled_() {
   try {
-    return ScriptApp.getProjectTriggers().some(function (trigger) {
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get(VN_ADMIN_AUTOMATION_CACHE_KEY_);
+    if (cached === '1') return true;
+    if (cached === '0') return false;
+    const installed = ScriptApp.getProjectTriggers().some(function (trigger) {
       return trigger.getHandlerFunction() === VN_ADMIN_SCHEDULED_HANDLER;
     });
+    cache.put(VN_ADMIN_AUTOMATION_CACHE_KEY_, installed ? '1' : '0', VN_ADMIN_AUTOMATION_CACHE_TTL_SEC_);
+    return installed;
   } catch (err) {
     Logger.log('Automation status unavailable: %s', String(err && err.message || err));
     return false;
   }
+}
+
+function vNextAdminClearAutomationInstalledCache_() {
+  try { CacheService.getScriptCache().remove(VN_ADMIN_AUTOMATION_CACHE_KEY_); }
+  catch (ignoredCacheClear) {}
 }
 
 function vNextAdminAssertRuntimeConfigurator_() {

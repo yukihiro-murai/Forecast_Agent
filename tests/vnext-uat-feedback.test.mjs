@@ -154,8 +154,8 @@ function checkEmployeeInteractionContract() {
     'Automatic guidance must be a project-level open trigger');
   assert.match(ux, /ScriptApp\.newTrigger\(handler\)\.forSpreadsheet\(spreadsheet\)\.onOpen\(\)\.create\(\)/,
     'The first authorized sidebar open must enable automatic guidance once');
-  assert.match(guidance, /vNextRefreshEmployeeViews\(\)/,
-    'Guidance must refresh the visible sheets asynchronously after it is rendered');
+  assert.match(guidance, /vNextRefreshEmployeeViewsAndGetClientViewModel\(\)/,
+    'Guidance refresh must refresh visible sheets and return the view model in one RPC');
   const scaleResolver = functionSource(admin, 'vNextAdminResolveClientAnnualSalesScale_',
     'vNextAdminRefreshClientAnnualSalesScale_');
   assert.match(scaleResolver, /asOf:\s*asOf \|\| new Date\(\)/,
