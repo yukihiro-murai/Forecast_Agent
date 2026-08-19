@@ -12870,9 +12870,20 @@ function vNextAdminAssertRuntimeConfigurator_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Active spreadsheet is required.');
   const actor = vNextAdminActor_().toLowerCase();
-  const owner = String(DriveApp.getFileById(ss.getId()).getOwner().getEmail() || '').toLowerCase();
-  const admins = vNextAdminMergeEmails_(PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'));
-  if (actor !== owner && admins.indexOf(actor) < 0) throw new Error('この設定を変更できるのはファイル所有者または管理ハブ担当者だけです。');
+  const ownerUser = (function () {
+    try { return DriveApp.getFileById(ss.getId()).getOwner(); }
+    catch (ignoredSharedDriveOwner) { return null; }
+  })();
+  const owner = ownerUser ? String(ownerUser.getEmail() || '').toLowerCase() : '';
+  const routing = vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const admins = vNextAdminMergeEmails_(
+    routing.admin_emails,
+    PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'),
+    owner
+  );
+  if (!actor || admins.indexOf(actor) < 0) {
+    throw new Error('この設定を変更できるのはファイル所有者または管理ハブ担当者だけです。');
+  }
   return true;
 }
 
@@ -12893,8 +12904,10 @@ function vNextAdminAssertHubAdminFast_(hub) {
 }
 
 function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {
+  const effectiveUser = Session.getEffectiveUser();
+  const effectiveEmail = effectiveUser ? String(effectiveUser.getEmail() || '') : '';
   const actor = String(allowEffectiveUser
-    ? (Session.getEffectiveUser().getEmail() || vNextAdminActor_())
+    ? (effectiveEmail || vNextAdminActor_())
     : vNextAdminActor_()).toLowerCase();
   const routing = Object.assign(
     {},
@@ -13377,7 +13390,11 @@ function vNextAdminEnforcePrivateFileAcl_(file, adminEmails) {
 }
 
 function vNextAdminActor_() {
-  return String(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || 'unknown').trim();
+  const activeUser = Session.getActiveUser();
+  const effectiveUser = Session.getEffectiveUser();
+  const activeEmail = activeUser ? String(activeUser.getEmail() || '') : '';
+  const effectiveEmail = effectiveUser ? String(effectiveUser.getEmail() || '') : '';
+  return String(activeEmail || effectiveEmail || 'unknown').trim();
 }
 
 function vNextAdminText_(value) {

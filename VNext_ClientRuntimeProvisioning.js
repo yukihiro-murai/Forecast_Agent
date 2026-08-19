@@ -868,8 +868,10 @@ function vNextClientRuntimeRequireConfigurator_() {
     vNextAdminAssertRuntimeConfigurator_();
     return true;
   }
-  var active = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-  var effective = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  var activeUser = Session.getActiveUser();
+  var effectiveUser = Session.getEffectiveUser();
+  var active = activeUser ? String(activeUser.getEmail() || '').trim().toLowerCase() : '';
+  var effective = effectiveUser ? String(effectiveUser.getEmail() || '').trim().toLowerCase() : '';
   if (!active || !effective || active !== effective) throw new Error('管理ハブ担当者本人の実行が必要です。');
   return true;
 }
