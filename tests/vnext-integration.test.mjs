@@ -930,6 +930,20 @@ async function checkAdminCoverageContracts() {
     'Portal migration rollback must re-verify the previous four-file or five-file runtime');
   assert.equal(portalMigration.includes('vNextPortalRuntimeValidateFiles_(currentContent.files'), false,
     'Current Portal content must not be forced through the latest five-file allowlist');
+  assert.ok(portalMigration.includes('vNextAdminPublishPortalWebApp_(portal.scriptId)'),
+    'Portal update must republish the existing employee web app after a verified runtime copy');
+  assert.ok(portalMigration.includes("'/deployments/' +") && portalMigration.includes("'put'"),
+    'Portal web entry must update the existing deployment instead of creating a new /exec URL');
+  assert.equal(portalMigration.includes("'/deployments', 'post'"), false,
+    'Portal web entry republish must not create a second Web App URL');
+  assert.ok(portalMigration.lastIndexOf('vNextAdminPublishPortalWebApp_(portal.scriptId)') >
+    portalMigration.lastIndexOf('throw migrationError'),
+    'Web app republish must run after the runtime rollback window so a failed /exec pin cannot undo files');
+  const adminManifest = JSON.parse(await readFile(path.join(root, 'appsscript.json'), 'utf8'));
+  assert.ok(adminManifest.oauthScopes.includes('https://www.googleapis.com/auth/script.deployments'),
+    'Admin project must request deployment scope to pin the employee /exec version');
+  assert.ok(adminManifest.oauthScopes.includes('https://www.googleapis.com/auth/script.webapp.deploy'),
+    'Admin project must request webapp.deploy to update the employee Web App');
 
   const originalAccessible = sandbox.vNextAdminSpreadsheetAccessible_;
   const originalSharingAssert = sandbox.vNextAdminAssertEmployeeFileSharing_;
