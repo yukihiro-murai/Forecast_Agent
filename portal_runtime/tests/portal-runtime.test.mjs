@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.3');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.4');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -426,7 +426,11 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
     'Numbered section headers must appear above each bot and bubble');
-  assert.match(entry, /\.cast \{ display:flex; align-items:center;/);
+  assert.match(entry, /align-items:baseline/);
+  assert.match(entry, /previewBooksHtml/);
+  assert.match(entry, /book ghost/);
+  assert.match(entry, /この枠にクライアント名/);
+  assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
