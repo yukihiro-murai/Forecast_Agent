@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const contract = [
+  ['0_VNext_Naming', 'SERVER_JS', '0_VNext_Naming.js'],
   ['Forecast_Agent', 'SERVER_JS', 'Forecast_Agent.js'],
   ['VNext_AI', 'SERVER_JS', 'VNext_AI.js'],
   ['VNext_Admin', 'SERVER_JS', 'VNext_Admin.js'],
@@ -103,7 +104,7 @@ function testAdminCopy() {
   const result = sandbox.vNextAdminRuntimeCopyScriptContent_(sourceId, targetId, spreadsheetId);
   assert.equal(result.ok, true);
   assert.equal(result.adminRuntimeSha256, expectedSha);
-  assert.equal(result.fileCount, 18);
+  assert.equal(result.fileCount, 19);
   assert.equal(result.targetProject.parentId, spreadsheetId);
   assert.equal(result.updateResult.verificationSource, 'UPDATE_RESPONSE');
   assert.equal(calls[0].apiPath, `/projects/${encodeURIComponent(targetId)}`, 'parent binding is checked before source content is read');
@@ -143,7 +144,7 @@ function testAdminGuards() {
 
   assert.throws(
     () => sandbox.vNextAdminRuntimeValidateFiles_([...clone(files), { name: 'Extra', type: 'SERVER_JS', source: '' }]),
-    /exactly the 18 clasp-target files/
+    /exactly the 19 clasp-target files/
   );
   const wrongType = clone(files);
   wrongType.find(file => file.name === 'VNext_Admin').type = 'HTML';
@@ -183,7 +184,7 @@ function testAdminCreate() {
   assert.equal(result.scriptId, targetId);
   assert.equal(result.sourceScriptId, sourceId, 'omitted sourceScriptId uses the current full Admin project');
   assert.equal(result.adminRuntimeSha256, expectedSha);
-  assert.equal(result.fileCount, 18);
+  assert.equal(result.fileCount, 19);
   assert.equal(movedFolder, folderId);
   assert.equal(renamed, '');
   assert.equal(calls[0].apiPath, '/projects');

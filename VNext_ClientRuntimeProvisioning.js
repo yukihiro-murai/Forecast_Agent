@@ -68,6 +68,7 @@ var VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
 var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
+  '0_VNext_Naming': 'SERVER_JS',
   Forecast_Agent: 'SERVER_JS',
   VNext_AI: 'SERVER_JS',
   VNext_Admin: 'SERVER_JS',
