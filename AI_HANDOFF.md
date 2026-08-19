@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-19 JST（社員入口 1.7.6。01の緑雲は形を変えず、右端が切れない viewBox に合わせた）  
+最終更新: 2026-08-19 JST（社員入口 1.7.7。3体を同じ幅の枠に置き、吹き出し開始位置を揃えた）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.6` |
-| コード上のPortal bundle SHA-256 | `b40a04f4ae739289c84f85079d0dd530b91dee06f3039ae8546fef9604412302` |
-| 社員 `/exec` | 同一URLのまま version 15 / `vnext-portal-1.7.6` にピン済み |
+| コード上のPortal runtime | `vnext-portal-1.7.7` |
+| コード上のPortal bundle SHA-256 | `75a7d3a8639b8f47d7683df6a0cbdacda58239f807a83e02f0841858cbcf888b` |
+| 社員 `/exec` | 反映後に同じURLのまま差し替え。反映前は version 15 / `vnext-portal-1.7.6` |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -39,7 +39,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.6 は各手順に単色Botと固定の吹き出し案内を置く。01の緑雲はパスを変えず、幅に合わせた viewBox で右端を切らない。番号は円バッジ、吹き出しは薄い青、年度選択は塗りつぶさず青枠。ホバーで案内文を切り替えない。01/02/03 は並列の導線なので、線形の手順ステッパーは置かない。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.7 は各手順に単色Botと固定の吹き出し案内を置く。01の緑雲はパスを変えず幅に合わせた viewBox で右端を切らない。3体は同じ幅の枠に置き、吹き出しの開始位置としっぽの高さを揃える。番号は円バッジ、吹き出しは薄い青、年度選択は塗りつぶさず青枠。ホバーで案内文を切り替えない。01/02/03 は並列の導線なので、線形の手順ステッパーは置かない。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
@@ -168,7 +168,7 @@ Apps Script の実行履歴は Google 側の記録のため、このリセット
 
 1. Hub で「中央配備版へ更新」（理由必須）→ 再読み込み。初回は deployment 用 OAuth の許可が出ることがある。
 2. 「社員ポータルを最新版へ更新」を押し、完了メッセージに「同じURLのまま公開」と出ることを確認する。
-3. ブックマーク済み `/exec` をハード再読み込みし、01の緑雲の右端が切れず、体全体が見えることを確認する。
+3. ブックマーク済み `/exec` をハード再読み込みし、3つの吹き出し左端が揃い、しっぽが各キャラの中央を指すことを確認する。
 4. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
 
 ## 終了時に更新する項目
