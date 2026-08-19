@@ -1,10 +1,10 @@
 /**
- * Forecast vNext Admin Hub / Provisioner.
+ * Forecast vNext 管理ハブ / Provisioner.
  * Existing Forecast_Agent.js is intentionally not modified; all entry points are vNext-prefixed.
  */
 
 const VN_ADMIN_SCHEMA_VERSION = 'vnext-admin-1';
-const VN_ADMIN_MENU_NAME = '年度計画';
+const VN_ADMIN_MENU_NAME = VNEXT_NAMING.MENU;
 const VN_ADMIN_MENU_OPEN_SIDEBAR = '案内を開く';
 const VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理';
 const VN_ADMIN_MENU_HEALTH_SCAN = '全クライアントの状態点検';
@@ -92,25 +92,27 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.7';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.8';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
-  'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
 const VN_ADMIN_LIBRARY = Object.freeze({
-  DRIVE_NAME: '年度計画',
-  PORTAL: '01_社員ポータル',
-  BOOKS: '02_クライアント年度ブック',
-  ADMIN: '03_管理者',
-  AUDIT: '監査',
-  TEMPLATES: '04_テンプレート',
-  TEMPLATES_CURRENT: '現行',
-  TEMPLATES_DRAFT: '下書き',
-  TEMPLATES_HISTORY: '履歴'
+  DRIVE_NAME: VNEXT_NAMING.SHARED_DRIVE,
+  LEGACY_DRIVE_NAME: VNEXT_NAMING.LEGACY_SHARED_DRIVE,
+  PORTAL: VNEXT_NAMING.FOLDER_PORTAL,
+  BOOKS: VNEXT_NAMING.FOLDER_BOOKS,
+  ADMIN: VNEXT_NAMING.FOLDER_ADMIN,
+  AUDIT: VNEXT_NAMING.FOLDER_AUDIT,
+  TEMPLATES: VNEXT_NAMING.FOLDER_TEMPLATES,
+  TEMPLATES_CURRENT: VNEXT_NAMING.TEMPLATE_CURRENT,
+  TEMPLATES_DRAFT: VNEXT_NAMING.TEMPLATE_DRAFT,
+  TEMPLATES_HISTORY: VNEXT_NAMING.TEMPLATE_HISTORY,
+  FOLDER_LEGACY: VNEXT_NAMING.FOLDER_LEGACY
 });
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA = 'vnext-portal-request-2';
 const VN_ADMIN_PORTAL_REQUEST_SCHEMA_V1 = 'vnext-portal-request-1';
@@ -537,7 +539,7 @@ function vNextAdminOpenSidebar() {
   return vNextAdminGuard_('vNextAdminOpenSidebar', function () {
     const active = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextDetectBookMode_(active) === 'ADMIN') {
-      if (!vNextAdminIsRegisteredHub_(active)) throw new Error('Admin Hubの登録情報を確認できません。');
+      if (!vNextAdminIsRegisteredHub_(active)) throw new Error('Admin 管理ハブの登録情報を確認できません。');
       vNextAdminAssertHubAdmin_(active, false);
     }
     const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
@@ -615,7 +617,7 @@ function vNextAdminGetSidebarModel() {
       const approvalRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.APPROVALS).rows;
       const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
       if (!vNextAdminIsRegisteredHubFromRows_(ss, hubConfig, registryRows)) {
-        throw new Error('Admin Hubの登録情報を確認できません。');
+        throw new Error('Admin 管理ハブの登録情報を確認できません。');
       }
       const openExceptions = exceptionRows.filter(function (row) {
         return String(row.status || 'OPEN').toUpperCase() === 'OPEN' &&
@@ -810,15 +812,15 @@ function vNextAdminExceptionForSidebar_(row, registryByBook, jobRows) {
   const registry = registryByBook && registryByBook[bookId] || {};
   const actualIssue = vNextAdminIsActualDataIssue_(source);
   const categoryLabels = {
-    BOOK_HEALTH: actualIssue ? '実績データの確認' : '年度計画の状態確認',
+    BOOK_HEALTH: actualIssue ? '実績データの確認' : 'クライアント年度ブックの状態確認',
     JOB_FAILED: actualIssue ? '実績データ不足' : '自動処理を完了できませんでした',
     JOB_QUEUE_STALE: '処理に時間がかかっています',
     SCHEDULER_STALE: '自動更新が止まっている可能性があります',
-    PORTAL_PROVISION_FAILED: '年度計画を作成できませんでした',
-    CLIENT_PROVISION_FAILED: '年度計画を作成できませんでした',
-    OFFICIAL_CLIENT_SYNC_FAILED: '正式計画の反映が未完了です',
-    OFFICIAL_COPY_FAILED: '正式計画の反映が未完了です',
-    PORTAL_REQUEST_REJECTED: '社員からの作成依頼を確認してください'
+    PORTAL_PROVISION_FAILED: 'クライアント年度ブックを作成できませんでした',
+    CLIENT_PROVISION_FAILED: 'クライアント年度ブックを作成できませんでした',
+    OFFICIAL_CLIENT_SYNC_FAILED: '正式予算の反映が未完了です',
+    OFFICIAL_COPY_FAILED: '正式予算の反映が未完了です',
+    PORTAL_REQUEST_REJECTED: '申請入口からの作成依頼を確認してください'
   };
   // A JOB_FAILED exception must only control its own durable job. Falling
   // through to an older failed job for the same book can attach the wrong
@@ -877,13 +879,13 @@ function vNextAdminIsKnownSafeRetryCandidate_(job) {
 
 function vNextAdminJobsForSidebar_(rows) {
   const labels = {
-    PORTAL_PROVISION_CLIENT: '年度計画の作成',
+    PORTAL_PROVISION_CLIENT: 'クライアント年度ブックの作成',
     FORECAST_REQUEST: '売上予測の計算',
     AI_ROLLBACK_FORECAST: 'AI反映取消後の再計算',
     AI_RESEARCH: '外部情報の確認',
-    HEALTH_SCAN: '年度計画の状態確認',
+    HEALTH_SCAN: 'クライアント年度ブックの状態確認',
     REFRESH_CLIENT_VIEW: '画面の更新',
-    MIGRATION: '年度計画の版更新'
+    MIGRATION: 'クライアント年度ブックの版更新'
   };
   const statusLabels = {
     QUEUED: '受付済み', RUNNING: '処理中', FAILED: '要確認', SUCCEEDED: '完了'
@@ -909,7 +911,7 @@ function vNextAdminJobsForSidebar_(rows) {
       createdAt: row.created_at || '',
       updatedAt: row.updated_at || '',
       errorSummary: status === 'FAILED'
-        ? (vNextAdminIsActualDataIssue_(row) ? '確定実績の不足を確認してください。' : '管理者の確認が必要です。')
+        ? (vNextAdminIsActualDataIssue_(row) ? '確定実績の不足を確認してください。' : '管理ハブの確認が必要です。')
         : '',
       safeRetryCandidate: vNextAdminIsKnownSafeRetryCandidate_(row)
     };
@@ -1002,7 +1004,7 @@ function vNextAdminAttentionSummary_(model, safeRetryCandidates) {
       guidance: '「' + VN_ADMIN_MENU_RUN_NOW + '」を実行し、要確認事項を確認してください。', safeRetryCandidates: retryCount };
   }
   if (model.portalRequests && model.portalRequests.unavailable) {
-    return { status: 'ATTENTION', label: '社員ポータルの状態を確認できません',
+    return { status: 'ATTENTION', label: '申請入口の状態を確認できません',
       guidance: '他の判断項目は表示できています。続く場合はポータルの権限を確認します。', safeRetryCandidates: retryCount };
   }
   if (Number(counts.pendingApprovals || 0) || Number(counts.exceptions || 0) ||
@@ -1016,12 +1018,12 @@ function vNextAdminAttentionSummary_(model, safeRetryCandidates) {
     return { status: 'PROCESSING', label: '自動処理が進行中です',
       guidance: '操作は不要です。通常は5分以内に状態が更新されます。', safeRetryCandidates: retryCount };
   }
-  return { status: 'OK', label: '現在、管理者の対応はありません',
+  return { status: 'OK', label: '現在、管理ハブの対応はありません',
     guidance: '自動更新は正常です。', safeRetryCandidates: retryCount };
 }
 
 /**
- * Create a clean Admin Hub and a clean Master Template from the current
+ * Create a clean 管理ハブ and a clean Master Template from the current
  * deployed runtimes. The legacy workbook's sheets, cells and bound script are
  * never copied into either operational container.
  */
@@ -1032,7 +1034,7 @@ function vNextAdminBootstrapFromCurrent(request) {
     const source = SpreadsheetApp.getActiveSpreadsheet();
     const sourceMode = vNextDetectBookMode_(source);
     if (sourceMode === 'ADMIN') {
-      return { reused: true, mode: sourceMode, hubUrl: source.getUrl(), message: 'This workbook is already an Admin Hub.' };
+      return { reused: true, mode: sourceMode, hubUrl: source.getUrl(), message: 'This workbook is already an 管理ハブ.' };
     }
     if (sourceMode !== 'LEGACY' && sourceMode !== 'TEMPLATE') {
       throw new Error('Bootstrap is allowed only from a LEGACY or TEMPLATE workbook. Current mode=' + sourceMode);
@@ -1087,7 +1089,7 @@ function vNextAdminBootstrapFromCurrent(request) {
       const actor = vNextAdminActor_();
       const vertexConfig = vNextAdminResolveBootstrapVertexConfig_(runtime);
       const stamp = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
-      const hubName = vNextAdminText_(req.hubName) || ('Forecast vNext Admin Hub ' + stamp);
+      const hubName = vNextAdminText_(req.hubName) || ('Forecast vNext 管理ハブ ' + stamp);
       const templateName = vNextAdminText_(req.templateName) || ('Forecast vNext Master Template ' + stamp);
       const releaseId = vNextAdminText_(req.releaseId) || ('vnext-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd'));
       const modelReleaseId = vNextAdminText_(req.modelReleaseId) ||
@@ -1162,7 +1164,7 @@ function vNextAdminBootstrapFromCurrent(request) {
         schema_version: VN_ADMIN_SCHEMA_VERSION, state: 'ACTIVE', status: 'ACTIVE',
         health_status: 'OK', health_code: 'BOOTSTRAPPED', last_health_at: now,
         forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
-        created_at: now, created_by: actor, updated_at: now, note: 'Admin Hub'
+        created_at: now, created_by: actor, updated_at: now, note: '管理ハブ'
       });
       vNextAdminRegisterBook_(hub, {
         book_id: templateBookId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
@@ -1238,7 +1240,7 @@ function vNextAdminBootstrapFromCurrent(request) {
         adminRuntimeSha256: adminRuntime.adminRuntimeSha256,
         clientRuntimeVersion: templateRuntime.runtimeVersion,
         clientRuntimeSha256: templateRuntime.bundleSha256,
-        nextStep: 'Admin Hubを開いて再読込し、サイドバーの「自動運用を有効化」を1回押してください。'
+        nextStep: '管理ハブを開いて再読込し、サイドバーの「自動運用を有効化」を1回押してください。'
       };
     });
   });
@@ -1323,7 +1325,7 @@ function vNextAdminRecoverIncompleteBootstrap(request) {
         health_status: 'OK', health_code: 'BOOTSTRAP_RECOVERED', last_health_at: now,
         forecast_owner_emails: adminEmails.join(','), editor_emails: adminEmails.join(','), viewer_emails: '',
         created_at: hubRouting.created_at || now, created_by: hubRouting.created_by || actor,
-        updated_at: now, note: 'Admin Hub; incomplete bootstrap recovered'
+        updated_at: now, note: '管理ハブ; incomplete bootstrap recovered'
       });
       vNextAdminRegisterBook_(hub, {
         book_id: templateBookId, mode: 'TEMPLATE', client_id: '', client_name: '', fiscal_year: '',
@@ -1389,7 +1391,7 @@ function vNextAdminRecoverIncompleteBootstrap(request) {
       return {
         recovered: true, hubId: hubId, hubUrl: hub.getUrl(), templateId: templateId,
         templateUrl: template.getUrl(), releaseId: releaseId, modelReleaseId: modelReleaseId,
-        nextStep: 'Admin Hubを開いて権限を許可し、自動運用を有効化してください。'
+        nextStep: '管理ハブを開いて権限を許可し、自動運用を有効化してください。'
       };
     });
   });
@@ -1402,7 +1404,7 @@ function vNextAdminActivateCurrentHub(request) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const mode = vNextDetectBookMode_(ss);
     if (!vNextAdminCanActivateHubMode_(mode) || !vNextAdminIsRegisteredHub_(ss)) {
-      throw new Error('既存Hubの再初期化だけが許可されています。現在のmode=' + mode + '（CLIENTは変換できません）。');
+      throw new Error('既存管理ハブの再初期化だけが許可されています。現在のmode=' + mode + '（CLIENTは変換できません）。');
     }
     vNextAdminAssertHubAdmin_(ss, false);
     return vNextAdminWithDocumentLock_('activate-hub', function () {
@@ -1554,7 +1556,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
     if (!engineVersion) throw new Error('Forecast Engine version is unavailable.');
 
     const staged = vNextAdminPublishTemplateRelease({
-      reason: '社員ポータル・社内情報提供メンバー対応のPilot release',
+      reason: '申請入口・社内情報提供メンバー対応のPilot release',
       expectedActiveReleaseId: initialPair.releaseId,
       stageOnly: true
     });
@@ -1564,7 +1566,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       engineVersion: engineVersion,
       parameters: parameters
     })).slice(0, 20).toUpperCase();
-    const note = '社員ポータルPilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。';
+    const note = '申請入口Pilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。';
     const checks = {
       backtest: {
         status: 'PASS',
@@ -1618,13 +1620,13 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       activation = vNextAdminActivateReleasePair({
         releaseId: releaseId,
         modelReleaseId: modelReleaseId,
-        reason: '社員ポータルPilotのTemplate・Model pairを有効化',
+        reason: '申請入口PilotのTemplate・Model pairを有効化',
         expectedActiveReleaseId: initialPair.releaseId,
         expectedActiveModelReleaseId: initialPair.modelReleaseId
       });
     }
 
-    const portal = vNextAdminProvisionSharedPortal({ title: '年度計画ポータル' });
+    const portal = vNextAdminProvisionSharedPortal({ title: VNEXT_NAMING.LAYER2_DEFAULT_TITLE });
     const result = vNextAdminJsonSafe_({
       ok: true,
       activeTemplateReleaseId: releaseId,
@@ -1652,7 +1654,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
 function vNextAdminPrepareEmployeePortalPilotForManualTest() {
   const ui = SpreadsheetApp.getUi();
   const answer = ui.alert(
-    '社員ポータルPilotを準備',
+    '申請入口Pilotを準備',
     '次の検証結果を確認したうえで実行します。\n\n' +
       '・Client runtime behavior: 10 suites PASS\n' +
       '・Portal runtime behavior: 11 suites PASS\n' +
@@ -1729,7 +1731,7 @@ function vNextAdminProvisionSharedPortalInHub_(hub, request) {
     const actor = vNextAdminActor_();
     const domain = vNextAdminNormalizeDomain_(req.employeeDomain || runtime.VNEXT_EMPLOYEE_DOMAIN || vNextAdminEmailDomain_(actor));
     if (!domain || vNextAdminEmailDomain_(actor) !== domain) {
-      throw new Error('employeeDomainは管理者のGoogle Workspaceドメインと一致する必要があります。');
+      throw new Error('employeeDomainは管理ハブのGoogle Workspaceドメインと一致する必要があります。');
     }
     if (typeof vNextPortalRuntimeCreateBoundSpreadsheet_ !== 'function') {
       throw new Error('Portal runtime provisioner is not installed.');
@@ -1738,7 +1740,7 @@ function vNextAdminProvisionSharedPortalInHub_(hub, request) {
     const folder = vNextAdminPrepareLibraryDestinationFolder_(hub, req.folderId,
       vNextAdminLibraryPath_('PORTAL'), adminEmails);
     const created = vNextPortalRuntimeCreateBoundSpreadsheet_({
-      title: vNextAdminText_(req.title) || '年度計画ポータル', folderId: folder.getId()
+      title: vNextAdminText_(req.title) || VNEXT_NAMING.LAYER2_DEFAULT_TITLE, folderId: folder.getId()
     });
     if (String(created.runtimeVersion || '') !== VN_ADMIN_PORTAL_RUNTIME_VERSION) {
       throw new Error('Generated Portal runtime version is not supported.');
@@ -1765,7 +1767,7 @@ function vNextAdminProvisionSharedPortalInHub_(hub, request) {
           employeeDomain: domain, accessPolicy: 'INTERNAL_OPEN'
         }),
         value_type: 'JSON', scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
-        updated_by: actor, note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+        updated_by: actor, note: VNEXT_NAMING.LAYER2 + '（' + VNEXT_NAMING.LAYER1 + 'とは物理分離）'
       });
       PropertiesService.getScriptProperties().setProperties({
         VNEXT_PORTAL_SPREADSHEET_ID: created.spreadsheetId,
@@ -1792,7 +1794,7 @@ function vNextAdminProvisionSharedPortalInHub_(hub, request) {
     } catch (error) {
       try { vNextAdminEnforcePrivateFileAcl_(file, adminEmails); }
       catch (rollbackError) { Logger.log('Portal ACL rollback failed: %s', String(rollbackError)); }
-      try { file.setName('[SETUP FAILED] 年度計画ポータル'); } catch (ignoredRename) {}
+      try { file.setName('[SETUP FAILED] ' + VNEXT_NAMING.LAYER2_DEFAULT_TITLE); } catch (ignoredRename) {}
       throw error;
     }
   });
@@ -1862,7 +1864,7 @@ function vNextAdminProvisionClientInHub_(hub, request) {
         vNextAdminLibraryPath_('CLIENT', fiscalYear, clientName), adminEmails);
       const stagingFolder = folder;
       const forecastOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
-      if (forecastOwners.length !== 1) throw new Error('Forecast Ownerを1名だけ指定してください。');
+      if (forecastOwners.length !== 1) throw new Error('予算策定担当を1名だけ指定してください。');
       const relatedMemberNames = req.relatedMemberNames === undefined || req.relatedMemberNames === null
         ? [] : vNextAdminNormalizeRelatedMemberNames_(req.relatedMemberNames);
       const editors = vNextAdminMergeEmails_(forecastOwners, req.editorEmails, runtime.VNEXT_DEFAULT_EDITORS);
@@ -2056,7 +2058,7 @@ function vNextAdminResumeProvisioningClient_(hub, registry, request, release, mo
   const requestedOwners = vNextAdminMergeEmails_(req.forecastOwnerEmails, req.ownerEmails);
   if (requestedOwners.length && vNextAdminCanonicalJson_(requestedOwners.slice().sort()) !==
       vNextAdminCanonicalJson_(expectedOwners.slice().sort())) {
-    throw new Error('生成再開時にForecast Ownerを変更することはできません。');
+    throw new Error('生成再開時に予算策定担当を変更することはできません。');
   }
   if (req.relatedMemberNames !== undefined && req.relatedMemberNames !== null) {
     const requestedNames = vNextAdminNormalizeRelatedMemberNames_(req.relatedMemberNames);
@@ -2205,7 +2207,7 @@ function vNextAdminAssertPilotProvisionAllowed_(hub) {
 }
 
 /**
- * Employee-book request entry point. It never opens the Admin Hub.
+ * Employee-book request entry point. It never opens the 管理ハブ.
  * The immutable local event is harvested later by an Admin-owned scan/trigger.
  */
 function vNextQueueClientForecastRequest(request) {
@@ -2216,7 +2218,7 @@ function vNextQueueClientForecastRequest(request) {
     return vNextAdminWithDocumentLock_('client-forecast-request', function () {
       if (typeof vNextGetBookContext_ !== 'function') throw new Error('VNext_Core context API is not installed.');
       const context = vNextGetBookContext_(ss);
-      if (!context.isForecastOwner) throw new Error('予測を依頼できるのはForecast Ownerだけです。');
+      if (!context.isForecastOwner) throw new Error('予測を依頼できるのは予算策定担当だけです。');
       if (String(context.state || '').toUpperCase() !== 'READY_TO_RUN') {
         throw new Error('現在は予測を依頼できません。状態=' + String(context.state || ''));
       }
@@ -2325,7 +2327,7 @@ function vNextAdminAppendAiEvidence(request) {
 /**
  * Rebuilds the employee-safe AI insight cache from Hub evidence. This is a
  * derived presentation cache only; the append-only Hub EVIDENCE_EVENT remains
- * authoritative and raw prompt/model metadata never leaves the Admin Hub.
+ * authoritative and raw prompt/model metadata never leaves the 管理ハブ.
  */
 function vNextAdminRefreshClientAiInsightProjection(request) {
   return vNextAdminGuard_('vNextAdminRefreshClientAiInsightProjection', function () {
@@ -2852,7 +2854,7 @@ function vNextAdminCreateAmendmentApproval(request) {
       const expectedBasisHash = vNextAdminRequiredText_(req.expectedBasisHash, 'expectedBasisHash');
       if (expectedOfficialId !== basis.officialId || expectedPlanId !== String(basis.approvedPlan.plan_version_id || '') ||
           expectedBasisHash !== vNextAdminAmendmentBasisHash_(basis)) {
-        throw new Error('表示後に正式計画が更新されました。現在値を再読込してください。');
+        throw new Error('表示後に正式予算が更新されました。現在値を再読込してください。');
       }
       if (req.supersedesOfficialId && String(req.supersedesOfficialId) !== basis.officialId) {
         throw new Error('supersedesOfficialId must equal the current official vintage.');
@@ -2881,7 +2883,7 @@ function vNextAdminCreateAmendmentApproval(request) {
           String(row.idempotency_key || '') !== idempotencyKey;
       });
       if (conflictingApproval) {
-        throw new Error('この正式計画には別の訂正承認が進行中です。approval=' + conflictingApproval.approval_request_id);
+        throw new Error('この正式予算には別の訂正承認が進行中です。approval=' + conflictingApproval.approval_request_id);
       }
       const allPlans = vNextAdminReadCoreRows_(hub, 'PLAN_VERSION').filter(function (row) {
         return String(row.book_id || '') === bookId;
@@ -3009,7 +3011,7 @@ function vNextAdminDecideApproval(request) {
       const processingAttempts = Number(approval.processing_attempts || 0);
       if (processingAttempts >= 3) {
         vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
-          status: 'FAILED', decision_comment: '承認処理が3回失敗したため管理者確認が必要です。', updated_at: new Date()
+          status: 'FAILED', decision_comment: '承認処理が3回失敗したため管理ハブ担当者確認が必要です。', updated_at: new Date()
         });
         throw new Error('Approval processing failed three times; inspect the exception and create a new approval request after correction.');
       }
@@ -3045,7 +3047,7 @@ function vNextAdminDecideApproval(request) {
             severity: 'ERROR', exception_type: 'OFFICIAL_CLIENT_SYNC_FAILED', book_id: registry.book_id,
             client_name: registry.client_name, fiscal_year: registry.fiscal_year,
             title: '公式化後のclient同期に失敗', detail: String(syncError && syncError.message || syncError),
-            recommended_action: 'client権限を確認し、Admin Sidebarの「正式計画をClientへ再同期」を実行', source_ref: officialId
+            recommended_action: 'client権限を確認し、Admin Sidebarの「正式予算をClientへ再同期」を実行', source_ref: officialId
           });
           Logger.log('Post-official client sync failed approval=%s error=%s', approvalId, String(syncError && syncError.stack || syncError));
         }
@@ -4033,7 +4035,7 @@ function vNextAdminAssertFailedPreflightBusinessBoundary_(hub, client, registry)
   const bookId = String(registry.book_id || '');
   if (String(registry.state || '').toUpperCase() !== 'READY_TO_RUN' ||
       String(registry.current_official_id || '')) {
-    throw new Error('入力済みPilot更新はREADY_TO_RUN / 正式計画なしだけが対象です。');
+    throw new Error('入力済みPilot更新はREADY_TO_RUN / 正式予算なしだけが対象です。');
   }
   ['FORECAST_RUN', 'PLAN_VERSION', 'EVALUATION'].forEach(function (sheetName) {
     const rows = vNextAdminReadCoreRows_(hub, sheetName).filter(function (row) {
@@ -4201,7 +4203,7 @@ function vNextAdminRecoverOnlyFailedPreflightPilotForManualTest() {
   return vNextAdminRecoverFailedPreflightPilotClientUpgrade({
     bookId: String(rows[0].book_id || ''), migrationId: String(rows[0].migration_id || ''),
     direction: 'TARGET',
-    reason: 'Apps Script editorから中断した入力済みPilot更新を現在の社員releaseへ復旧'
+    reason: 'Apps Script editorから中断した入力済みPilot更新を現在のクライアント年度ブック用 release へ復旧'
   });
 }
 
@@ -4380,7 +4382,7 @@ function vNextAdminAssertDraftReadyPilotUxBoundary_(hub, client, registry, expec
   if (['DRAFT_READY', 'SUBMITTED'].indexOf(preservedState) < 0 ||
       String(registry.state || '').toUpperCase() !== preservedState ||
       String(registry.current_official_id || '')) {
-    throw new Error('画面更新はDRAFT_READYまたはSUBMITTED / 正式計画なしだけが対象です。');
+    throw new Error('画面更新はDRAFT_READYまたはSUBMITTED / 正式予算なしだけが対象です。');
   }
   ['EVALUATION'].forEach(function (sheetName) {
     const count = vNextAdminReadCoreRows_(hub, sheetName).concat(
@@ -4484,7 +4486,7 @@ function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
   if (candidates.length !== 1) throw new Error('更新候補のDRAFT_READY Pilotが1冊に確定しません: ' +
     candidates.length + '冊');
   return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
-    dryRun: false, reason: '予測recordを保持したまま社員案内を現在版へ更新' });
+    dryRun: false, reason: '予測 record を保持したままクライアント年度ブック案内を現在版へ更新' });
 }
 
 /** Same-URL employee UX update for the single submitted, not-yet-official Pilot. */
@@ -4503,7 +4505,7 @@ function vNextAdminUpgradeOnlySubmittedPilotUxForManualTest() {
     candidates.length + '冊');
   return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
     preservedState: 'SUBMITTED', dryRun: false,
-    reason: '予測・提出済み計画・承認待ちを保持したまま社員UXを現在版へ更新' });
+    reason: '予測・提出済み予算案・承認待ちを保持したままクライアント年度ブック UX を現在版へ更新' });
 }
 
 function vNextAdminRecoverDraftReadyPilotUxUpgrade(request) {
@@ -4588,7 +4590,7 @@ function vNextAdminAssertEmptyPilotUpgradeEligibility_(hub, client, registry, re
 function vNextAdminAssertEmptyPilotNoBusinessData_(hub, client, registry, initialOnly) {
   if (String(registry.mode || '') !== 'CLIENT' || String(registry.status || '').toUpperCase() !== 'ACTIVE' ||
       String(registry.state || '').toUpperCase() !== 'INPUT_OPEN' || String(registry.current_official_id || '')) {
-    throw new Error('空のPilot更新はACTIVE / INPUT_OPEN / 正式計画なしのClientだけが対象です。');
+    throw new Error('空のPilot更新はACTIVE / INPUT_OPEN / 正式予算なしのClientだけが対象です。');
   }
   const bookId = String(registry.book_id || '');
   ['EVIDENCE_EVENT', 'FORECAST_RUN', 'PLAN_VERSION', 'EVALUATION'].forEach(function (sheetName) {
@@ -4977,7 +4979,7 @@ function vNextAdminRegisterRelease(request) {
 }
 
 /**
- * Pull the full verified Admin runtime from the centrally deployed clasp
+ * Pull the full verified 管理ハブ runtime from the centrally deployed clasp
  * project into this known Hub-bound project. Spreadsheet data, releases,
  * approvals and Script Properties are not replaced.
  */
@@ -4991,10 +4993,10 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
       const sourceScriptId = vNextAdminRequiredText_(config.admin_source_script_id, 'admin_source_script_id');
       const targetScriptId = vNextAdminRequiredText_(config.admin_hub_script_id, 'admin_hub_script_id');
       if (String(ScriptApp.getScriptId()) !== targetScriptId) {
-        throw new Error('The current bound project does not match the registered Admin Hub script ID.');
+        throw new Error('The current bound project does not match the registered 管理ハブ script ID.');
       }
       if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
-        throw new Error('Verified Admin runtime copy helper is not installed.');
+        throw new Error('Verified 管理ハブ runtime copy helper is not installed.');
       }
       const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
       vNextAdminWriteSystemConfig_(hub, {
@@ -5005,11 +5007,11 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
       const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
         return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
       });
-      if (!hubRegistry) throw new Error('Admin Hub BOOK_REGISTRY row is missing.');
+      if (!hubRegistry) throw new Error('管理ハブ BOOK_REGISTRY row is missing.');
       vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
         admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
         health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
-        note: 'Admin runtime updated from central source; reason=' + reason
+        note: '管理ハブ runtime updated from central source; reason=' + reason
       });
       vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
         sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
@@ -5017,14 +5019,14 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
       });
       return {
         ok: true, adminRuntimeSha256: copied.adminRuntimeSha256,
-        fileCount: copied.fileCount, message: 'Admin Hub runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
+        fileCount: copied.fileCount, message: '管理ハブ runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
       };
     });
   });
 }
 
 /**
- * Creates the company shared drive 「年度計画」 if needed, builds purpose folders,
+ * Creates the company shared drive if needed, builds purpose folders,
  * and moves Hub / Portal / Client / Template / audit files into that tree.
  */
 function vNextAdminRelocateLibraryToSharedDrive(request) {
@@ -5041,7 +5043,7 @@ function vNextAdminRelocateLibraryToSharedDriveFromSource(request) {
     const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
     const hub = SpreadsheetApp.openById(hubId);
     if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
-      throw new Error('The supplied Hub is not the registered Admin Hub.');
+      throw new Error('The supplied Hub is not the registered 管理ハブ.');
     }
     vNextAdminAssertHubAdmin_(hub, true);
     vNextAdminHydrateHubRuntime_(hub);
@@ -5164,7 +5166,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
           runtimeSha256: portal.runtimeSha256, catalog: catalog,
           webAppUrl: webApp.webAppUrl, webAppVersion: webApp.versionNumber,
-          message: '社員ポータルのファイルは最新版です。社員向けWeb入口を同じURLのまま公開し直しました。入口をハード再読み込みしてください。'
+          message: '申請入口のファイルは最新版です。' + VNEXT_NAMING.WEB_ENTRY + 'を同じURLのまま公開し直しました。入口をハード再読み込みしてください。'
         };
       }
       if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
@@ -5230,7 +5232,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', 'EMPLOYEE_PORTAL_JSON', {
           setting_key: 'EMPLOYEE_PORTAL_JSON', setting_value: settingValue, value_type: 'JSON',
           scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
-          updated_by: vNextAdminActor_(), note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+          updated_by: vNextAdminActor_(), note: VNEXT_NAMING.LAYER2 + '（' + VNEXT_NAMING.LAYER1 + 'とは物理分離）'
         });
         vNextAdminProtectInternalSheets_(portal.spreadsheet,
           vNextAdminMergeEmails_(hubConfigBefore.admin_emails, vNextAdminActor_()), [
@@ -5306,7 +5308,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       });
       migrated.webAppUrl = webApp.webAppUrl;
       migrated.webAppVersion = webApp.versionNumber;
-      migrated.message = '社員ポータルを最新版へ更新し、社員向けWeb入口も同じURLのまま公開しました。入口をハード再読み込みしてください。';
+      migrated.message = '申請入口を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。';
       return migrated;
     });
   });
@@ -5434,7 +5436,7 @@ function vNextAdminRememberPortalWebAppUrl_(hub, portal, webAppUrl) {
     setting_key: 'EMPLOYEE_PORTAL_JSON',
     setting_value: vNextAdminCanonicalJson_(parsed),
     value_type: 'JSON', scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
-    updated_by: vNextAdminActor_(), note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+    updated_by: vNextAdminActor_(), note: VNEXT_NAMING.LAYER2 + '（' + VNEXT_NAMING.LAYER1 + 'とは物理分離）'
   });
 }
 
@@ -5611,7 +5613,7 @@ function vNextAdminCreateTemplateDraft(request) {
       return {
         reused: false, draftId: draftId, spreadsheetId: draft.getId(), spreadsheetUrl: draft.getUrl(),
         sourceReleaseId: source.sourceReleaseId, manifestSha256: copied.manifestSha256,
-        message: 'Admin専用の編集用Template Draftを作成しました。公開前にSTAGEDへ複製して完全検証します。'
+        message: '管理ハブ専用の編集用Template Draftを作成しました。公開前にSTAGEDへ複製して完全検証します。'
       };
     });
   });
@@ -5635,7 +5637,7 @@ function vNextAdminPublishTemplateRelease(request) {
       const current = vNextAdminResolveRelease_(hub, hubConfig.active_release_id || '');
       if (req.expectedActiveReleaseId &&
           String(req.expectedActiveReleaseId) !== String(current.release_id || '')) {
-        throw new Error('Active release changed before publication. Reload Admin Hub and retry.');
+        throw new Error('Active release changed before publication. Reload 管理ハブ and retry.');
       }
       const bundle = vNextClientRuntimeVerifiedBundle_();
       const source = vNextAdminResolveTemplateUiSource_(hub, req.templateDraftSpreadsheetId || '');
@@ -6042,13 +6044,13 @@ function vNextAdminMenuRefreshZacClientCatalog() {
 function vNextAdminMenuUpdatePortalRuntime() {
   const ui = SpreadsheetApp.getUi();
   const choice = ui.alert(
-    '社員ポータルを最新版へ更新',
+    '申請入口を最新版へ更新',
     '既存の受付履歴を残したまま、Portal runtimeとZACクライアント候補を最新版へ更新します。続行しますか？',
     ui.ButtonSet.OK_CANCEL
   );
   if (choice !== ui.Button.OK) return { cancelled: true };
   const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
-  ui.alert('完了', result.message || '社員ポータルを更新しました。', ui.ButtonSet.OK);
+  ui.alert('完了', result.message || '申請入口を更新しました。', ui.ButtonSet.OK);
   return result;
 }
 
@@ -6074,7 +6076,7 @@ function vNextAdminRecoverPortalProvisionForManualTest() {
 
 /**
  * Inventory or remove generated Client FY books so an employee can start from
- * Portal year/client selection. Admin Hub, Portal, Template/Model releases,
+ * Portal year/client selection. 管理ハブ, Portal, Template/Model releases,
  * and ZAC catalog are preserved. apply=true plus the confirmation phrase is
  * required before any write or Drive trash.
  */
@@ -6092,7 +6094,7 @@ function vNextAdminResetGeneratedClientsForFreshUatFromSource(request) {
     const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
     const hub = SpreadsheetApp.openById(hubId);
     if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
-      throw new Error('The supplied Hub is not the registered Admin Hub.');
+      throw new Error('The supplied Hub is not the registered 管理ハブ.');
     }
     vNextAdminAssertHubAdmin_(hub, true);
     vNextAdminHydrateHubRuntime_(hub);
@@ -6149,8 +6151,9 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
       protectedSpreadsheetCount: protectedIds.size
     },
     message: apply
-      ? '生成済み年度計画と検証ログを削除し、社員ポータルから作り直せる状態に戻しました。'
-      : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。試験ログも消します。Admin Hub / ポータル / Template は残します。')
+      ? '生成済みクライアント年度ブックと検証ログを削除し、申請入口から作り直せる状態に戻しました。'
+      : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。試験ログも消します。' +
+        VNEXT_NAMING.LAYER1 + ' / ' + VNEXT_NAMING.LAYER2 + ' / Template は残します。')
   };
   if (!apply) return vNextAdminJsonSafe_(result);
 
@@ -6342,7 +6345,7 @@ function vNextAdminUpgradeOnlyEligibleEmptyPilotForManualTest() {
     try {
       eligible.push(vNextAdminUpgradeEmptyPilotClient({
         bookId: String(row.book_id || ''), dryRun: true,
-        reason: 'Apps Script editorから従業員テスト前の安全条件を確認'
+        reason: 'Apps Script editorから受入試験前の安全条件を確認'
       }));
     } catch (ignoredIneligible) {
       Logger.log('Empty Pilot candidate skipped book=%s reason=%s', String(row.book_id || ''),
@@ -6354,7 +6357,7 @@ function vNextAdminUpgradeOnlyEligibleEmptyPilotForManualTest() {
   }
   return vNextAdminUpgradeEmptyPilotClient({
     bookId: eligible[0].bookId, dryRun: false,
-    reason: '従業員テスト開始前のUI・操作性改善'
+    reason: '受入試験開始前のUI・操作性改善'
   });
 }
 
@@ -7062,11 +7065,11 @@ function vNextAdminEnsureUiShell_(ss, options) {
       if (name === '1_ホーム') {
         const title = opt.template
           ? 'Forecast vNext Master Template'
-          : ((opt.clientName || 'クライアント') + '｜FY' + (opt.fiscalYear || '') + ' 年度計画');
+          : vNextFormatClientBookTitle_(opt.clientName, opt.fiscalYear);
         sheet.getRange('A1').setValue(title).setFontWeight('bold').setFontSize(16);
         sheet.getRange('A3').setValue(opt.template
-          ? 'Master Templateです。クライアントbookはAdmin Hubから生成してください。'
-          : '準備中です。年度計画メニューから「ホームに戻る」を選んでください。');
+          ? 'Master Templateです。クライアント年度ブックは' + VNEXT_NAMING.LAYER1 + 'から生成してください。'
+          : '準備中です。メニュー「' + VNEXT_NAMING.MENU + '」から「ホームに戻る」を選んでください。');
       } else if (name === '2_予測と計画') {
         sheet.getRange('A1').setValue('予測と計画').setFontWeight('bold');
       } else {
@@ -7163,7 +7166,7 @@ function vNextAdminMarkPortalJobFailed_(hub, job, message) {
   vNextAdminAppendException_(hub, {
     severity: 'ERROR', exception_type: 'PORTAL_PROVISION_FAILED', book_id: String(payload.requestId || ''),
     client_name: String(payload.clientName || ''), fiscal_year: Number(payload.fiscalYear || 0),
-    title: 'ポータル経由の年度計画作成に失敗', detail: String(message || '').slice(0, 1200),
+    title: '申請入口経由のクライアント年度ブック作成に失敗', detail: String(message || '').slice(0, 1200),
     recommended_action: 'JOB_QUEUEと生成途中BOOK_REGISTRYを確認し、必要なら再依頼', source_ref: job.job_id
   });
   return true;
@@ -7265,7 +7268,7 @@ function vNextAdminRecoverStaleLeases_(hub, staleMinutes) {
     } else {
       vNextAdminUpdateTableRow_(hub, VN_ADMIN_SHEETS.APPROVALS, approval._rowNumber, {
         status: 'FAILED', decision_at: '',
-        decision_comment: '承認処理が3回中断されたため管理者確認が必要です。', updated_at: new Date()
+        decision_comment: '承認処理が3回中断されたため管理ハブ担当者確認が必要です。', updated_at: new Date()
       });
       vNextAdminAppendException_(hub, {
         severity: 'ERROR', exception_type: 'APPROVAL_LEASE_EXHAUSTED', book_id: approval.book_id,
@@ -7654,7 +7657,7 @@ function vNextAdminHarvestPortalRequestsSafely_(hub) {
       if (!alreadyOpen) {
         vNextAdminAppendException_(hub, {
           severity: 'ERROR', exception_type: 'PORTAL_HARVEST_FAILED', book_id: '',
-          title: '年度計画ポータルの受付確認に失敗', detail: detail,
+          title: '申請入口の受付確認に失敗', detail: detail,
           recommended_action: 'Portalの権限・runtime identity・内部sheet列構成を確認',
           source_ref: 'EMPLOYEE_PORTAL'
         });
@@ -8085,15 +8088,15 @@ function vNextAdminRejectPortalExistingBook_(hub, portal, validated, registry, d
   const extra = detail || {};
   vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'REJECTED', 'REJECTED', {
     relatedBookId: '', relatedBookUrl: '', detailCode: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED'),
-    detailMessage: '既存の年度計画がありますが、社内共通アクセスの確認が必要です。管理担当者へ連絡してください。'
+    detailMessage: '既存のクライアント年度ブックがありますが、社内共通アクセスの確認が必要です。管理担当者へ連絡してください。'
   });
   vNextAdminAppendException_(hub, {
     severity: 'WARN', exception_type: 'PORTAL_EXISTING_BOOK_ACCESS_REQUIRED',
     book_id: String(registry.book_id || ''), client_name: String(registry.client_name || ''),
-    fiscal_year: Number(registry.fiscal_year || 0), title: '既存年度計画のアクセス確認が必要',
+    fiscal_year: Number(registry.fiscal_year || 0), title: '既存クライアント年度ブックのアクセス確認が必要',
     detail: 'request=' + String(validated.payload && validated.payload.requestId || '') +
       '; code=' + String(extra.code || '') + (extra.detail ? '; ' + String(extra.detail) : ''),
-    recommended_action: '既存bookの共有方針を管理者が確認し、必要ならversioned migrationでINTERNAL_OPENへ変更',
+    recommended_action: '既存bookの共有方針を管理ハブが確認し、必要ならversioned migrationでINTERNAL_OPENへ変更',
     source_ref: String(registry.book_id || '')
   });
   return { rejected: true, code: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED') };
@@ -8125,7 +8128,7 @@ function vNextAdminHarvestPortalRequests_(hub) {
       const duplicates = vNextAdminFindClientFyDuplicates_(hub, Object.assign({}, validated.payload, {
         clientId: validated.clientId
       }));
-      if (duplicates.length > 1) throw new Error('同じクライアント・年度の登録が複数あります。管理者確認が必要です。');
+      if (duplicates.length > 1) throw new Error('同じクライアント・年度の登録が複数あります。管理ハブ担当者確認が必要です。');
       if (duplicates.length === 1 && String(duplicates[0].status || '').toUpperCase() === 'ACTIVE') {
         const access = vNextAdminPortalExistingBookAccess_(portal, duplicates[0]);
         if (!access.reusable) {
@@ -8135,7 +8138,7 @@ function vNextAdminHarvestPortalRequests_(hub) {
         }
         vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
           relatedBookId: duplicates[0].book_id, relatedBookUrl: duplicates[0].spreadsheet_url,
-          detailCode: 'EXISTING_BOOK_REUSED', detailMessage: '既存の年度計画をご利用ください。'
+          detailCode: 'EXISTING_BOOK_REUSED', detailMessage: '既存のクライアント年度ブックをご利用ください。'
         });
         result.reused++;
         return;
@@ -8422,7 +8425,7 @@ function vNextAdminExecuteJob_(hub, job) {
             client_name: registry.client_name, fiscal_year: registry.fiscal_year,
             title: '保存済み予測runの再開整合性に失敗',
             detail: String(engineError && engineError.message || engineError),
-            recommended_action: '状態を巻き戻さず、JOB_LOG・FORECAST_RUN・入力hashを管理者が確認してください。',
+            recommended_action: '状態を巻き戻さず、JOB_LOG・FORECAST_RUN・入力hashを管理ハブが確認してください。',
             source_ref: job.job_id
           });
           vNextAdminAppendJobPhase_(hub, job.job_id, 'RUN_IDENTITY_BLOCKED', {
@@ -8537,7 +8540,7 @@ function vNextAdminExecuteJob_(hub, job) {
       vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
         relatedJobId: job.job_id, relatedBookId: provisioned.bookId,
         relatedBookUrl: provisioned.spreadsheetUrl, detailCode: provisioned.reused ? 'EXISTING_BOOK_REUSED' : 'CREATED',
-        detailMessage: provisioned.reused ? '既存の年度計画をご利用ください。' : '年度計画を利用できます。'
+        detailMessage: provisioned.reused ? '既存のクライアント年度ブックをご利用ください。' : 'クライアント年度ブックを利用できます。'
       });
       vNextAdminResolveOpenExceptions_(hub, validated.payload.requestId,
         ['PORTAL_PROVISION_FAILED'], job.job_id);
@@ -8832,7 +8835,7 @@ function vNextAdminHarvestClientRequests_(hub, client, registry) {
       return String(email || '').toLowerCase();
     });
     try {
-      if (ownerEmails.length !== 1) throw new Error('BOOK_REGISTRY must contain exactly one Forecast Owner.');
+      if (ownerEmails.length !== 1) throw new Error('BOOK_REGISTRY must contain exactly one 予算策定担当.');
       const validated = vNextAdminValidateClientRequestRow_(row, registry, ownerEmails[0]);
       const harvestAsOf = Utilities.formatDate(new Date(validated.requestedAtMs), Session.getScriptTimeZone(), 'yyyy-MM-dd');
       // Never promote the untrusted parsed object. Build the worker request from
@@ -8907,7 +8910,7 @@ function vNextAdminValidateClientRequestRow_(row, registry, ownerEmail) {
   const owner = String(ownerEmail || '').toLowerCase();
   if (!owner || String(row.requested_by || '').toLowerCase() !== owner ||
       String(payload.requestedBy || '').toLowerCase() !== owner) {
-    throw new Error('Client request was not created by the registered Forecast Owner: ' + requestId);
+    throw new Error('Client request was not created by the registered 予算策定担当: ' + requestId);
   }
   if (String(payload.bookId || '') !== String(registry.book_id || '') ||
       String(payload.clientId || '') !== String(registry.client_id || '') ||
@@ -8995,7 +8998,7 @@ function vNextAdminRejectClientRequest_(hub, client, registry, row, error) {
     severity: 'ERROR', exception_type: 'CLIENT_REQUEST_REJECTED', book_id: registry.book_id,
     client_name: registry.client_name, fiscal_year: registry.fiscal_year,
     title: 'Client予測依頼を拒否', detail: reason,
-    recommended_action: '直接編集の有無を確認し、Forecast Ownerが再依頼', source_ref: requestId
+    recommended_action: '直接編集の有無を確認し、予算策定担当が再依頼', source_ref: requestId
   });
   return { rejected: true, requestId: requestId, recoveredState: Boolean(recoveryState) };
 }
@@ -9660,7 +9663,7 @@ function vNextAdminNormalizeAmendmentInput_(request, basis) {
     String(previous.uplift_reason || '') === upliftReason && String(previous.uplift_owner || '') === upliftOwner &&
     String(previous.uplift_action || '') === upliftAction && vNextAdminDateOnlyText_(previous.uplift_due_date) === upliftDueDate &&
     vNextAdminCanonicalJson_(vNextAdminParseJson_(previous.uplift_allocation_json, [])) === vNextAdminCanonicalJson_(upliftAllocation);
-  if (noChange) throw new Error('現在の正式計画と同一です。数値または計画内容を変更してください。');
+  if (noChange) throw new Error('現在の正式予算と同一です。数値または計画内容を変更してください。');
   return {
     systemRecommended: system, adoptionDelta: adoptionDelta, adoptionReason: adoptionReason,
     adoptedForecast: adoptedForecast, salesUplift: salesUplift, upliftReason: upliftReason,
@@ -9793,8 +9796,8 @@ function vNextAdminValidateSubmittedPlan_(registry, forecast, plan, options) {
     submittedBy === String(opt.allowedSubmitter || '').toLowerCase();
   if (!ownerSubmitted && !authorizedAdminSubmitted) {
     throw new Error(isAmendment
-      ? 'Amendment submitted_by must be its authenticated Admin creator or the registered Forecast Owner.'
-      : 'submitted_by must be the single Forecast Owner registered for this book.');
+      ? 'Amendment submitted_by must be its authenticated Admin creator or the registered 予算策定担当.'
+      : 'submitted_by must be the single 予算策定担当 registered for this book.');
   }
   if (isAmendment) {
     const basis = opt.officialBasis || {};
@@ -10198,7 +10201,7 @@ function vNextAdminCopyOfficialToClientBestEffort_(hub, registry, officialRow) {
       severity: 'ERROR', exception_type: 'OFFICIAL_COPY_FAILED', book_id: registry.book_id,
       client_name: registry.client_name, fiscal_year: registry.fiscal_year,
       title: '公式snapshotのclient book複製に失敗', detail: String(err && err.message || err),
-      recommended_action: '権限を確認し、Admin Sidebarの「正式計画をClientへ再同期」を実行', source_ref: officialRow.official_id
+      recommended_action: '権限を確認し、Admin Sidebarの「正式予算をClientへ再同期」を実行', source_ref: officialRow.official_id
     });
     Logger.log('Official client copy failed official=%s error=%s', officialRow.official_id, String(err && err.stack || err));
     return false;
@@ -10245,7 +10248,7 @@ function vNextAdminSetClientState_(spreadsheetId, state, options) {
   if (!spreadsheetId) return;
   if (VN_ADMIN_CLIENT_STATES.indexOf(String(state)) < 0) throw new Error('Invalid CLIENT state: ' + state);
   const opt = Object.assign({
-    reason: 'Admin Hub decision', actorEmail: vNextAdminActor_(), actorRole: 'ADMIN'
+    reason: '管理ハブ decision', actorEmail: vNextAdminActor_(), actorRole: 'ADMIN'
   }, options || {});
   const hub = opt.hub || vNextAdminRequireHub_();
   const client = SpreadsheetApp.openById(String(spreadsheetId));
@@ -10426,7 +10429,7 @@ function vNextAdminValidateClientBookMetaMirror_(hub, client, bookId) {
       return String(email || '').toLowerCase();
     });
     if (owners.length !== 1 || String(latest.forecast_owner_email || '').toLowerCase() !== owners[0]) {
-      throw new Error('Trusted BOOK_META Forecast Owner does not match BOOK_REGISTRY.');
+      throw new Error('Trusted BOOK_META 予算策定担当 does not match BOOK_REGISTRY.');
     }
     if (String(latest.book_id || '') !== String(bookId) ||
         String(latest.client_id || '') !== String(registry.client_id || '') ||
@@ -10764,7 +10767,7 @@ function vNextAdminValidateClientStateRows_(hub, client, bookId, rows) {
   const owners = vNextAdminParseList_(registry.forecast_owner_emails).map(function (email) {
     return String(email || '').toLowerCase();
   });
-  if (owners.length !== 1) throw new Error('Client state validation requires exactly one Forecast Owner.');
+  if (owners.length !== 1) throw new Error('Client state validation requires exactly one 予算策定担当.');
   const owner = owners[0];
   const hubRows = vNextAdminReadCoreRows_(hub, 'STATE_EVENT').filter(function (row) {
     return String(row.book_id || '') === String(bookId);
@@ -10923,7 +10926,7 @@ function vNextAdminValidateClientStateEventSemantics_(hub, client, registry, eve
   if (edge === 'READY_TO_RUN>RUNNING') {
     const requestReason = /^forecast_requested:(REQ-[A-Za-z0-9-]{8,200})$/.exec(reason);
     if (role !== 'FORECAST_OWNER' || actor !== owner || !requestReason) {
-      throw new Error('READY_TO_RUN>RUNNING must be the registered Forecast Owner forecast request.');
+      throw new Error('READY_TO_RUN>RUNNING must be the registered 予算策定担当 forecast request.');
     }
     const request = vNextAdminLatestValidPendingRequest_(client, registry, owner, eventTimestamp, requestReason[1]);
     if (!request) throw new Error('A matching valid pending forecast request was not found.');
@@ -10932,7 +10935,7 @@ function vNextAdminValidateClientStateEventSemantics_(hub, client, registry, eve
   if (edge === 'DRAFT_READY>SUBMITTED' || edge === 'CHANGES_REQUESTED>SUBMITTED') {
     const expectedReason = edge === 'DRAFT_READY>SUBMITTED' ? 'plan_submitted' : 'revised_plan_submitted';
     if (role !== 'FORECAST_OWNER' || actor !== owner || reason !== expectedReason) {
-      throw new Error(edge + ' must be a registered Forecast Owner plan submission.');
+      throw new Error(edge + ' must be a registered 予算策定担当 plan submission.');
     }
     const planId = String(event.related_plan_version_id || '');
     const runId = String(event.related_run_id || '');
@@ -11324,7 +11327,7 @@ function vNextAdminRefreshHome_(hub) {
   let overall = '対応なし';
   if (!automationInstalled) overall = '初期設定が必要';
   else if (operations.schedulerStale || operations.queueStale) overall = '自動処理を確認';
-  else if (approvalCount || exceptionRows.length) overall = '管理者の確認あり';
+  else if (approvalCount || exceptionRows.length) overall = '管理ハブの確認あり';
   else if (queuedCount || runningCount) overall = '自動処理中';
   const rows = [
     [VN_ADMIN_MENU_NAME, overall],
@@ -11340,11 +11343,11 @@ function vNextAdminRefreshHome_(hub) {
     ['自動更新', !automationInstalled ? '未設定' : operations.schedulerStale ? '要確認' : '正常'],
     ['最終自動更新', operations.lastSweepSucceededAt || '未実行'],
     ['', ''],
-    ['登録済み年度計画', clientCount + '冊'],
+    ['登録済みクライアント年度ブック', clientCount + '冊'],
     ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
     ['', ''],
     ['次の操作', '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」を使います。'],
-    ['正式計画', '確定済みの計画は上書きせず、訂正履歴を追加します。']
+    ['正式予算', '確定済みの計画は上書きせず、訂正履歴を追加します。']
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
   sheet.setHiddenGridlines(true);
@@ -11539,10 +11542,10 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
 function vNextAdminPortalNextAction_(state, healthCode) {
   if (String(healthCode || '').indexOf('HISTORY') >= 0) return '実績データの連携・不足状況を確認してください。';
   const labels = {
-    INPUT_OPEN: '現場情報を回答してください。', READY_TO_RUN: 'Forecast Ownerが予測を依頼します。',
-    RUNNING: '予測を計算しています。', DRAFT_READY: 'Forecast Ownerが計画案を作成します。',
-    SUBMITTED: '管理者の承認待ちです。', CHANGES_REQUESTED: '差戻し内容を確認してください。',
-    OFFICIAL_LOCKED: '正式計画を確認できます。', REVIEW_DUE: '年度の振り返りを回答してください。',
+    INPUT_OPEN: '現場情報を回答してください。', READY_TO_RUN: '予算策定担当が予測を依頼します。',
+    RUNNING: '予測を計算しています。', DRAFT_READY: '予算策定担当が予算案を作成します。',
+    SUBMITTED: '管理ハブの承認待ちです。', CHANGES_REQUESTED: '差戻し内容を確認してください。',
+    OFFICIAL_LOCKED: '正式予算を確認できます。', REVIEW_DUE: '年度の振り返りを回答してください。',
     YEAR_CLOSED: '年度終了（閲覧のみ）'
   };
   return labels[String(state || '').toUpperCase()] || '専用ブックで状況を確認してください。';
@@ -12385,7 +12388,7 @@ function vNextAdminReplaceBookConfig_(ss, values) {
 
 function vNextAdminEnsureCoreStore_(ss) {
   if (typeof vNextEnsureAuditStore_ === 'function') return vNextEnsureAuditStore_(ss);
-  throw new Error('VNext_Core.js is required before Admin Hub initialization.');
+  throw new Error('VNext_Core.js is required before 管理ハブ initialization.');
 }
 
 function vNextAdminCreateClientCoreMeta_(ss, opt) {
@@ -12514,7 +12517,7 @@ function vNextAdminEnsureExactTableHeaders_(ss, name, headers) {
     const defined = actual.slice(0, expected.length);
     const unexpected = actual.slice(expected.length).filter(Boolean);
     if (vNextAdminCanonicalJson_(defined) !== vNextAdminCanonicalJson_(expected) || unexpected.length) {
-      throw new Error(name + 'の列構成がruntime契約と一致しません。管理者が直接修正せずversioned migrationを実行してください。');
+      throw new Error(name + 'の列構成がruntime契約と一致しません。管理ハブが直接修正せずversioned migrationを実行してください。');
     }
   }
   sheet.getRange(1, 1, 1, expected.length).setFontWeight('bold').setBackground('#eeeeee');
@@ -12833,7 +12836,7 @@ function vNextAdminHydrateHubRuntime_(hub) {
 function vNextAdminRequireHub_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (vNextDetectBookMode_(ss) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(ss)) {
-    throw new Error('This operation is available only in the registered Admin Hub.');
+    throw new Error('This operation is available only in the registered 管理ハブ.');
   }
   vNextAdminAssertHubAdmin_(ss, false);
   vNextAdminHydrateHubRuntime_(ss);
@@ -12845,7 +12848,7 @@ function vNextAdminResolveHubForAutomation_() {
   const id = PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_HUB_SPREADSHEET_ID');
   const hub = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   if (!hub || vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
-    throw new Error('Admin Hub cannot be resolved for scheduled sweep.');
+    throw new Error('管理ハブ cannot be resolved for scheduled sweep.');
   }
   vNextAdminAssertHubAdmin_(hub, true);
   vNextAdminHydrateHubRuntime_(hub);
@@ -12869,7 +12872,7 @@ function vNextAdminAssertRuntimeConfigurator_() {
   const actor = vNextAdminActor_().toLowerCase();
   const owner = String(DriveApp.getFileById(ss.getId()).getOwner().getEmail() || '').toLowerCase();
   const admins = vNextAdminMergeEmails_(PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'));
-  if (actor !== owner && admins.indexOf(actor) < 0) throw new Error('この設定を変更できるのはファイル所有者または管理者だけです。');
+  if (actor !== owner && admins.indexOf(actor) < 0) throw new Error('この設定を変更できるのはファイル所有者または管理ハブ担当者だけです。');
   return true;
 }
 
@@ -12905,7 +12908,7 @@ function vNextAdminAssertHubAdmin_(hub, allowEffectiveUser) {
   const owner = ownerUser ? String(ownerUser.getEmail() || '').toLowerCase() : '';
   const admins = vNextAdminMergeEmails_(routing.admin_emails,
     PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS'), owner);
-  if (!actor || admins.indexOf(actor) < 0) throw new Error('Admin Hubの操作権限がありません。');
+  if (!actor || admins.indexOf(actor) < 0) throw new Error('Admin 管理ハブの操作権限がありません。');
   return true;
 }
 
@@ -12970,7 +12973,7 @@ function vNextAdminPrepareLibraryDestinationFolder_(hub, requestedFolderId, path
   if (requested) {
     const folder = DriveApp.getFolderById(requested);
     if (!vNextAdminFolderWithinRoot_(folder, root.getId())) {
-      throw new Error('指定folderは年度計画ライブラリ配下ではないため使用できません。');
+      throw new Error('指定folderは' + VNEXT_NAMING.SHARED_DRIVE + 'ライブラリ配下ではないため使用できません。');
     }
     return vNextAdminPrepareManagedFolder_(folder.getId(), folder.getName(), adminEmails);
   }
@@ -12980,7 +12983,7 @@ function vNextAdminPrepareLibraryDestinationFolder_(hub, requestedFolderId, path
 function vNextAdminResolveManagedRoot_(hub, adminEmails) {
   const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   const rootId = String(config.shared_drive_id || config.private_root_folder_id || '').trim();
-  if (!rootId) throw new Error('年度計画の保存先folderがHubに記録されていないため停止しました。');
+  if (!rootId) throw new Error(VNEXT_NAMING.SHARED_DRIVE + 'の保存先folderが' + VNEXT_NAMING.LAYER1 + 'に記録されていないため停止しました。');
   return vNextAdminPrepareManagedFolder_(rootId, VN_ADMIN_LIBRARY.DRIVE_NAME, adminEmails);
 }
 
@@ -12988,7 +12991,14 @@ function vNextAdminEnsureLibraryPath_(root, pathSegments, adminEmails) {
   let current = root;
   (pathSegments || []).forEach(function (name) {
     const safe = vNextAdminSafeDriveName_(name, 'folder');
-    const existing = vNextAdminFindNamedChildFolder_(current, safe);
+    const legacy = VN_ADMIN_LIBRARY.FOLDER_LEGACY && VN_ADMIN_LIBRARY.FOLDER_LEGACY[safe];
+    let existing = vNextAdminFindNamedChildFolder_(current, safe);
+    if (!existing && legacy) {
+      existing = vNextAdminFindNamedChildFolder_(current, legacy);
+      if (existing && existing.getName() === legacy) {
+        try { existing.setName(safe); } catch (ignoredRename) {}
+      }
+    }
     current = existing || current.createFolder(safe);
     current = vNextAdminPrepareManagedFolder_(current.getId(), current.getName(), adminEmails);
   });
@@ -13057,8 +13067,14 @@ function vNextAdminFindOrCreateSharedDrive_(name) {
   }
   const listed = Drive.Drives.list({ pageSize: 100 });
   const drives = (listed && listed.drives) || [];
-  for (let i = 0; i < drives.length; i++) {
-    if (String(drives[i].name || '') === name) return String(drives[i].id);
+  const candidates = [name];
+  if (VN_ADMIN_LIBRARY.LEGACY_DRIVE_NAME && VN_ADMIN_LIBRARY.LEGACY_DRIVE_NAME !== name) {
+    candidates.push(VN_ADMIN_LIBRARY.LEGACY_DRIVE_NAME);
+  }
+  for (let c = 0; c < candidates.length; c++) {
+    for (let i = 0; i < drives.length; i++) {
+      if (String(drives[i].name || '') === candidates[c]) return String(drives[i].id);
+    }
   }
   const created = Drive.Drives.create({ name: name }, Utilities.getUuid());
   if (!created || !created.id) throw new Error('共有ドライブ「' + name + '」を作成できませんでした。');

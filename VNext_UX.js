@@ -4,7 +4,7 @@
  */
 
 var VNEXT_UX_CONFIG_ = Object.freeze({
-  MENU_NAME: '年度計画',
+  MENU_NAME: '年度予算策定',
   HOME_SHEET: '1_ホーム',
   PLAN_SHEET: '2_予測と計画',
   REVIEW_SHEET: '3_振り返り',
@@ -26,9 +26,9 @@ var VNEXT_UX_STATE_LABELS_ = Object.freeze({
   READY_TO_RUN: '予測を実行できます',
   RUNNING: '予測を作成中',
   DRAFT_READY: '予測案ができました',
-  SUBMITTED: '管理者の確認待ち',
+  SUBMITTED: '管理ハブの確認待ち',
   CHANGES_REQUESTED: '修正依頼があります',
-  OFFICIAL_LOCKED: '正式計画',
+  OFFICIAL_LOCKED: '正式予算',
   REVIEW_DUE: '振り返り期間',
   YEAR_CLOSED: '年度終了'
 });
@@ -56,7 +56,7 @@ var VNEXT_UX_ANALYTICS_HEADERS_ = Object.freeze([
   'evidence_quality', 'related_record_id', 'generated_at', 'source_table'
 ]);
 
-/** legacy onOpenから呼ぶ安全なrouter。Admin Hubのmenu builderは別moduleへ委譲する。 */
+/** legacy onOpenから呼ぶ安全なrouter。Admin 管理ハブのmenu builderは別moduleへ委譲する。 */
 function vNextHandleOnOpen_() {
   try {
     if (typeof vNextAdminLooksLikeHub_ === 'function' && vNextAdminLooksLikeHub_()) {
@@ -106,8 +106,8 @@ function vNextBuildClientMenu_() {
 function vNextOpenTemplateGuidance() {
   try {
     SpreadsheetApp.getUi().alert(
-      '年度計画',
-      'このブックは生成用のひな型です。現場の年度計画はポータルから作成してください。',
+      '年度予算策定',
+      'このクライアント年度ブックは生成用のひな型です。現場のクライアント年度ブックは申請入口から作成してください。',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   } catch (err) {
@@ -125,7 +125,7 @@ function vNextSetupClientExperience_() {
     return { ok: true };
   } catch (err) {
     Logger.log('vNextSetupClientExperience_ error: ' + vNextUxErrorText_(err));
-    throw new Error('従業員画面を準備できませんでした。管理者へ連絡してください。');
+    throw new Error('クライアント年度ブック画面を準備できませんでした。管理ハブ担当者へ連絡してください。');
   }
 }
 
@@ -151,7 +151,7 @@ function vNextGoHomeAndShowGuidance() {
   }
 }
 
-/** 案内の自動表示を、このブックのproject triggerとして有効化する。 */
+/** 案内の自動表示を、このクライアント年度ブックのproject triggerとして有効化する。 */
 function vNextInstallAutomaticGuidance() {
   try {
     var installed = vNextUxEnsureGuidanceOnOpenTrigger_();
@@ -245,7 +245,7 @@ function vNextGoForecastPlan() {
     vNextUxActivateSheet_(VNEXT_UX_CONFIG_.PLAN_SHEET, 'A1');
   } catch (err) {
     Logger.log('vNextGoForecastPlan error: ' + vNextUxErrorText_(err));
-    vNextUxAlertError_('予測と計画を開けませんでした。', err);
+    vNextUxAlertError_('予測シートを開けませんでした。', err);
   }
 }
 
@@ -383,7 +383,7 @@ function vNextSaveReview(payload) {
     if (payload && payload.previewHash && String(payload.previewHash) !== expectedHash) {
       throw new Error('画面の内容が変更されています。入力内容を確認して、もう一度保存してください。');
     }
-    if (typeof vNextAppendRecord_ !== 'function') throw new Error('振り返りの保存先が未設定です。管理者へ連絡してください。');
+    if (typeof vNextAppendRecord_ !== 'function') throw new Error('振り返りの保存先が未設定です。管理ハブ担当者へ連絡してください。');
     var previous = vNextUxGetLatestOwnReviewRecord_(context);
     var evidenceId = typeof vNextUuid_ === 'function' ? vNextUuid_() : Utilities.getUuid();
     vNextAppendRecord_('EVIDENCE_EVENT', {
@@ -413,7 +413,7 @@ function vNextOpenPlanSidebar() {
   try {
     vNextUxAssertPlanEditable_(vNextUxGetBookContext_());
     var html = HtmlService.createTemplateFromFile('VNext_PlanSidebar').evaluate()
-      .setTitle('計画案を作成・提出')
+      .setTitle('予算案を作成・提出')
       .setWidth(440);
     SpreadsheetApp.getUi().showSidebar(html);
   } catch (err) {
@@ -498,7 +498,7 @@ function vNextSubmitPlan(payload) {
     if (payload && payload.previewHash && String(payload.previewHash) !== expectedHash) {
       throw new Error('画面の内容が変更されています。金額と理由を確認して、もう一度提出してください。');
     }
-    if (typeof vNextAppendPlanVersion_ !== 'function') throw new Error('計画の保存機能が未設定です。管理者へ連絡してください。');
+    if (typeof vNextAppendPlanVersion_ !== 'function') throw new Error('予算の保存機能が未設定です。管理ハブ担当者へ連絡してください。');
     var latest = vNextUxGetLatestPlan_(context.bookId);
     var record = vNextAppendPlanVersion_({
       bookId: context.bookId,
@@ -529,7 +529,7 @@ function vNextSubmitPlan(payload) {
       relatedPlanVersionId: record.plan_version_id
     });
     vNextRefreshEmployeeViews();
-    return { ok: true, planVersionId: record.plan_version_id, message: '計画案を提出しました。管理者の確認をお待ちください。' };
+    return { ok: true, planVersionId: record.plan_version_id, message: '予算案を提出しました。管理ハブの確認をお待ちください。' };
   } catch (err) {
     Logger.log('vNextSubmitPlan error: ' + vNextUxErrorText_(err));
     throw new Error(vNextUxFriendlyValidationError_(err));
@@ -574,7 +574,7 @@ function vNextGetClientViewModel() {
     };
   } catch (err) {
     Logger.log('vNextGetClientViewModel error: ' + vNextUxErrorText_(err));
-    throw new Error('画面情報を取得できませんでした。再読み込みしても直らない場合は管理者へ連絡してください。');
+    throw new Error('画面情報を取得できませんでした。再読み込みしても直らない場合は管理ハブ担当者へ連絡してください。');
   }
 }
 
@@ -611,7 +611,7 @@ function vNextSaveEvidence(payload) {
     vNextUxAssertInputAllowed_(context);
     var normalized = vNextUxNormalizeEvidence_(payload);
     var canonical = vNextUxCanonicalEvidence_(normalized);
-    if (typeof vNextAppendEvidence_ !== 'function') throw new Error('保存先が未設定です。管理者へ連絡してください。');
+    if (typeof vNextAppendEvidence_ !== 'function') throw new Error('保存先が未設定です。管理ハブ担当者へ連絡してください。');
     var bands = vNextUxBuildAmountBands_(vNextUxGetLatestForecast_(context), context);
     var impact = vNextUxCalculateImpact_(normalized, bands);
     var record = vNextUxBuildEvidenceSaveRecord_(canonical, context, impact);
@@ -629,11 +629,11 @@ function vNextSaveEvidence(payload) {
   }
 }
 
-/** 期限後、Forecast Ownerが未回答を理由付きで締め切る。 */
+/** 期限後、予算策定担当が未回答を理由付きで締め切る。 */
 function vNextCloseInputAndProceed(reason) {
   try {
     var context = vNextUxGetBookContext_();
-    if (!vNextUxCanOverrideInput_(context)) throw new Error('この操作は、回答期限後のForecast Ownerだけが実行できます。');
+    if (!vNextUxCanOverrideInput_(context)) throw new Error('この操作は、回答期限後の予算策定担当だけが実行できます。');
     var safeReason = vNextUxSafeText_(reason, 500, true, '進める理由');
     vNextUxTransition_({
       bookId: context.bookId,
@@ -650,11 +650,11 @@ function vNextCloseInputAndProceed(reason) {
   }
 }
 
-/** Forecast OwnerだけがREADY_TO_RUNから予測runを開始できる。 */
+/** 予算策定担当だけがREADY_TO_RUNから予測runを開始できる。 */
 function vNextRequestForecast() {
   try {
     var context = vNextUxGetBookContext_();
-    if (!context.isForecastOwner) throw new Error('予測の依頼はForecast Ownerが行います。');
+    if (!context.isForecastOwner) throw new Error('予測の依頼は予算策定担当が行います。');
     if (context.state !== 'READY_TO_RUN') throw new Error('現在は予測を依頼できる状態ではありません。');
     var ui = SpreadsheetApp.getUi();
     var answer = ui.alert('予測を依頼しますか？', '前月末までの確定実績と、保存済みの情報を使って予測を作成します。', ui.ButtonSet.OK_CANCEL);
@@ -678,7 +678,7 @@ function vNextRequestForecast() {
     } else if (typeof vNextRunForecast_ === 'function') {
       vNextRunForecast_(request);
     } else {
-      throw new Error('予測依頼キューがインストールされていません。管理者へ連絡してください。');
+      throw new Error('予測依頼キューがインストールされていません。管理ハブ担当者へ連絡してください。');
     }
     vNextRefreshEmployeeViews();
     SpreadsheetApp.getActiveSpreadsheet().toast('予測の作成を開始しました。完了後、この画面に結果が表示されます。', VNEXT_UX_CONFIG_.MENU_NAME, 8);
@@ -1003,7 +1003,7 @@ function vNextUxGetLatestPlan_(bookId) {
 }
 
 function vNextUxTransition_(request) {
-  if (typeof vNextTransitionState_ !== 'function') throw new Error('状態更新機能が未設定です。管理者へ連絡してください。');
+  if (typeof vNextTransitionState_ !== 'function') throw new Error('状態更新機能が未設定です。管理ハブ担当者へ連絡してください。');
   request.spreadsheet = request.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
   return vNextTransitionState_(request);
 }
@@ -1025,23 +1025,23 @@ function vNextUxGetPrimaryAction_(context) {
   var definitions = {
     INPUT_OPEN: canContribute
       ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '過去実績だけでは表せない変化について回答してください。' }
-      : { key: 'WAIT', label: '閲覧のみです', instruction: 'このブックの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
+      : { key: 'WAIT', label: '閲覧のみです', instruction: 'このクライアント年度ブックの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
     READY_TO_RUN: owner
       ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' }
       : canContribute && !submitted
         ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '予測依頼前であれば、あなたの情報を追加できます。' }
-        : { key: 'WAIT', label: canContribute ? 'Forecast Ownerの操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。Forecast Ownerが予測を依頼します。' : 'Forecast Ownerが予測を依頼します。現在、必要な操作はありません。' },
-    RUNNING: { key: 'WAIT', label: '予測の完成をお待ちください', instruction: '通常は5～10分で完了します。15分以上この表示が変わらない場合は「年度計画」→「ホームに戻る」で更新し、それでも変わらなければ管理担当者へ連絡してください。' },
-    DRAFT_READY: { key: owner ? 'EDIT_PLAN' : 'VIEW_PLAN', label: owner ? '予測を確認して計画案を作る' : '予測を見る', instruction: owner ? 'システム推奨予測を確認し、採用判断と営業上積みを分けて入力してください。' : '予測の結論と根拠を確認してください。' },
-    SUBMITTED: { key: 'WAIT', label: '管理者の確認をお待ちください', instruction: '計画案は提出済みです。差戻しまたは正式計画の通知まで、操作は不要です。' },
-    CHANGES_REQUESTED: { key: owner ? 'EDIT_PLAN' : 'WAIT', label: owner ? '差戻し内容を確認して再提出する' : 'Forecast Ownerの対応待ち', instruction: owner ? '差戻し理由を確認し、計画案を修正して再提出してください。' : 'Forecast Ownerが差戻しに対応します。' },
-    OFFICIAL_LOCKED: { key: 'VIEW_PLAN', label: '正式計画を見る', instruction: '承認済みの正式計画を確認できます。' },
+        : { key: 'WAIT', label: canContribute ? '予算策定担当の操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。予算策定担当が予測を依頼します。' : '予算策定担当が予測を依頼します。現在、必要な操作はありません。' },
+    RUNNING: { key: 'WAIT', label: '予測の完成をお待ちください', instruction: '通常は5～10分で完了します。15分以上この表示が変わらない場合は「年度予算策定」→「ホームに戻る」で更新し、それでも変わらなければ管理担当者へ連絡してください。' },
+    DRAFT_READY: { key: owner ? 'EDIT_PLAN' : 'VIEW_PLAN', label: owner ? '予測を確認して予算案を作る' : '予測を見る', instruction: owner ? 'システム推奨予測を確認し、採用判断と営業上積みを分けて入力してください。' : '予測の結論と根拠を確認してください。' },
+    SUBMITTED: { key: 'WAIT', label: '管理ハブの確認をお待ちください', instruction: '予算案は提出済みです。差戻しまたは正式予算の通知まで、操作は不要です。' },
+    CHANGES_REQUESTED: { key: owner ? 'EDIT_PLAN' : 'WAIT', label: owner ? '差戻し内容を確認して再提出する' : '予算策定担当の対応待ち', instruction: owner ? '差戻し理由を確認し、予算案を修正して再提出してください。' : '予算策定担当が差戻しに対応します。' },
+    OFFICIAL_LOCKED: { key: 'VIEW_PLAN', label: '正式予算を見る', instruction: '承認済みの正式予算を確認できます。' },
     REVIEW_DUE: teamMember
       ? { key: 'REVIEW', label: '振り返りを回答する', instruction: '予実差と前提差を確認し、次年度に役立つ学びを残してください。' }
       : { key: 'VIEW_REVIEW', label: '振り返りを見る', instruction: '確定実績と予測の差を閲覧できます。' },
     YEAR_CLOSED: { key: 'VIEW_REVIEW', label: '年度の振り返りを見る', instruction: '確定した振り返りを閲覧できます。' }
   };
-  var action = definitions[context.state] || { key: 'WAIT', label: '管理者へ確認してください', instruction: '現在の状態を確認できません。' };
+  var action = definitions[context.state] || { key: 'WAIT', label: '管理ハブ担当者へ確認してください', instruction: '現在の状態を確認できません。' };
   var issue = vNextUxStateIssue_(context);
   if (issue) {
     action = {
@@ -1088,7 +1088,7 @@ function vNextUxStateIssue_(context) {
 }
 
 function vNextUxActionMenuGuide_(action) {
-  if (!action) return '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。';
+  if (!action) return '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。';
   if (action.key === 'INPUT') return '右側の案内のボタンから入力を続けてください。';
   if (['REQUEST_FORECAST', 'EDIT_PLAN', 'REVIEW', 'VIEW_PLAN', 'VIEW_REVIEW'].indexOf(action.key) >= 0) {
     return '右側の案内のボタンから、次の確認画面を開いてください。';
@@ -1109,7 +1109,7 @@ function vNextUxAssertInputAllowed_(context) {
 }
 
 function vNextUxRoleLabel_(context) {
-  if (context && context.isForecastOwner) return 'Forecast Owner';
+  if (context && context.isForecastOwner) return '予算策定担当';
   if (context && context.isTeamMember) return '情報提供メンバー';
   if (context && (String(context.role || '').toUpperCase() === 'INTERNAL_CONTRIBUTOR' || (context.isInternalUser && context.canContribute))) {
     return '社内情報提供メンバー';
@@ -1119,12 +1119,12 @@ function vNextUxRoleLabel_(context) {
 
 function vNextUxAssertPlanEditable_(context) {
   vNextUxAssertClientBook_(context);
-  if (!context.isForecastOwner) throw new Error('計画案の作成・提出はForecast Ownerが行います。');
-  if (['DRAFT_READY', 'CHANGES_REQUESTED'].indexOf(context.state) < 0) throw new Error('現在は計画案を編集できる状態ではありません。');
+  if (!context.isForecastOwner) throw new Error('予算案の作成・提出は予算策定担当が行います。');
+  if (['DRAFT_READY', 'CHANGES_REQUESTED'].indexOf(context.state) < 0) throw new Error('現在は予算案を編集できる状態ではありません。');
 }
 
 function vNextUxVerifiedOwnerRole_(context) {
-  if (!context || !context.isForecastOwner) throw new Error('Forecast Owner権限を確認できません。');
+  if (!context || !context.isForecastOwner) throw new Error('予算策定担当権限を確認できません。');
   return String(context.role || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'FORECAST_OWNER';
 }
 
@@ -1138,7 +1138,7 @@ function vNextUxNormalizeReview_(payload, context) {
   payload = payload || {};
   var evaluation = vNextUxGetLatestEvaluation_(context.bookId);
   if (!evaluation || !String(evaluation.evaluation_id || '').trim() || !String(evaluation.official_vintage_id || '').trim()) {
-    throw new Error('今回の正式計画に紐づく評価を確認できません。管理者へ連絡してください。');
+    throw new Error('今回の正式予算に紐づく評価を確認できません。管理ハブ担当者へ連絡してください。');
   }
   var confirmedCause = vNextUxSafeText_(payload.confirmedCause, 1000, false, '確認できた原因');
   var causeHypothesis = vNextUxSafeText_(payload.causeHypothesis, 1000, false, '原因仮説');
@@ -1314,10 +1314,10 @@ function vNextUxCanOverrideInput_(context) {
 function vNextUxInputLockMessage_(state) {
   var messages = {
     RUNNING: '予測を作成中のため、入力は一時停止しています。',
-    DRAFT_READY: '予測案の作成後は入力できません。変更が必要な場合はForecast Ownerへ連絡してください。',
-    SUBMITTED: '管理者の確認中のため入力できません。',
-    CHANGES_REQUESTED: '現在はForecast Ownerが差戻し内容を修正しています。追加情報が必要な場合は入力期間が再開されます。',
-    OFFICIAL_LOCKED: '正式計画は凍結されているため入力できません。',
+    DRAFT_READY: '予測案の作成後は入力できません。変更が必要な場合は予算策定担当へ連絡してください。',
+    SUBMITTED: '管理ハブの確認中のため入力できません。',
+    CHANGES_REQUESTED: '現在は予算策定担当が差戻し内容を修正しています。追加情報が必要な場合は入力期間が再開されます。',
+    OFFICIAL_LOCKED: '正式予算は凍結されているため入力できません。',
     REVIEW_DUE: '現在は振り返り期間です。',
     YEAR_CLOSED: '年度が終了しているため入力できません。'
   };
@@ -1863,7 +1863,7 @@ function vNextUxRenderHome_(context, sheet) {
   vNextUxRemoveLegacyImages_(sheet);
   var action = vNextUxGetPrimaryAction_(context);
   var input = context.inputStatus || {};
-  sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度計画').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度予算').setFontSize(18).setFontWeight('bold');
   sheet.getRange('A2').setValue('現在の状態と、次の1つの作業を確認できます。').setFontColor('#5f6368');
   sheet.getRange('A4:B7').setValues([
     ['現在の状態', VNEXT_UX_STATE_LABELS_[context.state] || context.state],
@@ -1884,7 +1884,7 @@ function vNextUxRenderHome_(context, sheet) {
     .setFontColor(action.key === 'WAIT' ? '#3c4043' : '#174ea6');
   sheet.getRange('B11').setWrap(true);
   if (action.issueKey) sheet.getRange('A10:B11').setBackground('#fef7e0');
-  sheet.getRange('A13').setValue('右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
+  sheet.getRange('A13').setValue('右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。')
     .setFontColor('#5f6368').setFontSize(9);
   sheet.setFrozenRows(2);
   sheet.setHiddenGridlines(false);
@@ -1908,7 +1908,7 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
   vNextUxResetViewSheet_(sheet, 60, 13);
   var f = vNextUxForecastForView_(context, rawForecast);
-  sheet.getRange('A1').setValue('予測と年度計画').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A1').setValue('予測と年度予算').setFontSize(18).setFontWeight('bold');
   sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + '｜' + (VNEXT_UX_STATE_LABELS_[context.state] || context.state)).setFontColor('#5f6368');
   if (!rawForecast) {
     vNextUxSetSectionHeader_(sheet, 4, 1, 13, '現在の状況');
@@ -1919,7 +1919,7 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   }
   var official = context.state === 'OFFICIAL_LOCKED' || context.state === 'REVIEW_DUE' || context.state === 'YEAR_CLOSED';
   var headline = vNextUxHeadlineAmount_(official, f);
-  vNextUxSetSectionHeader_(sheet, 4, 1, 13, official ? '正式な年度計画' : '今回の予測');
+  vNextUxSetSectionHeader_(sheet, 4, 1, 13, official ? '正式な年度予算' : '今回の予測');
   sheet.getRange('A5:B7').setValues([
     [official ? '正式な最終予算' : '中心見込み', headline],
     ['通常の振れ幅', vNextUxFormatMoney_(f.p10) + ' ～ ' + vNextUxFormatMoney_(f.p90)],
@@ -2027,7 +2027,7 @@ function vNextUxRenderReview_(context, sheet) {
       sheet.getRange('A32').setValue(learningLines.join('\n')).setWrap(true).setVerticalAlignment('top');
       sheet.setRowHeight(32, Math.min(180, 36 + learningLines.length * 24));
     } else {
-      sheet.getRange('A32').setValue(context.state === 'REVIEW_DUE' && evaluation ? '上部メニュー「年度計画」→「予測ダッシュボードを開く」から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
+      sheet.getRange('A32').setValue(context.state === 'REVIEW_DUE' && evaluation ? '上部メニュー「年度予算策定」→「予測ダッシュボードを開く」から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
     }
   }
   sheet.setHiddenGridlines(false);
@@ -2124,10 +2124,10 @@ function vNextUxEmptyForecastMessage_(context) {
   if (issue) return issue.instruction;
   var state = String(context && context.state || '').toUpperCase();
   if (state === 'RUNNING') return '予測を作成しています。通常は5～10分で完了します。15分以上変わらない場合はホームを更新し、それでも変わらなければ管理担当者へ連絡してください。';
-  if (state === 'INPUT_OPEN') return 'まだ予測前です。上部メニュー「年度計画」→「自分の情報を入力・更新する」から、来年度の変化を回答してください。';
+  if (state === 'INPUT_OPEN') return 'まだ予測前です。上部メニュー「年度予算策定」→「自分の情報を入力・更新する」から、来年度の変化を回答してください。';
   if (state === 'READY_TO_RUN') return context && context.isForecastOwner
-    ? '回答状況を確認後、上部メニュー「年度計画」→「予測ダッシュボードを開く」から予測を依頼してください。'
-    : '回答は受け付け済みです。Forecast Ownerが予測を依頼するまでお待ちください。';
+    ? '回答状況を確認後、上部メニュー「年度予算策定」→「予測ダッシュボードを開く」から予測を依頼してください。'
+    : '回答は受け付け済みです。予算策定担当が予測を依頼するまでお待ちください。';
   return 'この年度の予測結果はまだありません。ホームの「次にすること」を確認してください。';
 }
 
@@ -2262,7 +2262,7 @@ function testVNextUxPlanValidation() {
       adoptionReason: '確認済み契約を反映',
       salesUplift: 120000,
       upliftReason: '追加提案',
-      upliftOwner: 'Forecast Owner',
+      upliftOwner: '予算策定担当',
       upliftAction: '顧客へ月次提案',
       upliftDueDate: '2027-09-30',
       monthAllocation: new Array(12).fill(10000)
@@ -2285,7 +2285,7 @@ function testVNextUxPlanValidation() {
     var zeroOfficial = vNextUxPublicForecast_({
       planStatus: 'APPROVED', layers: { systemRecommended: 1000, adoptionDelta: -1000, adoptedForecast: 0, finalBudget: 0 }
     });
-    if (!zeroOfficial.hasPlan || vNextUxHeadlineAmount_(true, zeroOfficial) !== 0) throw new Error('0円の正式計画を識別できません。');
+    if (!zeroOfficial.hasPlan || vNextUxHeadlineAmount_(true, zeroOfficial) !== 0) throw new Error('0円の正式予算を識別できません。');
     var viewerInput = vNextUxGetPrimaryAction_({ state: 'INPUT_OPEN', isForecastOwner: false, isTeamMember: false });
     var viewerReview = vNextUxGetPrimaryAction_({ state: 'REVIEW_DUE', isForecastOwner: false, isTeamMember: false });
     if (viewerInput.key !== 'WAIT' || viewerReview.key !== 'VIEW_REVIEW') throw new Error('閲覧メンバーの操作制限が不正です。');
@@ -2301,7 +2301,7 @@ function testVNextUxPlanValidation() {
       internalReviewRejected = true;
     }
     if (!internalReviewRejected) throw new Error('社内情報提供メンバーに登録メンバー限定の振り返り保存が開放されています。');
-    if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: true, isTeamMember: true, canContribute: true }).key !== 'REQUEST_FORECAST') throw new Error('Forecast Ownerの予測依頼導線が変更されています。');
+    if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: true, isTeamMember: true, canContribute: true }).key !== 'REQUEST_FORECAST') throw new Error('予算策定担当の予測依頼導線が変更されています。');
     if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false, canContribute: true, inputStatus: { submitted: false } }).key !== 'INPUT') throw new Error('未回答の社内情報提供メンバーが予測依頼前に回答できません。');
     if (vNextUxGetPrimaryAction_({ state: 'READY_TO_RUN', isForecastOwner: false, isTeamMember: false, canContribute: true, inputStatus: { submitted: true } }).key !== 'WAIT') throw new Error('回答済みの社内情報提供メンバーの待機表示が不正です。');
     Logger.log('PASS testVNextUxPlanValidation');

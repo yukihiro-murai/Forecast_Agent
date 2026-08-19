@@ -4,7 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>年度計画</title>
+  <title>年度予算策定</title>
   <style>
     :root {
       --bg:#F6F8FB; --card:#fff; --navy:#0F3557; --text:#24303E; --muted:#5A6B7E;
@@ -157,8 +157,8 @@
 </head>
 <body>
   <header class="appHead">
-    <h1>年度計画</h1>
-    <p class="lede">対象クライアントについて、予算を策定する年度を指定し、個別シートを用意することがスタートです。</p>
+    <h1>年度予算策定</h1>
+    <p class="lede">対象クライアントについて、予算を策定する年度を指定し、第3層のクライアント年度ブックを用意することがスタートです。</p>
   </header>
 
   <div id="error" class="error hidden" role="alert"></div>
@@ -169,8 +169,8 @@
       <header class="choice-head">
         <div class="step">
           <span class="num">01</span>
-          <p class="who">新しいシートを用意する方向け</p>
-          <h2>クライアントの個別シートを新規で作成する場合</h2>
+          <p class="who">第2層：申請入口</p>
+          <h2>クライアント年度ブックを新規申請する場合</h2>
         </div>
       </header>
       <div class="cast">
@@ -182,18 +182,18 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>まだ個別シートが無いときに進みます。対象のクライアントと年度を指定して、<b>新しい個別シートを用意</b>します。</p>
+          <p>まだクライアント年度ブックが無いときに進みます。申請入口で対象のクライアントと年度を指定し、<b>新しいクライアント年度ブックを申請</b>します。</p>
         </div>
       </div>
-      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい個別シートを用意する</a>
+      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">申請入口を開く（新規申請）</a>
     </article>
 
     <article class="choice">
       <header class="choice-head">
         <div class="step">
           <span class="num">02</span>
-          <p class="who">予算を策定する方向け</p>
-          <h2>個別シートが作成済みで予算を策定する場合</h2>
+          <p class="who">第3層：クライアント年度ブック</p>
+          <h2>作成済みのクライアント年度ブックで予算を策定する場合</h2>
         </div>
       </header>
       <div class="cast">
@@ -205,7 +205,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>すでに個別シートがある計画を開きます。<b>先に年度を選び、次にクライアントを選んで</b>ください。名前を入力する必要はありません。</p>
+          <p>すでにクライアント年度ブックがある場合に開きます。<b>先に年度を選び、次にクライアントを選んで</b>ください。名前を入力する必要はありません。</p>
         </div>
       </div>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
@@ -216,8 +216,8 @@
       <header class="choice-head">
         <div class="step">
           <span class="num">03</span>
-          <p class="who">管理者の方向け</p>
-          <h2>予算計画の承認やデータの整備をする場合</h2>
+          <p class="who">第1層：管理ハブ</p>
+          <h2>年度予算の承認やデータの整備をする場合</h2>
         </div>
       </header>
       <div class="cast">
@@ -229,10 +229,10 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>提出された計画の承認や、データの整備は<b>管理者用の画面</b>で行います。</p>
+          <p>提出された予算の承認や、データの整備は<b>管理ハブ（第1層）</b>で行います。</p>
         </div>
       </div>
-      <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理者用の画面を開く</a>
+      <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
     </article>
   </div>
 
@@ -250,8 +250,8 @@
     }
     function userFacing(value) {
       return String(value == null ? '' : value)
-        .replace(/専用ブック/g, '個別シート')
-        .replace(/ブック/g, 'シート');
+        .replace(/専用ブック/g, 'クライアント年度ブック')
+        .replace(/ブック/g, 'クライアント年度ブック');
     }
     function booksForYear(year) {
       return (entryModel.books || []).filter(function (book) {
@@ -299,12 +299,12 @@
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">計画ができると、この枠にクライアント名と次の操作、状態が入ります。01から新しい個別シートを用意してください。</p>';
+          '<p class="empty">クライアント年度ブックが登録されると、この枠にクライアント名と次の操作、状態が入ります。01 から申請入口で新規申請してください。</p>';
         return;
       }
       if (!rows.length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">この年度の計画はまだありません。別の年度を選ぶか、01から新しい個別シートを用意してください。</p>';
+          '<p class="empty">この年度のクライアント年度ブックはまだありません。別の年度を選ぶか、01 から申請入口で新規申請してください。</p>';
         return;
       }
       box.innerHTML = rows.map(function (book) {

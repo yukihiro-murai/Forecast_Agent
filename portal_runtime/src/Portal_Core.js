@@ -3,9 +3,18 @@
  * It records creation requests in the bound Spreadsheet and reads only local directory projections.
  */
 
+var VNEXT_PORTAL_NAMING = Object.freeze({
+  SYSTEM: '年度予算策定',
+  MENU: '年度予算策定',
+  LAYER1: '管理ハブ',
+  LAYER2: '申請入口',
+  LAYER3: 'クライアント年度ブック',
+  WEB_ENTRY: '年度予算策定 Web入口'
+});
+
 var VNEXT_PORTAL = Object.freeze({
-  MENU_NAME: '年度計画',
-  RUNTIME_VERSION: 'vnext-portal-1.7.7',
+  MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
+  RUNTIME_VERSION: 'vnext-portal-1.7.8',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -51,7 +60,7 @@ var VNEXT_PORTAL = Object.freeze({
   REQUEST_STATUS_LABELS: Object.freeze({
     PENDING: '受付済み',
     VALIDATING: '内容確認中',
-    CREATING: 'ブック作成中',
+    CREATING: 'クライアント年度ブック作成中',
     COMPLETED: '利用できます',
     FAILED: '作成できませんでした',
     REJECTED: '確認が必要'
@@ -131,7 +140,7 @@ function vNextPortalPreviewCreation(input) {
       canSubmit: !check.hasExact,
       duplicateCheckHash: check.hash,
       message: check.hasExact
-        ? '同じ年度の計画または作成依頼が見つかりました。新しく作らず、既存の計画を確認してください。'
+        ? '同じ年度のクライアント年度ブックまたは作成依頼が見つかりました。新しく作らず、既存のクライアント年度ブックを確認してください。'
         : check.hasSimilar
           ? '似た名前の候補があります。同じクライアントでないことを確認してください。'
           : '同じ年度の重複候補は見つかりませんでした。'
@@ -165,7 +174,7 @@ function vNextPortalSubmitCreationRequest(input) {
         throw new Error('候補一覧が更新されました。もう一度「重複候補を確認」を押してください。');
       }
       if (check.hasExact) {
-        throw new Error('同じ年度の計画または作成依頼があります。既存の計画を利用してください。');
+        throw new Error('同じ年度のクライアント年度ブックまたは作成依頼があります。既存のクライアント年度ブックを利用してください。');
       }
       if (check.hasSimilar && input.confirmSimilarDuplicates !== true) {
         throw new Error('似た名前の候補を確認し、「別のクライアントです」にチェックしてください。');
@@ -264,9 +273,9 @@ function vNextPortalRequestProgressModel_(request) {
   } else if (status === 'VALIDATING') {
     waitMessage = '入力内容を確認しています。ここで追加操作は必要ありません。';
   } else if (status === 'CREATING') {
-    waitMessage = '専用ブックを作成しています。通常は数分で完了します。';
+    waitMessage = 'クライアント年度ブックを作成しています。通常は数分で完了します。';
   } else if (status === 'COMPLETED') {
-    waitMessage = '専用ブックを利用できます。';
+    waitMessage = 'クライアント年度ブックを利用できます。';
   } else {
     waitMessage = '自動処理は停止しています。表示された案内を確認してください。';
   }
@@ -895,7 +904,7 @@ function vNextPortalValidateLegacyRequestPayload_(payload) {
   var fiscalYear = vNextPortalNormalizeStoredFiscalYear_(payload.fiscalYear);
   var clientName = vNextPortalPlainText_(payload.clientName, 120, true, 'クライアント名');
   var clientId = vNextPortalPlainText_(payload.clientId, 100, false, 'クライアントID');
-  var owner = vNextPortalNormalizeEmail_(payload.forecastOwnerEmail, true, 'Forecast Owner');
+  var owner = vNextPortalNormalizeEmail_(payload.forecastOwnerEmail, true, '予算策定担当');
   var members = vNextPortalNormalizeEmailList_(payload.relatedMemberEmails, owner);
   if (vNextPortalCanonicalJson_(members) !== vNextPortalCanonicalJson_(payload.relatedMemberEmails) ||
       fiscalYear !== payload.fiscalYear || clientName !== payload.clientName || clientId !== payload.clientId ||
@@ -1089,17 +1098,17 @@ function vNextPortalDirectoryStateLabel_(state) {
   var labels = {
     INPUT_OPEN: '情報入力受付中', READY_TO_RUN: '予測依頼待ち', RUNNING: '予測作成中',
     DRAFT_READY: '予測案完成', SUBMITTED: '承認待ち', CHANGES_REQUESTED: '差戻し',
-    OFFICIAL_LOCKED: '正式計画', REVIEW_DUE: '振り返り期間', YEAR_CLOSED: '年度終了'
+    OFFICIAL_LOCKED: '正式予算', REVIEW_DUE: '振り返り期間', YEAR_CLOSED: '年度終了'
   };
   return labels[String(state || '').toUpperCase()] || String(state || '準備中');
 }
 
 function vNextPortalStatusNextAction_(status, detail, hasUrl) {
   var key = String(status || '').toUpperCase();
-  if (key === 'COMPLETED' && hasUrl) return '「開く」から年度計画を開始してください。';
+  if (key === 'COMPLETED' && hasUrl) return '「開く」からクライアント年度ブックで予算作成を開始してください。';
   if (key === 'PENDING') return '受付済みです。自動処理は5分ごとに開始します。';
   if (key === 'VALIDATING') return '内容を確認しています。操作は不要です。';
-  if (key === 'CREATING') return '専用ブックを作成しています。操作は不要です。';
+  if (key === 'CREATING') return 'クライアント年度ブックを作成しています。操作は不要です。';
   if (key === 'FAILED') return detail || '内容を確認して、必要ならもう一度依頼してください。';
   if (key === 'REJECTED') return detail || '表示された理由を確認してください。';
   return detail || '処理状況を確認しています。';

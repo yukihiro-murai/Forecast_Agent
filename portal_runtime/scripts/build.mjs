@@ -11,6 +11,8 @@ const runtimeRoot = path.resolve(scriptDir, '..');
 const sourceDir = path.join(runtimeRoot, 'src');
 const distDir = path.join(runtimeRoot, 'dist');
 const generatedDir = path.join(runtimeRoot, 'generated');
+const packageJson = JSON.parse(await readFile(path.join(runtimeRoot, 'package.json'), 'utf8'));
+const bundleVersion = `vnext-portal-${packageJson.version}`;
 
 const verifySource = spawnSync(process.execPath, [path.join(scriptDir, 'verify.mjs'), '--dir', sourceDir], { encoding: 'utf8' });
 if (verifySource.stdout) process.stdout.write(verifySource.stdout);
@@ -41,7 +43,7 @@ for (const name of (await readdir(distDir)).sort()) {
 }
 const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 const bundleHash = sha256(files.map((file) => `${file.name}\0${file.type}\0${file.source}`).join('\0'));
-const bundle = { version: 'vnext-portal-1.7.7', sha256: bundleHash, files };
+const bundle = { version: bundleVersion, sha256: bundleHash, files };
 await writeFile(path.join(generatedDir, 'portal-runtime-bundle.json'), `${JSON.stringify(bundle, null, 2)}\n`, 'utf8');
 
 const emitPath = readArg('--emit-gas-bundle');

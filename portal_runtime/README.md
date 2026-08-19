@@ -1,6 +1,6 @@
 # Forecast vNext Shared Portal Runtime
 
-全社員がクライアント別年度計画を探し、存在しなければ作成依頼を送るための、Spreadsheet-bound最小runtimeです。個別クライアントの予測計算や外部データ取得は行いません。
+全社員がクライアント別の年度予算を探し、存在しなければ申請入口から作成依頼を送るための、Spreadsheet-bound 最小 runtime です。
 
 ## 社員画面
 

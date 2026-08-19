@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.7');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.8');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -348,7 +348,7 @@ function testEntryModel() {
   assert.equal(model.years.join(','), '2027');
   assert.equal(model.books[0].clientName, 'アストラゼネカ');
   assert.equal(model.books[0].tone, 'warn');
-  assert.equal(model.books[1].stateLabel, 'ブック作成中');
+  assert.equal(model.books[1].stateLabel, 'クライアント年度ブック作成中');
   assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
   assert.equal('actorEmail' in model, false);
   assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
@@ -409,21 +409,22 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /新しい個別シートを用意する/);
+  assert.match(entry, /申請入口を開く（新規申請）/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(entry, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
-  assert.match(entry, /管理者用の画面を開く/);
+  assert.match(entry, /管理ハブを開く/);
   assert.match(entry, /class="bubble"/);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
   assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
   assert.equal((entry.match(/class="bubble"/g) || []).length, 3);
   assert.equal((entry.match(/class="who"/g) || []).length, 3);
-  assert.match(entry, /新しいシートを用意する方向け/);
-  assert.match(entry, /予算を策定する方向け/);
-  assert.match(entry, /管理者の方向け/);
+  assert.match(entry, /第2層：申請入口/);
+  assert.match(entry, /年度予算策定/);
+  assert.match(entry, /第3層：クライアント年度ブック/);
+  assert.match(entry, /第1層：管理ハブ/);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
     'Numbered section headers must appear above each bot and bubble');

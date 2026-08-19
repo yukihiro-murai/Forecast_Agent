@@ -414,7 +414,7 @@ function vNextGetBookContext_(options) {
     if (!metas.length && directIsStore && !vNextGetProperty_(VNEXT_CORE.BOOK_PROPERTY, true)) {
       var adminEmail = String(opt.userEmail || vNextActiveUserEmail_()).toLowerCase();
       var adminRole = vNextResolveRole_(adminEmail, {}, {});
-      if (adminRole !== 'ADMIN') throw new Error('Admin Hub access is restricted to administrators.');
+      if (adminRole !== 'ADMIN') throw new Error('管理ハブへのアクセスは管理ハブ担当者に限定されています。');
       return {
         mode: 'ADMIN_HUB',
         bookId: '',
@@ -844,8 +844,8 @@ function vNextResolveStoreSpreadsheet_(options) {
       return SpreadsheetApp.openById(String(hubId));
     } catch (accessError) {
       throw new Error(
-        'Admin Hubへアクセスできません。Client Book利用者へHubを共有して解決しないでください。' +
-        '管理者権限で実行するForecast Service/Web App経路が必要です。hub=' + String(hubId) +
+        '管理ハブへアクセスできません。クライアント年度ブック利用者へ管理ハブを共有して解決しないでください。' +
+        '管理ハブ担当者権限で実行する Forecast Service / Web App 経路が必要です。hub=' + String(hubId) +
         '; cause=' + String(accessError && accessError.message || accessError)
       );
     }

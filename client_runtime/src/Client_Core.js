@@ -189,7 +189,7 @@ function vNextGetBookContext_(options) {
     var userEmail = vNextActiveUserEmail_();
     if (!userEmail) throw new Error('ログイン中のメールアドレスを確認できません。会社アカウントで開いてください。');
     var owners = vNextClientEmails_(config.forecast_owner_emails || meta.forecast_owner_email);
-    if (owners.length !== 1) throw new Error('Forecast Ownerは1名である必要があります。');
+    if (owners.length !== 1) throw new Error('予算策定担当は1名である必要があります。');
     var team = vNextClientJsonArray_(meta.team_member_emails_json).map(vNextClientNormalizeEmail_).filter(Boolean);
     owners.forEach(function (owner) { if (team.indexOf(owner) < 0) team.push(owner); });
     var accessPolicy = String(config.access_policy || '').trim().toUpperCase();
@@ -377,7 +377,7 @@ function vNextValidateTransition_(fromState, toState, role, request, context) {
     return true;
   }
   if (key === 'DRAFT_READY>SUBMITTED' || key === 'CHANGES_REQUESTED>SUBMITTED') {
-    if (role !== 'FORECAST_OWNER' || !String(req.relatedPlanVersionId || '')) throw new Error('Forecast Ownerの計画提出だけが可能です。');
+    if (role !== 'FORECAST_OWNER' || !String(req.relatedPlanVersionId || '')) throw new Error('予算策定担当の予算案提出だけが可能です。');
     var plan = vNextGetLatestPlanVersion_(context.bookId);
     if (!plan || String(plan.plan_version_id || '') !== String(req.relatedPlanVersionId) || String(plan.status || '') !== 'SUBMITTED') {
       throw new Error('提出済み計画版を確認できません。');

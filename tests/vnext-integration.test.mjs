@@ -27,7 +27,7 @@ checkSourceContract();
 process.stdout.write('PASS vNext integration contract tests\n');
 
 async function checkJavaScriptSyntax() {
-  for (const name of ['Forecast_Agent.js', ...rootFiles]) {
+  for (const name of ['0_VNext_Naming.js', 'Forecast_Agent.js', ...rootFiles]) {
     new vm.Script(await readFile(path.join(root, name), 'utf8'), { filename: name });
   }
 }
@@ -280,7 +280,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.7');
+  assert.equal(bundle.version, 'vnext-portal-1.7.8');
   assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -347,10 +347,10 @@ async function checkPortalRuntimeBoundary() {
     catalog_key:'', related_member_names_json:''
   }, legacyPortalPayload), true, 'Legacy v1 rows must remain readable after the v2 table migration');
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
-  assert.match(adminSidebar, /社員ポータルを準備する/);
+  assert.match(adminSidebar, /申請入口を準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
   assert.match(adminSidebar, /vNextAdminRelocateLibraryToSharedDrive/);
-  assert.match(adminSidebar, /共有ドライブ「年度計画」へ移す/);
+  assert.match(adminSidebar, /共有ドライブ「年度予算策定」へ移す/);
   const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
   assert.match(adminSource, /VN_ADMIN_PORTAL_REQUEST_SCHEMA\s*=\s*'vnext-portal-request-2'/);
   assert.match(adminSource, /function vNextAdminRefreshZacClientCatalog\(/);
@@ -403,7 +403,7 @@ async function checkPortalRuntimeBoundary() {
     adminMenu.includes('addSubMenu') &&
     !adminMenu.includes('vNextAdminMenuRunOperationalCycle'),
     'The Hub top menu is a recovery path plus nested irregular ops, not the daily run-now action');
-  assert.ok(adminSource.includes("VN_ADMIN_MENU_NAME = '年度計画'") &&
+  assert.ok(adminSource.includes('VN_ADMIN_MENU_NAME = VNEXT_NAMING.MENU') &&
     adminSource.includes("VN_ADMIN_MENU_OPEN_SIDEBAR = '案内を開く'") &&
     adminSource.includes("VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理'") &&
     adminSource.includes("VN_ADMIN_MENU_HEALTH_SCAN = '全クライアントの状態点検'") &&
@@ -612,6 +612,7 @@ async function checkAdminCoverageContracts() {
   const sidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   const sandbox = gasSandbox();
   vm.createContext(sandbox);
+  vm.runInContext(await readFile(path.join(root, '0_VNext_Naming.js'), 'utf8'), sandbox, { filename: '0_VNext_Naming.js' });
   vm.runInContext(source, sandbox, { filename: 'VNext_Admin.js' });
 
   const payload = vm.runInContext(`({
@@ -737,7 +738,7 @@ async function checkAdminCoverageContracts() {
     {job_type:'FORECAST_REQUEST',status:'RUNNING',job_id:'J2',created_at:'2026-08-12T00:01:00.000Z'}
   ]);
   assert.equal(sidebarJobs[0].status, 'FAILED');
-  assert.equal(sidebarJobs[0].taskLabel, '年度計画の作成');
+  assert.equal(sidebarJobs[0].taskLabel, 'クライアント年度ブックの作成');
   assert.equal(sidebarJobs[0].safeRetryCandidate, true);
   const mismatchedException = sandbox.vNextAdminExceptionForSidebar_({
     exception_type:'JOB_FAILED', source_ref:'CURRENT-UNSAFE', book_id:'BOOK-1'
@@ -1075,10 +1076,10 @@ async function checkAdminCoverageContracts() {
   assert.ok(sidebar.includes('vNextAdminResetGeneratedClientsForFreshUat') &&
     sidebar.includes('RESET_GENERATED_CLIENTS') &&
     sidebar.includes('apply:true') &&
-    sidebar.includes('管理者監査ログ'),
+    sidebar.includes('管理ハブ監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
-  assert.ok(sidebar.includes('現場の年度・クライアント指定は、年度計画ポータルから行います') &&
-    sidebar.includes('年度計画ポータル') &&
+  assert.ok(sidebar.includes('現場の年度・クライアント指定は、申請入口（第2層）から行います') &&
+    sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理'),
     'Admin Sidebar must keep daily processing in-panel and point field work to the Portal');
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
@@ -1145,7 +1146,7 @@ async function checkAdminCoverageContracts() {
   assert.ok(sidebar.includes('vNextAdminRollbackAiEvidence') && sidebar.includes('vNextAdminActivateModelRelease') &&
     sidebar.includes('vNextAdminRouteReturnedPlan') && sidebar.includes('vNextAdminUpdateHubRuntimeFromSource') &&
     sidebar.includes('vNextAdminCreateTemplateDraft') && sidebar.includes('vNextAdminActivateReleasePair') &&
-    sidebar.includes('管理者attestation'),
+    sidebar.includes('管理ハブ担当者 attestation'),
     'Admin Sidebar must expose the guarded coverage controls');
 
   const pairStart = source.indexOf('function vNextAdminActivateReleasePairInternal_');
@@ -1216,7 +1217,7 @@ async function checkAdminCoverageContracts() {
     'Migration controls must not be displayed in the pilot Admin Sidebar');
   assert.ok(source.includes('private_root_folder_id: folder.getId()') &&
     source.includes('vNextAdminFolderWithinRoot_') && source.includes('vNextAdminAssertClientFileAcl_') &&
-    source.includes("DRIVE_NAME: '年度計画'") &&
+    source.includes('DRIVE_NAME: VNEXT_NAMING.SHARED_DRIVE') &&
     source.includes('function vNextAdminRelocateLibraryToSharedDrive(') &&
     source.includes('vNextAdminPrepareLibraryDestinationFolder_'),
     'Client provisioning must stay inside the recorded library root, with a shared-drive relocate path');

@@ -71,7 +71,7 @@ function vNextAdminContinueEmployeePortalPilotRecoveryForManualTest() {
   let request = {};
   if (!existing) {
     const answer = ui.alert(
-      '社員ポータルPilot（段階実行）',
+      '申請入口 Pilot（段階実行）',
       'Client runtime 10 suites、Portal runtime 11 suites、統合契約test PASSを確認しましたか？\n\n' +
         '1回につき1段階だけ進めます。完了まで同じメニューを繰り返し選択してください。',
       ui.ButtonSet.YES_NO
@@ -101,11 +101,11 @@ function vNextAdminContinueEmployeePortalPilotRecoveryForManualTest() {
       : '段階 ' + position + ' / ' + result.phaseCount + ' まで完了しました。\n' +
         '次: ' + vNextAdminPortalPilotRecoveryPhaseLabel_(result.phase) + '\n\n' +
         '同じメニューをもう一度選択してください。';
-    ui.alert('社員ポータルPilot', progress, ui.ButtonSet.OK);
+    ui.alert('申請入口 Pilot', progress, ui.ButtonSet.OK);
     return result;
   } catch (error) {
     Logger.log('Portal Pilot phased menu failed: %s', String(error && error.stack || error));
-    ui.alert('社員ポータルPilotを継続できません', String(error && error.message || error), ui.ButtonSet.OK);
+    ui.alert('申請入口 Pilot を継続できません', String(error && error.message || error), ui.ButtonSet.OK);
     throw error;
   }
 }
@@ -168,7 +168,7 @@ function vNextAdminPortalPilotRecoveryInitialize_(hub, request) {
     const employeeDomain = vNextAdminNormalizeDomain_(req.employeeDomain ||
       hubConfig.employee_domain || vNextGetRuntimeConfig_().VNEXT_EMPLOYEE_DOMAIN || vNextAdminEmailDomain_(actor));
     if (!employeeDomain || vNextAdminEmailDomain_(actor) !== employeeDomain) {
-      throw new Error('employeeDomainは管理者のGoogle Workspaceドメインと一致する必要があります。');
+      throw new Error('employeeDomainは管理ハブ担当者の Google Workspace ドメインと一致する必要があります。');
     }
     const adminEmails = vNextAdminMergeEmails_(hubConfig.admin_emails,
       vNextGetRuntimeConfig_().VNEXT_ADMIN_EMAILS, actor);
@@ -199,13 +199,13 @@ function vNextAdminPortalPilotRecoveryInitialize_(hub, request) {
       portalRuntimeVersion: String(portalBundle.version || ''), portalRuntimeSha256: String(portalBundle.sha256 || ''),
       engineVersion: engineVersion, parameters: parameters,
       evidenceArtifact: evidenceArtifact,
-      reason: '社員ポータル・社内情報提供メンバー対応のPilot release',
-      modelNote: '社員ポータルPilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。',
+      reason: '申請入口・社内情報提供メンバー対応の Pilot release',
+      modelNote: '申請入口 Pilot。予測 Engine と parameter は直前の ACTIVE Model Release から変更なし。',
       templateFolderId: templateFolderId, templateBookId: 'TPL-' + operationId.slice(-28),
       templateSpreadsheetId: '', templateScriptId: '', templateCreateAttempt: 0,
       templateStagingTitle: '', portalFolderId: '', portalId: 'PORTAL-' + operationId.slice(-28),
       portalSpreadsheetId: '', portalScriptId: '', portalCreateAttempt: 0,
-      portalStagingTitle: '', portalFinalTitle: vNextAdminText_(req.portalTitle) || '年度計画ポータル',
+      portalStagingTitle: '', portalFinalTitle: vNextAdminText_(req.portalTitle) || VNEXT_NAMING.LAYER2_DEFAULT_TITLE,
       employeeDomain: employeeDomain, adminEmails: adminEmails,
       actor: actor, startedAt: now, updatedAt: now, completedAt: '',
       errorCount: 0, lastError: '', lastErrorAt: ''
@@ -534,7 +534,7 @@ function vNextAdminPortalPilotRecoveryPairActivate_(hub, priorState) {
   }
   vNextAdminActivateReleasePair({
     releaseId: state.releaseId, modelReleaseId: state.modelReleaseId,
-    reason: '社員ポータルPilotのTemplate・Model pairを有効化',
+    reason: '申請入口 Pilot の Template・Model pair を有効化',
     expectedActiveReleaseId: state.initialReleaseId,
     expectedActiveModelReleaseId: state.initialModelReleaseId,
     operationId: 'PAIR-ACT-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
@@ -643,7 +643,7 @@ function vNextAdminPortalPilotRecoveryPortalRegister_(hub, priorState) {
           accessPolicy: 'INTERNAL_OPEN'
         }),
         value_type: 'JSON', scope: 'SYSTEM', effective_from: new Date(), updated_at: new Date(),
-        updated_by: state.actor, note: '社員向け年度計画ポータル（Admin Hubとは物理分離）'
+        updated_by: state.actor, note: '申請入口（管理ハブとは物理分離）'
       });
       PropertiesService.getScriptProperties().setProperties({
         VNEXT_PORTAL_SPREADSHEET_ID: state.portalSpreadsheetId,
@@ -993,8 +993,8 @@ function vNextAdminPortalPilotRecoveryPhaseLabel_(phase) {
     INITIALIZE: '回復journalの初期化', TEMPLATE_CREATE: 'Template containerの作成',
     TEMPLATE_INITIALIZE: 'Template内部構造の初期化', TEMPLATE_COPY: '従業員画面の複製・検証',
     TEMPLATE_REGISTER: 'Template Releaseの登録', MODEL_REGISTER: 'Model Releaseの登録',
-    PAIR_ACTIVATE: 'Template・Model pairの有効化', PORTAL_CREATE: '社員ポータルcontainerの作成',
-    PORTAL_REGISTER: '社員ポータルの初期化・共有', VERIFY: '正本・共有境界の最終検証',
+    PAIR_ACTIVATE: 'Template・Model pairの有効化', PORTAL_CREATE: '申請入口 container の作成',
+    PORTAL_REGISTER: '申請入口の初期化・共有', VERIFY: '正本・共有境界の最終検証',
     COMPLETED: '完了'
   };
   return labels[String(phase || '').toUpperCase()] || String(phase || '不明');

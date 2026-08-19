@@ -6,13 +6,13 @@
 function doGet() {
   try {
     return HtmlService.createHtmlOutputFromFile('Portal_Entry')
-      .setTitle('年度計画')
+      .setTitle(VNEXT_PORTAL_NAMING.SYSTEM)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (error) {
     vNextPortalLog_('doGet failed', error);
     return HtmlService.createHtmlOutput(
       '<p>入口を表示できませんでした。社内アカウントで開き直してください。</p>'
-    ).setTitle('年度計画');
+    ).setTitle(VNEXT_PORTAL_NAMING.SYSTEM);
   }
 }
 
@@ -97,7 +97,7 @@ function vNextPortalGoHome() {
     var home = spreadsheet.getSheetByName(VNEXT_PORTAL.HOME_SHEET);
     spreadsheet.setActiveSheet(home);
     home.getRange('A1').activate();
-    spreadsheet.toast('最新の受付・計画状況に更新しました。', VNEXT_PORTAL.MENU_NAME, 3);
+    spreadsheet.toast('最新の受付・申請状況に更新しました。', VNEXT_PORTAL.MENU_NAME, 3);
     return { ok: true };
   } catch (error) {
     vNextPortalLog_('vNextPortalGoHome failed', error);
@@ -142,11 +142,11 @@ function vNextPortalOpenHelp() {
       'body{font-family:Arial,sans-serif;color:#202124;padding:18px;line-height:1.65}' +
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
-      '</style></head><body><h2>年度計画ポータルの使い方</h2>' +
-      '<div class="step"><b>1. 開く</b><br>入口の年度ボタンとクライアントボタンから、すでにある計画を選びます。</div>' +
-      '<div class="step"><b>2. なければ作る</b><br>右側の案内から「新しい年度計画を作る」を選びます。候補確認後に作成依頼を送ります。</div>' +
+      '</style></head><body><h2>申請入口（第2層）の使い方</h2>' +
+      '<div class="step"><b>1. 開く</b><br>年度予算策定 Web入口の年度ボタンとクライアントボタンから、すでにあるクライアント年度ブックを選びます。</div>' +
+      '<div class="step"><b>2. なければ申請</b><br>右側の案内から「新しいクライアント年度ブックを申請する」を選びます。候補確認後に作成依頼を送ります。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</div>' +
-      '<div class="note">このポータルではセルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</div>' +
+      '<div class="note">申請入口ではセルへ直接入力しません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。</div>' +
       '</body></html>'
     ).setTitle('使い方・困ったとき').setWidth(420);
     SpreadsheetApp.getUi().showSidebar(html);
@@ -176,9 +176,9 @@ function vNextPortalRenderHome_(sheet, data) {
     return String(b.updatedAt || b.requestedAt).localeCompare(String(a.updatedAt || a.requestedAt));
   }).slice(0, 20);
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
-  sheet.getRange('A1').setValue('年度計画ポータル')
+  sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.LAYER2)
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('既存の計画は入口の年度ボタンとクライアントボタンから開きます。新規作成は右側の案内から行います。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。')
+  sheet.getRange('A2').setValue('既存のクライアント年度ブックは年度予算策定 Web入口から開きます。新規申請は右側の案内から行います。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
@@ -224,9 +224,9 @@ function vNextPortalRenderHome_(sheet, data) {
 function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   var entries = vNextPortalFiscalYearEntries_(fiscalYear, data);
   vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
-  sheet.getRange('A1').setValue('FY' + fiscalYear + ' 年度計画')
+  sheet.getRange('A1').setValue('FY' + fiscalYear + ' クライアント年度ブック')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('クライアントを選び、「開く」から専用ブックへ進んでください。')
+  sheet.getRange('A2').setValue('クライアントを選び、「開く」からクライアント年度ブックへ進んでください。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
@@ -235,7 +235,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
   if (!entries.length) {
-    sheet.getRange('A5').setValue('この年度の計画はまだありません。右側の案内から作成できます。')
+    sheet.getRange('A5').setValue('この年度のクライアント年度ブックはまだありません。右側の案内から申請できます。')
       .setFontColor('#5f6368').setFontStyle('italic');
   } else {
     var rows = entries.map(function (entry) {
@@ -278,7 +278,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   [106, 190, 104, 104, 104, 210, 260, 100, 68].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
   sheet.setRowHeight(2, 24);
-  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（各計画の入力は専用ブックで行います）');
+  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は各クライアント年度ブックで行います）');
 }
 
 function vNextPortalFiscalYearEntries_(fiscalYear, data) {
@@ -298,7 +298,7 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
       forecastOwnerEmail: item.forecastOwnerEmail,
       relatedMemberEmails: item.relatedMemberEmails,
       relatedMemberNames: item.relatedMemberNames || [],
-      nextAction: item.nextAction || '専用ブックで次の対応を確認してください。',
+      nextAction: item.nextAction || 'クライアント年度ブックで次の対応を確認してください。',
       updatedAt: item.updatedAt,
       url: item.url
     });

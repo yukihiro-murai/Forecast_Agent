@@ -217,7 +217,7 @@ function vNextClientRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, ex
   }
 }
 
-/** Creates an empty Spreadsheet and installs the complete Admin runtime. */
+/** Creates an empty Spreadsheet and installs the complete 管理ハブ runtime. */
 function vNextAdminRuntimeCreateBoundSpreadsheet_(request) {
   try {
     vNextClientRuntimeRequireConfigurator_();
@@ -256,7 +256,7 @@ function vNextAdminRuntimeCreateBoundSpreadsheet_(request) {
     } catch (installError) {
       try { file.setName('[SETUP FAILED] ' + title); }
       catch (renameError) { Logger.log('[vNext Admin Runtime] incomplete file rename failed.'); }
-      throw new Error('Admin runtimeのbindingに失敗しました。未完了Spreadsheetは保持されています。spreadsheetId=' +
+      throw new Error('管理ハブ runtimeのbindingに失敗しました。未完了Spreadsheetは保持されています。spreadsheetId=' +
         spreadsheet.getId() + '; cause=' + vNextClientRuntimeErrorText_(installError));
     }
   } catch (error) {
@@ -265,7 +265,7 @@ function vNextAdminRuntimeCreateBoundSpreadsheet_(request) {
   }
 }
 
-/** Copies the exact full Admin runtime into a known Spreadsheet-bound project. */
+/** Copies the exact full 管理ハブ runtime into a known Spreadsheet-bound project. */
 function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, expectedTargetSpreadsheetId) {
   try {
     vNextClientRuntimeRequireConfigurator_();
@@ -284,7 +284,7 @@ function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, exp
     var targetContent = resultHasContent ? updateResult : vNextClientRuntimeGetContent_(targetId);
     var verifiedTarget = vNextAdminRuntimeVerifyScriptContent_(targetContent, targetId);
     if (verifiedTarget.sha256 !== verifiedSource.sha256) {
-      throw new Error('Admin runtime target content does not match the verified source content.');
+      throw new Error('管理ハブ runtime target content does not match the verified source content.');
     }
     Logger.log('[vNext Admin Runtime] content copied source=%s target=%s parent=%s bundle=%s files=%s',
       sourceId, targetId, spreadsheetId, verifiedTarget.sha256, verifiedTarget.files.length);
@@ -347,22 +347,22 @@ function vNextAdminRuntimeVerifyScriptContent_(content, expectedScriptId) {
 function vNextAdminRuntimeValidateFiles_(files) {
   var expectedNames = Object.keys(VNEXT_ADMIN_RUNTIME_FILE_TYPES_).sort();
   if (!Array.isArray(files) || files.length !== expectedNames.length) {
-    throw new Error('Admin runtime must contain exactly the ' + expectedNames.length + ' clasp-target files.');
+    throw new Error('管理ハブ runtime must contain exactly the ' + expectedNames.length + ' clasp-target files.');
   }
   var byName = {};
   files.forEach(function (file) {
-    if (!file || typeof file !== 'object') throw new Error('Admin runtime contains an invalid file record.');
+    if (!file || typeof file !== 'object') throw new Error('管理ハブ runtime contains an invalid file record.');
     var name = String(file.name || '');
     if (!Object.prototype.hasOwnProperty.call(VNEXT_ADMIN_RUNTIME_FILE_TYPES_, name) || byName[name]) {
-      throw new Error('Admin runtime file allowlist mismatch: ' + name);
+      throw new Error('管理ハブ runtime file allowlist mismatch: ' + name);
     }
     var expectedType = VNEXT_ADMIN_RUNTIME_FILE_TYPES_[name];
-    if (String(file.type || '') !== expectedType) throw new Error('Admin runtime file type mismatch: ' + name);
-    if (typeof file.source !== 'string') throw new Error('Admin runtime file source is invalid: ' + name);
+    if (String(file.type || '') !== expectedType) throw new Error('管理ハブ runtime file type mismatch: ' + name);
+    if (typeof file.source !== 'string') throw new Error('管理ハブ runtime file source is invalid: ' + name);
     byName[name] = { name: name, type: expectedType, source: file.source };
   });
   expectedNames.forEach(function (name) {
-    if (!byName[name]) throw new Error('Admin runtime file is missing: ' + name);
+    if (!byName[name]) throw new Error('管理ハブ runtime file is missing: ' + name);
   });
   var ordered = expectedNames.map(function (name) { return byName[name]; });
   vNextAdminRuntimeValidateManifest_(byName.appsscript.source);
@@ -372,8 +372,8 @@ function vNextAdminRuntimeValidateFiles_(files) {
 function vNextAdminRuntimeValidateManifest_(source) {
   var manifest;
   try { manifest = JSON.parse(String(source || '')); }
-  catch (error) { throw new Error('Admin runtime manifest is not valid JSON.'); }
-  if (!manifest || manifest.runtimeVersion !== 'V8') throw new Error('Admin runtime manifest must use V8.');
+  catch (error) { throw new Error('管理ハブ runtime manifest is not valid JSON.'); }
+  if (!manifest || manifest.runtimeVersion !== 'V8') throw new Error('管理ハブ runtime manifest must use V8.');
   return manifest;
 }
 
@@ -870,7 +870,7 @@ function vNextClientRuntimeRequireConfigurator_() {
   }
   var active = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
   var effective = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  if (!active || !effective || active !== effective) throw new Error('管理者本人の実行が必要です。');
+  if (!active || !effective || active !== effective) throw new Error('管理ハブ担当者本人の実行が必要です。');
   return true;
 }
 

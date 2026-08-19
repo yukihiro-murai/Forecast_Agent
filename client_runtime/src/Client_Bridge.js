@@ -18,7 +18,7 @@ function vNextQueueClientForecastRequest(request) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return vNextClientWithDocumentLock_(function () {
       var context = vNextGetBookContext_({ spreadsheet: ss, bookId: requestInput.bookId });
-      if (!context.isForecastOwner) throw new Error('予測を依頼できるのはForecast Ownerだけです。');
+      if (!context.isForecastOwner) throw new Error('予測を依頼できるのは予算策定担当だけです。');
       if (context.state !== 'READY_TO_RUN') throw new Error('現在は予測を依頼できません。画面を更新してください。');
       var now = new Date();
       var requestedAt = now.toISOString();
@@ -98,8 +98,8 @@ function vNextAppendPlanVersion_(payload, options) {
     var ss = options && options.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
     return vNextClientWithDocumentLock_(function () {
       var context = vNextGetBookContext_({ spreadsheet: ss, bookId: data.bookId });
-      if (!context.isForecastOwner) throw new Error('計画案を提出できるのはForecast Ownerだけです。');
-      if (['DRAFT_READY', 'CHANGES_REQUESTED'].indexOf(context.state) < 0) throw new Error('現在は計画案を提出できません。');
+      if (!context.isForecastOwner) throw new Error('予算案を提出できるのは予算策定担当だけです。');
+      if (['DRAFT_READY', 'CHANGES_REQUESTED'].indexOf(context.state) < 0) throw new Error('現在は予算案を提出できません。');
       var forecast = vNextClientFindForecast_(ss, context.bookId, data.runId);
       if (!forecast || forecast.status !== 'SUCCESS') throw new Error('提出に使用できる予測がありません。');
       var system = Math.trunc(Number(forecast.layers.systemRecommended));

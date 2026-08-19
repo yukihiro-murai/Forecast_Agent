@@ -30,13 +30,13 @@ function vNextVertexAiResearch_(request) {
   if (trustedWorker) {
     if (typeof vNextDetectBookMode_ !== 'function' || vNextDetectBookMode_(req.spreadsheet) !== 'ADMIN' ||
         (typeof vNextAdminIsRegisteredHub_ === 'function' && !vNextAdminIsRegisteredHub_(req.spreadsheet))) {
-      throw new Error('Vertex AI research requires the registered Admin Hub.');
+      throw new Error('Vertex AI 調査は登録済みの管理ハブでのみ実行できます。');
     }
     if (typeof vNextAdminAssertHubAdmin_ === 'function') vNextAdminAssertHubAdmin_(req.spreadsheet, true);
     if (typeof vNextAdminHydrateHubRuntime_ === 'function') vNextAdminHydrateHubRuntime_(req.spreadsheet);
   } else {
     if (typeof vNextDetectBookMode_ === 'function' && vNextDetectBookMode_() !== 'ADMIN') {
-      throw new Error('Vertex AI research can run only in the Admin Hub.');
+      throw new Error('Vertex AI 調査は管理ハブでのみ実行できます。');
     }
     if (typeof vNextAdminRequireHub_ === 'function') vNextAdminRequireHub_();
   }
@@ -116,7 +116,7 @@ function vNextAiRuntimeConfig_() {
     servingConfig: String(props.getProperty('VERTEX_SERVING_CONFIG') || 'default_search').trim()
   };
   if (!config.projectId || !config.location || !config.geminiModel) {
-    throw new Error('Vertex AI runtime is not configured in Admin Hub Script Properties.');
+    throw new Error('Vertex AI の接続設定が管理ハブの Script Properties にありません。');
   }
   config.geminiReady = true;
   config.ragReady = Boolean(config.datastoreId && config.searchLocation);
@@ -289,7 +289,7 @@ function vNextAiDedupeCitations_(items) {
 function vNextAiWriteRawAudit_(request, researchPrompt, grounded, structurePrompt, structured, citations, findings) {
   try {
     var hub = request && request.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
-    if (!hub || typeof hub.getId !== 'function') throw new Error('Admin Hub spreadsheet is unavailable for AI audit.');
+    if (!hub || typeof hub.getId !== 'function') throw new Error('AI 監査用の管理ハブ Spreadsheet を取得できません。');
     var destFolder = null;
     try {
       if (typeof vNextAdminReadKeyValueSheet_ === 'function') {

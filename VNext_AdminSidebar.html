@@ -48,19 +48,19 @@
     </style>
   </head>
   <body>
-    <h1>年度計画</h1>
-    <p class="muted" style="margin:4px 0 8px">現場の年度・クライアント指定は、年度計画ポータルから行います。この画面は承認・例外・保守の作業場です。</p>
+    <h1>管理ハブ</h1>
+    <p class="muted" style="margin:4px 0 8px">現場の年度・クライアント指定は、申請入口（第2層）から行います。この画面は管理ハブ（第1層）の承認・例外・保守です。</p>
     <div><span id="mode" class="badge">loading</span></div>
     <div id="book" class="muted"></div>
 
     <div id="legacyPanel" class="hidden">
       <div class="card">
-        <h2>Admin Hub / Master Templateを作成</h2>
-        <p class="muted">現在のbookは変更しません。Admin専用Hubと、顧客データを含まないclean Templateをprivate保存先へ作ります。</p>
+        <h2>管理ハブ / Master Templateを作成</h2>
+        <p class="muted">現在の Spreadsheet は変更しません。第1層の管理ハブと、顧客データを含まない clean Template を private 保存先へ作ります。</p>
         <label>ZAC実績データのSpreadsheet ID（初回のみ・必須）<input id="forecastSourceId" placeholder="1Abc..."></label>
         <details>
           <summary>名前・保存先などの詳細設定</summary>
-          <label>Admin Hub名<input id="hubName" placeholder="Forecast vNext Admin Hub"></label>
+          <label>管理ハブ名<input id="hubName" placeholder="年度予算策定 管理ハブ"></label>
           <label>Master Template名<input id="templateName" placeholder="Forecast vNext Master Template"></label>
           <label>Release ID<input id="releaseId" placeholder="vnext-2026-01"></label>
           <label>保存先folder ID（任意）<input id="bootstrapFolderId"></label>
@@ -70,22 +70,22 @@
       </div>
       <details class="card">
         <summary>作成途中で時間切れになった場合</summary>
-        <p class="muted">新しいbookを増やさず、すでに作成されたclean Hub／TemplateのIDを確認して残りの登録だけを再開します。</p>
-        <label>Admin Hub Spreadsheet ID<input id="recoveryHubId"></label>
+        <p class="muted">新しい Spreadsheet を増やさず、すでに作成された管理ハブ／Master Template の ID を確認して残りの登録だけを再開します。</p>
+        <label>管理ハブ Spreadsheet ID<input id="recoveryHubId"></label>
         <label>Master Template Spreadsheet ID<input id="recoveryTemplateId"></label>
         <button class="warn" onclick="recoverBootstrap()">既存2冊から初期設定を再開</button>
-        <h2>生成Hubの必要APIを有効化</h2>
-        <p class="muted">Hubのエラーに表示された数字だけのCloud project番号を使い、Apps Script APIだけを有効化します。</p>
-        <label>Admin Hub Spreadsheet ID<input id="apiRecoveryHubId"></label>
-        <label>Hub Cloud project番号<input id="apiRecoveryProjectNumber" inputmode="numeric"></label>
-        <button class="warn" onclick="enableGeneratedHubApi()">生成HubのApps Script APIを有効化</button>
+        <h2>生成した管理ハブの必要APIを有効化</h2>
+        <p class="muted">管理ハブのエラーに表示された数字だけのCloud project番号を使い、Apps Script APIだけを有効化します。</p>
+        <label>管理ハブ Spreadsheet ID<input id="apiRecoveryHubId"></label>
+        <label>管理ハブ Cloud project 番号<input id="apiRecoveryProjectNumber" inputmode="numeric"></label>
+        <button class="warn" onclick="enableGeneratedHubApi()">生成した管理ハブのApps Script APIを有効化</button>
         <h2>Pilot用Clientを中央から生成</h2>
-        <p class="muted">生成HubのCloud設定が未完了でも、中央の承認済みprojectからテスト用Clientを1冊だけ安全に生成できます。</p>
-        <label>Admin Hub Spreadsheet ID<input id="pilotSourceHubId"></label>
+        <p class="muted">生成した管理ハブのCloud設定が未完了でも、中央の承認済みprojectからテスト用Clientを1冊だけ安全に生成できます。</p>
+        <label>管理ハブ Spreadsheet ID<input id="pilotSourceHubId"></label>
         <label>クライアント名（ZACと完全一致）<input id="pilotSourceClientName"></label>
         <label>年度（FY）<input id="pilotSourceFiscalYear" placeholder="2026"></label>
-        <label>Forecast Owner<input id="pilotSourceOwner" type="email"></label>
-        <button class="good" onclick="provisionPilotFromSource()">テスト用年度bookを生成</button>
+        <label>予算策定担当<input id="pilotSourceOwner" type="email"></label>
+        <button class="good" onclick="provisionPilotFromSource()">テスト用クライアント年度ブックを生成</button>
         <button class="warn" onclick="installPilotSourceAutomation()">中央projectでPilot自動運用を有効化</button>
       </details>
     </div>
@@ -93,16 +93,16 @@
     <div id="adminPanel">
       <div class="card">
         <h2>最初にやること（1回だけ）</h2>
-        <p class="muted">検証データを消してから置き場を整え、社員入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
+        <p class="muted">検証データを消してから置き場を整え、年度予算策定 Web入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
         <ol class="muted" style="padding-left:18px;margin:8px 0">
           <li>下の「保守・高度な操作」で「中央配備版へ更新」</li>
-          <li>同じ欄の「社員テストをゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
-          <li>「共有ドライブ『年度計画』へ移す」</li>
-          <li>下の「社員ポータルを最新版へ更新」（理由は空欄で可）</li>
-          <li>ポータルのスクリプトから Web アプリを社内向けに公開</li>
+          <li>同じ欄の「受入試験をゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
+          <li>「共有ドライブ『年度予算策定』へ移す」</li>
+          <li>下の「申請入口を最新版へ更新」（理由は空欄で可）</li>
+          <li>申請入口 Spreadsheet のスクリプトから Web アプリを社内向けに公開</li>
         </ol>
-        <button class="good" onclick="relocateLibrary()">共有ドライブ「年度計画」へ移す</button>
-        <button class="warn" onclick="updatePortalRuntime()">社員ポータルを最新版へ更新</button>
+        <button class="good" onclick="relocateLibrary()">共有ドライブ「年度予算策定」へ移す</button>
+        <button class="warn" onclick="updatePortalRuntime()">申請入口を最新版へ更新</button>
       </div>
       <div id="attentionOverview" class="card overview">
         <div id="attentionLabel" class="overview-title">最新状態を確認しています</div>
@@ -113,7 +113,7 @@
         <div class="metric">承認待ち<b id="approvalCount">0</b></div>
         <div class="metric">要確認<b id="exceptionCount">0</b></div>
         <div class="metric">自動処理中<b id="jobCount">0</b></div>
-        <div class="metric">年度計画<b id="clientCount">0</b></div>
+        <div class="metric">クライアント年度ブック<b id="clientCount">0</b></div>
       </div>
 
       <div class="card">
@@ -137,31 +137,31 @@
         <button id="runOperationalCycle" onclick="runOperationalCycle()">申請を今すぐ処理</button>
         <details>
           <summary>個別の状態確認</summary>
-          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全年度計画を確認</button>
+          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全クライアント年度ブックを確認</button>
           <button class="secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認一覧だけ更新</button>
         </details>
       </div>
 
       <details class="card">
-        <summary>社員ポータルの設定・更新</summary>
-        <h2>社員向け年度計画ポータル</h2>
-        <p class="muted">社員が年度計画を探し、未作成のクライアント・年度を申請する共通入口です。</p>
-        <label>会社ドメイン（空欄は管理者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
-        <label>ポータル名（任意）<input id="portalTitle" placeholder="年度計画ポータル"></label>
-        <button class="good" onclick="provisionSharedPortal()">社員ポータルを準備する</button>
+        <summary>申請入口（第2層）の設定・更新</summary>
+        <h2>申請入口</h2>
+        <p class="muted">全社員がクライアント年度ブックを探し、未作成の client×FY を申請する第2層の Spreadsheet です。</p>
+        <label>会社ドメイン（空欄は管理ハブ担当者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
+        <label>申請入口名（任意）<input id="portalTitle" placeholder="申請入口"></label>
+        <button class="good" onclick="provisionSharedPortal()">申請入口を準備する</button>
         <div id="portalRuntimeStatus" class="status">Portal runtimeを確認中…</div>
         <div id="clientCatalogStatus" class="status">ZACクライアント候補を確認中…</div>
         <button id="refreshClientCatalogButton" class="secondary" onclick="refreshClientCatalog()">ZACクライアント候補を今すぐ更新</button>
         <details>
-          <summary>既存ポータルを最新版へ更新する</summary>
-          <p class="muted">受付履歴とClient一覧は残したまま、検証済みruntimeとクライアント選択候補を更新します。理由は空欄のままで構いません。</p>
+          <summary>既存の申請入口を最新版へ更新する</summary>
+          <p class="muted">受付履歴と Client 一覧は残したまま、検証済み runtime とクライアント選択候補を更新します。理由は空欄のままで構いません。</p>
           <label>更新理由（空欄可）<input id="portalRuntimeReason" placeholder="入力項目の簡略化・不具合修正など"></label>
-          <button id="updatePortalRuntimeButton" class="warn" onclick="updatePortalRuntime()">既存ポータルを最新版へ更新</button>
+          <button id="updatePortalRuntimeButton" class="warn" onclick="updatePortalRuntime()">申請入口を最新版へ更新</button>
         </details>
         <details>
           <summary>初回Pilotを一括準備する</summary>
-          <p class="muted">現在の予測Engine・parameterを変更せず、新しいClient runtime用のTemplate／Model版を発行してから社員ポータルを準備します。1回に1段階だけ進むため、「完了」と表示されるまで同じボタンを繰り返してください。</p>
-          <label><input id="portalPilotAttestation" type="checkbox"> 上記のClient runtime 10 suites、Portal runtime 11 suites、統合契約test PASSを管理者として確認した</label>
+          <p class="muted">現在の予測Engine・parameterを変更せず、新しい Client runtime 用の Template／Model 版を発行してから申請入口を準備します。1回に1段階だけ進むため、「完了」と表示されるまで同じボタンを繰り返してください。</p>
+          <label><input id="portalPilotAttestation" type="checkbox"> 上記のClient runtime 10 suites、Portal runtime 11 suites、統合契約test PASSを管理ハブ担当者として確認した</label>
           <button class="warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button>
         </details>
         <div id="pilotStatus" class="status">Pilot展開状況を確認中…</div>
@@ -172,8 +172,8 @@
       </details>
 
       <details class="card">
-        <summary>個別に年度計画を作る（例外対応）</summary>
-        <p class="muted">通常は社員ポータルから依頼します。管理者が代理作成する場合だけ使用してください。</p>
+        <summary>クライアント年度ブックを個別に作る（例外対応）</summary>
+        <p class="muted">通常は申請入口（第2層）から依頼します。管理ハブが代理作成する場合だけ使用してください。</p>
         <label>クライアント名<input id="clientName"></label>
         <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
         <label>作成担当者（1名のメール）<input id="ownerEmails" type="email"></label>
@@ -186,17 +186,17 @@
           <label>Release ID（空欄は現行版）<input id="clientReleaseId"></label>
           <label>保存先folder ID（任意）<input id="clientFolderId"></label>
         </details>
-        <button onclick="provisionClient()">年度計画を作成</button>
+        <button onclick="provisionClient()">クライアント年度ブックを作成</button>
       </details>
 
       <div id="emptyPilotUpgradeCard" class="card hidden">
-        <h2>テスト前の年度計画を最新版へ更新</h2>
-        <p class="muted">まだ誰も回答していないテスト用bookだけを、同じURLのまま現在の正式版へ更新します。最初に安全条件を自動確認します。</p>
-        <label>更新する年度計画
+        <h2>テスト前のクライアント年度ブックを最新版へ更新</h2>
+        <p class="muted">まだ誰も回答していないテスト用クライアント年度ブックだけを、同じ URL のまま現在の正式版へ更新します。最初に安全条件を自動確認します。</p>
+        <label>更新するクライアント年度ブック
           <select id="emptyPilotBookSelect" onchange="resetEmptyPilotBasis()"></select>
         </label>
         <div id="emptyPilotBasis" class="status">対象を選び、「安全条件を確認」を押してください。</div>
-        <label>更新理由<input id="emptyPilotUpgradeReason" value="従業員テスト開始前のUI・操作性改善"></label>
+        <label>更新理由<input id="emptyPilotUpgradeReason" value="受入試験開始前のUI・操作性改善"></label>
         <button class="secondary" onclick="checkEmptyPilotUpgrade()">安全条件を確認</button>
         <button id="applyEmptyPilotUpgradeButton" class="good" onclick="applyEmptyPilotUpgrade()" disabled>同じURLのまま最新版へ更新</button>
         <button id="recoverEmptyPilotUpgradeButton" class="warn hidden" onclick="recoverEmptyPilotUpgrade()">中断した更新を安全に復旧</button>
@@ -204,17 +204,17 @@
 
       <details class="card">
         <summary>保守・高度な操作</summary>
-        <h2>Admin Hub本体を中央配備版へ更新</h2>
-        <p class="muted">中央のclasp配備projectから、検証済みの全AdminコードだけをこのHubへ反映します。book・履歴・設定は変更しません。</p>
-        <div id="adminRuntimeStatus" class="status">Admin runtimeを確認中…</div>
+        <h2>管理ハブ本体を中央配備版へ更新</h2>
+        <p class="muted">中央の clasp 配備 project から、検証済みの全 Admin コードだけをこの管理ハブへ反映します。Spreadsheet・履歴・設定は変更しません。</p>
+        <div id="adminRuntimeStatus" class="status">管理ハブ runtimeを確認中…</div>
         <label>更新理由（必須）<input id="adminRuntimeReason" placeholder="不具合修正・監査強化など"></label>
         <button id="updateAdminRuntimeButton" class="warn" onclick="updateAdminRuntime()">中央配備版へ更新</button>
         <h2>共有ドライブへ整理して移す</h2>
-        <p class="muted">AutoAnalysis と同じく、共有ドライブ「年度計画」を作り、ポータル・クライアント・管理者・テンプレートを用途別フォルダへ移します。ブックの中身は変えません。理由は空欄のままで構いません。</p>
+        <p class="muted">AutoAnalysis と同じく、共有ドライブ「年度予算策定」を作り、01_管理ハブ・02_申請入口・03_クライアント年度ブック・04_テンプレートへ用途別に移します。ブックの中身は変えません。理由は空欄のままで構いません。</p>
         <label>移設理由（空欄可）<input id="libraryRelocateReason" placeholder="社内共有ドライブへ整理"></label>
-        <button class="warn" onclick="relocateLibrary()">共有ドライブ「年度計画」へ移す</button>
-        <h2>Vertex AI接続設定（管理者のみ）</h2>
-        <p class="muted">入力した項目だけをHubのScript Propertiesへ保存します。値は画面へ再表示しません。</p>
+        <button class="warn" onclick="relocateLibrary()">共有ドライブ「年度予算策定」へ移す</button>
+        <h2>Vertex AI接続設定（管理ハブのみ）</h2>
+        <p class="muted">入力した項目だけを管理ハブのScript Propertiesへ保存します。値は画面へ再表示しません。</p>
         <label>Project ID<input id="vertexProjectId"></label>
         <label>Location<input id="vertexLocation" placeholder="asia-northeast1"></label>
         <label>Gemini model<input id="vertexModel"></label>
@@ -222,13 +222,13 @@
         <label>Search location<input id="vertexSearchLocation"></label>
         <label>Serving config<input id="vertexServingConfig"></label>
         <button class="secondary" onclick="saveRuntimeConfig()">入力した接続設定を保存</button>
-        <h2>社員bookのTemplate UIを編集</h2>
-        <p class="muted">現行UIまたは既存Draftの3画面だけを、Admin専用の編集用bookへ複製します。既存Clientには影響しません。</p>
+        <h2>クライアント年度ブックのTemplate UIを編集</h2>
+        <p class="muted">現行 UI または既存 Draft の 3 画面だけを、管理ハブ専用の編集用 Spreadsheet へ複製します。既存のクライアント年度ブックには影響しません。</p>
         <div id="activeTemplateRelease" class="status">現行Template Releaseを確認中…</div>
         <label>複製元Draft Spreadsheet ID（空欄は現行ACTIVE）<input id="templateDraftSourceId"></label>
         <label>新しいDraft名<input id="templateDraftName" placeholder="FY2027 UI改善案"></label>
         <label>Draft作成理由（必須）<input id="templateDraftReason"></label>
-        <button class="secondary" onclick="createTemplateDraft()">Admin専用Draftを作成</button>
+        <button class="secondary" onclick="createTemplateDraft()">管理ハブ専用Draftを作成</button>
         <h2>Template ReleaseをSTAGEDへ登録</h2>
         <p class="muted">新しいclean known-bound Templateへ、許可された3画面だけをcopyToし、MEMO・format・validation・条件付き書式・結合・rich textをmanifestで照合します。Draft未指定なら現行ACTIVEのUIを継承します。</p>
         <label>Release ID<input id="templateReleaseId" placeholder="vnext-client-2026-09"></label>
@@ -236,20 +236,20 @@
         <label>STAGED作成理由（必須）<input id="templateReleaseReason" placeholder="操作性改善・監査強化など"></label>
         <button class="secondary" onclick="publishTemplateRelease()">clean STAGED版を作成</button>
         <h2>Template＋Modelを有効化</h2>
-        <p class="muted">下のModel DRAFTが対象Template Releaseと厳密一致し、Backtest/Canaryの管理者attestationがPASSの場合だけ、pairを有効化します。</p>
+        <p class="muted">下のModel DRAFTが対象Template Releaseと厳密一致し、Backtest/Canaryの管理ハブ担当者 attestationがPASSの場合だけ、pairを有効化します。</p>
         <label>STAGED Template Release ID<input id="pairTemplateReleaseId"></label>
         <label>PASS済Model Release ID<input id="pairModelReleaseId"></label>
         <label>Pair有効化理由（必須）<input id="pairActivationReason"></label>
         <button class="good" onclick="activateReleasePair()">Template＋Modelを安全に有効化</button>
         <h2>AI調査を依頼</h2>
-        <label>Book ID<input id="aiBookId"></label>
+        <label>クライアント年度ブック ID<input id="aiBookId"></label>
         <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="顧客・市場・規制など、確認したい外部変化"></textarea></label>
         <button class="secondary" onclick="enqueueAiResearch()">AI調査を処理待ちへ追加</button>
         <h2>AI反映を取り消して再予測</h2>
         <p class="muted">元のrunとAI証拠は削除せず、取消記録を追加して同じ乱数seedで比較可能な新runを作ります。</p>
-        <label>Book ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
+        <label>クライアント年度ブック ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
         <button class="secondary" onclick="loadAiRollbackBasis()">最新runのAI反映を確認</button>
-        <div id="aiRollbackBasisSummary" class="status">Book IDを入力して対象を確認してください。</div>
+        <div id="aiRollbackBasisSummary" class="status">クライアント年度ブック IDを入力して対象を確認してください。</div>
         <div id="aiRollbackEvidenceList"></div>
         <label>取消範囲<select id="aiRollbackScope" onchange="updateAiRollbackSelection()"><option value="ALL">今回のAI反映をすべて取り消す</option><option value="SELECTED">選んだAI反映だけ取り消す</option></select></label>
         <label>取消理由（必須）<textarea id="aiRollbackReason" placeholder="情報の誤り、期限切れ、適用判断の訂正など"></textarea></label>
@@ -262,9 +262,9 @@
           <label>Model version<input id="modelVersion" placeholder="vnext-engine-0.4"></label>
           <label>Template Release ID<input id="modelTemplateVersion" placeholder="STAGED Template Release ID"></label>
           <label>Parameters JSON<textarea id="modelParameters" placeholder="{}"></textarea></label>
-          <label>Backtest JSON（管理者attestation）<textarea id="modelBacktest" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
-          <label>Canary JSON（管理者attestation）<textarea id="modelCanary" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
-          <label style="font-weight:400"><input id="modelAttestation" type="checkbox" style="width:auto;margin-right:6px">根拠を確認し、上記PASSが管理者attestationであることを確認した</label>
+          <label>Backtest JSON（管理ハブ担当者 attestation）<textarea id="modelBacktest" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+          <label>Canary JSON（管理ハブ担当者 attestation）<textarea id="modelCanary" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+          <label style="font-weight:400"><input id="modelAttestation" type="checkbox" style="width:auto;margin-right:6px">根拠を確認し、上記PASSが管理ハブ担当者 attestationであることを確認した</label>
           <label>登録理由・メモ<input id="modelDraftNote"></label>
           <button class="secondary" onclick="registerModelRelease()">DRAFTを登録</button>
         </details>
@@ -274,15 +274,15 @@
         <label>戻すModel Release ID<input id="rollbackModelReleaseId"></label>
         <label>ロールバック理由<input id="rollbackModelReason"></label>
         <button class="warn" onclick="rollbackModelRelease()">以前のモデル版へ戻す</button>
-        <h2>管理者から予測処理を再投入</h2>
-        <label>Book ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
+        <h2>管理ハブから予測処理を再投入</h2>
+        <label>クライアント年度ブック ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
         <button onclick="requestForecast()">処理待ちへ追加</button>
-        <h2>正式計画を訂正</h2>
-        <p class="muted">現在のofficialは削除・上書きせず、新しい計画案を承認待ちへ追加します。</p>
-        <label>Book ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
-        <button class="secondary" onclick="loadAmendmentBasis()">現在の正式計画を読み込む</button>
-        <div id="amendmentBasisSummary" class="status">Book IDを入力して現在値を読み込んでください。</div>
-        <label>訂正理由（必須）<textarea id="amendmentReason" placeholder="なぜ正式計画を訂正するのか"></textarea></label>
+        <h2>正式予算を訂正</h2>
+        <p class="muted">現在のofficialは削除・上書きせず、新しい予算案を承認待ちへ追加します。</p>
+        <label>クライアント年度ブック ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
+        <button class="secondary" onclick="loadAmendmentBasis()">現在の正式予算を読み込む</button>
+        <div id="amendmentBasisSummary" class="status">クライアント年度ブック IDを入力して現在値を読み込んでください。</div>
+        <label>訂正理由（必須）<textarea id="amendmentReason" placeholder="なぜ正式予算を訂正するのか"></textarea></label>
         <label>採用判断差分<input id="amendmentAdoptionDelta" type="number" step="1"></label>
         <label>採用判断の理由<input id="amendmentAdoptionReason"></label>
         <label>営業上積み<input id="amendmentSalesUplift" type="number" min="0" step="1"></label>
@@ -294,35 +294,35 @@
         <button class="warn" onclick="createAmendmentApproval()">訂正案を承認待ちへ追加</button>
         <h2>差戻し後の進め方</h2>
         <p class="muted">承認カードで選べなかった場合に、理由を残して次の状態へ進めます。</p>
-        <label>Book ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
+        <label>クライアント年度ブック ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
         <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
-        <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">計画だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
+        <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">予算案だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
         <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
         <button class="secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button>
         <h2>年度の振り返り・終了</h2>
-        <label>Book ID<input id="reviewBookId"></label>
+        <label>クライアント年度ブック ID<input id="reviewBookId"></label>
         <label>実績確認日（年度末翌月以降）<input id="reviewAsOf" placeholder="2027/04/01"></label>
         <label style="font-weight:400"><input id="reviewAllowIncomplete" type="checkbox" style="width:auto;margin-right:6px">実績の欠損警告を確認したうえで例外的に開始する</label>
         <label>例外開始の理由（上を選んだ場合は必須）<textarea id="reviewOverrideReason" placeholder="欠損月と確認方法、開始を認める理由"></textarea></label>
         <button class="secondary" onclick="startReview()">確定実績で振り返りを開始</button>
         <label>年度終了理由<input id="closeReason" placeholder="振り返り入力と確認が完了"></label>
         <button class="warn" onclick="closeYear()">年度を終了</button>
-        <h2>社員テストをゼロからやり直す</h2>
-        <p class="muted">生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認・ジョブ・管理者監査ログ・AI検証ファイルなどの試験記録を消します。Admin Hub、社員ポータル、Template、ZAC候補、現行releaseは残します。確認語が一致した場合だけ削除します。</p>
+        <h2>受入試験をゼロからやり直す</h2>
+        <p class="muted">生成済みのクライアント年度ブックをゴミ箱へ移し、予測・申請・承認・ジョブ・管理ハブ監査ログ・AI 検証ファイルなどの試験記録を消します。管理ハブ、申請入口、Template、ZAC 候補、現行 release は残します。確認語が一致した場合だけ削除します。</p>
         <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
         <button class="secondary" onclick="previewFreshUatReset()">対象を確認（変更なし）</button>
-        <button class="danger" onclick="applyFreshUatReset()">生成済み年度計画を削除して初期状態へ戻す</button>
+        <button class="danger" onclick="applyFreshUatReset()">生成済みクライアント年度ブックを削除して初期状態へ戻す</button>
       </details>
     </div>
 
     <div id="nonAdminPanel" class="hidden card">
-      <b>このbookはAdmin Hubではありません。</b>
-      <p class="muted">Admin操作はHubで行います。Client/Template bookには管理メニューを表示しません。</p>
+      <b>このクライアント年度ブック は管理ハブではありません。</b>
+      <p class="muted">管理操作は管理ハブ（第1層）で行います。クライアント年度ブック／Template には管理メニューを表示しません。</p>
     </div>
 
     <div id="status" class="status">初期化中…</div>
     <details id="statusTechnical" class="hidden">
-      <summary>管理者向け詳細</summary>
+      <summary>管理ハブ担当者向け詳細</summary>
       <pre id="statusTechnicalText"></pre>
     </details>
 
@@ -360,7 +360,7 @@
         } else if (/At least 5 fiscal years|confirmed actual history/i.test(raw)) {
           friendly = '予測に必要な確定実績が5年度未満です。ZACの実績範囲を確認してください。';
         } else if (/Requested release is not ACTIVE/i.test(raw)) {
-          friendly = '使用する年度計画の版に不整合がありました。「申請を今すぐ処理」から安全な再開を試してください。';
+          friendly = '使用するクライアント年度ブックの版に不整合がありました。「申請を今すぐ処理」から安全な再開を試してください。';
         }
         showStatus(friendly, true);
         $('statusTechnicalText').textContent = raw;
@@ -393,7 +393,7 @@
       function render(model, keepBusy) {
         if (!keepBusy) setBusy(false);
         sidebarModel = model;
-        $('mode').textContent = model.mode === 'ADMIN' ? '管理者用' : model.mode;
+        $('mode').textContent = model.mode === 'ADMIN' ? '管理ハブ用' : model.mode;
         $('book').textContent = model.spreadsheetName;
         $('legacyPanel').classList.toggle('hidden', model.mode !== 'LEGACY');
         $('adminPanel').classList.toggle('hidden', model.mode !== 'ADMIN');
@@ -428,7 +428,7 @@
           } else {
             $('pilotStatus').textContent =
               `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
-              (pilot.blockedReason || '現在の範囲で次のbookを生成できます。');
+              (pilot.blockedReason || '現在の範囲で次のクライアント年度ブックを生成できます。');
             $('pilotStatus').classList.toggle('error', !!pilot.blocked);
             $('pilotCanaryApproval').classList.toggle('hidden',
               !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
@@ -441,7 +441,7 @@
           const drafts = (model.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
           const staged = (model.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
           $('activeTemplateRelease').textContent =
-            `現行：${model.activeTemplateReleaseId || '未設定'}\n社員用runtime：${model.templateRuntimeVersion || '未設定'}\n` +
+            `現行：${model.activeTemplateReleaseId || '未設定'}\nクライアント年度ブック用 runtime：${model.templateRuntimeVersion || '未設定'}\n` +
             `編集用Draft：${drafts || 'なし'}\nSTAGED：${staged || 'なし'}`;
           $('adminRuntimeStatus').textContent = model.adminRuntimeUpdatable
             ? `中央更新経路：有効\n現在SHA-256：${model.adminRuntimeSha256 || '未記録'}`
@@ -449,7 +449,7 @@
           $('updateAdminRuntimeButton').classList.toggle('hidden', !model.adminRuntimeUpdatable);
           $('portalRuntimeStatus').textContent = model.portalRuntimeUpdatable
             ? `現在：${model.portalRuntimeVersion || '未記録'}\nSHA-256：${model.portalRuntimeSha256 || '未記録'}`
-            : '社員ポータルはまだ準備されていません。';
+            : '申請入口はまだ準備されていません。';
           $('clientCatalogStatus').textContent =
             `選択可能：${model.clientCatalogActiveCount || 0}社\n` +
             `候補版：${model.clientCatalogVersion || '未取得'}\n` +
@@ -536,7 +536,7 @@
           if (/未完了の空Pilot更新|migrationId=|RECOVERY_REQUIRED/i.test(raw)) {
             $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
           }
-          $('emptyPilotBasis').textContent = 'このbookは自動更新の安全条件を満たしません。管理者向け詳細を確認してください。';
+          $('emptyPilotBasis').textContent = 'このクライアント年度ブックは自動更新の安全条件を満たしません。管理ハブ担当者向け詳細を確認してください。';
           $('emptyPilotBasis').classList.add('error');
           onFailure(error);
           $('applyEmptyPilotUpgradeButton').disabled = true;
@@ -550,7 +550,7 @@
           showStatus('先に「安全条件を確認」を実行してください。', true); return;
         }
         if (!reason) { showStatus('更新理由を入力してください。', true); return; }
-        if (!window.confirm('選択したテスト用年度計画を、同じURLのまま現在の正式版へ更新します。続行しますか？')) return;
+        if (!window.confirm('選択したテスト用クライアント年度ブックを、同じURLのまま現在の正式版へ更新します。続行しますか？')) return;
         setBusy(true); showStatus('同じURLを維持したまま最新版へ更新しています。画面を閉じずにお待ちください…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); emptyPilotUpgradeBasis = null;
@@ -568,7 +568,7 @@
 
       function recoverEmptyPilotUpgrade() {
         const bookId = value('emptyPilotBookSelect');
-        if (!bookId) { showStatus('復旧する年度計画を選んでください。', true); return; }
+        if (!bookId) { showStatus('復旧するクライアント年度ブックを選んでください。', true); return; }
         setBusy(true); showStatus('記録済みjournalから、旧版または新版の整合した状態へ復旧しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
@@ -578,7 +578,7 @@
         }).withFailureHandler(onFailure).vNextAdminRecoverEmptyPilotClientUpgrade({
           bookId,
           migrationId: ($('emptyPilotBookSelect').selectedOptions[0] || { dataset:{} }).dataset.migrationId || '',
-          reason:'Admin Sidebarから中断処理を復旧'
+          reason:'管理ハブサイドバーから中断処理を復旧'
         });
       }
       function renderExceptions(rows) {
@@ -598,7 +598,7 @@
           if (row.actionType === 'RETRY_OFFICIAL_SYNC' && row.bookId) {
             const retry = document.createElement('button');
             retry.className = 'warn';
-            retry.textContent = '正式計画を再反映';
+            retry.textContent = '正式予算を再反映';
             retry.onclick = () => retryOfficialSync(row.bookId);
             div.appendChild(retry);
           } else if (row.actionType === 'RUN_NOW') {
@@ -609,7 +609,7 @@
           } else if (row.bookUrl) {
             const link = document.createElement('a');
             link.href = row.bookUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-            link.textContent = '対象の年度計画を開く';
+            link.textContent = '対象のクライアント年度ブックを開く';
             div.appendChild(document.createElement('br'));
             div.appendChild(link);
           }
@@ -624,24 +624,24 @@
         const root = $('portalRequests');
         root.innerHTML = '';
         if (model.loading) {
-          root.textContent = '社員からの依頼を確認中…';
+          root.textContent = '申請入口からの依頼を確認中…';
           return;
         }
         if (model.unavailable) {
           const warning = document.createElement('div');
           warning.className = 'item-label item-error';
-          warning.textContent = '社員ポータルの状態を確認できません。';
+          warning.textContent = '申請入口の状態を確認できません。';
           root.appendChild(warning);
           return;
         }
         if (!model.configured) {
-          root.textContent = '社員ポータルはまだ準備されていません。';
+          root.textContent = '申請入口はまだ準備されていません。';
           return;
         }
         const counts = model.counts || {};
         const summary = document.createElement('div');
         summary.className = 'item-meta';
-        summary.textContent = `社員からの依頼：受付済み ${counts.waiting || 0}件 / 処理中 ${counts.processing || 0}件 / 要確認 ${counts.failed || 0}件`;
+        summary.textContent = `申請入口からの依頼：受付済み ${counts.waiting || 0}件 / 処理中 ${counts.processing || 0}件 / 要確認 ${counts.failed || 0}件`;
         root.appendChild(summary);
         (model.attention || []).slice(0, 5).forEach(row => {
           const div = document.createElement('div');
@@ -659,7 +659,7 @@
         if (model.spreadsheetUrl) {
           const link = document.createElement('a');
           link.href = model.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-          link.textContent = '社員ポータルを開く';
+          link.textContent = '申請入口を開く';
           root.appendChild(document.createElement('br')); root.appendChild(link);
         }
       }
@@ -695,7 +695,7 @@
           const div = document.createElement('div');
           div.className = 'approval';
           const title = document.createElement('b');
-          const requestLabel = String(row.requestType || '').toUpperCase() === 'AMENDMENT' ? '正式計画の訂正' : '年度計画の確定';
+          const requestLabel = String(row.requestType || '').toUpperCase() === 'AMENDMENT' ? '正式予算の訂正' : '年度予算の確定';
           title.textContent = `${row.clientName || row.bookId} / FY${row.fiscalYear}｜${requestLabel}`;
           div.appendChild(title);
           const detail = document.createElement('div');
@@ -719,7 +719,7 @@
             const routeLabel = document.createElement('label');
             routeLabel.textContent = '差戻し後の進め方';
             returnRoute = document.createElement('select');
-            [['PLAN_ONLY','計画だけ修正'], ['REOPEN_INPUT','入力を再開'], ['RERUN_SAME_INPUT','同じ入力で再予測']].forEach(option => {
+            [['PLAN_ONLY','予算案だけ修正'], ['REOPEN_INPUT','入力を再開'], ['RERUN_SAME_INPUT','同じ入力で再予測']].forEach(option => {
               const element = document.createElement('option');
               element.value = option[0]; element.textContent = option[1];
               returnRoute.appendChild(element);
@@ -759,7 +759,7 @@
         const hubSpreadsheetId = value('recoveryHubId');
         const templateSpreadsheetId = value('recoveryTemplateId');
         if (!hubSpreadsheetId || !templateSpreadsheetId) {
-          showStatus('生成済みのAdmin HubとMaster TemplateのSpreadsheet IDを入力してください。', true);
+          showStatus('生成済みの管理ハブと Master Template の Spreadsheet ID を入力してください。', true);
           return;
         }
         setBusy(true); showStatus('生成済み2冊を検証し、未完了のRelease登録から再開しています…');
@@ -770,10 +770,10 @@
         const hubSpreadsheetId = value('apiRecoveryHubId');
         const cloudProjectNumber = value('apiRecoveryProjectNumber');
         if (!hubSpreadsheetId || !/^\d{6,20}$/.test(cloudProjectNumber)) {
-          showStatus('Admin HubのSpreadsheet IDと、エラーに表示された数字だけのCloud project番号を入力してください。', true);
+          showStatus('管理ハブの Spreadsheet ID と、エラーに表示された数字だけの Cloud project 番号を入力してください。', true);
           return;
         }
-        setBusy(true); showStatus('中央プロジェクトから生成HubのApps Script APIだけを有効化しています…');
+        setBusy(true); showStatus('中央プロジェクトから生成した管理ハブのApps Script APIだけを有効化しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminEnableGeneratedHubAppsScriptApi({hubSpreadsheetId, cloudProjectNumber});
       }
@@ -783,10 +783,10 @@
         const fiscalYear = value('pilotSourceFiscalYear');
         const forecastOwnerEmails = value('pilotSourceOwner');
         if (!hubSpreadsheetId || !clientName || !fiscalYear || !forecastOwnerEmails) {
-          showStatus('Hub ID、ZACと一致するクライアント名、FY、Forecast Ownerを入力してください。', true);
+          showStatus('管理ハブ Spreadsheet ID、ZACと一致するクライアント名、FY、予算策定担当を入力してください。', true);
           return;
         }
-        setBusy(true); showStatus('中央projectからclean Client runtimeと年度bookを生成しています…');
+        setBusy(true); showStatus('中央 project から clean なクライアント年度ブック runtime を生成しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminProvisionPilotClientFromSource({
             hubSpreadsheetId, clientName, fiscalYear, forecastOwnerEmails,
@@ -795,13 +795,13 @@
       }
       function installPilotSourceAutomation() {
         const hubSpreadsheetId = value('pilotSourceHubId');
-        if (!hubSpreadsheetId) { showStatus('Admin Hub Spreadsheet IDを入力してください。', true); return; }
+        if (!hubSpreadsheetId) { showStatus('管理ハブ Spreadsheet ID を入力してください。', true); return; }
         setBusy(true); showStatus('中央projectに5分間隔のPilot workerを設定しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminInstallPilotAutomationFromSource({hubSpreadsheetId});
       }
       function provisionClient() {
-        setBusy(true); showStatus('Client bookを生成しています…');
+        setBusy(true); showStatus('クライアント年度ブックを生成しています…');
         const req = {
           clientId:value('clientId'), clientName:value('clientName'), fiscalYear:value('fiscalYear'),
           forecastOwnerEmails:value('ownerEmails'), editorEmails:value('editorEmails'), viewerEmails:value('viewerEmails'),
@@ -811,44 +811,44 @@
           .withFailureHandler(onFailure).vNextAdminProvisionClient(req);
       }
       function provisionSharedPortal() {
-        setBusy(true); showStatus('社員向け年度計画ポータルを安全な専用bookとして準備しています…');
+        setBusy(true); showStatus('申請入口（第2層）を安全な専用 Spreadsheet として準備しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const url = result && result.spreadsheetUrl;
-          showStatus(url ? `社員ポータルを準備しました。\n${url}` : result);
+          showStatus(url ? `申請入口を準備しました。\n${url}` : result);
           load();
         }).withFailureHandler(onFailure).vNextAdminProvisionSharedPortal({
           employeeDomain:value('portalEmployeeDomain'), title:value('portalTitle')
         });
       }
       function refreshClientCatalog() {
-        setBusy(true); showStatus('ZACからクライアント候補をまとめて取得し、社員ポータルへ反映しています…');
+        setBusy(true); showStatus('ZAC からクライアント候補をまとめて取得し、申請入口へ反映しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRefreshZacClientCatalog({force:true});
       }
       function runOperationalCycle() {
         setBusy(true);
-        showStatus('社員からの依頼と自動処理を確認しています。この画面を閉じずにお待ちください。');
+        showStatus('申請入口からの依頼と自動処理を確認しています。この画面を閉じずにお待ちください。');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRunOperationalCycle();
       }
       function updatePortalRuntime() {
         const reason = value('portalRuntimeReason') || '共有ドライブ移設後の最新版';
-        setBusy(true); showStatus('受付履歴を保ったまま、社員ポータルを検証済み最新版へ更新しています…');
+        setBusy(true); showStatus('受付履歴を保ったまま、申請入口を検証済み最新版へ更新しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('portalRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateSharedPortalRuntime({reason});
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }
-        setBusy(true); showStatus('社員ポータル準備を1段階進めています…');
+        setBusy(true); showStatus('申請入口の準備を1段階進めています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const url = result && result.portalSpreadsheetUrl;
           const message = result && result.completed
-            ? `社員ポータルPilotを準備しました。\n${url || ''}`
+            ? `申請入口 Pilot を準備しました。\n${url || ''}`
             : `この段階は完了しました。\n現在: ${result && result.phaseLabel || ''}\n同じボタンをもう1回押してください。`;
           showStatus(message);
           load();
@@ -872,7 +872,7 @@
       function createTemplateDraft() {
         const reason = value('templateDraftReason');
         if (!reason) { showStatus('Draft作成理由を入力してください。', true); return; }
-        setBusy(true); showStatus('Admin専用の編集用Template Draftを作成しています…');
+        setBusy(true); showStatus('管理ハブ専用の編集用Template Draftを作成しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminCreateTemplateDraft({
             templateDraftSpreadsheetId:value('templateDraftSourceId'),
@@ -892,15 +892,15 @@
       }
       function updateAdminRuntime() {
         const reason = value('adminRuntimeReason');
-        if (!reason) { showStatus('Admin runtimeの更新理由を入力してください。', true); return; }
-        setBusy(true); showStatus('Admin Hub runtimeを検証し、中央配備版へ更新しています…');
+        if (!reason) { showStatus('管理ハブ runtimeの更新理由を入力してください。', true); return; }
+        setBusy(true); showStatus('管理ハブ runtime を検証し、中央配備版へ更新しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('adminRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({reason});
       }
       function relocateLibrary() {
         const reason = value('libraryRelocateReason') || '社内共有ドライブへ整理';
-        setBusy(true); showStatus('共有ドライブ「年度計画」を用意し、ファイルを整理しています…');
+        setBusy(true); showStatus('共有ドライブ「年度予算策定」を用意し、ファイルを整理しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('libraryRelocateReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminRelocateLibraryToSharedDrive({reason});
@@ -913,8 +913,8 @@
       }
       function loadAmendmentBasis() {
         const bookId = value('amendmentBookId');
-        if (!bookId) { showStatus('訂正対象のBook IDを入力してください。', true); return; }
-        setBusy(true); showStatus('現在の正式計画を確認しています…');
+        if (!bookId) { showStatus('訂正対象のクライアント年度ブック IDを入力してください。', true); return; }
+        setBusy(true); showStatus('現在の正式予算を確認しています…');
         google.script.run.withSuccessHandler(basis => {
           setBusy(false); amendmentBasis = basis;
           $('amendmentAdoptionDelta').value = Number(basis.adoptionDelta || 0);
@@ -929,14 +929,14 @@
             `${basis.clientName} / FY${basis.fiscalYear}\n` +
             `現在official: ${basis.currentOfficialId}\n` +
             `システム推奨 ${formatMoney(basis.systemRecommended)} / 現在の正式予算 ${formatMoney(basis.finalBudget)}\n` +
-            'この正式計画は残したまま、新しい訂正案を作成します。';
+            'この正式予算は残したまま、新しい訂正案を作成します。';
           showStatus('現在値を読み込みました。変更内容と訂正理由を入力してください。');
         }).withFailureHandler(onFailure).vNextAdminGetAmendmentBasis({bookId});
       }
       function createAmendmentApproval() {
         const bookId = value('amendmentBookId');
         if (!amendmentBasis || amendmentBasis.bookId !== bookId) {
-          showStatus('先に対象Bookの現在の正式計画を読み込んでください。', true); return;
+          showStatus('先に対象クライアント年度ブックの現在の正式予算を読み込んでください。', true); return;
         }
         const rawAllocation = value('amendmentAllocation');
         const allocation = rawAllocation
@@ -973,10 +973,10 @@
           showStatus('差戻し・却下の理由を入力してください。', true); return;
         }
         const confirmation = decision === 'APPROVE'
-          ? 'この計画を正式計画として確定します。確定後は上書きされません。続行しますか？'
+          ? 'この予算案を正式予算として確定します。確定後は上書きされません。続行しますか？'
           : decision === 'RETURN'
             ? '入力した理由と進め方で差し戻します。続行しますか？'
-            : 'この計画案を却下します。続行しますか？';
+            : 'この予算案を却下します。続行しますか？';
         if (!window.confirm(confirmation)) return;
         setBusy(true);
         google.script.run.withSuccessHandler(result => {
@@ -1027,7 +1027,7 @@
           });
       }
       function retryOfficialSync(bookId) {
-        setBusy(true); showStatus('正式計画をClientへ再同期しています…');
+        setBusy(true); showStatus('正式予算をClientへ再同期しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminRetryOfficialClientSync({bookId});
       }
@@ -1038,7 +1038,7 @@
       }
       function loadAiRollbackBasis() {
         const bookId = value('aiRollbackBookId');
-        if (!bookId) { showStatus('AI反映を確認するBook IDを入力してください。', true); return; }
+        if (!bookId) { showStatus('AI反映を確認するクライアント年度ブック IDを入力してください。', true); return; }
         setBusy(true); showStatus('最新runのAI反映を確認しています…');
         google.script.run.withSuccessHandler(basis => {
           setBusy(false); aiRollbackBasis = basis;
@@ -1078,7 +1078,7 @@
       function rollbackAiEvidence() {
         const bookId = value('aiRollbackBookId');
         if (!aiRollbackBasis || aiRollbackBasis.bookId !== bookId) {
-          showStatus('先に対象Bookの最新runを読み込んでください。', true); return;
+          showStatus('先に対象クライアント年度ブックの最新 run を読み込んでください。', true); return;
         }
         const scope = value('aiRollbackScope');
         const evidenceIds = [...document.querySelectorAll('.aiRollbackEvidence:checked')].map(input => input.value);
@@ -1151,7 +1151,7 @@
           .withFailureHandler(onFailure).vNextAdminCloseYear({bookId:value('reviewBookId'), reason:value('closeReason')});
       }
       function previewFreshUatReset() {
-        setBusy(true); showStatus('削除対象の年度計画を確認しています（シートは変更しません）…');
+        setBusy(true); showStatus('削除対象のクライアント年度ブックを確認しています（シートは変更しません）…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const lines = (result.clients || []).map(item =>
@@ -1165,8 +1165,8 @@
         if (confirmation !== 'RESET_GENERATED_CLIENTS') {
           showStatus('確認語 RESET_GENERATED_CLIENTS を入力してください。', true); return;
         }
-        if (!window.confirm('生成済みの年度計画ブックをゴミ箱へ移し、予測・申請・承認の試験データを消します。Admin Hubと社員ポータルは残ります。続行しますか？')) return;
-        setBusy(true); showStatus('生成済み年度計画を削除し、ポータルを初期状態へ戻しています。画面を閉じずにお待ちください…');
+        if (!window.confirm('生成済みのクライアント年度ブックをゴミ箱へ移し、予測・申請・承認の試験データを消します。管理ハブと申請入口は残ります。続行しますか？')) return;
+        setBusy(true); showStatus('生成済みクライアント年度ブックを削除し、申請入口を初期状態へ戻しています。画面を閉じずにお待ちください…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           $('freshUatResetConfirmation').value = '';

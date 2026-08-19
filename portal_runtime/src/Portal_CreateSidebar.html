@@ -90,22 +90,22 @@
   <main>
     <section id="homePanel">
       <h1>次にすること</h1>
-      <p class="lead">既存の計画は入口の年度・クライアントボタンから開きます。まだ無いときは、下のボタンから作成します。</p>
+      <p class="lead">既存のクライアント年度ブックは年度予算策定 Web入口から開きます。まだ無いときは、下のボタンから申請します。</p>
       <div class="home-actions">
-        <button class="primary" type="button" id="startCreateButton" style="width:100%">新しい年度計画を作る</button>
+        <button class="primary" type="button" id="startCreateButton" style="width:100%">新しいクライアント年度ブックを申請する</button>
       </div>
       <details class="card" style="margin-top:16px">
         <summary>使い方・困ったとき</summary>
         <p style="margin-top:10px"><b>1. 開く</b><br>入口で年度ボタン、続けてクライアントボタンを押します。名前の手入力は不要です。</p>
         <p style="margin-top:8px"><b>2. なければ作る</b><br>上のボタンから作成します。候補確認後に作成依頼を送ります。</p>
         <p style="margin-top:8px"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</p>
-        <p class="hint" style="margin-top:10px">セルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度計画」→「案内を開く」を使います。</p>
+        <p class="hint" style="margin-top:10px">セルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。</p>
       </details>
     </section>
 
     <section id="createPanel" class="hidden">
     <button class="link-button" type="button" id="backToHomeButton">案内に戻る</button>
-    <h1>新しい年度計画を作る</h1>
+    <h1>新しいクライアント年度ブックを申請する</h1>
     <p class="lead" id="lead">ZACのクライアントを選び、関与メンバーを登録します。</p>
 
     <div id="modelLoading" class="loading" role="status">
@@ -180,7 +180,7 @@
       <ol class="timeline" aria-label="作成状況">
         <li id="phase1">受付済み</li>
         <li id="phase2">内容確認</li>
-        <li id="phase3">ブック作成</li>
+        <li id="phase3">クライアント年度ブック作成</li>
         <li id="phase4">利用可能</li>
       </ol>
       <div class="request-status" id="requestStatus">
@@ -190,7 +190,7 @@
         <div class="status-meta" id="statusUpdated"></div>
       </div>
       <div id="statusCheckNote" class="panel warn hidden" role="status"></div>
-      <a id="openBookLink" class="button-link primary hidden" target="_blank" rel="noopener noreferrer">年度計画を開く</a>
+      <a id="openBookLink" class="button-link primary hidden" target="_blank" rel="noopener noreferrer">クライアント年度ブックを開く</a>
       <div class="actions">
         <button class="tertiary" type="button" id="refreshStatusButton">状態を再確認</button>
         <button class="secondary" type="button" id="showHomeButton">ホームで確認</button>
@@ -472,7 +472,7 @@
           link.href = candidate.url;
           link.target = '_blank';
           link.rel = 'noopener noreferrer';
-          link.textContent = '既存の計画を開く';
+          link.textContent = '既存のクライアント年度ブックを開く';
           box.appendChild(link);
         }
         elements.result.appendChild(box);
@@ -490,7 +490,7 @@
       elements.statusAction.textContent = progress.nextAction || '';
       elements.statusWait.textContent = progress.waitMessage || '';
       elements.statusUpdated.textContent = progress.updatedAt ? '状態更新：' + displayDateTime(progress.updatedAt) : '';
-      elements.submissionTitle.textContent = progress.isSuccess ? '年度計画を利用できます'
+      elements.submissionTitle.textContent = progress.isSuccess ? 'クライアント年度ブックを利用できます'
         : progress.isTerminal ? '確認が必要です' : '作成依頼を受け付けました';
       for (var phase = 1; phase <= 4; phase++) {
         var item = elements['phase' + phase];

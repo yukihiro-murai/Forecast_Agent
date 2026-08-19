@@ -190,8 +190,8 @@ function vNextForecastFailureInfo_(error) {
   var technical = String(error && error.message ? error.message : error || 'Unknown forecast error').slice(0, 1000);
   var info = {
     code: 'FORECAST_PROCESSING_FAILED',
-    userMessage: '予測を完了できませんでした。入力内容は保存されています。管理者が処理状況を確認します。',
-    nextAction: 'しばらくしても状態が変わらない場合は、クライアント名と対象年度を管理者へ連絡してください。',
+    userMessage: '予測を完了できませんでした。入力内容は保存されています。管理ハブが処理状況を確認します。',
+    nextAction: 'しばらくしても状態が変わらない場合は、クライアント名と対象年度を管理ハブ担当者へ連絡してください。',
     retryRecommended: true,
     technicalMessage: technical
   };
@@ -199,28 +199,28 @@ function vNextForecastFailureInfo_(error) {
   if (history) {
     info.code = 'INSUFFICIENT_CONFIRMED_HISTORY';
     info.userMessage = '予測に必要な確定実績が不足しています（必要' + history[1] + '年度、確認できた実績' + history[2] + '年度）。';
-    info.nextAction = 'ZACのクライアント表記と確定実績の登録状況を管理者に確認してください。情報入力はそのまま保持されます。';
+    info.nextAction = 'ZACのクライアント表記と確定実績の登録状況を管理ハブ担当者に確認してください。情報入力はそのまま保持されます。';
     info.retryRecommended = false;
     return info;
   }
   if (/source header mismatch|source schema has blank required headers|planned-date header/i.test(technical)) {
     info.code = 'ACTUAL_SOURCE_SCHEMA_MISMATCH';
     info.userMessage = '確定実績データの列構成を確認できないため、予測を停止しました。';
-    info.nextAction = '社員側で再入力する必要はありません。管理者がZAC取込の列名と版を確認します。';
+    info.nextAction = '現場側で再入力する必要はありません。管理ハブがZAC取込の列名と版を確認します。';
     info.retryRecommended = false;
     return info;
   }
   if (/plannedDate|dateSource is not actual|is not confirmed|after cutoff|missing actualDate/i.test(technical)) {
     info.code = 'ACTUAL_DATA_CONTRACT_FAILED';
     info.userMessage = '予定データまたは締切後データが含まれるため、安全のため予測を停止しました。';
-    info.nextAction = '社員側で再入力する必要はありません。管理者が確定実績と情報締切を確認します。';
+    info.nextAction = '現場側で再入力する必要はありません。管理ハブが確定実績と情報締切を確認します。';
     info.retryRecommended = false;
     return info;
   }
   if (/permission|not have access|access denied|openById/i.test(technical)) {
     info.code = 'ACTUAL_SOURCE_ACCESS_FAILED';
     info.userMessage = '確定実績データを読み取れませんでした。';
-    info.nextAction = '管理者がZAC実績元と実行アカウントの権限を確認します。';
+    info.nextAction = '管理ハブがZAC実績元と実行アカウントの権限を確認します。';
     info.retryRecommended = true;
   }
   return info;
@@ -269,7 +269,7 @@ function vNextAuthorizeForecastRequest_(request) {
     userEmail: actor
   });
   if (context.role !== 'FORECAST_OWNER' && context.role !== 'ADMIN') {
-    throw new Error('Only the Forecast Owner or administrator can run a forecast.');
+    throw new Error('予測の実行は予算策定担当または管理ハブ担当者だけが行えます。');
   }
   if (String(context.state || '').toUpperCase() !== 'READY_TO_RUN') {
     throw new Error('Forecast can run only from READY_TO_RUN; current state=' + context.state);
