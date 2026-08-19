@@ -23,7 +23,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
 | コード上のPortal runtime | `vnext-portal-1.7.5` |
 | コード上のPortal bundle SHA-256 | `9f8b6cb425b0dc1a22d29b25b18a651e467ccc710f67c0cd13ef0792f78a4b81` |
-| 社員 `/exec` | 反映後に同じURLのまま差し替え。反映前は version 13 / `vnext-portal-1.7.4` |
+| 社員 `/exec` | 同一URLのまま version 14 / `vnext-portal-1.7.5` にピン済み |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -168,7 +168,7 @@ Apps Script の実行履歴は Google 側の記録のため、このリセット
 
 1. Hub で「中央配備版へ更新」（理由必須）→ 再読み込み。初回は deployment 用 OAuth の許可が出ることがある。
 2. 「社員ポータルを最新版へ更新」を押し、完了メッセージに「同じURLのまま公開」と出ることを確認する。
-3. ブックマーク済み `/exec` をハード再読み込みし、01/02/03 案内を確認する。
+3. ブックマーク済み `/exec` をハード再読み込みし、円形の01/02/03、薄い青の吹き出し、年度の青枠選択を確認する。
 4. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
 
 ## 終了時に更新する項目
