@@ -5486,21 +5486,100 @@ function vNextAdminWritePortalConfigValues_(portal, values) {
   portal.getSheetByName(VN_ADMIN_PORTAL_CONFIG_SHEET).hideSheet();
 }
 
-function vNextAdminExpandPortalTableHeadersForV2_(portal) {
-  const request = vNextAdminEnsureExactTableHeaders_(portal,
-    VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS_V1);
-  const directory = vNextAdminEnsureExactTableHeaders_(portal,
-    VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1);
-  request.getRange(1, VN_ADMIN_PORTAL_REQUEST_HEADERS_V1.length + 1, 1, 2)
-    .setValues([['catalog_key', 'related_member_names_json']]);
-  directory.getRange(1, VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1.length + 1)
-    .setValue('related_member_names_json');
-  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_REQUEST_SHEET,
-    VN_ADMIN_PORTAL_REQUEST_HEADERS);
-  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_DIRECTORY_SHEET,
-    VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
-  vNextAdminEnsureExactTableHeaders_(portal, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+function vNextAdminPortalHeadersMatch_(actual, expected) {
+  const normalized = (actual || []).map(function (value) { return String(value || '').trim(); });
+  const target = (expected || []).map(String);
+  if (normalized.length < target.length) return false;
+  if (vNextAdminCanonicalJson_(normalized.slice(0, target.length)) !== vNextAdminCanonicalJson_(target)) {
+    return false;
+  }
+  return !normalized.slice(target.length).some(Boolean);
+}
+
+function vNextAdminReadSheetHeaderRow_(sheet, minWidth) {
+  const width = Math.max(minWidth || 1, sheet.getLastColumn(), 1);
+  if (sheet.getMaxColumns() < width) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+  }
+  return sheet.getRange(1, 1, 1, width).getValues()[0].map(function (value) {
+    return String(value || '').trim();
+  });
+}
+
+/** Versioned Portal table migration: v1 exact, v2 remap-by-name, or blank bootstrap. */
+function vNextAdminMigratePortalSheetHeaders_(ss, sheetName, v1Headers, v2Headers) {
+  const sheet = vNextAdminGetOrCreateSheet_(ss, sheetName);
+  const actual = vNextAdminReadSheetHeaderRow_(sheet, Math.max(v1Headers.length, v2Headers.length));
+  if (vNextAdminPortalHeadersMatch_(actual, v2Headers)) {
+    sheet.getRange(1, 1, 1, v2Headers.length).setFontWeight('bold').setBackground('#eeeeee');
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  if (!actual.some(Boolean)) {
+    sheet.getRange(1, 1, 1, v2Headers.length).setValues([v2Headers.slice()]);
+    sheet.getRange(1, 1, 1, v2Headers.length).setFontWeight('bold').setBackground('#eeeeee');
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  if (vNextAdminPortalHeadersMatch_(actual, v1Headers)) {
+    sheet.getRange(1, v1Headers.length + 1, 1, v2Headers.length - v1Headers.length)
+      .setValues([v2Headers.slice(v1Headers.length)]);
+    sheet.getRange(1, 1, 1, v2Headers.length).setFontWeight('bold').setBackground('#eeeeee');
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  const headerIndex = {};
+  actual.forEach(function (header, index) {
+    if (header) headerIndex[header] = index;
+  });
+  const canRemap = v2Headers.every(function (header) {
+    return Object.prototype.hasOwnProperty.call(headerIndex, header);
+  });
+  if (!canRemap) {
+    throw new Error(sheetName + 'の列構成がruntime契約と一致しません。管理ハブが直接修正せずversioned migrationを実行してください。');
+  }
+  const bodyRows = sheet.getLastRow() > 1
+    ? sheet.getRange(2, 1, sheet.getLastRow() - 1, actual.length).getValues() : [];
+  const remapped = bodyRows.map(function (row) {
+    return v2Headers.map(function (header) {
+      const idx = headerIndex[header];
+      return idx === undefined ? '' : row[idx];
+    });
+  });
+  if (sheet.getMaxColumns() < v2Headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), v2Headers.length - sheet.getMaxColumns());
+  }
+  sheet.getRange(1, 1, 1, v2Headers.length).setValues([v2Headers.slice()]);
+  if (remapped.length) {
+    sheet.getRange(2, 1, remapped.length, v2Headers.length).setValues(remapped);
+  }
+  if (sheet.getLastColumn() > v2Headers.length) {
+    sheet.getRange(1, v2Headers.length + 1, Math.max(1, sheet.getLastRow()), sheet.getLastColumn() - v2Headers.length)
+      .clearContent();
+  }
+  sheet.getRange(1, 1, 1, v2Headers.length).setFontWeight('bold').setBackground('#eeeeee');
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function vNextAdminEnsurePortalRuntimeTables_(ss, runtimeVersion) {
+  if (vNextAdminPortalUsesV2Tables_(runtimeVersion)) {
+    vNextAdminMigratePortalSheetHeaders_(ss, VN_ADMIN_PORTAL_REQUEST_SHEET,
+      VN_ADMIN_PORTAL_REQUEST_HEADERS_V1, VN_ADMIN_PORTAL_REQUEST_HEADERS);
+    vNextAdminMigratePortalSheetHeaders_(ss, VN_ADMIN_PORTAL_DIRECTORY_SHEET,
+      VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1, VN_ADMIN_PORTAL_DIRECTORY_HEADERS);
+    vNextAdminEnsureExactTableHeaders_(ss, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
+      VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS).hideSheet();
+    return;
+  }
+  vNextAdminEnsureExactTableHeaders_(ss, VN_ADMIN_PORTAL_REQUEST_SHEET, VN_ADMIN_PORTAL_REQUEST_HEADERS_V1);
+  vNextAdminEnsureExactTableHeaders_(ss, VN_ADMIN_PORTAL_DIRECTORY_SHEET, VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1);
+  vNextAdminEnsureExactTableHeaders_(ss, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
     VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS).hideSheet();
+}
+
+function vNextAdminExpandPortalTableHeadersForV2_(portal) {
+  vNextAdminEnsurePortalRuntimeTables_(portal, VN_ADMIN_PORTAL_RUNTIME_VERSION);
 }
 
 function vNextAdminRollbackPortalTableHeadersToV1_(requestSheet, directorySheet) {
@@ -11368,11 +11447,8 @@ function vNextAdminRefreshHome_(hub) {
 
 function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
   const version = String(runtimeVersion || '');
-  return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
-    ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0',
-      'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0', 'vnext-portal-1.7.1',
-      'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4', 'vnext-portal-1.7.5',
-      'vnext-portal-1.7.6', 'vnext-portal-1.8.0'].indexOf(version) >= 0;
+  if (!version || version === 'vnext-portal-1.0.0') return false;
+  return version === VN_ADMIN_PORTAL_RUNTIME_VERSION || /^vnext-portal-1\./.test(version);
 }
 
 /** Read-only Portal open for sidebar projections. Skips header repair and protection writes. */
@@ -11410,14 +11486,7 @@ function vNextAdminResolvePortal_(hub) {
     throw new Error('Employee Portal local identity does not match the Hub record.');
   }
   vNextClientRuntimeAssertBoundParent_(scriptId, spreadsheetId);
-  const requestHeaders = vNextAdminPortalUsesV2Tables_(runtimeVersion)
-    ? VN_ADMIN_PORTAL_REQUEST_HEADERS : VN_ADMIN_PORTAL_REQUEST_HEADERS_V1;
-  const directoryHeaders = vNextAdminPortalUsesV2Tables_(runtimeVersion)
-    ? VN_ADMIN_PORTAL_DIRECTORY_HEADERS : VN_ADMIN_PORTAL_DIRECTORY_HEADERS_V1;
-  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_REQUEST_SHEET, requestHeaders);
-  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_DIRECTORY_SHEET, directoryHeaders);
-  vNextAdminEnsureExactTableHeaders_(spreadsheet, VN_ADMIN_PORTAL_CLIENT_CATALOG_SHEET,
-    VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS).hideSheet();
+  vNextAdminEnsurePortalRuntimeTables_(spreadsheet, runtimeVersion);
   const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   vNextAdminProtectInternalSheets_(spreadsheet,
     vNextAdminMergeEmails_(hubConfig.admin_emails, vNextAdminActor_()), [
@@ -11467,10 +11536,14 @@ function vNextAdminAppendPortalRequestEvent_(portal, validated, eventType, statu
 }
 
 function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
-  const portal = optionalPortal && typeof optionalPortal.getId === 'function'
-    ? { spreadsheet: optionalPortal }
-    : vNextAdminResolvePortal_(hub);
-  const spreadsheet = portal.spreadsheet;
+  let spreadsheet;
+  if (optionalPortal && typeof optionalPortal.getId === 'function') {
+    spreadsheet = optionalPortal;
+    const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
+    vNextAdminEnsurePortalRuntimeTables_(spreadsheet, portalConfig.runtime_version || VN_ADMIN_PORTAL_RUNTIME_VERSION);
+  } else {
+    spreadsheet = vNextAdminResolvePortal_(hub).spreadsheet;
+  }
   const registry = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
     return String(row.mode || '') === 'CLIENT' && String(row.status || '').toUpperCase() === 'ACTIVE';
   });
