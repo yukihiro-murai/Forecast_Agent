@@ -23,7 +23,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
 | コード上のPortal runtime | `vnext-portal-1.7.4` |
 | コード上のPortal bundle SHA-256 | `2a70abd7ad78759a7b0df8ddcce8a627e56abd11eb8a0cd53fb5180a786497cd` |
-| 社員 `/exec` | 同一URLのまま Portal 1.7.4 をピン予定 |
+| 社員 `/exec` | 同一URLのまま version 13 / `vnext-portal-1.7.4` にピン済み |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
