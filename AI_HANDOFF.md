@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-19 JST（社員 `/exec` を Portal 1.7.0 の同一URLへ直接ピン済み）  
+最終更新: 2026-08-19 JST（社員入口を単色Bot＋吹き出し案内の Portal 1.7.1 へ）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.0` |
-| コード上のPortal bundle SHA-256 | `d42ef79e91716f31cb87967ecae3cc81bba1433115bd2716806802f966807cc4` |
-| 社員 `/exec` | 同一URLのまま version 9 / `vnext-portal-1.7.0` にピン済み。ハード再読み込みで 01/02/03 入口になる |
+| コード上のPortal runtime | `vnext-portal-1.7.1` |
+| コード上のPortal bundle SHA-256 | `c96c0cf072182767f6107ee6e5be875be03f6479f3bdf5164482918884e7dffc` |
+| 社員 `/exec` | 同一URLのまま Portal 1.7.1 をピン予定。ハード再読み込みで各手順のBot＋吹き出しになる |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -39,7 +39,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。社内ドメイン向け `/exec` は 2026-08-19 に clasp で version 9（Portal 1.7.0、01/02/03）へ同じURLのまま差し替えた。Hubのピン一致だけでファイルコピーを飛ばすと、別ブランチの 1.8.0 が `/exec` に残る。ライブファイルの SHA を見てからコピーし、ブックマーク済み deployment だけを PUT する。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.1 は各手順に単色Botと固定の吹き出し案内を置く。ホバーで案内文を切り替えない。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
