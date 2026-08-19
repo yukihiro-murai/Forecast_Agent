@@ -32,7 +32,8 @@
       margin:0 0 16px; border:1px solid var(--line); box-shadow:var(--shadow);
     }
     .cast { display:flex; align-items:center; gap:14px; margin:0 0 16px; }
-    .bot { width:68px; height:68px; flex:0 0 auto; display:block; }
+    .bot { width:68px; height:68px; flex:0 0 auto; display:block; overflow:visible; }
+    .bot-cloud { width:80px; height:48px; }
     .bubble {
       position:relative; flex:1; min-width:0;
       background:var(--bubble-bg); color:var(--text);
@@ -138,6 +139,7 @@
       h1 { font-size:24px; }
       h2 { font-size:17px; }
       .bot { width:58px; height:58px; }
+      .bot-cloud { width:70px; height:42px; }
     }
     @media (prefers-reduced-motion:reduce) {
       .book, .pick { transition:none; }
@@ -163,7 +165,7 @@
         </div>
       </header>
       <div class="cast">
-        <svg class="bot" viewBox="0 0 80 80" aria-hidden="true">
+        <svg class="bot bot-cloud" viewBox="0 0 92 56" aria-hidden="true">
           <path fill="#C6F04D" d="M22 52c-11 0-18-9-18-18 0-8 6-15 14-16 2-12 16-18 27-12 9-9 24-5 27 8 9 1 16 9 16 18 0 11-9 20-22 20H22z"/>
           <rect x="28" y="28" width="4" height="16" rx="2" fill="#0B1F33" transform="rotate(-22 30 36)"/>
           <rect x="48" y="28" width="4" height="16" rx="2" fill="#0B1F33" transform="rotate(-22 50 36)"/>

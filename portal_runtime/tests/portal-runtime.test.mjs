@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.5');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.6');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -431,6 +431,8 @@ async function testStaticUxContracts() {
   assert.match(entry, /border-radius:99px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
+  assert.match(entry, /class="bot bot-cloud"/);
+  assert.match(entry, /viewBox="0 0 92 56"/);
   assert.match(entry, /previewBooksHtml/);
   assert.match(entry, /book ghost/);
   assert.match(entry, /この枠にクライアント名/);

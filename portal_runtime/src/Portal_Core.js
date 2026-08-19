@@ -5,7 +5,7 @@
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: '年度計画',
-  RUNTIME_VERSION: 'vnext-portal-1.7.5',
+  RUNTIME_VERSION: 'vnext-portal-1.7.6',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
