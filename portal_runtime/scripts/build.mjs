@@ -41,7 +41,7 @@ for (const name of (await readdir(distDir)).sort()) {
 }
 const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 const bundleHash = sha256(files.map((file) => `${file.name}\0${file.type}\0${file.source}`).join('\0'));
-const bundle = { version: 'vnext-portal-1.7.2', sha256: bundleHash, files };
+const bundle = { version: 'vnext-portal-1.7.3', sha256: bundleHash, files };
 await writeFile(path.join(generatedDir, 'portal-runtime-bundle.json'), `${JSON.stringify(bundle, null, 2)}\n`, 'utf8');
 
 const emitPath = readArg('--emit-gas-bundle');

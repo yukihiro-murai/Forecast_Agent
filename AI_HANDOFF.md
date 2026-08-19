@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-19 JST（社員入口 1.7.2。薄い背景・細い吹き出し・通常ウェイト）  
+最終更新: 2026-08-19 JST（社員入口 1.7.3。番号先頭・誰向け統一・フラットBot）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.2` |
-| コード上のPortal bundle SHA-256 | `635b8242a5f654b4a8cdc2a39a66840d736110e04b6aaf0a7a50aea7b898d571` |
-| 社員 `/exec` | 同一URLのまま version 11 / `vnext-portal-1.7.2` にピン済み |
+| コード上のPortal runtime | `vnext-portal-1.7.3` |
+| コード上のPortal bundle SHA-256 | `6fad1ea8e723486a8843397b62e9307e8a3f8523cec23440192624a280179f29` |
+| 社員 `/exec` | 同一URLのまま Portal 1.7.3 をピン予定 |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |

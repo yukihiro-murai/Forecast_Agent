@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.2');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.3');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -419,6 +419,14 @@ async function testStaticUxContracts() {
   assert.match(entry, /\.bubble \{[\s\S]*?border:1px solid/);
   assert.doesNotMatch(entry, /font-weight:800/);
   assert.equal((entry.match(/class="bubble"/g) || []).length, 3);
+  assert.equal((entry.match(/class="who"/g) || []).length, 3);
+  assert.match(entry, /新しいシートを用意する方向け/);
+  assert.match(entry, /予算を策定する方向け/);
+  assert.match(entry, /管理者の方向け/);
+  assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
+  assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
+    'Numbered section headers must appear above each bot and bubble');
+  assert.match(entry, /\.cast \{ display:flex; align-items:center;/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
