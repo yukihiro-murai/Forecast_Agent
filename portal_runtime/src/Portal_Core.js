@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.10',
+  RUNTIME_VERSION: 'vnext-portal-1.7.11',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',

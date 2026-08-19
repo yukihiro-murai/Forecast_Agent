@@ -32,15 +32,15 @@
       margin:0 0 16px; border:1px solid var(--line); box-shadow:var(--shadow);
     }
     .cast {
-      display:grid; grid-template-columns:80px minmax(0, 1fr); column-gap:14px;
+      display:grid; grid-template-columns:72px minmax(0, 1fr); column-gap:14px;
       align-items:center; margin:0 0 16px;
     }
     .bot-slot {
       display:flex; align-items:center; justify-content:center;
-      width:80px; height:68px;
+      width:72px; height:64px;
     }
-    .bot { width:68px; height:68px; display:block; overflow:visible; }
-    .bot-cloud { width:80px; height:48px; }
+    .bot { width:64px; height:64px; display:block; overflow:visible; }
+    .bot-cloud { width:72px; height:52px; transform:scaleX(-1); }
     .bubble {
       position:relative; flex:1; min-width:0;
       background:var(--bubble-bg); color:var(--text);
@@ -145,10 +145,10 @@
     @media (max-width:520px) {
       h1 { font-size:24px; }
       h2 { font-size:17px; }
-      .cast { grid-template-columns:70px minmax(0, 1fr); }
-      .bot-slot { width:70px; height:58px; }
-      .bot { width:58px; height:58px; }
-      .bot-cloud { width:70px; height:42px; }
+      .cast { grid-template-columns:64px minmax(0, 1fr); }
+      .bot-slot { width:64px; height:56px; }
+      .bot { width:56px; height:56px; }
+      .bot-cloud { width:64px; height:46px; }
     }
     @media (prefers-reduced-motion:reduce) {
       .book, .pick { transition:none; }
@@ -158,7 +158,7 @@
 <body>
   <header class="appHead">
     <h1>年度予算策定</h1>
-    <p class="lede">対象クライアントと年度を指定し、第2層のクライアント年度ブックを用意するか、すでにあるブックを開いて予算策定を始めます。</p>
+    <p class="lede">クライアントごとの年度予算を<b>始める・続ける・承認する</b>ための入口です。状況に合わせて、下の 01〜03 から選んでください。</p>
   </header>
 
   <div id="error" class="error hidden" role="alert"></div>
@@ -170,7 +170,7 @@
         <div class="step">
           <span class="num">01</span>
           <p class="who">第1層：申請入口</p>
-          <h2>クライアント年度ブックを新規申請する場合</h2>
+          <h2>まだクライアント年度ブックが無い場合（新規）</h2>
         </div>
       </header>
       <div class="cast">
@@ -182,7 +182,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>まだクライアント年度ブックが無いときに進みます。申請入口で対象のクライアントと年度を指定し、<b>新しいクライアント年度ブックを申請</b>します。</p>
+          <p>対象の<b>クライアント</b>と<b>年度（FY）</b>を指定し、新しいクライアント年度ブックの作成を申請します。新規のときは、まず<b>申請入口（第1層）</b>から始めます。</p>
         </div>
       </div>
       <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">申請入口を開く（新規申請）</a>
@@ -193,7 +193,7 @@
         <div class="step">
           <span class="num">02</span>
           <p class="who">第2層：クライアント年度ブック</p>
-          <h2>作成済みのクライアント年度ブックで予算を策定する場合</h2>
+          <h2>すでにクライアント年度ブックがある場合（予算策定）</h2>
         </div>
       </header>
       <div class="cast">
@@ -205,7 +205,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>すでにクライアント年度ブックがある場合に開きます。<b>先に年度を選び、次にクライアントを選んで</b>ください。名前を入力する必要はありません。</p>
+          <p>作成済みのクライアント年度ブックを開いて、予算策定を続けます。下の<b>年度ボタン</b>と<b>クライアント名ボタン</b>を順に押すだけです（文字の入力は不要）。</p>
         </div>
       </div>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
@@ -217,7 +217,7 @@
         <div class="step">
           <span class="num">03</span>
           <p class="who">第3層：管理ハブ</p>
-          <h2>年度予算の承認やデータの整備をする場合</h2>
+          <h2>予算の承認やデータ整備をする場合（管理担当者）</h2>
         </div>
       </header>
       <div class="cast">
@@ -229,7 +229,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>提出された予算の承認や、データの整備は<b>管理ハブ（第3層）</b>で行います。</p>
+          <p>提出された予算の<b>承認</b>や、マスタデータの<b>整備</b>は<b>管理ハブ（第3層）</b>で行います。一般の予算入力・新規申請には使いません。</p>
         </div>
       </div>
       <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
@@ -299,12 +299,12 @@
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">クライアント年度ブックが登録されると、この枠にクライアント名と次の操作、状態が入ります。01 から申請入口で新規申請してください。</p>';
+          '<p class="empty">クライアント年度ブックが登録されると、この枠にクライアント名と次の操作、状態が表示されます。まだ無い場合は 01 の「申請入口を開く」から新規申請してください。</p>';
         return;
       }
       if (!rows.length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">この年度のクライアント年度ブックはまだありません。別の年度を選ぶか、01 から申請入口で新規申請してください。</p>';
+          '<p class="empty">この年度のクライアント年度ブックはまだありません。01 から新規申請するか、別の年度ボタンを選んでください。</p>';
         return;
       }
       box.innerHTML = rows.map(function (book) {
