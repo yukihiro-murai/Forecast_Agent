@@ -41,7 +41,7 @@ Admin Hub を開き、案内の「最初にやること」を上から1つずつ
 - **Legacy book**: 現行運用を維持する参照元。vNext初期化では変更しません。
 - **Admin Hub**: registry、job、承認、公式run、release、例外を管理する管理者専用book。
 - **年度計画ポータル**: 全社員が既存Client FY Bookを探し、未作成のclient×FYを申請する共通入口。
-- **社員Web入口**: ポータル runtime の Web アプリ。ポータルへの大きなボタン、既存ブックの状態付き一覧、最下部の管理者リンク。
+- **社員Web入口**: ポータル runtime の Web アプリ。01で新しい個別シートを用意し、02で作成済みシートを開き、03で管理者の承認・整備へ進む。
 - **Master Template**: 実クライアントデータを持たないimmutableなClient FY Book生成release。
 - **Client FY Book**: 1 client × 1 FY。従業員入力、予測・計画、振り返りだけを表示。
 

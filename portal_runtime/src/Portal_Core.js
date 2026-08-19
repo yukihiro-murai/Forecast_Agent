@@ -5,7 +5,7 @@
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: '年度計画',
-  RUNTIME_VERSION: 'vnext-portal-1.6.0',
+  RUNTIME_VERSION: 'vnext-portal-1.7.0',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -300,16 +300,12 @@ function vNextPortalGetEntryModel() {
   try {
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     var cached = vNextPortalReadEntryCache_();
-    if (cached) {
-      cached.actorEmail = vNextPortalActiveUserEmail_();
-      return cached;
-    }
+    if (cached) return cached;
     var data = vNextPortalGetLocalViewData_(spreadsheet);
     var config = vNextPortalReadConfig_(spreadsheet);
     var model = vNextPortalBuildEntryModel_(data, {
       portalUrl: spreadsheet.getUrl(),
-      adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url),
-      actorEmail: vNextPortalActiveUserEmail_()
+      adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url)
     });
     vNextPortalWriteEntryCache_(model);
     return model;
@@ -354,7 +350,6 @@ function vNextPortalBuildEntryModel_(data, options) {
     runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
     portalUrl: String(opt.portalUrl || ''),
     adminHubUrl: String(opt.adminHubUrl || ''),
-    actorEmail: String(opt.actorEmail || ''),
     years: years,
     books: books
   };

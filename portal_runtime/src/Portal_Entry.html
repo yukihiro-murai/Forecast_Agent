@@ -4,39 +4,67 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>年度計画</title>
   <style>
     :root {
       --bg:#F5F8FB; --card:#fff; --primary:#00A0E9; --navy:#004080;
-      --text:#1F2A37; --muted:#6B7A8C; --line:#E3EAF2;
+      --text:#1F2A37; --muted:#5B6B7C; --line:#E3EAF2;
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
+      --guide:#FFF8E8;
     }
     * { box-sizing:border-box; }
     body {
       font-family:"Helvetica Neue","Yu Gothic",sans-serif;
-      max-width:720px; margin:24px auto; padding:0 16px 40px;
-      color:var(--text); background:var(--bg); font-size:14px; line-height:1.5;
+      max-width:640px; margin:20px auto; padding:0 16px 48px;
+      color:var(--text); background:var(--bg); font-size:14px; line-height:1.6;
+      word-break:keep-all; line-break:strict; overflow-wrap:break-word;
     }
     h1 { color:var(--navy); font-size:22px; font-weight:700; margin:0; }
-    .tag { font-size:13px; color:var(--muted); margin:4px 0 0; }
-    .brand { margin-bottom:18px; }
-    .card {
-      background:var(--card); border-radius:12px;
-      box-shadow:0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
-      padding:22px; margin:14px 0;
+    h2 { color:var(--navy); font-size:16px; font-weight:700; margin:0; line-height:1.45; }
+    .brand { margin-bottom:12px; }
+    .guide {
+      display:flex; gap:12px; align-items:flex-start;
+      background:var(--guide); border:1px solid #F3E2B3; border-radius:16px;
+      padding:12px 14px; margin:0 0 16px;
     }
-    .hero p { margin:8px 0 0; color:var(--muted); }
+    .guide p { margin:0; color:var(--navy); font-weight:600; }
+    .card, .choice {
+      background:var(--card); border-radius:16px;
+      box-shadow:0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
+      padding:18px; margin:12px 0;
+    }
+    .choice {
+      border:1px solid var(--line); cursor:default;
+      transition:border-color .15s, box-shadow .15s;
+    }
+    .choice:hover, .choice:focus-within {
+      border-color:#B3DFF6; box-shadow:0 6px 18px rgba(16,42,67,.08);
+    }
+    .choice-head { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-bottom:10px; }
+    .badge { position:relative; flex:0 0 auto; display:flex; align-items:center; gap:8px; }
+    .mascot { width:58px; height:58px; display:block; transition:transform .15s; }
+    .choice:hover .mascot, .choice:focus-within .mascot { transform:translateY(-2px); }
+    .num {
+      font-size:20px; font-weight:800; color:var(--navy); letter-spacing:.02em;
+      font-variant-numeric:tabular-nums;
+    }
+    .choice p { margin:0; color:var(--muted); }
+    .choice .hint { margin:8px 0 12px; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 14px; }
+    .audience { margin:8px 0 0; font-size:12px; font-weight:700; color:var(--navy); }
     a.btn, button, .pick {
       font-family:inherit; font-weight:700; cursor:pointer; border:none; text-decoration:none;
     }
-    a.btn-primary {
-      display:block; text-align:center; background:var(--primary); color:#fff;
-      padding:14px 16px; font-size:16px; margin-top:16px; border-radius:8px;
+    a.btn-primary, a.btn-admin {
+      display:block; text-align:center; padding:13px 16px; font-size:15px;
+      margin-top:14px; border-radius:10px; line-height:1.35; white-space:normal;
     }
+    a.btn-primary { background:var(--primary); color:#fff; }
+    a.btn-admin { background:var(--navy); color:#fff; }
+    a.btn[aria-disabled="true"] { opacity:.45; pointer-events:none; }
     :focus { outline:none; }
     :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-    .section-title { color:var(--navy); font-size:15px; font-weight:700; margin:0 0 4px; }
-    .hint { font-size:12px; color:var(--muted); margin:0 0 12px; }
-    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+    .hint { font-size:13px; color:var(--muted); margin:0 0 12px; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
       min-height:40px; padding:8px 14px; border-radius:8px;
@@ -60,43 +88,121 @@
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
     .empty, .loading { color:var(--muted); padding:12px 0; }
     .error { color:#C0392B; background:#FDECEC; border-radius:8px; padding:10px 12px; }
-    .footer { margin-top:28px; border-top:1px solid var(--line); padding-top:12px; }
-    .tiny { font-size:12px; color:var(--muted); }
-    .tiny a { color:var(--muted); }
     .hidden { display:none !important; }
+    @media (prefers-reduced-motion:reduce) {
+      .choice, .mascot { transition:none; }
+      .choice:hover .mascot, .choice:focus-within .mascot { transform:none; }
+    }
   </style>
 </head>
 <body>
   <div class="brand">
     <h1>年度計画</h1>
-    <p class="tag">クライアント別の年間売上計画</p>
+  </div>
+
+  <div class="guide" aria-live="polite">
+    <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id="gHost" x1="18" y1="8" x2="50" y2="58">
+          <stop offset="0" stop-color="#FFE58A"/><stop offset="1" stop-color="#F5C451"/>
+        </linearGradient>
+      </defs>
+      <rect x="10" y="12" width="44" height="40" rx="20" fill="url(#gHost)"/>
+      <ellipse cx="24" cy="20" rx="10" ry="6" fill="#fff" opacity=".45"/>
+      <circle cx="26" cy="30" r="4.4" fill="#fff"/><circle cx="38" cy="30" r="4.4" fill="#fff"/>
+      <circle cx="27.2" cy="31" r="2.2" fill="#1F2A37"/><circle cx="39.2" cy="31" r="2.2" fill="#1F2A37"/>
+      <path d="M27 39 Q32 44 37 39" fill="none" stroke="#1F2A37" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <p id="guideSpeech">どれから進めますか。01は新しいシート、02は作成済みのシート、03は管理者の作業です。</p>
   </div>
 
   <div id="error" class="error hidden" role="alert"></div>
-  <div id="loading" class="loading">読み込んでいます…</div>
+  <div id="loading" class="loading">画面を読み込んでいます…</div>
 
   <div id="app" class="hidden">
-    <section class="card hero">
-      <div class="section-title">はじめる</div>
-      <p>すでにある計画は、年度を押してからクライアントを押して開きます。まだ無いときだけポータルで作成します。</p>
-      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい年度計画を作る</a>
-    </section>
+    <p>対象クライアントについて、<br>予算を策定する年度を指定し、<br>個別シートを用意することがスタートです。</p>
 
-    <section class="card">
-      <div class="section-title">いま進んでいる計画</div>
-      <p class="hint">先に年度、次にクライアントを押してください。名前を入力する必要はありません。</p>
+    <article class="choice" data-speech="まだ個別シートが無いクライアントと年度のときに進みます。対象のクライアントと年度を指定して、新しい個別シートを用意します。">
+      <div class="choice-head">
+        <div class="badge">
+          <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+            <defs>
+              <linearGradient id="g1" x1="12" y1="8" x2="52" y2="56">
+                <stop offset="0" stop-color="#7EE0FF"/><stop offset="1" stop-color="#2BB7E8"/>
+              </linearGradient>
+            </defs>
+            <rect x="10" y="10" width="44" height="44" rx="14" fill="url(#g1)"/>
+            <ellipse cx="23" cy="18" rx="10" ry="6" fill="#fff" opacity=".4"/>
+            <circle cx="25" cy="30" r="4.4" fill="#fff"/><circle cx="39" cy="30" r="4.4" fill="#fff"/>
+            <circle cx="26.2" cy="31" r="2.2" fill="#1F2A37"/><circle cx="40.2" cy="31" r="2.2" fill="#1F2A37"/>
+            <path d="M27 39 Q32 44 37 39" fill="none" stroke="#1F2A37" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span class="num">01</span>
+        </div>
+        <h2>クライアントの個別シートを<br>新規で作成する場合</h2>
+      </div>
+      <p>対象のクライアントと、予算を策定する年度を指定して、<br>新しい個別シートを用意します。</p>
+      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい個別シートを用意する</a>
+    </article>
+
+    <article class="choice" data-speech="すでに個別シートがある計画を開きます。先に年度を選び、次にクライアントを選んでください。">
+      <div class="choice-head">
+        <div class="badge">
+          <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+            <defs>
+              <linearGradient id="g2" x1="16" y1="8" x2="50" y2="58">
+                <stop offset="0" stop-color="#9BE7C4"/><stop offset="1" stop-color="#2FBF7F"/>
+              </linearGradient>
+            </defs>
+            <circle cx="32" cy="32" r="22" fill="url(#g2)"/>
+            <ellipse cx="24" cy="20" rx="10" ry="6" fill="#fff" opacity=".4"/>
+            <circle cx="25" cy="30" r="4.4" fill="#fff"/><circle cx="39" cy="30" r="4.4" fill="#fff"/>
+            <circle cx="26.2" cy="31" r="2.2" fill="#1F2A37"/><circle cx="40.2" cy="31" r="2.2" fill="#1F2A37"/>
+            <path d="M27 39 Q32 44 37 39" fill="none" stroke="#1F2A37" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span class="num">02</span>
+        </div>
+        <h2>個別シートが作成済みで<br>予算を策定する場合</h2>
+      </div>
+      <p>年度を選んでからクライアントを選ぶと、<br>作成済みの個別シートを開きます。</p>
+      <p class="hint">名前を入力する必要はありません。</p>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
       <div id="books" class="books"></div>
-    </section>
+    </article>
 
-    <footer class="footer">
-      <p class="tiny" id="adminLine"></p>
-    </footer>
+    <article class="choice" data-speech="予算を入力する人向けではありません。提出された計画の承認や、データの整備を行う人が使います。">
+      <div class="choice-head">
+        <div class="badge">
+          <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+            <defs>
+              <linearGradient id="g3" x1="14" y1="8" x2="52" y2="58">
+                <stop offset="0" stop-color="#C4B5FD"/><stop offset="1" stop-color="#6366F1"/>
+              </linearGradient>
+            </defs>
+            <rect x="16" y="16" width="32" height="32" rx="10" transform="rotate(45 32 32)" fill="url(#g3)"/>
+            <ellipse cx="24" cy="20" rx="9" ry="5" fill="#fff" opacity=".35"/>
+            <circle cx="25" cy="30" r="4.4" fill="#fff"/><circle cx="39" cy="30" r="4.4" fill="#fff"/>
+            <circle cx="26.2" cy="31" r="2.2" fill="#1F2A37"/><circle cx="40.2" cy="31" r="2.2" fill="#1F2A37"/>
+            <path d="M27 39 Q32 44 37 39" fill="none" stroke="#1F2A37" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span class="num">03</span>
+        </div>
+        <h2>管理者が、予算計画の承認や<br>データの整備をする場合</h2>
+      </div>
+      <p class="audience">管理者の方が使う項目です。</p>
+      <p>提出された予算計画の承認や、データの整備は<br>管理者用の画面で行います。</p>
+      <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理者用の画面を開く</a>
+    </article>
   </div>
 
   <script>
+    var DEFAULT_SPEECH = 'どれから進めますか。01は新しいシート、02は作成済みのシート、03は管理者の作業です。';
     var entryModel = null;
     var selectedYear = 0;
+    function speak(text) {
+      var el = document.getElementById('guideSpeech');
+      if (el) el.textContent = text || DEFAULT_SPEECH;
+    }
     function chipClass(tone) {
       if (tone === 'warn') return 'chip warn';
       if (tone === 'good') return 'chip good';
@@ -105,6 +211,11 @@
     function escapeHtml(value) {
       return String(value == null ? '' : value)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function userFacing(value) {
+      return String(value == null ? '' : value)
+        .replace(/専用ブック/g, '個別シート')
+        .replace(/ブック/g, 'シート');
     }
     function booksForYear(year) {
       return (entryModel.books || []).filter(function (book) {
@@ -122,7 +233,7 @@
         var pressed = Number(year) === Number(selectedYear) ? 'true' : 'false';
         var selected = pressed === 'true' ? ' selected' : '';
         return '<button type="button" class="pick' + selected + '" data-year="' + year +
-          '" aria-pressed="' + pressed + '">FY' + year + '</button>';
+          '" aria-pressed="' + pressed + '">' + year + '年度</button>';
       }).join('');
       Array.prototype.forEach.call(box.querySelectorAll('[data-year]'), function (button) {
         button.addEventListener('click', function () {
@@ -137,18 +248,18 @@
       var box = document.getElementById('books');
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
-        box.innerHTML = '<div class="empty">表示できる計画はまだありません。上のボタンから作成してください。</div>';
+        box.innerHTML = '<div class="empty">表示できる計画はまだありません。<br>01から新しい個別シートを用意してください。</div>';
         return;
       }
       if (!rows.length) {
-        box.innerHTML = '<div class="empty">この年度の計画はまだありません。別の年度を選ぶか、上のボタンから作成してください。</div>';
+        box.innerHTML = '<div class="empty">この年度の計画はまだありません。<br>別の年度を選ぶか、01から新しい個別シートを用意してください。</div>';
         return;
       }
       box.innerHTML = rows.map(function (book) {
         var body =
           '<div><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
-          '<div class="book-meta">' + (book.nextAction ? escapeHtml(book.nextAction) : 'FY' + escapeHtml(book.fiscalYear)) + '</div></div>' +
-          '<span class="' + chipClass(book.tone) + '">' + escapeHtml(book.stateLabel) + '</span>';
+          '<div class="book-meta">' + (book.nextAction ? escapeHtml(userFacing(book.nextAction)) : escapeHtml(book.fiscalYear) + '年度') + '</div></div>' +
+          '<span class="' + chipClass(book.tone) + '">' + escapeHtml(userFacing(book.stateLabel)) + '</span>';
         if (book.url) {
           return '<a class="book" href="' + escapeHtml(book.url) + '" target="_blank" rel="noopener">' + body + '</a>';
         }
@@ -159,12 +270,21 @@
       entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
-      document.getElementById('portalButton').href = model.portalUrl;
-      var admin = document.getElementById('adminLine');
-      if (model.adminHubUrl) {
-        admin.innerHTML = '<a href="' + escapeHtml(model.adminHubUrl) + '" target="_blank" rel="noopener">管理者用ハブ</a>';
+      var portalButton = document.getElementById('portalButton');
+      if (model.portalUrl) {
+        portalButton.href = model.portalUrl;
+        portalButton.removeAttribute('aria-disabled');
       } else {
-        admin.textContent = '';
+        portalButton.href = '#';
+        portalButton.setAttribute('aria-disabled', 'true');
+      }
+      var adminButton = document.getElementById('adminButton');
+      if (model.adminHubUrl) {
+        adminButton.href = model.adminHubUrl;
+        adminButton.classList.remove('hidden');
+      } else {
+        adminButton.href = '#';
+        adminButton.classList.add('hidden');
       }
       var years = entryModel.years || [];
       var remembered = 0;
@@ -183,6 +303,14 @@
       el.textContent = message;
       el.classList.remove('hidden');
     }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-speech]'), function (node) {
+      function on() { speak(node.getAttribute('data-speech')); }
+      function off() { speak(DEFAULT_SPEECH); }
+      node.addEventListener('mouseenter', on);
+      node.addEventListener('mouseleave', off);
+      node.addEventListener('focusin', on);
+      node.addEventListener('focusout', off);
+    });
     google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
       .vNextPortalPrepareOpenExperience();
     google.script.run

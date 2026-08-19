@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.6.0');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.0');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -350,6 +350,7 @@ function testEntryModel() {
   assert.equal(model.books[0].tone, 'warn');
   assert.equal(model.books[1].stateLabel, 'ブック作成中');
   assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
+  assert.equal('actorEmail' in model, false);
   assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
 }
 
@@ -408,10 +409,12 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /年度計画ポータルを開く|新しい年度計画を作る/);
+  assert.match(entry, /新しい個別シートを用意する/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(entry, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
-  assert.doesNotMatch(entry, /クライアント名で探す/);
-  assert.match(entry, /管理者用ハブ/);
+  assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
+  assert.match(entry, /管理者用の画面を開く/);
+  assert.match(entry, /data-speech/);
+  assert.doesNotMatch(core, /cached\.actorEmail/);
 }
