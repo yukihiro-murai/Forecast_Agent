@@ -4,54 +4,144 @@
     <base target="_top">
     <meta charset="utf-8">
     <style>
-      :root { --green:#137333; --blue:#1769aa; --red:#b3261e; --amber:#9a4f00; --ink:#1f2937; --muted:#64748b; --line:#e2e8f0; --soft:#f6f8fb; --panel:#ffffff; }
+      :root {
+        --green:#137333; --blue:#1769aa; --red:#b3261e; --amber:#9a4f00;
+        --ink:#1f2937; --muted:#64748b; --line:#e2e8f0; --soft:#f6f8fb; --panel:#ffffff;
+        --radius:10px; --btn-h:40px;
+      }
       * { box-sizing:border-box; }
-      body { font: 13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); margin:0; padding:16px; background:#fbfcfe; }
-      h1 { font-size:19px; letter-spacing:-.2px; margin:0 0 2px; }
-      h2 { font-size:14px; margin:0 0 8px; }
+      body {
+        font: 13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        color:var(--ink); margin:0; padding:14px 14px 88px; background:#f4f6f9;
+      }
+      h1 { font-size:18px; letter-spacing:-.2px; margin:0; line-height:1.3; }
+      h2, .section-title { font-size:14px; font-weight:700; margin:0; line-height:1.35; }
       p { margin:6px 0; }
+      .page-header { margin-bottom:12px; }
+      .page-lead { margin:4px 0 8px; color:var(--muted); font-size:12px; }
+      .page-meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
+      .book-name { color:var(--muted); font-size:12px; width:100%; }
       .muted { color:var(--muted); }
-      .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#e8f0fe; color:#174ea6; font-size:11px; font-weight:700; }
-      .card { border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; background:var(--panel); box-shadow:0 1px 2px rgba(15,23,42,.04); }
-      .metrics { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-      .metric { background:var(--soft); border-radius:9px; padding:9px; color:var(--muted); }
-      .metric b { display:block; margin-top:2px; font-size:20px; line-height:1.15; color:var(--ink); }
+      .badge {
+        display:inline-block; padding:3px 9px; border-radius:999px;
+        background:#e8f0fe; color:#174ea6; font-size:11px; font-weight:700;
+      }
+      .card {
+        border:1px solid var(--line); border-radius:var(--radius);
+        padding:12px 14px; margin:10px 0; background:var(--panel);
+        box-shadow:0 1px 2px rgba(15,23,42,.04);
+      }
+      .card-primary { border-color:#c9daf8; }
+      .metrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .metric {
+        background:var(--soft); border-radius:8px; padding:10px 11px;
+        color:var(--muted); font-size:11px; font-weight:600;
+      }
+      .metric b {
+        display:block; margin-top:3px; font-size:22px; line-height:1.1;
+        color:var(--ink); font-weight:700;
+      }
       .overview { border-left:4px solid var(--green); }
       .overview.attention { border-left-color:var(--amber); }
       .overview.error { border-left-color:var(--red); background:#fff8f7; }
       .overview.processing { border-left-color:var(--blue); }
-      .overview-title { font-size:15px; font-weight:750; }
+      .overview-title { font-size:14px; font-weight:700; }
       .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
-      .count-pill { min-width:24px; padding:1px 7px; border-radius:999px; text-align:center; background:#eef2f7; font-weight:700; }
-      label { display:block; font-weight:700; margin-top:8px; }
-      input, textarea, select { box-sizing:border-box; width:100%; margin-top:3px; padding:7px; border:1px solid var(--line); border-radius:4px; font:inherit; }
-      textarea { min-height:58px; resize:vertical; }
-      button { border:0; border-radius:7px; padding:9px 11px; margin:8px 4px 0 0; background:var(--blue); color:white; font-weight:700; cursor:pointer; }
-      button.secondary { background:#5f6368; }
-      button.good { background:var(--green); }
-      button.warn { background:var(--amber); }
-      button.danger { background:var(--red); }
-      button:disabled { opacity:.55; cursor:default; }
+      .count-pill {
+        min-width:26px; padding:2px 8px; border-radius:999px; text-align:center;
+        background:#eef2f7; font-weight:700; font-size:12px;
+      }
+      label { display:block; font-weight:600; margin-top:10px; font-size:12px; color:#475569; }
+      input, textarea, select {
+        width:100%; margin-top:4px; padding:8px 10px;
+        border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff;
+      }
+      input:focus, textarea:focus, select:focus {
+        outline:2px solid #c9daf8; outline-offset:0; border-color:var(--blue);
+      }
+      textarea { min-height:64px; resize:vertical; }
+      label.check {
+        display:flex; align-items:flex-start; gap:8px; font-weight:400; color:var(--ink);
+      }
+      label.check input { width:auto; margin-top:3px; flex:0 0 auto; }
+      .btn, button {
+        display:inline-flex; align-items:center; justify-content:center;
+        width:100%; min-height:var(--btn-h); padding:0 14px; margin:0;
+        border:0; border-radius:8px; background:var(--blue); color:#fff;
+        font:inherit; font-weight:600; cursor:pointer; text-align:center;
+      }
+      .btn.secondary, button.secondary { background:#5f6368; }
+      .btn.good, button.good { background:var(--green); }
+      .btn.warn, button.warn { background:var(--amber); }
+      .btn.danger, button.danger { background:var(--red); }
+      .btn:disabled, button:disabled { opacity:.5; cursor:default; }
+      .btn-row { display:grid; gap:8px; margin-top:10px; }
+      .btn-row.cols-2 { grid-template-columns:1fr 1fr; }
+      .btn-row.cols-3 { grid-template-columns:repeat(3,1fr); }
       .hidden { display:none !important; }
-      .status { white-space:pre-wrap; padding:9px; border-radius:7px; margin-top:8px; background:var(--soft); max-height:180px; overflow:auto; }
+      .status {
+        white-space:pre-wrap; padding:10px 11px; border-radius:8px;
+        margin-top:10px; background:var(--soft); max-height:160px; overflow:auto; font-size:12px;
+      }
+      .status.compact { max-height:100px; }
       .status.error { color:var(--red); background:#fce8e6; }
-      .approval, .exception, .work-item { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
-      .approval:first-child, .exception:first-child, .work-item:first-child { border-top:0; padding-top:0; margin-top:0; }
-      .item-label { font-weight:700; }
-      .item-meta { color:var(--muted); font-size:12px; }
+      .status-dock {
+        position:fixed; left:0; right:0; bottom:0; z-index:20;
+        padding:10px 14px 12px; background:rgba(244,246,249,.97);
+        border-top:1px solid var(--line); backdrop-filter:blur(6px);
+      }
+      .status-dock .status { margin:0; max-height:72px; }
+      .approval, .exception, .work-item {
+        border-top:1px solid var(--line); padding-top:12px; margin-top:12px;
+      }
+      .approval:first-child, .exception:first-child, .work-item:first-child {
+        border-top:0; padding-top:0; margin-top:0;
+      }
+      .item-label { font-weight:700; font-size:13px; }
+      .item-meta { color:var(--muted); font-size:12px; margin-top:3px; }
       .item-error { color:var(--red); }
-      details { margin-top:10px; }
-      summary { cursor:pointer; color:#334155; font-weight:700; }
+      .accordion {
+        border:1px solid var(--line); border-radius:var(--radius);
+        background:var(--panel); margin:10px 0; overflow:hidden;
+      }
+      .accordion > summary {
+        list-style:none; cursor:pointer; padding:11px 14px;
+        font-weight:700; font-size:13px; background:var(--soft); color:#334155;
+      }
+      .accordion > summary::-webkit-details-marker { display:none; }
+      .accordion[open] > summary { border-bottom:1px solid var(--line); }
+      .accordion-body { padding:12px 14px 14px; }
+      .accordion.nested { margin:10px 0 0; border-radius:8px; }
+      .accordion.nested > summary {
+        padding:9px 12px; font-size:12px; font-weight:600; background:#fafbfc;
+      }
+      .subsection { margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+      .subsection:first-child { margin-top:0; padding-top:0; border-top:0; }
+      .subsection-title { font-size:13px; font-weight:700; margin:0 0 6px; }
+      .setup-steps { margin:8px 0; padding-left:18px; color:var(--muted); font-size:12px; }
+      .setup-steps li { margin:4px 0; }
       .money { font-variant-numeric:tabular-nums; }
-      a { color:var(--blue); }
-      pre { white-space:pre-wrap; word-break:break-word; font:11px/1.45 ui-monospace,SFMono-Regular,monospace; color:#475569; }
+      a { color:var(--blue); font-weight:600; font-size:12px; }
+      pre {
+        white-space:pre-wrap; word-break:break-word;
+        font:11px/1.45 ui-monospace,SFMono-Regular,monospace; color:#475569;
+      }
+      .empty-state { color:var(--muted); font-size:12px; padding:4px 0; }
+      .approval .field { margin-top:8px; }
+      @media (max-width:360px) {
+        .btn-row.cols-2, .btn-row.cols-3 { grid-template-columns:1fr; }
+      }
     </style>
   </head>
   <body>
-    <h1>管理ハブ</h1>
-    <p class="muted" style="margin:4px 0 8px">現場の年度・クライアント指定は、申請入口（第2層）から行います。この画面は管理ハブ（第1層）の承認・例外・保守です。</p>
-    <div><span id="mode" class="badge">loading</span></div>
-    <div id="book" class="muted"></div>
+    <header class="page-header">
+      <h1>管理ハブ</h1>
+      <p class="page-lead">現場の年度・クライアント指定は、申請入口（第2層）から行います。日常の承認・例外・処理はこのサイドバーで行います。</p>
+      <div class="page-meta">
+        <span id="mode" class="badge">loading</span>
+        <span id="book" class="book-name"></span>
+      </div>
+    </header>
 
     <div id="legacyPanel" class="hidden">
       <div class="card">
@@ -66,44 +156,33 @@
           <label>保存先folder ID（任意）<input id="bootstrapFolderId"></label>
           <label>Admin emails（カンマ区切り）<textarea id="adminEmails"></textarea></label>
         </details>
-        <button onclick="bootstrapBooks()">2冊を作成</button>
+        <div class="btn-row"><button class="btn good" onclick="bootstrapBooks()">2冊を作成</button></div>
       </div>
       <details class="card">
         <summary>作成途中で時間切れになった場合</summary>
         <p class="muted">新しい Spreadsheet を増やさず、すでに作成された管理ハブ／Master Template の ID を確認して残りの登録だけを再開します。</p>
         <label>管理ハブ Spreadsheet ID<input id="recoveryHubId"></label>
         <label>Master Template Spreadsheet ID<input id="recoveryTemplateId"></label>
-        <button class="warn" onclick="recoverBootstrap()">既存2冊から初期設定を再開</button>
+        <div class="btn-row"><button class="btn warn" onclick="recoverBootstrap()">既存2冊から初期設定を再開</button></div>
         <h2>生成した管理ハブの必要APIを有効化</h2>
         <p class="muted">管理ハブのエラーに表示された数字だけのCloud project番号を使い、Apps Script APIだけを有効化します。</p>
         <label>管理ハブ Spreadsheet ID<input id="apiRecoveryHubId"></label>
         <label>管理ハブ Cloud project 番号<input id="apiRecoveryProjectNumber" inputmode="numeric"></label>
-        <button class="warn" onclick="enableGeneratedHubApi()">生成した管理ハブのApps Script APIを有効化</button>
+        <div class="btn-row"><button class="btn warn" onclick="enableGeneratedHubApi()">Apps Script APIを有効化</button></div>
         <h2>Pilot用Clientを中央から生成</h2>
         <p class="muted">生成した管理ハブのCloud設定が未完了でも、中央の承認済みprojectからテスト用Clientを1冊だけ安全に生成できます。</p>
         <label>管理ハブ Spreadsheet ID<input id="pilotSourceHubId"></label>
         <label>クライアント名（ZACと完全一致）<input id="pilotSourceClientName"></label>
         <label>年度（FY）<input id="pilotSourceFiscalYear" placeholder="2026"></label>
         <label>予算策定担当<input id="pilotSourceOwner" type="email"></label>
-        <button class="good" onclick="provisionPilotFromSource()">テスト用クライアント年度ブックを生成</button>
-        <button class="warn" onclick="installPilotSourceAutomation()">中央projectでPilot自動運用を有効化</button>
+        <div class="btn-row cols-2">
+          <button class="btn good" onclick="provisionPilotFromSource()">テスト用ブックを生成</button>
+          <button class="btn warn" onclick="installPilotSourceAutomation()">Pilot自動運用を有効化</button>
+        </div>
       </details>
     </div>
 
     <div id="adminPanel">
-      <div class="card">
-        <h2>最初にやること（1回だけ）</h2>
-        <p class="muted">検証データを消してから置き場を整え、年度予算策定 Web入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
-        <ol class="muted" style="padding-left:18px;margin:8px 0">
-          <li>下の「保守・高度な操作」で「中央配備版へ更新」</li>
-          <li>同じ欄の「受入試験をゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
-          <li>「共有ドライブ『年度予算策定』へ移す」</li>
-          <li>下の「申請入口を最新版へ更新」（理由は空欄で可）</li>
-          <li>申請入口 Spreadsheet のスクリプトから Web アプリを社内向けに公開</li>
-        </ol>
-        <button class="good" onclick="relocateLibrary()">共有ドライブ「年度予算策定」へ移す</button>
-        <button class="warn" onclick="updatePortalRuntime()">申請入口を最新版へ更新</button>
-      </div>
       <div id="attentionOverview" class="card overview">
         <div id="attentionLabel" class="overview-title">最新状態を確認しています</div>
         <div id="attentionGuidance" class="muted">少しお待ちください。</div>
@@ -116,77 +195,110 @@
         <div class="metric">クライアント年度ブック<b id="clientCount">0</b></div>
       </div>
 
-      <div class="card">
-        <div class="row"><h2>確認・承認待ち</h2><span id="approvalPill" class="count-pill">0</span></div>
-        <div id="approvals" class="muted">ありません</div>
+      <div class="card card-primary">
+        <div class="row"><h2 class="section-title">承認待ち</h2><span id="approvalPill" class="count-pill">0</span></div>
+        <div id="approvals" class="empty-state">ありません</div>
       </div>
 
       <div class="card">
-        <div class="row"><h2>要確認事項</h2><span id="exceptionPill" class="count-pill">0</span></div>
-        <div id="exceptions" class="muted">ありません</div>
-        <button class="secondary" onclick="callSimple('vNextAdminMenuOpenExceptions')">一覧シートを開く</button>
+        <div class="row"><h2 class="section-title">要確認事項</h2><span id="exceptionPill" class="count-pill">0</span></div>
+        <div id="exceptions" class="empty-state">ありません</div>
+        <div class="btn-row"><button class="btn secondary" onclick="callSimple('vNextAdminMenuOpenExceptions')">一覧シートを開く</button></div>
       </div>
 
-      <div class="card">
-        <h2>申請・自動処理</h2>
-        <div id="automationStatus" class="muted">確認中…</div>
-        <div id="operationsStatus" class="status">最新状態を確認中…</div>
-        <div id="portalRequests" class="muted"></div>
-        <div id="recentJobs" class="muted"></div>
-        <button id="installAutomation" class="good" onclick="callSimple('vNextAdminInstallAutomation')">自動運用を有効化</button>
-        <button id="runOperationalCycle" onclick="runOperationalCycle()">申請を今すぐ処理</button>
-        <details>
-          <summary>個別の状態確認</summary>
-          <button class="secondary" onclick="callSimple('vNextAdminRunHealthScan')">全クライアント年度ブックを確認</button>
-          <button class="secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認一覧だけ更新</button>
+      <div class="card card-primary">
+        <h2 class="section-title">申請・自動処理</h2>
+        <div id="automationStatus" class="item-meta">確認中…</div>
+        <div id="operationsStatus" class="status compact">最新状態を確認中…</div>
+        <div id="portalRequests"></div>
+        <div id="recentJobs"></div>
+        <div class="btn-row cols-2">
+          <button id="installAutomation" class="btn good" onclick="callSimple('vNextAdminInstallAutomation')">自動運用を有効化</button>
+          <button id="runOperationalCycle" class="btn" onclick="runOperationalCycle()">申請を今すぐ処理</button>
+        </div>
+        <details class="accordion nested">
+          <summary>状態確認（詳細）</summary>
+          <div class="accordion-body" style="padding-top:10px">
+            <div class="btn-row cols-2">
+              <button class="btn secondary" onclick="callSimple('vNextAdminRunHealthScan')">全ブックを確認</button>
+              <button class="btn secondary" onclick="callSimple('vNextAdminMenuRefreshExceptions')">要確認一覧を更新</button>
+            </div>
+          </div>
         </details>
       </div>
 
-      <details class="card">
-        <summary>申請入口（第2層）の設定・更新</summary>
-        <h2>申請入口</h2>
-        <p class="muted">全社員がクライアント年度ブックを探し、未作成の client×FY を申請する第2層の Spreadsheet です。</p>
-        <label>会社ドメイン（空欄は管理ハブ担当者メールから自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
-        <label>申請入口名（任意）<input id="portalTitle" placeholder="申請入口"></label>
-        <button class="good" onclick="provisionSharedPortal()">申請入口を準備する</button>
-        <div id="portalRuntimeStatus" class="status">Portal runtimeを確認中…</div>
-        <div id="clientCatalogStatus" class="status">ZACクライアント候補を確認中…</div>
-        <button id="refreshClientCatalogButton" class="secondary" onclick="refreshClientCatalog()">ZACクライアント候補を今すぐ更新</button>
-        <details>
-          <summary>既存の申請入口を最新版へ更新する</summary>
-          <p class="muted">受付履歴と Client 一覧は残したまま、検証済み runtime とクライアント選択候補を更新します。理由は空欄のままで構いません。</p>
-          <label>更新理由（空欄可）<input id="portalRuntimeReason" placeholder="入力項目の簡略化・不具合修正など"></label>
-          <button id="updatePortalRuntimeButton" class="warn" onclick="updatePortalRuntime()">申請入口を最新版へ更新</button>
-        </details>
-        <details>
-          <summary>初回Pilotを一括準備する</summary>
-          <p class="muted">現在の予測Engine・parameterを変更せず、新しい Client runtime 用の Template／Model 版を発行してから申請入口を準備します。1回に1段階だけ進むため、「完了」と表示されるまで同じボタンを繰り返してください。</p>
-          <label><input id="portalPilotAttestation" type="checkbox"> 上記のClient runtime 10 suites、Portal runtime 11 suites、統合契約test PASSを管理ハブ担当者として確認した</label>
-          <button class="warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button>
-        </details>
-        <div id="pilotStatus" class="status">Pilot展開状況を確認中…</div>
-        <div id="pilotCanaryApproval" class="hidden">
-          <label>3冊の確認結果・次へ進む理由<textarea id="pilotCanaryReason"></textarea></label>
-          <button class="warn" onclick="approvePilotCanary()">4〜5冊目のテストを承認</button>
+      <details class="accordion">
+        <summary>初回セットアップ（1回だけ）</summary>
+        <div class="accordion-body">
+          <p class="muted">検証データを消してから置き場を整え、Web入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
+          <ol class="setup-steps">
+            <li>下の「保守・高度な操作」→「中央配備版へ更新」</li>
+            <li>同欄の「受入試験をゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
+            <li>「共有ドライブ『年度予算策定』へ移す」</li>
+            <li>「申請入口を最新版へ更新」（理由は空欄可）</li>
+            <li>申請入口 Spreadsheet から Web アプリを社内向け公開</li>
+          </ol>
+          <div class="btn-row cols-2">
+            <button class="btn good" onclick="relocateLibrary()">共有ドライブへ移す</button>
+            <button class="btn warn" onclick="updatePortalRuntime()">申請入口を更新</button>
+          </div>
         </div>
       </details>
 
-      <details class="card">
-        <summary>クライアント年度ブックを個別に作る（例外対応）</summary>
-        <p class="muted">通常は申請入口（第2層）から依頼します。管理ハブが代理作成する場合だけ使用してください。</p>
-        <label>クライアント名<input id="clientName"></label>
-        <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
-        <label>作成担当者（1名のメール）<input id="ownerEmails" type="email"></label>
-        <details>
-          <summary>詳細設定</summary>
-          <label>Client ID（空欄は自動採番）<input id="clientId"></label>
-          <label>追加編集メンバー（カンマ区切り）<textarea id="editorEmails"></textarea></label>
-          <label>閲覧者（カンマ区切り）<textarea id="viewerEmails"></textarea></label>
-          <label>入力期限（任意・空欄は7日後）<input id="inputDueDate" placeholder="2026/03/15"></label>
-          <label>Release ID（空欄は現行版）<input id="clientReleaseId"></label>
-          <label>保存先folder ID（任意）<input id="clientFolderId"></label>
-        </details>
-        <button onclick="provisionClient()">クライアント年度ブックを作成</button>
+      <details class="accordion">
+        <summary>申請入口（第2層）の設定</summary>
+        <div class="accordion-body">
+          <p class="muted">全社員が client×FY を探し、未作成分を申請する Spreadsheet です。</p>
+          <label>会社ドメイン（空欄は自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
+          <label>申請入口名（任意）<input id="portalTitle" placeholder="申請入口"></label>
+          <div class="btn-row"><button class="btn good" onclick="provisionSharedPortal()">申請入口を準備する</button></div>
+          <div id="portalRuntimeStatus" class="status compact">Portal runtimeを確認中…</div>
+          <div id="clientCatalogStatus" class="status compact">ZACクライアント候補を確認中…</div>
+          <div class="btn-row"><button id="refreshClientCatalogButton" class="btn secondary" onclick="refreshClientCatalog()">ZAC候補を更新</button></div>
+          <details class="accordion nested">
+            <summary>既存の申請入口を最新版へ</summary>
+            <div class="accordion-body">
+              <p class="muted">受付履歴は残したまま runtime を更新します。理由は空欄可。</p>
+              <label>更新理由（空欄可）<input id="portalRuntimeReason" placeholder="不具合修正など"></label>
+              <div class="btn-row"><button id="updatePortalRuntimeButton" class="btn warn" onclick="updatePortalRuntime()">最新版へ更新</button></div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>初回 Pilot を段階的に準備</summary>
+            <div class="accordion-body">
+              <p class="muted">1回に1段階だけ進みます。「完了」まで同じボタンを繰り返してください。</p>
+              <label class="check"><input id="portalPilotAttestation" type="checkbox"> Client 10 / Portal 11 / 統合 test PASS を確認した</label>
+              <div class="btn-row"><button class="btn warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button></div>
+            </div>
+          </details>
+          <div id="pilotStatus" class="status compact">Pilot展開状況を確認中…</div>
+          <div id="pilotCanaryApproval" class="hidden">
+            <label>3冊の確認結果・理由<textarea id="pilotCanaryReason"></textarea></label>
+            <div class="btn-row"><button class="btn warn" onclick="approvePilotCanary()">4〜5冊目のテストを承認</button></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>クライアント年度ブックを個別作成（例外）</summary>
+        <div class="accordion-body">
+          <p class="muted">通常は申請入口から依頼します。代理作成が必要な場合のみ。</p>
+          <label>クライアント名<input id="clientName"></label>
+          <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
+          <label>予算策定担当（メール）<input id="ownerEmails" type="email"></label>
+          <details class="accordion nested">
+            <summary>詳細設定</summary>
+            <div class="accordion-body">
+              <label>Client ID（空欄は自動）<input id="clientId"></label>
+              <label>追加編集メンバー<textarea id="editorEmails"></textarea></label>
+              <label>閲覧者<textarea id="viewerEmails"></textarea></label>
+              <label>入力期限<input id="inputDueDate" placeholder="2026/03/15"></label>
+              <label>Release ID<input id="clientReleaseId"></label>
+              <label>保存先 folder ID<input id="clientFolderId"></label>
+            </div>
+          </details>
+          <div class="btn-row"><button class="btn" onclick="provisionClient()">クライアント年度ブックを作成</button></div>
+        </div>
       </details>
 
       <div id="emptyPilotUpgradeCard" class="card hidden">
@@ -197,134 +309,178 @@
         </label>
         <div id="emptyPilotBasis" class="status">対象を選び、「安全条件を確認」を押してください。</div>
         <label>更新理由<input id="emptyPilotUpgradeReason" value="受入試験開始前のUI・操作性改善"></label>
-        <button class="secondary" onclick="checkEmptyPilotUpgrade()">安全条件を確認</button>
-        <button id="applyEmptyPilotUpgradeButton" class="good" onclick="applyEmptyPilotUpgrade()" disabled>同じURLのまま最新版へ更新</button>
-        <button id="recoverEmptyPilotUpgradeButton" class="warn hidden" onclick="recoverEmptyPilotUpgrade()">中断した更新を安全に復旧</button>
+        <div class="btn-row cols-2">
+          <button class="btn secondary" onclick="checkEmptyPilotUpgrade()">安全条件を確認</button>
+          <button id="applyEmptyPilotUpgradeButton" class="btn good" onclick="applyEmptyPilotUpgrade()" disabled>最新版へ更新</button>
+        </div>
+        <div class="btn-row"><button id="recoverEmptyPilotUpgradeButton" class="btn warn hidden" onclick="recoverEmptyPilotUpgrade()">中断した更新を復旧</button></div>
       </div>
 
-      <details class="card">
+      <details class="accordion">
         <summary>保守・高度な操作</summary>
-        <h2>管理ハブ本体を中央配備版へ更新</h2>
-        <p class="muted">中央の clasp 配備 project から、検証済みの全 Admin コードだけをこの管理ハブへ反映します。Spreadsheet・履歴・設定は変更しません。</p>
-        <div id="adminRuntimeStatus" class="status">管理ハブ runtimeを確認中…</div>
-        <label>更新理由（必須）<input id="adminRuntimeReason" placeholder="不具合修正・監査強化など"></label>
-        <button id="updateAdminRuntimeButton" class="warn" onclick="updateAdminRuntime()">中央配備版へ更新</button>
-        <h2>共有ドライブへ整理して移す</h2>
-        <p class="muted">AutoAnalysis と同じく、共有ドライブ「年度予算策定」を作り、01_管理ハブ・02_申請入口・03_クライアント年度ブック・04_テンプレートへ用途別に移します。ブックの中身は変えません。理由は空欄のままで構いません。</p>
-        <label>移設理由（空欄可）<input id="libraryRelocateReason" placeholder="社内共有ドライブへ整理"></label>
-        <button class="warn" onclick="relocateLibrary()">共有ドライブ「年度予算策定」へ移す</button>
-        <h2>Vertex AI接続設定（管理ハブのみ）</h2>
-        <p class="muted">入力した項目だけを管理ハブのScript Propertiesへ保存します。値は画面へ再表示しません。</p>
-        <label>Project ID<input id="vertexProjectId"></label>
-        <label>Location<input id="vertexLocation" placeholder="asia-northeast1"></label>
-        <label>Gemini model<input id="vertexModel"></label>
-        <label>Datastore ID<input id="vertexDatastore"></label>
-        <label>Search location<input id="vertexSearchLocation"></label>
-        <label>Serving config<input id="vertexServingConfig"></label>
-        <button class="secondary" onclick="saveRuntimeConfig()">入力した接続設定を保存</button>
-        <h2>クライアント年度ブックのTemplate UIを編集</h2>
-        <p class="muted">現行 UI または既存 Draft の 3 画面だけを、管理ハブ専用の編集用 Spreadsheet へ複製します。既存のクライアント年度ブックには影響しません。</p>
-        <div id="activeTemplateRelease" class="status">現行Template Releaseを確認中…</div>
-        <label>複製元Draft Spreadsheet ID（空欄は現行ACTIVE）<input id="templateDraftSourceId"></label>
-        <label>新しいDraft名<input id="templateDraftName" placeholder="FY2027 UI改善案"></label>
-        <label>Draft作成理由（必須）<input id="templateDraftReason"></label>
-        <button class="secondary" onclick="createTemplateDraft()">管理ハブ専用Draftを作成</button>
-        <h2>Template ReleaseをSTAGEDへ登録</h2>
-        <p class="muted">新しいclean known-bound Templateへ、許可された3画面だけをcopyToし、MEMO・format・validation・条件付き書式・結合・rich textをmanifestで照合します。Draft未指定なら現行ACTIVEのUIを継承します。</p>
-        <label>Release ID<input id="templateReleaseId" placeholder="vnext-client-2026-09"></label>
-        <label>UI Draft Spreadsheet ID（空欄は現行UI）<input id="templateReleaseDraftId"></label>
-        <label>STAGED作成理由（必須）<input id="templateReleaseReason" placeholder="操作性改善・監査強化など"></label>
-        <button class="secondary" onclick="publishTemplateRelease()">clean STAGED版を作成</button>
-        <h2>Template＋Modelを有効化</h2>
-        <p class="muted">下のModel DRAFTが対象Template Releaseと厳密一致し、Backtest/Canaryの管理ハブ担当者 attestationがPASSの場合だけ、pairを有効化します。</p>
-        <label>STAGED Template Release ID<input id="pairTemplateReleaseId"></label>
-        <label>PASS済Model Release ID<input id="pairModelReleaseId"></label>
-        <label>Pair有効化理由（必須）<input id="pairActivationReason"></label>
-        <button class="good" onclick="activateReleasePair()">Template＋Modelを安全に有効化</button>
-        <h2>AI調査を依頼</h2>
-        <label>クライアント年度ブック ID<input id="aiBookId"></label>
-        <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="顧客・市場・規制など、確認したい外部変化"></textarea></label>
-        <button class="secondary" onclick="enqueueAiResearch()">AI調査を処理待ちへ追加</button>
-        <h2>AI反映を取り消して再予測</h2>
-        <p class="muted">元のrunとAI証拠は削除せず、取消記録を追加して同じ乱数seedで比較可能な新runを作ります。</p>
-        <label>クライアント年度ブック ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
-        <button class="secondary" onclick="loadAiRollbackBasis()">最新runのAI反映を確認</button>
-        <div id="aiRollbackBasisSummary" class="status">クライアント年度ブック IDを入力して対象を確認してください。</div>
-        <div id="aiRollbackEvidenceList"></div>
-        <label>取消範囲<select id="aiRollbackScope" onchange="updateAiRollbackSelection()"><option value="ALL">今回のAI反映をすべて取り消す</option><option value="SELECTED">選んだAI反映だけ取り消す</option></select></label>
-        <label>取消理由（必須）<textarea id="aiRollbackReason" placeholder="情報の誤り、期限切れ、適用判断の訂正など"></textarea></label>
-        <button class="warn" onclick="rollbackAiEvidence()">取消記録を追加して再予測</button>
-        <h2>モデル版の管理</h2>
-        <div id="activeModelRelease" class="status">現行モデル版を確認中…</div>
-        <details>
-          <summary>新しいモデル版（DRAFT）を登録</summary>
-          <label>Model Release ID<input id="modelReleaseId" placeholder="model-vnext-2026-02"></label>
-          <label>Model version<input id="modelVersion" placeholder="vnext-engine-0.4"></label>
-          <label>Template Release ID<input id="modelTemplateVersion" placeholder="STAGED Template Release ID"></label>
-          <label>Parameters JSON<textarea id="modelParameters" placeholder="{}"></textarea></label>
-          <label>Backtest JSON（管理ハブ担当者 attestation）<textarea id="modelBacktest" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
-          <label>Canary JSON（管理ハブ担当者 attestation）<textarea id="modelCanary" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
-          <label style="font-weight:400"><input id="modelAttestation" type="checkbox" style="width:auto;margin-right:6px">根拠を確認し、上記PASSが管理ハブ担当者 attestationであることを確認した</label>
-          <label>登録理由・メモ<input id="modelDraftNote"></label>
-          <button class="secondary" onclick="registerModelRelease()">DRAFTを登録</button>
-        </details>
-        <label>有効化するModel Release ID<input id="activateModelReleaseId"></label>
-        <label>有効化理由<input id="activateModelReason"></label>
-        <button class="good" onclick="activateModelRelease()">PASS確認後に有効化</button>
-        <label>戻すModel Release ID<input id="rollbackModelReleaseId"></label>
-        <label>ロールバック理由<input id="rollbackModelReason"></label>
-        <button class="warn" onclick="rollbackModelRelease()">以前のモデル版へ戻す</button>
-        <h2>管理ハブから予測処理を再投入</h2>
-        <label>クライアント年度ブック ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
-        <button onclick="requestForecast()">処理待ちへ追加</button>
-        <h2>正式予算を訂正</h2>
-        <p class="muted">現在のofficialは削除・上書きせず、新しい予算案を承認待ちへ追加します。</p>
-        <label>クライアント年度ブック ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
-        <button class="secondary" onclick="loadAmendmentBasis()">現在の正式予算を読み込む</button>
-        <div id="amendmentBasisSummary" class="status">クライアント年度ブック IDを入力して現在値を読み込んでください。</div>
-        <label>訂正理由（必須）<textarea id="amendmentReason" placeholder="なぜ正式予算を訂正するのか"></textarea></label>
-        <label>採用判断差分<input id="amendmentAdoptionDelta" type="number" step="1"></label>
-        <label>採用判断の理由<input id="amendmentAdoptionReason"></label>
-        <label>営業上積み<input id="amendmentSalesUplift" type="number" min="0" step="1"></label>
-        <label>上積み理由<input id="amendmentUpliftReason"></label>
-        <label>責任者<input id="amendmentUpliftOwner"></label>
-        <label>実行内容<input id="amendmentUpliftAction"></label>
-        <label>期限<input id="amendmentUpliftDueDate" placeholder="2027-03-31"></label>
-        <label>月次配分（4月～翌3月、12数値をカンマ区切り）<textarea id="amendmentAllocation" placeholder="0,0,0,0,0,0,0,0,0,0,0,0"></textarea></label>
-        <button class="warn" onclick="createAmendmentApproval()">訂正案を承認待ちへ追加</button>
-        <h2>差戻し後の進め方</h2>
-        <p class="muted">承認カードで選べなかった場合に、理由を残して次の状態へ進めます。</p>
-        <label>クライアント年度ブック ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
-        <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
-        <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">予算案だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
-        <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
-        <button class="secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button>
-        <h2>年度の振り返り・終了</h2>
-        <label>クライアント年度ブック ID<input id="reviewBookId"></label>
-        <label>実績確認日（年度末翌月以降）<input id="reviewAsOf" placeholder="2027/04/01"></label>
-        <label style="font-weight:400"><input id="reviewAllowIncomplete" type="checkbox" style="width:auto;margin-right:6px">実績の欠損警告を確認したうえで例外的に開始する</label>
-        <label>例外開始の理由（上を選んだ場合は必須）<textarea id="reviewOverrideReason" placeholder="欠損月と確認方法、開始を認める理由"></textarea></label>
-        <button class="secondary" onclick="startReview()">確定実績で振り返りを開始</button>
-        <label>年度終了理由<input id="closeReason" placeholder="振り返り入力と確認が完了"></label>
-        <button class="warn" onclick="closeYear()">年度を終了</button>
-        <h2>受入試験をゼロからやり直す</h2>
-        <p class="muted">生成済みのクライアント年度ブックをゴミ箱へ移し、予測・申請・承認・ジョブ・管理ハブ監査ログ・AI 検証ファイルなどの試験記録を消します。管理ハブ、申請入口、Template、ZAC 候補、現行 release は残します。確認語が一致した場合だけ削除します。</p>
-        <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
-        <button class="secondary" onclick="previewFreshUatReset()">対象を確認（変更なし）</button>
-        <button class="danger" onclick="applyFreshUatReset()">生成済みクライアント年度ブックを削除して初期状態へ戻す</button>
+        <div class="accordion-body">
+          <details class="accordion nested">
+            <summary>管理ハブ runtime・配備</summary>
+            <div class="accordion-body">
+              <p class="muted">中央 clasp 配備 project から Admin コードだけを反映します。</p>
+              <div id="adminRuntimeStatus" class="status compact">管理ハブ runtimeを確認中…</div>
+              <label>更新理由（必須）<input id="adminRuntimeReason" placeholder="不具合修正・監査強化など"></label>
+              <div class="btn-row"><button id="updateAdminRuntimeButton" class="btn warn" onclick="updateAdminRuntime()">中央配備版へ更新</button></div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>共有ドライブへ整理</summary>
+            <div class="accordion-body">
+              <p class="muted">共有ドライブ「年度予算策定」へ 01〜04 フォルダに移します。</p>
+              <label>移設理由（空欄可）<input id="libraryRelocateReason" placeholder="社内共有ドライブへ整理"></label>
+              <div class="btn-row"><button class="btn warn" onclick="relocateLibrary()">共有ドライブ「年度予算策定」へ移す</button></div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>Vertex AI 接続</summary>
+            <div class="accordion-body">
+              <p class="muted">入力した項目だけ Script Properties へ保存。値は再表示しません。</p>
+              <label>Project ID<input id="vertexProjectId"></label>
+              <label>Location<input id="vertexLocation" placeholder="asia-northeast1"></label>
+              <label>Gemini model<input id="vertexModel"></label>
+              <label>Datastore ID<input id="vertexDatastore"></label>
+              <label>Search location<input id="vertexSearchLocation"></label>
+              <label>Serving config<input id="vertexServingConfig"></label>
+              <div class="btn-row"><button class="btn secondary" onclick="saveRuntimeConfig()">接続設定を保存</button></div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>Template UI・Release</summary>
+            <div class="accordion-body">
+              <div id="activeTemplateRelease" class="status compact">現行Template Releaseを確認中…</div>
+              <label>複製元 Draft ID（空欄は現行）<input id="templateDraftSourceId"></label>
+              <label>新しい Draft 名<input id="templateDraftName" placeholder="FY2027 UI改善案"></label>
+              <label>Draft 作成理由（必須）<input id="templateDraftReason"></label>
+              <div class="btn-row"><button class="btn secondary" onclick="createTemplateDraft()">編集用 Draft を作成</button></div>
+              <div class="subsection">
+                <div class="subsection-title">STAGED 版を作成</div>
+                <label>Release ID<input id="templateReleaseId" placeholder="vnext-client-2026-09"></label>
+                <label>UI Draft ID（空欄は現行）<input id="templateReleaseDraftId"></label>
+                <label>作成理由（必須）<input id="templateReleaseReason" placeholder="操作性改善など"></label>
+                <div class="btn-row"><button class="btn secondary" onclick="publishTemplateRelease()">STAGED 版を作成</button></div>
+              </div>
+              <div class="subsection">
+                <div class="subsection-title">Template＋Model を有効化</div>
+                <label>STAGED Template Release ID<input id="pairTemplateReleaseId"></label>
+                <label>PASS 済 Model Release ID<input id="pairModelReleaseId"></label>
+                <label>有効化理由（必須）<input id="pairActivationReason"></label>
+                <div class="btn-row"><button class="btn good" onclick="activateReleasePair()">pair を有効化</button></div>
+              </div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>モデル版</summary>
+            <div class="accordion-body">
+              <div id="activeModelRelease" class="status compact">現行モデル版を確認中…</div>
+              <details class="accordion nested">
+                <summary>DRAFT を登録</summary>
+                <div class="accordion-body">
+                  <label>Model Release ID<input id="modelReleaseId" placeholder="model-vnext-2026-02"></label>
+                  <label>Model version<input id="modelVersion" placeholder="vnext-engine-0.4"></label>
+                  <label>Template Release ID<input id="modelTemplateVersion" placeholder="STAGED Template Release ID"></label>
+                  <label>Parameters JSON<textarea id="modelParameters" placeholder="{}"></textarea></label>
+                  <label>Backtest JSON<textarea id="modelBacktest" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+                  <label>Canary JSON<textarea id="modelCanary" placeholder='{"status":"PASS","metrics":{}}'></textarea></label>
+                  <label class="check"><input id="modelAttestation" type="checkbox"> 根拠を確認し、上記 PASS が管理ハブ担当者 attestation であることを確認した</label>
+                  <label>登録理由・メモ<input id="modelDraftNote"></label>
+                  <div class="btn-row"><button class="btn secondary" onclick="registerModelRelease()">DRAFT を登録</button></div>
+                </div>
+              </details>
+              <label>有効化する Model Release ID<input id="activateModelReleaseId"></label>
+              <label>有効化理由<input id="activateModelReason"></label>
+              <div class="btn-row cols-2">
+                <button class="btn good" onclick="activateModelRelease()">有効化</button>
+                <button class="btn warn" onclick="rollbackModelRelease()">以前の版へ戻す</button>
+              </div>
+              <label>戻す Model Release ID<input id="rollbackModelReleaseId"></label>
+              <label>ロールバック理由<input id="rollbackModelReason"></label>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>ブック個別操作</summary>
+            <div class="accordion-body">
+              <div class="subsection">
+                <div class="subsection-title">AI 調査・取消</div>
+                <label>クライアント年度ブック ID<input id="aiBookId"></label>
+                <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="確認したい外部変化"></textarea></label>
+                <div class="btn-row"><button class="btn secondary" onclick="enqueueAiResearch()">AI 調査を追加</button></div>
+                <label>クライアント年度ブック ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
+                <div class="btn-row"><button class="btn secondary" onclick="loadAiRollbackBasis()">AI 反映を確認</button></div>
+                <div id="aiRollbackBasisSummary" class="status compact">ID を入力して対象を確認してください。</div>
+                <div id="aiRollbackEvidenceList"></div>
+                <label>取消範囲<select id="aiRollbackScope" onchange="updateAiRollbackSelection()"><option value="ALL">すべて取り消す</option><option value="SELECTED">選択分だけ</option></select></label>
+                <label>取消理由（必須）<textarea id="aiRollbackReason"></textarea></label>
+                <div class="btn-row"><button class="btn warn" onclick="rollbackAiEvidence()">取消して再予測</button></div>
+              </div>
+              <div class="subsection">
+                <div class="subsection-title">予測・正式予算</div>
+                <label>クライアント年度ブック ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
+                <div class="btn-row"><button class="btn" onclick="requestForecast()">予測を再投入</button></div>
+                <label>クライアント年度ブック ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
+                <div class="btn-row"><button class="btn secondary" onclick="loadAmendmentBasis()">正式予算を読み込む</button></div>
+                <div id="amendmentBasisSummary" class="status compact">ID を入力して現在値を読み込んでください。</div>
+                <label>訂正理由（必須）<textarea id="amendmentReason"></textarea></label>
+                <label>採用判断差分<input id="amendmentAdoptionDelta" type="number" step="1"></label>
+                <label>採用理由<input id="amendmentAdoptionReason"></label>
+                <label>営業上積み<input id="amendmentSalesUplift" type="number" min="0" step="1"></label>
+                <label>上積み理由<input id="amendmentUpliftReason"></label>
+                <label>責任者<input id="amendmentUpliftOwner"></label>
+                <label>実行内容<input id="amendmentUpliftAction"></label>
+                <label>期限<input id="amendmentUpliftDueDate" placeholder="2027-03-31"></label>
+                <label>月次配分（12数値）<textarea id="amendmentAllocation" placeholder="0,0,0,..."></textarea></label>
+                <div class="btn-row"><button class="btn warn" onclick="createAmendmentApproval()">訂正案を承認待ちへ</button></div>
+              </div>
+              <div class="subsection">
+                <div class="subsection-title">差戻し・振り返り</div>
+                <label>クライアント年度ブック ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
+                <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
+                <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">予算案だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
+                <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
+                <div class="btn-row"><button class="btn secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button></div>
+                <label>クライアント年度ブック ID<input id="reviewBookId"></label>
+                <label>実績確認日<input id="reviewAsOf" placeholder="2027/04/01"></label>
+                <label class="check"><input id="reviewAllowIncomplete" type="checkbox"> 欠損警告を確認して例外的に開始</label>
+                <label>例外開始の理由<textarea id="reviewOverrideReason"></textarea></label>
+                <div class="btn-row cols-2">
+                  <button class="btn secondary" onclick="startReview()">振り返りを開始</button>
+                  <button class="btn warn" onclick="closeYear()">年度を終了</button>
+                </div>
+                <label>年度終了理由<input id="closeReason" placeholder="振り返り完了"></label>
+              </div>
+            </div>
+          </details>
+          <details class="accordion nested">
+            <summary>受入試験をゼロからやり直す</summary>
+            <div class="accordion-body">
+              <p class="muted">生成済みクライアント年度ブックと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・申請入口・Template は残します。</p>
+              <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
+              <div class="btn-row cols-2">
+                <button class="btn secondary" onclick="previewFreshUatReset()">対象を確認</button>
+                <button class="btn danger" onclick="applyFreshUatReset()">削除して初期状態へ</button>
+              </div>
+            </div>
+          </details>
+        </div>
       </details>
     </div>
 
     <div id="nonAdminPanel" class="hidden card">
-      <b>このクライアント年度ブック は管理ハブではありません。</b>
-      <p class="muted">管理操作は管理ハブ（第1層）で行います。クライアント年度ブック／Template には管理メニューを表示しません。</p>
+      <b>このクライアント年度ブックは管理ハブではありません。</b>
+      <p class="muted">管理操作は管理ハブ（第1層）で行います。</p>
     </div>
 
-    <div id="status" class="status">初期化中…</div>
-    <details id="statusTechnical" class="hidden">
-      <summary>管理ハブ担当者向け詳細</summary>
-      <pre id="statusTechnicalText"></pre>
-    </details>
+    <div class="status-dock">
+      <div id="status" class="status">初期化中…</div>
+      <details id="statusTechnical" class="hidden" style="margin-top:8px">
+        <summary style="font-size:12px;font-weight:600;color:#475569;cursor:pointer">技術詳細</summary>
+        <pre id="statusTechnicalText" style="margin-top:6px"></pre>
+      </details>
+    </div>
 
     <script>
       let sidebarModel = null;
@@ -584,7 +740,8 @@
       function renderExceptions(rows) {
         const root = $('exceptions');
         root.innerHTML = '';
-        if (!rows.length) { root.textContent = 'ありません'; return; }
+        if (!rows.length) { root.textContent = 'ありません'; root.className = 'empty-state'; return; }
+        root.className = '';
         rows.forEach(row => {
           const div = document.createElement('div');
           div.className = 'exception';
@@ -596,16 +753,23 @@
           action.textContent = row.actionGuidance || '詳細を確認してください。';
           div.appendChild(action);
           if (row.actionType === 'RETRY_OFFICIAL_SYNC' && row.bookId) {
+            const rowBtns = document.createElement('div');
+            rowBtns.className = 'btn-row';
             const retry = document.createElement('button');
-            retry.className = 'warn';
+            retry.className = 'btn warn';
             retry.textContent = '正式予算を再反映';
             retry.onclick = () => retryOfficialSync(row.bookId);
-            div.appendChild(retry);
+            rowBtns.appendChild(retry);
+            div.appendChild(rowBtns);
           } else if (row.actionType === 'RUN_NOW') {
+            const rowBtns = document.createElement('div');
+            rowBtns.className = 'btn-row';
             const run = document.createElement('button');
+            run.className = 'btn';
             run.textContent = '申請を今すぐ処理';
             run.onclick = runOperationalCycle;
-            div.appendChild(run);
+            rowBtns.appendChild(run);
+            div.appendChild(rowBtns);
           } else if (row.bookUrl) {
             const link = document.createElement('a');
             link.href = row.bookUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
@@ -613,8 +777,9 @@
             div.appendChild(document.createElement('br'));
             div.appendChild(link);
           }
-          const details = document.createElement('details');
-          details.innerHTML = `<summary>詳細</summary><div class="item-meta">${escapeHtml(row.detail || '')}</div>`;
+        const details = document.createElement('details');
+        details.className = 'accordion nested';
+        details.innerHTML = `<summary>詳細</summary><div class="accordion-body item-meta">${escapeHtml(row.detail || '')}</div>`;
           div.appendChild(details);
           root.appendChild(div);
         });
@@ -669,6 +834,7 @@
         root.innerHTML = '';
         if (!rows.length) return;
         const details = document.createElement('details');
+        details.className = 'accordion nested';
         const summary = document.createElement('summary');
         summary.textContent = '進行中・失敗した処理を見る';
         details.appendChild(summary);
@@ -690,7 +856,8 @@
       function renderApprovals(rows) {
         const root = $('approvals');
         root.innerHTML = '';
-        if (!rows.length) { root.textContent = 'ありません'; return; }
+        if (!rows.length) { root.textContent = 'ありません'; root.className = 'empty-state'; return; }
+        root.className = '';
         rows.forEach(row => {
           const div = document.createElement('div');
           div.className = 'approval';
@@ -713,6 +880,7 @@
           div.appendChild(detail);
           const comment = document.createElement('input');
           comment.placeholder = '差戻し・却下時のコメント';
+          comment.className = 'field';
           div.appendChild(comment);
           let returnRoute = null;
           if (String(row.requestType || '').toUpperCase() !== 'AMENDMENT') {
@@ -727,21 +895,29 @@
             routeLabel.appendChild(returnRoute);
             div.appendChild(routeLabel);
           }
+          const actions = document.createElement('div');
+          actions.className = 'btn-row cols-2';
           [['承認','APPROVE','good'], ['差戻し','RETURN','warn']].forEach(spec => {
             const button = document.createElement('button');
-            button.textContent = spec[0]; button.className = spec[2];
+            button.textContent = spec[0]; button.className = 'btn ' + spec[2];
             button.onclick = () => decideApproval(
               row.approvalRequestId, spec[1], comment.value, row.bookId,
               returnRoute ? returnRoute.value : ''
             );
-            div.appendChild(button);
+            actions.appendChild(button);
           });
+          div.appendChild(actions);
           const reject = document.createElement('details');
-          reject.innerHTML = '<summary>却下などの詳細操作</summary>';
+          reject.className = 'accordion nested';
+          reject.innerHTML = '<summary>却下</summary>';
+          const rejectBody = document.createElement('div');
+          rejectBody.className = 'accordion-body';
           const rejectButton = document.createElement('button');
-          rejectButton.textContent = '却下'; rejectButton.className = 'danger';
+          rejectButton.textContent = '却下する'; rejectButton.className = 'btn danger';
           rejectButton.onclick = () => decideApproval(row.approvalRequestId, 'REJECT', comment.value);
-          reject.appendChild(rejectButton); div.appendChild(reject);
+          rejectBody.appendChild(rejectButton);
+          reject.appendChild(rejectBody);
+          div.appendChild(reject);
           root.appendChild(div);
         });
       }
