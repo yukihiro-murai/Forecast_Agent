@@ -280,7 +280,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.8');
+  assert.equal(bundle.version, 'vnext-portal-1.7.10');
   assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -1078,7 +1078,7 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('apply:true') &&
     sidebar.includes('管理ハブ監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
-  assert.ok(sidebar.includes('現場の年度・クライアント指定は、申請入口（第2層）から行います') &&
+  assert.ok(sidebar.includes('現場の年度・クライアント指定は、申請入口（第1層）から行います') &&
     sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理'),
     'Admin Sidebar must keep daily processing in-panel and point field work to the Portal');

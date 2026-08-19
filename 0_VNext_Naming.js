@@ -1,19 +1,23 @@
 /**
  * Forecast vNext — user-facing Japanese labels (正本).
  * Technical IDs, sheet names, and code identifiers are unchanged.
+ *
+ * User-facing layer numbers match Web入口 top-to-bottom (01→02→03):
+ *   第1層 申請入口 → 第2層 クライアント年度ブック → 第3層 管理ハブ
+ * Drive folder prefixes (01_管理ハブ 等) are infrastructure only — not shown as layer numbers.
  */
 var VNEXT_NAMING = Object.freeze({
   SYSTEM: '年度予算策定',
   MENU: '年度予算策定',
   SHARED_DRIVE: '年度予算策定',
   LEGACY_SHARED_DRIVE: '年度計画',
-  LAYER1: '管理ハブ',
-  LAYER1_SHORT: '第1層：管理ハブ',
-  LAYER2: '申請入口',
-  LAYER2_SHORT: '第2層：申請入口',
-  LAYER2_DEFAULT_TITLE: '申請入口',
-  LAYER3: 'クライアント年度ブック',
-  LAYER3_SHORT: '第3層：クライアント年度ブック',
+  ADMIN_HUB: '管理ハブ',
+  PORTAL: '申請入口',
+  CLIENT_BOOK: 'クライアント年度ブック',
+  LAYER1_SHORT: '第1層：申請入口',
+  LAYER2_SHORT: '第2層：クライアント年度ブック',
+  LAYER3_SHORT: '第3層：管理ハブ',
+  PORTAL_DEFAULT_TITLE: '申請入口',
   WEB_ENTRY: '年度予算策定 Web入口',
   FOLDER_ADMIN: '01_管理ハブ',
   FOLDER_PORTAL: '02_申請入口',
@@ -32,7 +36,15 @@ var VNEXT_NAMING = Object.freeze({
   FORMAL_BUDGET: '正式予算',
   BUDGET_DRAFT: '予算案',
   ADMIN_CONTACT: '管理ハブ担当者',
-  CLIENT_BOOK_ID: 'クライアント年度ブック ID'
+  CLIENT_BOOK_ID: 'クライアント年度ブック ID',
+  /** @deprecated Use ADMIN_HUB / PORTAL / CLIENT_BOOK. Kept for internal audit notes. */
+  LAYER1: '管理ハブ',
+  /** @deprecated Use PORTAL. */
+  LAYER2: '申請入口',
+  /** @deprecated Use CLIENT_BOOK. */
+  LAYER3: 'クライアント年度ブック',
+  /** @deprecated Use PORTAL_DEFAULT_TITLE. */
+  LAYER2_DEFAULT_TITLE: '申請入口'
 });
 
 /** @param {string} clientName @param {number|string} fiscalYear */

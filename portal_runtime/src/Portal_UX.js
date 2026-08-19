@@ -142,7 +142,7 @@ function vNextPortalOpenHelp() {
       'body{font-family:Arial,sans-serif;color:#202124;padding:18px;line-height:1.65}' +
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
-      '</style></head><body><h2>申請入口（第2層）の使い方</h2>' +
+      '</style></head><body><h2>申請入口（第1層）の使い方</h2>' +
       '<div class="step"><b>1. 開く</b><br>年度予算策定 Web入口の年度ボタンとクライアントボタンから、すでにあるクライアント年度ブックを選びます。</div>' +
       '<div class="step"><b>2. なければ申請</b><br>右側の案内から「新しいクライアント年度ブックを申請する」を選びます。候補確認後に作成依頼を送ります。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</div>' +
@@ -176,7 +176,7 @@ function vNextPortalRenderHome_(sheet, data) {
     return String(b.updatedAt || b.requestedAt).localeCompare(String(a.updatedAt || a.requestedAt));
   }).slice(0, 20);
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
-  sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.LAYER2)
+  sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.PORTAL)
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
   sheet.getRange('A2').setValue('既存のクライアント年度ブックは年度予算策定 Web入口から開きます。新規申請は右側の案内から行います。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。')
     .setFontSize(10).setFontColor('#5f6368');
