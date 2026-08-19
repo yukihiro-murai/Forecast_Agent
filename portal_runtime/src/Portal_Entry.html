@@ -7,126 +7,148 @@
   <title>年度計画</title>
   <style>
     :root {
-      --bg:#F5F8FB; --card:#fff; --navy:#004080; --text:#1F2A37; --muted:#5B6B7C;
-      --line:#E3EAF2; --primary:#00A0E9;
+      --bg:#F6F8FB; --card:#fff; --navy:#0F3557; --text:#24303E; --muted:#5A6B7E;
+      --line:#E4E9F0; --line-strong:#D3DCE6; --primary:#00A0E9; --chip:#EEF4FA;
+      --bubble-bg:#F3FAFF; --bubble-line:#CFE9FA;
+      --radius:14px; --shadow:0 1px 2px rgba(15,42,71,.06), 0 8px 24px rgba(15,42,71,.06);
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
     }
     * { box-sizing:border-box; }
     body {
-      font-family:"Helvetica Neue","Hiragino Sans","Yu Gothic",sans-serif;
-      max-width:720px; margin:24px auto; padding:0 18px 56px;
-      color:var(--text); background:var(--bg); font-size:17px; line-height:1.65;
-      font-weight:400; overflow-wrap:break-word;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;
+      max-width:720px; margin:0 auto; padding:36px 20px 56px;
+      color:var(--text); font-size:16px; line-height:1.6; font-weight:400;
+      overflow-wrap:break-word; -webkit-font-smoothing:antialiased;
+      background:linear-gradient(180deg,#E9F3FB 0%, var(--bg) 240px);
     }
     h1 {
-      font-size:28px; font-weight:600; margin:0 0 8px; color:var(--navy);
+      font-size:26px; font-weight:600; margin:0 0 4px; color:var(--navy);
       letter-spacing:.01em;
     }
-    h2 { font-size:20px; font-weight:600; margin:0; line-height:1.5; color:var(--navy); }
-    .lede { margin:0 0 20px; color:var(--muted); font-size:17px; }
+    h2 { font-size:18px; font-weight:600; margin:0; line-height:1.45; color:var(--navy); }
+    .lede { margin:0 0 22px; color:var(--muted); font-size:16px; }
     .choice {
-      background:var(--card); border-radius:16px; padding:18px 20px 20px;
-      margin:0 0 16px; border:1px solid var(--line);
-      box-shadow:0 1px 3px rgba(16,42,67,.08), 0 4px 16px rgba(16,42,67,.05);
+      background:var(--card); border-radius:var(--radius); padding:22px 22px 24px;
+      margin:0 0 16px; border:1px solid var(--line); box-shadow:var(--shadow);
     }
-    .cast { display:flex; align-items:center; gap:10px; margin:0 0 16px; }
+    .cast { display:flex; align-items:center; gap:14px; margin:0 0 16px; }
     .bot { width:68px; height:68px; flex:0 0 auto; display:block; }
     .bubble {
       position:relative; flex:1; min-width:0;
-      background:#fff; color:var(--text);
-      border:1px solid #C9D7E5; border-radius:14px;
-      padding:12px 16px; font-size:16px; font-weight:400; line-height:1.6;
-    }
-    .bubble::before, .bubble::after {
-      content:""; position:absolute; top:50%; width:0; height:0;
-      border-style:solid;
+      background:var(--bubble-bg); color:var(--text);
+      border:1.5px solid var(--bubble-line); border-radius:16px;
+      padding:13px 16px; font-size:16px; font-weight:400; line-height:1.6;
     }
     .bubble::before {
-      left:-9px; margin-top:-6px; border-width:6px 9px 6px 0;
-      border-color:transparent #C9D7E5 transparent transparent;
-    }
-    .bubble::after {
-      left:-8px; margin-top:-5px; border-width:5px 8px 5px 0;
-      border-color:transparent #fff transparent transparent;
+      content:""; position:absolute; left:-7px; top:50%; width:12px; height:12px;
+      margin-top:-6px; background:inherit;
+      border-left:1.5px solid var(--bubble-line);
+      border-bottom:1.5px solid var(--bubble-line);
+      transform:rotate(45deg);
     }
     .bubble p { margin:0; }
-    .choice-head { margin:0 0 14px; }
+    .bubble b { color:var(--navy); font-weight:600; }
+    .choice-head { margin:0 0 16px; }
     .step {
-      display:grid; grid-template-columns:auto 1fr; column-gap:12px;
-      align-items:baseline;
+      display:grid; grid-template-columns:36px 1fr; column-gap:12px;
+      align-items:center;
     }
     .num {
-      grid-column:1; grid-row:1;
-      font-size:20px; font-weight:600; color:var(--navy); letter-spacing:.04em;
-      font-variant-numeric:tabular-nums; line-height:1.5;
+      grid-column:1; grid-row:1 / span 2;
+      width:36px; height:36px; border-radius:99px;
+      display:flex; align-items:center; justify-content:center;
+      background:#fff; border:1.5px solid var(--navy); color:var(--navy);
+      font-size:14px; font-weight:600; letter-spacing:.02em;
+      font-variant-numeric:tabular-nums; line-height:1;
     }
     .who {
       grid-column:2; grid-row:1; margin:0;
-      color:var(--muted); font-size:15px; font-weight:500; line-height:1.5;
+      color:var(--muted); font-size:14px; font-weight:500; line-height:1.4;
     }
-    .step h2 { grid-column:2; grid-row:2; margin-top:2px; }
+    .step h2 { grid-column:2; grid-row:2; margin-top:1px; }
     a.btn, button, .pick {
       font-family:inherit; font-weight:600; cursor:pointer; border:none; text-decoration:none;
     }
     a.btn-primary, a.btn-admin {
-      display:block; text-align:center; padding:13px 16px; font-size:16px;
-      margin-top:16px; border-radius:10px; line-height:1.35;
+      display:block; text-align:center; padding:14px 16px; font-size:16px;
+      margin-top:16px; border-radius:12px; line-height:1.35;
     }
-    a.btn-primary { background:var(--primary); color:#fff; }
-    a.btn-admin { background:var(--navy); color:#fff; }
-    a.btn[aria-disabled="true"] { opacity:.45; pointer-events:none; }
+    a.btn-primary {
+      background:var(--primary); color:#fff;
+      box-shadow:0 2px 10px rgba(0,160,233,.28);
+    }
+    a.btn-primary:hover { background:#0090D6; }
+    a.btn-admin {
+      background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
+    }
+    a.btn-admin:hover { background:#F4F7FA; }
+    a.btn[aria-disabled="true"] { opacity:.4; pointer-events:none; box-shadow:none; }
     :focus { outline:none; }
     :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
     .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; border-radius:8px;
-      border:1px solid var(--line); background:#fff; color:var(--navy); font-size:15px;
+      min-height:40px; padding:8px 14px; border-radius:99px;
+      border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:15px;
     }
+    .pick:hover { border-color:var(--primary); }
     .pick.selected, .pick[aria-pressed="true"] {
-      background:var(--navy); color:#fff; border-color:var(--navy);
+      background:#F5FBFF; color:var(--navy); border-color:var(--primary);
+      box-shadow:inset 0 0 0 1px var(--primary);
     }
     .pick.ghost {
-      border-style:dashed; color:#8A99A8; background:#F8FBFD; pointer-events:none;
+      border-style:dashed; color:#8A99A8; background:#FAFCFE; pointer-events:none;
+      box-shadow:none;
     }
     .books { display:grid; gap:8px; }
     .book {
       display:flex; justify-content:space-between; gap:12px; align-items:center;
       text-decoration:none; color:inherit; min-height:58px;
-      border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff;
+      border:1.5px solid var(--line); border-radius:var(--radius);
+      padding:12px 14px; background:#fff;
+      transition:border-color .12s ease, background .12s ease, box-shadow .12s ease;
     }
-    .book:hover { border-color:#B3DFF6; background:#F4FBFF; }
+    .book:hover {
+      border-color:var(--primary); background:#F5FBFF;
+      box-shadow:0 1px 4px rgba(15,42,71,.08);
+    }
     .book.ghost {
-      border-style:dashed; background:#F8FBFD; pointer-events:none;
+      border-style:dashed; border-color:var(--line-strong); background:#FAFCFE;
+      pointer-events:none; box-shadow:none;
     }
     .book-name { font-size:16px; font-weight:600; color:var(--navy); line-height:1.4; }
     .book-meta { font-size:14px; color:var(--muted); margin-top:2px; line-height:1.4; }
     .book.ghost .book-name, .book.ghost .book-meta { color:#8A99A8; }
     .chip {
-      display:inline-block; border-radius:99px; padding:4px 10px;
-      font-size:14px; font-weight:600; background:#EEF5FB; color:var(--navy); white-space:nowrap;
+      display:inline-block; border-radius:99px; padding:5px 12px;
+      font-size:14px; font-weight:600; background:var(--chip); color:var(--navy); white-space:nowrap;
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
     .book.ghost .chip {
-      background:#fff; border:1px dashed #C9D7E5; color:#8A99A8; font-weight:500;
+      background:#fff; border:1.5px dashed var(--line-strong); color:#8A99A8; font-weight:500;
     }
     .empty { color:var(--muted); margin:8px 0 0; font-size:15px; line-height:1.55; }
     .loading { color:var(--muted); padding:8px 0; }
     .error {
-      color:#C0392B; background:#FDECEC; border-radius:8px; padding:12px 14px;
+      color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
     .hidden { display:none !important; }
     @media (max-width:520px) {
-      h1 { font-size:26px; }
-      h2 { font-size:18px; }
+      h1 { font-size:24px; }
+      h2 { font-size:17px; }
       .bot { width:58px; height:58px; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .book, .pick { transition:none; }
     }
   </style>
 </head>
 <body>
-  <h1>年度計画</h1>
-  <p class="lede">対象クライアントについて、予算を策定する年度を指定し、個別シートを用意することがスタートです。</p>
+  <header class="appHead">
+    <h1>年度計画</h1>
+    <p class="lede">対象クライアントについて、予算を策定する年度を指定し、個別シートを用意することがスタートです。</p>
+  </header>
 
   <div id="error" class="error hidden" role="alert"></div>
   <div id="loading" class="loading">画面を読み込んでいます…</div>
@@ -147,7 +169,7 @@
           <rect x="48" y="28" width="4" height="16" rx="2" fill="#0B1F33" transform="rotate(-22 50 36)"/>
         </svg>
         <div class="bubble">
-          <p>まだ個別シートが無いときに進みます。対象のクライアントと年度を指定して、新しい個別シートを用意します。</p>
+          <p>まだ個別シートが無いときに進みます。対象のクライアントと年度を指定して、<b>新しい個別シートを用意</b>します。</p>
         </div>
       </div>
       <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい個別シートを用意する</a>
@@ -168,7 +190,7 @@
           <path d="M46 40 L51 32 L56 40" fill="none" stroke="#0B1F33" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <div class="bubble">
-          <p>すでに個別シートがある計画を開きます。先に年度を選び、次にクライアントを選んでください。名前を入力する必要はありません。</p>
+          <p>すでに個別シートがある計画を開きます。<b>先に年度を選び、次にクライアントを選んで</b>ください。名前を入力する必要はありません。</p>
         </div>
       </div>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
@@ -190,7 +212,7 @@
           <rect x="44" y="36" width="12" height="4" rx="2" fill="#0B1F33"/>
         </svg>
         <div class="bubble">
-          <p>提出された計画の承認や、データの整備は管理者用の画面で行います。</p>
+          <p>提出された計画の承認や、データの整備は<b>管理者用の画面</b>で行います。</p>
         </div>
       </div>
       <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理者用の画面を開く</a>

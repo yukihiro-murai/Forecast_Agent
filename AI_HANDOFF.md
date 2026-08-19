@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-08-19 JST（社員入口 1.7.4。番号の基準線揃えと計画一覧の空フレーム）  
+最終更新: 2026-08-19 JST（社員入口 1.7.5。AutoAnalysis から円形番号・薄い青吹き出し・選択の青枠を部分取り込み。線形ステッパーは入れない）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.4` |
-| コード上のPortal bundle SHA-256 | `2a70abd7ad78759a7b0df8ddcce8a627e56abd11eb8a0cd53fb5180a786497cd` |
-| 社員 `/exec` | 同一URLのまま version 13 / `vnext-portal-1.7.4` にピン済み |
+| コード上のPortal runtime | `vnext-portal-1.7.5` |
+| コード上のPortal bundle SHA-256 | `9f8b6cb425b0dc1a22d29b25b18a651e467ccc710f67c0cd13ef0792f78a4b81` |
+| 社員 `/exec` | 反映後に同じURLのまま差し替え。反映前は version 13 / `vnext-portal-1.7.4` |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
@@ -39,7 +39,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.1 は各手順に単色Botと固定の吹き出し案内を置く。ホバーで案内文を切り替えない。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.5 は各手順に単色Botと固定の吹き出し案内を置く。番号は円バッジ、吹き出しは薄い青、年度選択は塗りつぶさず青枠。ホバーで案内文を切り替えない。01/02/03 は並列の導線なので、線形の手順ステッパーは置かない。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

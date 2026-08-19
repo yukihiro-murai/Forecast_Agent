@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.4');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.5');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -416,7 +416,8 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
   assert.match(entry, /管理者用の画面を開く/);
   assert.match(entry, /class="bubble"/);
-  assert.match(entry, /\.bubble \{[\s\S]*?border:1px solid/);
+  assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
+  assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
   assert.equal((entry.match(/class="bubble"/g) || []).length, 3);
   assert.equal((entry.match(/class="who"/g) || []).length, 3);
@@ -426,7 +427,10 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
     'Numbered section headers must appear above each bot and bubble');
-  assert.match(entry, /align-items:baseline/);
+  assert.match(entry, /align-items:center/);
+  assert.match(entry, /border-radius:99px/);
+  assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
+  assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
   assert.match(entry, /previewBooksHtml/);
   assert.match(entry, /book ghost/);
   assert.match(entry, /この枠にクライアント名/);

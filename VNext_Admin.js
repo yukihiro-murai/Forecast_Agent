@@ -92,11 +92,12 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.4';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.5';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
-  'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
+  'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
@@ -11365,7 +11366,7 @@ function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
   return version === VN_ADMIN_PORTAL_RUNTIME_VERSION ||
     ['vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0', 'vnext-portal-1.4.0',
       'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0', 'vnext-portal-1.7.1',
-      'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.8.0'].indexOf(version) >= 0;
+      'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4', 'vnext-portal-1.8.0'].indexOf(version) >= 0;
 }
 
 function vNextAdminResolvePortal_(hub) {
