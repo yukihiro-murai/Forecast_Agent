@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260820-p1.7.13-central-drift';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260820-portal-only-skip-client';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -1767,6 +1767,7 @@ function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
 /**
  * Phase B step: stage+activate Client Template/Model only (no Portal).
  * Keep this separate from Portal update so each Hub call stays under Apps Script limits.
+ * If the active Client runtime already matches the Hub bundle, skip the heavy release path.
  */
 function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
   return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxClientRelease_', function () {
@@ -1775,6 +1776,34 @@ function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
     vNextAdminAssertHubAdmin_(hub, false);
     const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
     vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE', { reason: reason });
+    const clientBundle = vNextClientRuntimeVerifiedBundle_();
+    const targetVersion = String(clientBundle.version || '');
+    let pair = null;
+    let activeRelease = null;
+    try {
+      pair = vNextAdminReadActiveReleasePair_(hub);
+      activeRelease = vNextAdminResolveRelease_(hub, pair.releaseId);
+    } catch (ignoredPair) {
+      pair = null;
+      activeRelease = null;
+    }
+    const currentVersion = activeRelease ? String(activeRelease.client_runtime_version || '') : '';
+    if (req.forceClientRelease !== true && targetVersion && currentVersion === targetVersion) {
+      const reused = vNextAdminJsonSafe_({
+        ok: true,
+        reused: true,
+        skippedHeavyRelease: true,
+        activeTemplateReleaseId: pair.releaseId,
+        activeModelReleaseId: pair.modelReleaseId,
+        clientRuntimeVersion: currentVersion,
+        message: 'Client runtime は既に ' + currentVersion + ' です。Template/Model 再作成を省略しました。',
+        completedAt: new Date().toISOString()
+      });
+      vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE_DONE', {
+        reused: true, releaseId: pair.releaseId, modelReleaseId: pair.modelReleaseId
+      });
+      return reused;
+    }
     const release = vNextAdminPrepareEmployeePortalPilot({
       attestationConfirmed: true,
       releaseReason: vNextAdminText_(req.releaseReason) || reason,
@@ -1786,6 +1815,38 @@ function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
       modelReleaseId: release && release.activeModelReleaseId
     });
     return release;
+  });
+}
+
+/** Returns which deploy steps are still required (fast, no mutations). */
+function vNextAdminGetDevDeployPlan_(request) {
+  return vNextAdminGuard_('vNextAdminGetDevDeployPlan_', function () {
+    const hub = vNextAdminRequireHub_();
+    const clientBundle = vNextClientRuntimeVerifiedBundle_();
+    const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
+      ? vNextPortalRuntimeVerifiedBundle_()
+      : { version: VN_ADMIN_PORTAL_RUNTIME_VERSION };
+    let clientCurrent = '';
+    try {
+      const pair = vNextAdminReadActiveReleasePair_(hub);
+      const release = vNextAdminResolveRelease_(hub, pair.releaseId);
+      clientCurrent = String(release.client_runtime_version || '');
+    } catch (ignored) {
+      clientCurrent = '';
+    }
+    const portal = vNextAdminTryResolvePortal_(hub);
+    const portalCurrent = portal ? String(portal.runtimeVersion || '') : '';
+    const needClient = !clientCurrent || clientCurrent !== String(clientBundle.version || '');
+    const needPortal = !portalCurrent || portalCurrent !== String(portalBundle.version || VN_ADMIN_PORTAL_RUNTIME_VERSION);
+    return vNextAdminJsonSafe_({
+      needHubSync: true,
+      needClient: needClient,
+      needPortal: needPortal,
+      clientCurrent: clientCurrent,
+      clientTarget: String(clientBundle.version || ''),
+      portalCurrent: portalCurrent,
+      portalTarget: String(portalBundle.version || VN_ADMIN_PORTAL_RUNTIME_VERSION)
+    });
   });
 }
 

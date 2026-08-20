@@ -211,7 +211,10 @@
           <button id="devDeployButton" class="btn good" onclick="deployVerifiedEmployeeUxRelease()">開発反映を実行</button>
           <button class="btn secondary" onclick="refreshDevDeployStatus()">いま反映済みか確認</button>
         </div>
-        <div class="btn-row"><a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a></div>
+        <div class="btn-row cols-2">
+          <button class="btn warn" onclick="deployPortalOnly()">Portalだけ反映（Web入口）</button>
+          <a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a>
+        </div>
       </div>
 
       <div class="card metrics">
@@ -1301,30 +1304,66 @@
       function deployVerifiedEmployeeUxRelease() {
         const reason = value('devDeployReason');
         if (!reason) { showStatus('反映理由を入力してください。', true); return; }
-        if (!window.confirm('中央 clasp の最新版を Hub・Client release・Portal へ反映します。4段に分けて実行します。続行しますか？')) return;
+        if (!window.confirm('中央 clasp の最新版を Hub・必要なら Client / Portal へ反映します。続行しますか？')) return;
         setBusy(true);
         showStatus('1/4 管理ハブ runtime を中央配備版へ更新しています…');
         google.script.run.withSuccessHandler(function(phaseA) {
-          showStatus('2/4 Client release（Template/Model）を反映しています…');
-          google.script.run.withSuccessHandler(function(release) {
-            showStatus('3/4 Portal（申請入口）を反映しています…');
-            google.script.run.withSuccessHandler(function(portal) {
-              showStatus('4/4 反映結果を確認しています…');
-              google.script.run.withSuccessHandler(function(phaseB) {
-                setBusy(false);
-                showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
-                load();
-              }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
-                reason: reason,
-                upgradeEmptyPilots: false,
-                release: release,
-                portal: portal
+          showStatus('反映計画を確認しています…');
+          google.script.run.withSuccessHandler(function(plan) {
+            const runPortalAndFinalize = function(release) {
+              if (plan && plan.needPortal === false) {
+                showStatus('4/4 反映結果を確認しています…');
+                google.script.run.withSuccessHandler(function(phaseB) {
+                  setBusy(false);
+                  showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+                  load();
+                }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
+                  reason: reason, upgradeEmptyPilots: false, release: release, portal: { reused: true, skipped: true }
+                });
+                return;
+              }
+              showStatus('3/4 Portal（申請入口）を反映しています…');
+              google.script.run.withSuccessHandler(function(portal) {
+                showStatus('4/4 反映結果を確認しています…');
+                google.script.run.withSuccessHandler(function(phaseB) {
+                  setBusy(false);
+                  showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+                  load();
+                }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
+                  reason: reason, upgradeEmptyPilots: false, release: release, portal: portal
+                });
+              }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason });
+            };
+            if (plan && plan.needClient === false) {
+              showStatus('2/4 Client は最新のため省略…');
+              runPortalAndFinalize({
+                reused: true, skippedHeavyRelease: true,
+                activeTemplateReleaseId: '', clientRuntimeVersion: plan.clientCurrent
               });
-            }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason });
-          }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxClientRelease_({
-            reason: reason
-          });
+              return;
+            }
+            showStatus('2/4 Client release（Template/Model）を反映しています…');
+            google.script.run.withSuccessHandler(runPortalAndFinalize)
+              .withFailureHandler(onFailure)
+              .vNextAdminDeployVerifiedEmployeeUxClientRelease_({ reason: reason });
+          }).withFailureHandler(onFailure).vNextAdminGetDevDeployPlan_({});
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
+      }
+      function deployPortalOnly() {
+        const reason = value('devDeployReason') || 'Portalのみ反映';
+        if (!window.confirm('Portal（Web入口）だけを中央バンドルへ更新します。Client release は作り直しません。続行しますか？')) return;
+        setBusy(true);
+        showStatus('Portal（申請入口）だけ反映しています…');
+        google.script.run.withSuccessHandler(function(portal) {
+          showStatus('反映結果を確認しています…');
+          google.script.run.withSuccessHandler(function(phaseB) {
+            setBusy(false);
+            showStatus(formatDevDeployResult(null, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+            load();
+          }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
+            reason: reason, upgradeEmptyPilots: false, portal: portal
+          });
+        }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason });
       }
       function relocateLibrary() {
         const reason = value('libraryRelocateReason') || '社内共有ドライブへ整理';

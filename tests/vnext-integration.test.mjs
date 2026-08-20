@@ -531,20 +531,25 @@ async function checkAdminRecoveryContracts() {
     source.includes('VN_ADMIN_RUNTIME_BUILD_STAMP') &&
     source.includes("'central_hub_sync'") &&
     source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus(') &&
+    source.includes('function vNextAdminGetDevDeployPlan_(') &&
+    source.includes('skippedHeavyRelease: true') &&
     source.includes('skipPortal: true'),
-    'Dev deploy must expose stepped Hub sync, central-drift detection, and skipPortal release path');
+    'Dev deploy must expose stepped Hub sync, central-drift detection, client skip, and skipPortal release path');
   assert.ok(sidebar.includes('deployVerifiedEmployeeUxRelease()') &&
+    sidebar.includes('deployPortalOnly()') &&
     sidebar.includes('refreshDevDeployStatus()') &&
     sidebar.includes('renderDevDeployStatus') &&
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
+    sidebar.includes('vNextAdminGetDevDeployPlan_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxClientRelease_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxFinalize_') &&
     sidebar.includes('開発反映を実行') &&
+    sidebar.includes('Portalだけ反映') &&
     sidebar.includes('確認だけでは Web入口は変わりません') &&
     sidebar.includes('いま反映済みか確認') &&
     sidebar.includes('id="devDeployCard"'),
-    'Admin Sidebar must expose stepped deploy and warn that status check does not publish Portal');
+    'Admin Sidebar must expose smart deploy, portal-only path, and warn that status check does not publish Portal');
   assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
     source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
