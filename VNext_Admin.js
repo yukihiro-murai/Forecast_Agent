@@ -93,6 +93,8 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
+/** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260820-p1.7.13-central-drift';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -1956,6 +1958,54 @@ function vNextAdminScriptContentSha256_(scriptId) {
   return String(vNextAdminRuntimeVerifyScriptContent_(content, scriptId).sha256 || '');
 }
 
+/**
+ * Reads central (clasp) Admin markers without requiring a full SHA match UI.
+ * Prevents false "反映済み" when Hub still runs an older copy after clasp push.
+ */
+function vNextAdminPeekCentralRuntimeMarkers_(sourceScriptId) {
+  const id = String(sourceScriptId || '');
+  if (!id || typeof vNextClientRuntimeGetContent_ !== 'function') {
+    return { ok: false, reason: 'NO_SOURCE', portalVersion: '', buildStamp: '', clientVersion: '' };
+  }
+  const cacheKey = 'vnext-central-markers:' + id;
+  try {
+    const cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (ignoredCache) {}
+  let content;
+  try {
+    content = vNextClientRuntimeGetContent_(id);
+  } catch (error) {
+    return {
+      ok: false, reason: String(error && error.message || error),
+      portalVersion: '', buildStamp: '', clientVersion: ''
+    };
+  }
+  const files = content && content.files ? content.files : [];
+  let adminSource = '';
+  let clientSource = '';
+  files.forEach(function (file) {
+    const name = String(file.name || '');
+    if (name === 'VNext_Admin') adminSource = String(file.source || '');
+    if (name === 'VNext_ClientRuntimeBundle') clientSource = String(file.source || '');
+  });
+  const portalMatch = adminSource.match(/VN_ADMIN_PORTAL_RUNTIME_VERSION\s*=\s*['"]([^'"]+)['"]/);
+  const stampMatch = adminSource.match(/VN_ADMIN_RUNTIME_BUILD_STAMP\s*=\s*['"]([^'"]+)['"]/);
+  const clientMatch = clientSource.match(/"version"\s*:\s*"(vnext-client-[^"]+)"/) ||
+    clientSource.match(/version:\s*['"](vnext-client-[^']+)['"]/);
+  const markers = {
+    ok: true,
+    reason: '',
+    portalVersion: portalMatch ? portalMatch[1] : '',
+    buildStamp: stampMatch ? stampMatch[1] : '',
+    clientVersion: clientMatch ? clientMatch[1] : ''
+  };
+  try {
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(markers), 120);
+  } catch (ignoredPut) {}
+  return markers;
+}
+
 /** Read-only verification that live Hub/Portal/Client pointers match deployed bundles. */
 function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
   const opts = options && typeof options === 'object' ? options : {};
@@ -1966,15 +2016,38 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
   const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
     ? vNextPortalRuntimeVerifiedBundle_()
     : { version: VN_ADMIN_PORTAL_RUNTIME_VERSION, sha256: '' };
+  const sourceScriptId = String(hubConfig.admin_source_script_id || '');
+  const hubScriptId = String(hubConfig.admin_hub_script_id || '');
+
+  // Always compare Hub-running constants to central clasp markers (cheap enough with cache).
+  // This closes the false-green gap: Hub expectations matching a stale Portal after clasp.
+  const central = vNextAdminPeekCentralRuntimeMarkers_(sourceScriptId);
+  const hubPortalTarget = String(VN_ADMIN_PORTAL_RUNTIME_VERSION);
+  const hubBuildStamp = String(VN_ADMIN_RUNTIME_BUILD_STAMP);
+  const centralSynced = central.ok === true &&
+    String(central.portalVersion || '') === hubPortalTarget &&
+    (!central.buildStamp || String(central.buildStamp) === hubBuildStamp);
+  checks.push(vNextAdminBuildDevDeployCheck_(
+    'central_hub_sync', '中央 clasp → 管理ハブ（要: 開発反映 1/4）',
+    centralSynced,
+    central.ok
+      ? ((central.portalVersion || '（Portal版なし）') +
+        (central.buildStamp ? ' / ' + central.buildStamp : ''))
+      : '中央を取得できること',
+    hubPortalTarget + ' / ' + hubBuildStamp,
+    centralSynced
+      ? ''
+      : (central.ok
+        ? 'clasp push 後に Hub が追いついていません。「開発反映」で 1/4 を完了してください。'
+        : ('中央マーカー取得失敗: ' + (central.reason || 'unknown')))
+  ));
 
   if (!light) {
-    const sourceScriptId = String(hubConfig.admin_source_script_id || '');
-    const hubScriptId = String(hubConfig.admin_hub_script_id || '');
     const sourceSha = vNextAdminScriptContentSha256_(sourceScriptId);
     const hubScriptSha = vNextAdminScriptContentSha256_(hubScriptId);
     const hubConfigSha = String(hubConfig.admin_runtime_sha256 || '');
     checks.push(vNextAdminBuildDevDeployCheck_(
-      'hub_runtime', '管理ハブ runtime（中央 clasp と一致）',
+      'hub_runtime', '管理ハブ runtime SHA（中央 clasp と一致）',
       !!sourceSha && !!hubScriptSha && sourceSha === hubScriptSha && hubConfigSha === hubScriptSha,
       sourceSha ? sourceSha.slice(0, 12) + '…' : '（未取得）',
       hubScriptSha ? hubScriptSha.slice(0, 12) + '…' : '（未取得）',
@@ -1985,7 +2058,7 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
       'hub_runtime_pin', '管理ハブ runtime 記録',
       !!String(hubConfig.admin_runtime_sha256 || ''),
       '記録あり', String(hubConfig.admin_runtime_sha256 || '').slice(0, 12) + (hubConfig.admin_runtime_sha256 ? '…' : '（未記録）'),
-      '詳細確認で中央 clasp との一致を検査します。'
+      'SHA の完全一致は「いま反映済みか確認」の詳細検査で行います。'
     ));
   }
 
@@ -2027,15 +2100,25 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
   }
 
   const portal = vNextAdminTryResolvePortal_(hub);
+  const livePortalVersion = portal ? String(portal.runtimeVersion || '') : '';
+  const centralPortalTarget = central.ok && central.portalVersion
+    ? String(central.portalVersion)
+    : hubPortalTarget;
   if (!portal) {
     checks.push(vNextAdminBuildDevDeployCheck_(
-      'portal_runtime', 'Portal runtime', false, portalBundle.version, '（未設定）', '申請入口が未準備です。'
+      'portal_runtime', 'Portal runtime', false, centralPortalTarget, '（未設定）', '申請入口が未準備です。'
     ));
   } else {
+    // Prefer central target so a stale Hub cannot green-light an old Portal.
     checks.push(vNextAdminBuildDevDeployCheck_(
-      'portal_runtime_version', 'Portal runtime 版',
-      String(portal.runtimeVersion || '') === String(VN_ADMIN_PORTAL_RUNTIME_VERSION),
-      String(VN_ADMIN_PORTAL_RUNTIME_VERSION), String(portal.runtimeVersion || ''), ''
+      'portal_runtime_version', 'Portal runtime 版（中央期待）',
+      livePortalVersion === centralPortalTarget && livePortalVersion === hubPortalTarget,
+      centralPortalTarget, livePortalVersion,
+      livePortalVersion === hubPortalTarget && livePortalVersion !== centralPortalTarget
+        ? 'Hub 期待は一致していますが中央 clasp は新しい版です。開発反映が必要です。'
+        : (livePortalVersion !== hubPortalTarget
+          ? 'Portal が Hub 期待版と違います。開発反映の 3/4 を完了してください。'
+          : '')
     ));
     if (!light) {
       checks.push(vNextAdminBuildDevDeployCheck_(
@@ -2054,16 +2137,23 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
   ));
 
   const failed = checks.filter(function (row) { return !row.ok; });
+  const needsDeploy = !centralSynced ||
+    (portal && livePortalVersion && livePortalVersion !== centralPortalTarget);
   return vNextAdminJsonSafe_({
     ok: failed.length === 0,
     light: light,
     checkedAt: new Date().toISOString(),
     targetClientVersion: String(clientBundle.version || ''),
-    targetPortalVersion: String(VN_ADMIN_PORTAL_RUNTIME_VERSION),
+    targetPortalVersion: centralPortalTarget,
+    hubPortalVersion: hubPortalTarget,
+    central: central,
+    needsDeploy: needsDeploy,
     webAppUrl: webAppUrl,
     checks: checks,
     failedCount: failed.length,
-    summary: failed.length ? ('要確認 ' + failed.length + ' 件') : (light ? '版は一致（詳細確認でSHAも検査可）' : '反映済み（自動確認）')
+    summary: failed.length
+      ? ('要確認 ' + failed.length + ' 件' + (needsDeploy ? ' — 「開発反映」を実行' : ''))
+      : (light ? '中央・Hub・Portal の版は一致' : '反映済み（SHA含む自動確認）')
   });
 }
 
@@ -2100,6 +2190,7 @@ function vNextAdminBuildDevDeployStatus_(hub, options) {
     lastDeploy: lastDeploy,
     progress: progress,
     verification: verification,
+    needsDeploy: verification.needsDeploy === true,
     ok: verification.ok === true
   };
 }
