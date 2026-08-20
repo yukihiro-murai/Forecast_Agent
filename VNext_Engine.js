@@ -1416,6 +1416,8 @@ function vNextValidateActualRecords_(records, asOf) {
 
 function vNextSimulateForecast_(request) {
   var history = vNextBuildContinuityPrior_(request.actualRecords, request.fiscalYear, request.cutoff);
+  var learningApplication = vNextEngineApplyLearningEvidence_(history, request.learningEvidence || null);
+  history = learningApplication.history;
   var rng = vNextCreatePrng_(request.seed);
   var gaussian = vNextCreateGaussianSampler_(rng);
   var n = request.simulationCount;
@@ -1563,7 +1565,8 @@ function vNextSimulateForecast_(request) {
         commitmentRecognitionDelay: {
           sampledPerEventPerPath: true,
           outsideFiscalYearPolicy: 'EXCLUDE_FROM_TARGET_FY'
-        }
+        },
+        learningApplication: learningApplication.meta || null
       },
       degradation: request.aiUnavailable === true ? {
         aiUnavailable: true,
@@ -1896,6 +1899,48 @@ function vNextBuildContinuityPrior_(records, targetFiscalYear, cutoff) {
  * shock from being treated as if it recurred every year. MAD limits one
  * exceptional year and small samples are shrunk toward an auditable 12% prior.
  */
+/**
+ * Applies persisted learning evidence to continuity calibration.
+ * Phase A: when the previous official interval missed actuals, widen logSigma
+ * by a documented factor. Adoption/budget tracks never enter this path.
+ */
+function vNextEngineApplyLearningEvidence_(history, evidence) {
+  var base = history || {};
+  var meta = {
+    applied: false,
+    reason: 'NO_EVIDENCE',
+    evidenceId: '',
+    factor: 1,
+    beforeLogSigma: Number(base.logSigma),
+    afterLogSigma: Number(base.logSigma)
+  };
+  if (!evidence || typeof evidence !== 'object') {
+    return { history: base, meta: meta };
+  }
+  meta.evidenceId = String(evidence.evidenceId || '');
+  if (evidence.rangeContainsActual === true) {
+    meta.reason = 'PREVIOUS_INTERVAL_HIT';
+    return { history: base, meta: meta };
+  }
+  var factor = Number(evidence.intervalWidenFactorOnMiss);
+  if (!isFinite(factor) || factor < 1) factor = 1.15;
+  if (factor > 1.5) factor = 1.5;
+  var next = Object.assign({}, base);
+  next.logSigma = Number(base.logSigma || 0) * factor;
+  if (base.annualSigmaCalibration && typeof base.annualSigmaCalibration === 'object') {
+    next.annualSigmaCalibration = Object.assign({}, base.annualSigmaCalibration, {
+      learningWidenFactor: factor,
+      learningEvidenceId: meta.evidenceId,
+      logSigmaBeforeLearning: Number(base.logSigma)
+    });
+  }
+  meta.applied = true;
+  meta.reason = 'PREVIOUS_INTERVAL_MISS_WIDEN';
+  meta.factor = factor;
+  meta.afterLogSigma = Number(next.logSigma);
+  return { history: next, meta: meta };
+}
+
 function vNextCalibrateAnnualLogSigma_(logs) {
   var prior = VNEXT_ENGINE.DEFAULT_ANNUAL_LOG_SIGMA;
   if (!logs || logs.length < 3) {

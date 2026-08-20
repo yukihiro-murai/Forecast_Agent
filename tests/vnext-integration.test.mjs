@@ -23,6 +23,7 @@ await checkAdminCoverageContracts();
 await checkEmployeeResearchUxContracts();
 await checkVertexAiGroundingBudgetContracts();
 checkSourceContract();
+await import('./vnext-learning-phase-a.test.mjs');
 
 process.stdout.write('PASS vNext integration contract tests\n');
 
@@ -518,6 +519,21 @@ async function checkAdminRecoveryContracts() {
     'Legacy Admin UI must expose the explicit-ID incomplete bootstrap recovery path');
   assert.ok(source.includes('function vNextAdminUpdateHubRuntimeFromSource('),
     'Generated Admin Hubs need a centrally managed runtime update path');
+  assert.ok(source.includes('function vNextAdminUpdateHubRuntimeInHub_(') &&
+    source.includes('function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(') &&
+    source.includes('function vNextAdminDeployVerifiedEmployeeUxReleaseFromSource(') &&
+    source.includes('function vNextAdminUpgradeEligibleEmptyPilotsInHub_(') &&
+    source.includes('function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(') &&
+    source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus('),
+    'Dev deploy must expose phased Hub sync, employee UX promotion, and verification helpers');
+  assert.ok(sidebar.includes('deployVerifiedEmployeeUxRelease()') &&
+    sidebar.includes('refreshDevDeployStatus()') &&
+    sidebar.includes('renderDevDeployStatus') &&
+    sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
+    sidebar.includes('開発反映') &&
+    sidebar.includes('いま反映済みか確認') &&
+    sidebar.includes('id="devDeployCard"'),
+    'Admin Sidebar must expose the one-button Cursor dev deploy flow with auto verification');
   assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
     source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
@@ -933,6 +949,9 @@ async function checkAdminCoverageContracts() {
     'Current Portal content must not be forced through the latest five-file allowlist');
   assert.ok(portalMigration.includes('vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl)'),
     'Portal update must republish the existing employee web app after a verified runtime copy');
+  assert.ok(source.includes('for (let attempt = 0; attempt < 6; attempt++)') &&
+    source.includes('Portal /exec is still pinned to version'),
+    'Portal web entry republish must poll deployment version pin before failing');
   assert.ok(portalMigration.includes("'/deployments/' +") && portalMigration.includes("'put'"),
     'Portal web entry must update the existing deployment instead of creating a new /exec URL');
   assert.equal(portalMigration.includes("'/deployments', 'post'"), false,
@@ -1081,8 +1100,10 @@ async function checkAdminCoverageContracts() {
   assert.ok(sidebar.includes('Web入口の 01〜03') &&
     sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理') &&
-    sidebar.includes('システムの手入れ'),
-    'Admin Sidebar must keep daily processing in-panel and point field work to the Web entry');
+    sidebar.includes('システムの手入れ') &&
+    sidebar.includes('適応学習（System / Budget）') &&
+    sidebar.includes('vNextAdminRecordLearningObservation'),
+    'Admin Sidebar must keep daily processing in-panel and expose adaptive learning controls');
   const provisionStart = source.indexOf('function vNextAdminProvisionClientInHub_');
   const provisionEnd = source.indexOf('function vNextAdminResumeProvisioningClient_', provisionStart);
   const provision = source.slice(provisionStart, provisionEnd);

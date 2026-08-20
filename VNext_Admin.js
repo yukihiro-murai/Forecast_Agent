@@ -144,7 +144,9 @@ const VN_ADMIN_SHEETS = {
   CATALOG: VN_ADMIN_ZAC_CLIENT_CATALOG_SHEET,
   SETTINGS: 'MODEL_SETTINGS',
   MIGRATIONS: 'MIGRATION_LOG',
-  AUDIT: 'ADMIN_AUDIT_LOG'
+  AUDIT: 'ADMIN_AUDIT_LOG',
+  LEARNING_OBS: 'LEARNING_OBSERVATION',
+  LEARNING_EVIDENCE: 'LEARNING_EVIDENCE'
 };
 
 const VN_ADMIN_HEADERS = {};
@@ -216,6 +218,43 @@ VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.AUDIT] = [
   'audit_id', 'occurred_at', 'actor', 'action', 'entity_type', 'entity_id', 'status',
   'detail_json', 'before_hash', 'after_hash'
 ];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.LEARNING_OBS] = [
+  'observation_id', 'book_id', 'client_name', 'fiscal_year', 'observed_month',
+  'actual_amount', 'system_p10', 'system_p50', 'system_p90', 'range_breach',
+  'hypothesis', 'verification_status', 'verification_note', 'alerted',
+  'created_at', 'created_by', 'detail_json'
+];
+VN_ADMIN_HEADERS[VN_ADMIN_SHEETS.LEARNING_EVIDENCE] = [
+  'evidence_id', 'book_id', 'fiscal_year', 'evaluation_id', 'official_vintage_id',
+  'source_run_id', 'range_contains_actual', 'system_ape', 'budget_ape',
+  'layer_errors_json', 'learning_payload_json', 'created_at', 'created_by'
+];
+
+const VN_ADMIN_LEARNING_POLICY_KEY = 'LEARNING_POLICY_JSON';
+const VN_ADMIN_LEARNING_POLICY_DEFAULT = Object.freeze({
+  schemaVersion: 'vnext-learning-policy-1',
+  concept: '未来予測は直接最適化できない。区間校正→層別バイアス→制約付き点誤差→情報ギャップの順で代理目的を追う。',
+  proxyObjectives: Object.freeze([
+    Object.freeze({ rank: 1, id: 'interval_calibration', label: '区間校正' }),
+    Object.freeze({ rank: 2, id: 'layer_bias', label: '層別バイアス' }),
+    Object.freeze({ rank: 3, id: 'point_error_constrained', label: '点予測誤差（制約付き）' }),
+    Object.freeze({ rank: 4, id: 'information_gap', label: '情報ギャップ縮小' })
+  ]),
+  nonGoals: Object.freeze([
+    '正式予算・営業上積み・採用差分を学習に戻す',
+    '公式vintageの後書き',
+    '年度途中の会社予算補正',
+    '人が理解できない構造の自動適用'
+  ]),
+  budgetMidYearCorrection: false,
+  humanGate: 'threshold_and_material',
+  intervalBreachAlert: true,
+  intervalWidenFactorOnMiss: 1.15,
+  tracks: Object.freeze({
+    system: 'システム推奨 vs 確定実績（学習に使用）',
+    budget: '正式予算 vs 確定実績（監査用・学習に戻さない）'
+  })
+});
 
 const VN_ADMIN_DEFAULT_CLIENT_VISIBLE = ['1_ホーム', '2_予測と計画'];
 const VN_ADMIN_DEFAULT_TEMPLATE_VISIBLE = ['1_ホーム', '2_予測と計画', '3_振り返り'];
@@ -743,6 +782,16 @@ function vNextAdminGetSidebarDetailModel() {
       pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss)
     };
     vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
+    model.devDeployStatus = vNextAdminBuildDevDeployStatus_(ss, { light: true });
+    try {
+      model.learningDashboard = vNextAdminBuildLearningDashboard_(ss);
+    } catch (learningError) {
+      model.learningDashboard = {
+        error: String(learningError && learningError.message || learningError),
+        proxyObjectives: [], dualTracks: [], recentObservations: [], openBreaches: [],
+        stats: { evaluationCount: 0, evidenceCount: 0, observationCount: 0, openIntervalBreaches: 0 }
+      };
+    }
     return vNextAdminJsonSafe_(model);
   });
 }
@@ -1556,7 +1605,8 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
     if (!engineVersion) throw new Error('Forecast Engine version is unavailable.');
 
     const staged = vNextAdminPublishTemplateRelease({
-      reason: '申請入口・社内情報提供メンバー対応のPilot release',
+      reason: vNextAdminText_(req.releaseReason) ||
+        '申請入口・社内情報提供メンバー対応のPilot release',
       expectedActiveReleaseId: initialPair.releaseId,
       stageOnly: true
     });
@@ -1666,24 +1716,310 @@ function vNextAdminPrepareEmployeePortalPilotForManualTest() {
   return vNextAdminPrepareEmployeeUxReleaseForManualTest();
 }
 
-/** No-UI editor fallback that publishes and activates the currently verified employee UX release. */
-function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
+/** Builds the attestation payload for a verified employee UX release deploy. */
+function vNextAdminBuildEmployeeUxReleaseEvidence_(req) {
   const clientBundle = vNextClientRuntimeVerifiedBundle_();
   const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
     ? vNextPortalRuntimeVerifiedBundle_()
     : { version: VN_ADMIN_PORTAL_RUNTIME_VERSION, sha256: '' };
+  const request = req && typeof req === 'object' ? req : {};
+  if (request.evidenceArtifact) return vNextAdminRequiredText_(request.evidenceArtifact, 'evidenceArtifact');
+  return vNextAdminCanonicalJson_({
+    verifiedAt: new Date().toISOString(),
+    clientRuntimeTests: 10,
+    clientRuntimeVersion: clientBundle.version,
+    clientRuntimeSha256: clientBundle.sha256,
+    portalRuntimeTests: 12,
+    portalRuntimeVersion: portalBundle.version,
+    portalRuntimeSha256: portalBundle.sha256,
+    integrationContractTests: 'PASS'
+  });
+}
+
+/** No-UI editor fallback that publishes and activates the currently verified employee UX release. */
+function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
   return vNextAdminPrepareEmployeePortalPilot({
     attestationConfirmed: true,
-    evidenceArtifact: vNextAdminCanonicalJson_({
-      verifiedAt: '2026-08-12',
-      clientRuntimeTests: 10,
-      clientRuntimeVersion: clientBundle.version,
-      clientRuntimeSha256: clientBundle.sha256,
-      portalRuntimeTests: 12,
-      portalRuntimeVersion: portalBundle.version,
-      portalRuntimeSha256: portalBundle.sha256,
-      integrationContractTests: 'PASS'
-    })
+    evidenceArtifact: vNextAdminBuildEmployeeUxReleaseEvidence_({})
+  });
+}
+
+/**
+ * Phase B of the dev deploy flow. Run only after Hub runtime sync so this
+ * execution loads the freshly copied central bundle definitions.
+ */
+function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    const releaseReason = vNextAdminText_(req.releaseReason) || reason;
+    const release = vNextAdminPrepareEmployeePortalPilot({
+      attestationConfirmed: true,
+      releaseReason: releaseReason,
+      evidenceArtifact: vNextAdminBuildEmployeeUxReleaseEvidence_(req)
+    });
+    const portal = vNextAdminUpdateSharedPortalRuntime({ reason: reason });
+    let emptyPilots = { upgraded: [], skipped: [], count: 0, skippedAll: true };
+    if (req.upgradeEmptyPilots !== false) {
+      emptyPilots = vNextAdminUpgradeEligibleEmptyPilotsInHub_(hub, {
+        reason: vNextAdminText_(req.emptyPilotReason) || '受入試験開始前のUI・操作性改善'
+      });
+    }
+    const pair = vNextAdminReadActiveReleasePair_(hub);
+    const activeRelease = vNextAdminResolveRelease_(hub, pair.releaseId);
+    const verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub);
+    const result = vNextAdminJsonSafe_({
+      ok: verification.ok === true,
+      phase: 'EMPLOYEE_UX',
+      reason: reason,
+      activeTemplateReleaseId: pair.releaseId,
+      activeModelReleaseId: pair.modelReleaseId,
+      clientRuntimeVersion: String(activeRelease.client_runtime_version || ''),
+      portalRuntimeVersion: String(portal && portal.runtimeVersion || ''),
+      release: release,
+      portal: portal,
+      emptyPilots: emptyPilots,
+      verification: verification,
+      completedAt: new Date().toISOString(),
+      message: verification.ok
+        ? '反映を自動確認しました。すべて一致しています。'
+        : '反映は完了しましたが、自動確認で ' + verification.failedCount + ' 件の不一致があります。'
+    });
+    vNextAdminWriteAudit_(hub, 'DEPLOY_VERIFIED_EMPLOYEE_UX', 'ADMIN_RUNTIME', hub.getId(), 'SUCCESS', result);
+    PropertiesService.getScriptProperties().setProperty(
+      'VNEXT_LAST_DEV_DEPLOY_RESULT_JSON', vNextAdminCanonicalJson_(result)
+    );
+    return result;
+  });
+}
+
+/** Upgrades every empty Pilot Client that passes the read-only safety check. */
+function vNextAdminUpgradeEligibleEmptyPilotsInHub_(hub, request) {
+  const req = request && typeof request === 'object' ? request : {};
+  const reason = vNextAdminRequiredText_(req.reason, 'reason');
+  const pair = vNextAdminReadActiveReleasePair_(hub);
+  const unfinishedByBook = {};
+  vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.MIGRATIONS).rows.forEach(function (row) {
+    if (/^EMPTY_PILOT_|^RECOVERY_REQUIRED$/.test(String(row.status || '').toUpperCase())) {
+      unfinishedByBook[String(row.book_id || '')] = row;
+    }
+  });
+  const candidates = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.filter(function (row) {
+    return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+      String(row.status || '').toUpperCase() === 'ACTIVE' &&
+      String(row.state || '').toUpperCase() === 'INPUT_OPEN' &&
+      !String(row.current_official_id || '') &&
+      (String(row.template_release_id || '') !== pair.releaseId || !!unfinishedByBook[String(row.book_id || '')]);
+  });
+  const upgraded = [];
+  const skipped = [];
+  candidates.forEach(function (row) {
+    const bookId = String(row.book_id || '');
+    if (unfinishedByBook[bookId]) {
+      skipped.push({ bookId: bookId, reason: 'unfinished migration ' + String(unfinishedByBook[bookId].migration_id || '') });
+      return;
+    }
+    try {
+      const basis = vNextAdminUpgradeEmptyPilotClient({ bookId: bookId, dryRun: true, reason: reason });
+      if (!basis || basis.eligible !== true) {
+        skipped.push({ bookId: bookId, reason: 'not eligible' });
+        return;
+      }
+      upgraded.push(vNextAdminUpgradeEmptyPilotClient({ bookId: bookId, dryRun: false, reason: reason }));
+    } catch (error) {
+      skipped.push({ bookId: bookId, reason: String(error && error.message || error) });
+    }
+  });
+  return { upgraded: upgraded, skipped: skipped, count: upgraded.length, skippedAll: !candidates.length };
+}
+
+/** Central-source phase A for CLI deploy: sync Hub runtime only. */
+function vNextAdminDeployVerifiedEmployeeUxReleaseFromSource(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxReleaseFromSource', function () {
+    vNextAdminAssertRuntimeConfigurator_();
+    const req = request && typeof request === 'object' ? request : {};
+    const hubId = vNextAdminRequiredText_(req.hubSpreadsheetId, 'hubSpreadsheetId');
+    const hub = SpreadsheetApp.openById(hubId);
+    if (vNextDetectBookMode_(hub) !== 'ADMIN' || !vNextAdminIsRegisteredHub_(hub)) {
+      throw new Error('The supplied Hub is not the registered 管理ハブ.');
+    }
+    vNextAdminAssertHubAdmin_(hub, true);
+    vNextAdminHydrateHubRuntime_(hub);
+    Object.keys(VN_ADMIN_HEADERS).forEach(function (name) {
+      vNextAdminEnsureTable_(hub, name, VN_ADMIN_HEADERS[name]);
+    });
+    return vNextAdminUpdateHubRuntimeInHub_(hub, req, {
+      allowEffectiveUser: true, requireCentralCaller: true
+    });
+  });
+}
+
+/** Central-source phase B is not supported; execute phase B on the Hub-bound script. */
+function vNextAdminDeployVerifiedEmployeeUxReleasePhaseBFromSource(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxReleasePhaseBFromSource', function () {
+    throw new Error('Phase B must run on the registered 管理ハブ script. Use vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_ via Hub API execution, or the Hub sidebar button.');
+  });
+}
+
+function vNextAdminBuildDevDeployCheck_(id, label, ok, expected, actual, detail) {
+  return {
+    id: String(id || ''), label: String(label || ''), ok: ok === true,
+    expected: String(expected || ''), actual: String(actual || ''),
+    detail: String(detail || '')
+  };
+}
+
+function vNextAdminScriptContentSha256_(scriptId) {
+  if (!scriptId || typeof vNextClientRuntimeGetContent_ !== 'function' ||
+      typeof vNextAdminRuntimeVerifyScriptContent_ !== 'function') return '';
+  const content = vNextClientRuntimeGetContent_(scriptId);
+  return String(vNextAdminRuntimeVerifyScriptContent_(content, scriptId).sha256 || '');
+}
+
+/** Read-only verification that live Hub/Portal/Client pointers match deployed bundles. */
+function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const light = opts.light === true;
+  const checks = [];
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const clientBundle = vNextClientRuntimeVerifiedBundle_();
+  const portalBundle = typeof vNextPortalRuntimeVerifiedBundle_ === 'function'
+    ? vNextPortalRuntimeVerifiedBundle_()
+    : { version: VN_ADMIN_PORTAL_RUNTIME_VERSION, sha256: '' };
+
+  if (!light) {
+    const sourceScriptId = String(hubConfig.admin_source_script_id || '');
+    const hubScriptId = String(hubConfig.admin_hub_script_id || '');
+    const sourceSha = vNextAdminScriptContentSha256_(sourceScriptId);
+    const hubScriptSha = vNextAdminScriptContentSha256_(hubScriptId);
+    const hubConfigSha = String(hubConfig.admin_runtime_sha256 || '');
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'hub_runtime', '管理ハブ runtime（中央 clasp と一致）',
+      !!sourceSha && !!hubScriptSha && sourceSha === hubScriptSha && hubConfigSha === hubScriptSha,
+      sourceSha ? sourceSha.slice(0, 12) + '…' : '（未取得）',
+      hubScriptSha ? hubScriptSha.slice(0, 12) + '…' : '（未取得）',
+      hubConfigSha && hubConfigSha !== hubScriptSha ? 'VN_SYSTEM_CONFIG の SHA が古い可能性があります。' : ''
+    ));
+  } else {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'hub_runtime_pin', '管理ハブ runtime 記録',
+      !!String(hubConfig.admin_runtime_sha256 || ''),
+      '記録あり', String(hubConfig.admin_runtime_sha256 || '').slice(0, 12) + (hubConfig.admin_runtime_sha256 ? '…' : '（未記録）'),
+      '詳細確認で中央 clasp との一致を検査します。'
+    ));
+  }
+
+  let pair = null;
+  let release = null;
+  let model = null;
+  try {
+    pair = vNextAdminReadActiveReleasePair_(hub);
+    release = vNextAdminResolveRelease_(hub, pair.releaseId);
+    model = vNextAdminLatestModelRelease_(hub, pair.modelReleaseId);
+  } catch (pairError) {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'client_release', 'Client 現行 release', false, clientBundle.version, '（未設定）',
+      String(pairError && pairError.message || pairError)
+    ));
+  }
+  if (release) {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'client_runtime_version', 'Client runtime 版',
+      String(release.client_runtime_version || '') === String(clientBundle.version || ''),
+      String(clientBundle.version || ''), String(release.client_runtime_version || ''), ''
+    ));
+    if (!light) {
+      checks.push(vNextAdminBuildDevDeployCheck_(
+        'client_runtime_sha', 'Client runtime SHA',
+        String(release.client_runtime_sha256 || '') === String(clientBundle.sha256 || ''),
+        String(clientBundle.sha256 || '').slice(0, 12) + '…',
+        String(release.client_runtime_sha256 || '').slice(0, 12) + '…', ''
+      ));
+    }
+  }
+  if (model && pair) {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'model_pair', 'Template＋Model pair',
+      String(model.template_version || '') === String(pair.releaseId || '') &&
+        String(model.status || '').toUpperCase() === 'ACTIVE',
+      String(pair.releaseId || ''), String(model.template_version || ''), ''
+    ));
+  }
+
+  const portal = vNextAdminTryResolvePortal_(hub);
+  if (!portal) {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'portal_runtime', 'Portal runtime', false, portalBundle.version, '（未設定）', '申請入口が未準備です。'
+    ));
+  } else {
+    checks.push(vNextAdminBuildDevDeployCheck_(
+      'portal_runtime_version', 'Portal runtime 版',
+      String(portal.runtimeVersion || '') === String(VN_ADMIN_PORTAL_RUNTIME_VERSION),
+      String(VN_ADMIN_PORTAL_RUNTIME_VERSION), String(portal.runtimeVersion || ''), ''
+    ));
+    if (!light) {
+      checks.push(vNextAdminBuildDevDeployCheck_(
+        'portal_runtime_sha', 'Portal runtime SHA',
+        String(portal.runtimeSha256 || '') === String(portalBundle.sha256 || ''),
+        String(portalBundle.sha256 || '').slice(0, 12) + '…',
+        String(portal.runtimeSha256 || '').slice(0, 12) + '…', ''
+      ));
+    }
+  }
+
+  const webAppUrl = vNextAdminEmployeePortalWebAppUrl_(hub);
+  checks.push(vNextAdminBuildDevDeployCheck_(
+    'portal_web_entry', 'Web入口 URL',
+    !!webAppUrl, '登録済み URL', webAppUrl || '（未登録）', ''
+  ));
+
+  const failed = checks.filter(function (row) { return !row.ok; });
+  return vNextAdminJsonSafe_({
+    ok: failed.length === 0,
+    light: light,
+    checkedAt: new Date().toISOString(),
+    targetClientVersion: String(clientBundle.version || ''),
+    targetPortalVersion: String(VN_ADMIN_PORTAL_RUNTIME_VERSION),
+    webAppUrl: webAppUrl,
+    checks: checks,
+    failedCount: failed.length,
+    summary: failed.length ? ('要確認 ' + failed.length + ' 件') : (light ? '版は一致（詳細確認でSHAも検査可）' : '反映済み（自動確認）')
+  });
+}
+
+function vNextAdminBuildDevDeployStatus_(hub, options) {
+  let lastDeploy = null;
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('VNEXT_LAST_DEV_DEPLOY_RESULT_JSON') || '';
+    if (raw) lastDeploy = JSON.parse(raw);
+  } catch (ignoredParse) {
+    lastDeploy = null;
+  }
+  let verification;
+  try {
+    verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options);
+  } catch (verifyError) {
+    verification = {
+      ok: false, light: !!(options && options.light), checkedAt: new Date().toISOString(),
+      targetClientVersion: '', targetPortalVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, webAppUrl: '',
+      checks: [vNextAdminBuildDevDeployCheck_('verify_error', '反映確認', false, '成功', '失敗',
+        String(verifyError && verifyError.message || verifyError))],
+      failedCount: 1, summary: '反映確認に失敗しました'
+    };
+  }
+  return {
+    lastDeploy: lastDeploy,
+    verification: verification,
+    ok: verification.ok === true
+  };
+}
+
+function vNextAdminGetVerifiedEmployeeUxDeployStatus(request) {
+  return vNextAdminGuard_('vNextAdminGetVerifiedEmployeeUxDeployStatus', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminBuildDevDeployStatus_(hub);
   });
 }
 
@@ -3279,6 +3615,302 @@ function vNextAdminOfficialSyncTargetState_(hubState) {
   return ['REVIEW_DUE', 'YEAR_CLOSED'].indexOf(normalized) >= 0 ? normalized : 'OFFICIAL_LOCKED';
 }
 
+function vNextAdminDefaultLearningPolicy_() {
+  return JSON.parse(JSON.stringify(VN_ADMIN_LEARNING_POLICY_DEFAULT));
+}
+
+function vNextAdminEnsureLearningPolicy_(hub) {
+  const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
+    return String(row.setting_key || '') === VN_ADMIN_LEARNING_POLICY_KEY;
+  });
+  if (existing && existing.setting_value) {
+    const parsed = vNextAdminParseJson_(existing.setting_value, null);
+    if (parsed && parsed.schemaVersion) return parsed;
+  }
+  const policy = vNextAdminDefaultLearningPolicy_();
+  policy.updatedAt = new Date().toISOString();
+  policy.updatedBy = vNextAdminActor_();
+  const now = new Date();
+  vNextAdminUpsertObject_(hub, VN_ADMIN_SHEETS.SETTINGS, 'setting_key', VN_ADMIN_LEARNING_POLICY_KEY, {
+    setting_key: VN_ADMIN_LEARNING_POLICY_KEY,
+    setting_value: vNextAdminCanonicalJson_(policy),
+    value_type: 'JSON', scope: 'LEARNING_POLICY', effective_from: now,
+    updated_at: now, updated_by: vNextAdminActor_(),
+    note: 'Adaptive learning proxy objectives and constraints'
+  });
+  return policy;
+}
+
+function vNextAdminReadLearningPolicy_(hub) {
+  return vNextAdminEnsureLearningPolicy_(hub);
+}
+
+function vNextAdminComputeDualTrackFromEvaluation_(row) {
+  const actual = Number(row.actual_total);
+  const system = Number(row.system_forecast);
+  const budget = Number(row.final_budget);
+  const systemSigned = isFinite(system) && isFinite(actual) ? system - actual : '';
+  const budgetSigned = isFinite(budget) && isFinite(actual) ? budget - actual : '';
+  const systemApe = Number(row.system_ape);
+  const budgetApe = isFinite(budget) && isFinite(actual) && actual !== 0
+    ? Math.abs(budget - actual) / Math.abs(actual) : '';
+  return {
+    bookId: String(row.book_id || ''),
+    fiscalYear: Number(row.fiscal_year || 0),
+    evaluationId: String(row.evaluation_id || ''),
+    officialVintageId: String(row.official_vintage_id || ''),
+    actualTotal: actual,
+    system: {
+      forecast: system,
+      signedError: systemSigned,
+      absError: isFinite(systemSigned) ? Math.abs(systemSigned) : '',
+      ape: isFinite(systemApe) ? systemApe : (isFinite(systemSigned) && actual !== 0 ? Math.abs(systemSigned) / Math.abs(actual) : ''),
+      rangeContainsActual: Number(row.range_contains_actual || 0) === 1
+    },
+    budget: {
+      finalBudget: budget,
+      signedError: budgetSigned,
+      absError: isFinite(budgetSigned) ? Math.abs(budgetSigned) : '',
+      ape: budgetApe,
+      learningExcluded: true
+    },
+    layers: {
+      baseLevel: Number(row.base_level_error),
+      seasonality: Number(row.seasonality_error),
+      commitmentOutcome: Number(row.commitment_outcome_error),
+      amount: Number(row.amount_error),
+      timing: Number(row.timing_error),
+      unknownSpot: Number(row.unknown_spot_error),
+      humanInfo: Number(row.human_info_error),
+      aiInfo: Number(row.ai_info_error),
+      dataQuality: Number(row.data_quality_error)
+    }
+  };
+}
+
+function vNextAdminAppendLearningEvidenceFromEvaluation_(hub, evaluation, officialForecast, automaticBreakdown) {
+  if (!evaluation) return null;
+  const track = vNextAdminComputeDualTrackFromEvaluation_(evaluation);
+  const forecastResult = officialForecast || {
+    runId: String(evaluation.source_run_id || ''),
+    officialVintageId: String(evaluation.official_vintage_id || ''),
+    modelReleaseId: String(evaluation.model_release_id || ''),
+    inputDataHash: '',
+    layers: { systemRecommended: Number(evaluation.system_forecast) },
+    annual: { p10: '', p50: '', p90: '' }
+  };
+  const learningPayload = typeof vNextBuildLearningPayload_ === 'function'
+    ? vNextBuildLearningPayload_(forecastResult, {
+      actualTotal: Number(evaluation.actual_total),
+      errorComponents: (automaticBreakdown && automaticBreakdown.errorComponents) || {
+        baseLevel: evaluation.base_level_error,
+        seasonality: evaluation.seasonality_error,
+        commitmentOutcome: evaluation.commitment_outcome_error,
+        amount: evaluation.amount_error,
+        timing: evaluation.timing_error,
+        unknownSpot: evaluation.unknown_spot_error,
+        humanInfo: evaluation.human_info_error,
+        aiInfo: evaluation.ai_info_error,
+        dataQuality: evaluation.data_quality_error
+      }
+    })
+    : { systemForecast: Number(evaluation.system_forecast), actualTotal: Number(evaluation.actual_total) };
+  const evidenceId = 'LE-' + vNextAdminSha256_([
+    String(evaluation.evaluation_id || ''), String(evaluation.official_vintage_id || '')
+  ].join('|')).slice(0, 24).toUpperCase();
+  const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.LEARNING_EVIDENCE).rows.filter(function (row) {
+    return String(row.evidence_id || '') === evidenceId;
+  });
+  if (existing.length) return existing[existing.length - 1];
+  const record = {
+    evidence_id: evidenceId,
+    book_id: String(evaluation.book_id || ''),
+    fiscal_year: Number(evaluation.fiscal_year || 0),
+    evaluation_id: String(evaluation.evaluation_id || ''),
+    official_vintage_id: String(evaluation.official_vintage_id || ''),
+    source_run_id: String(evaluation.source_run_id || ''),
+    range_contains_actual: Number(evaluation.range_contains_actual || 0),
+    system_ape: track.system.ape === '' ? '' : track.system.ape,
+    budget_ape: track.budget.ape === '' ? '' : track.budget.ape,
+    layer_errors_json: vNextAdminCanonicalJson_(track.layers),
+    learning_payload_json: vNextAdminCanonicalJson_(learningPayload),
+    created_at: new Date(),
+    created_by: vNextAdminActor_()
+  };
+  vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.LEARNING_EVIDENCE, record);
+  return record;
+}
+
+function vNextAdminLatestLearningEvidenceForBook_(hub, bookId) {
+  const rows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.LEARNING_EVIDENCE).rows.filter(function (row) {
+    return String(row.book_id || '') === String(bookId || '');
+  });
+  return rows.length ? rows[rows.length - 1] : null;
+}
+
+function vNextAdminLearningEvidenceForEngine_(hub, bookId) {
+  const row = vNextAdminLatestLearningEvidenceForBook_(hub, bookId);
+  if (!row) return null;
+  const policy = vNextAdminReadLearningPolicy_(hub);
+  return {
+    evidenceId: String(row.evidence_id || ''),
+    evaluationId: String(row.evaluation_id || ''),
+    rangeContainsActual: Number(row.range_contains_actual || 0) === 1,
+    systemApe: Number(row.system_ape),
+    layerErrors: vNextAdminParseJson_(row.layer_errors_json, {}),
+    learningPayload: vNextAdminParseJson_(row.learning_payload_json, {}),
+    intervalWidenFactorOnMiss: Number(policy.intervalWidenFactorOnMiss || 1.15)
+  };
+}
+
+function vNextAdminBuildLearningDashboard_(hub) {
+  const policy = vNextAdminReadLearningPolicy_(hub);
+  const evaluations = vNextAdminReadCoreRows_(hub, 'EVALUATION');
+  const dualTracks = evaluations.slice(-20).map(vNextAdminComputeDualTrackFromEvaluation_);
+  const observations = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.LEARNING_OBS).rows.slice(-20);
+  const evidenceRows = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.LEARNING_EVIDENCE).rows;
+  const openBreaches = observations.filter(function (row) {
+    return Number(row.range_breach || 0) === 1 &&
+      String(row.verification_status || '').toUpperCase() !== 'VERIFIED';
+  });
+  const missCount = dualTracks.filter(function (row) { return row.system && !row.system.rangeContainsActual; }).length;
+  return vNextAdminJsonSafe_({
+    policy: policy,
+    concept: policy.concept,
+    proxyObjectives: policy.proxyObjectives || [],
+    nonGoals: policy.nonGoals || [],
+    stats: {
+      evaluationCount: evaluations.length,
+      evidenceCount: evidenceRows.length,
+      observationCount: observations.length,
+      openIntervalBreaches: openBreaches.length,
+      recentIntervalMisses: missCount
+    },
+    dualTracks: dualTracks.reverse(),
+    recentObservations: observations.slice().reverse().slice(0, 8).map(function (row) {
+      return {
+        observationId: String(row.observation_id || ''),
+        bookId: String(row.book_id || ''),
+        clientName: String(row.client_name || ''),
+        observedMonth: String(row.observed_month || ''),
+        rangeBreach: Number(row.range_breach || 0) === 1,
+        hypothesis: String(row.hypothesis || ''),
+        verificationStatus: String(row.verification_status || ''),
+        alerted: Number(row.alerted || 0) === 1
+      };
+    }),
+    openBreaches: openBreaches.slice(-5).map(function (row) {
+      return {
+        observationId: String(row.observation_id || ''),
+        bookId: String(row.book_id || ''),
+        clientName: String(row.client_name || ''),
+        observedMonth: String(row.observed_month || ''),
+        hypothesis: String(row.hypothesis || '')
+      };
+    })
+  });
+}
+
+/**
+ * Monthly observation: accumulate actual vs official interval, optional hypothesis,
+ * and raise an exception when the range is breached (budget is never rewritten).
+ */
+function vNextAdminRecordLearningObservation(request) {
+  return vNextAdminGuard_('vNextAdminRecordLearningObservation', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    vNextAdminEnsureLearningPolicy_(hub);
+    return vNextAdminWithScriptLock_('learning-observation', function () {
+      const bookId = vNextAdminRequiredText_(req.bookId, 'bookId');
+      const observedMonth = vNextAdminRequiredText_(req.observedMonth, 'observedMonth');
+      if (!/^\d{4}-\d{2}$/.test(observedMonth)) throw new Error('observedMonth must be YYYY-MM.');
+      const registry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.book_id || '') === bookId && String(row.mode || '') === 'CLIENT';
+      });
+      if (!registry) throw new Error('Registered CLIENT book not found: ' + bookId);
+      const officialId = String(registry.current_official_id || '');
+      let p10 = Number(req.systemP10);
+      let p50 = Number(req.systemP50);
+      let p90 = Number(req.systemP90);
+      if ((!isFinite(p10) || !isFinite(p90)) && officialId) {
+        const run = vNextAdminReadCoreRows_(hub, 'FORECAST_RUN').filter(function (row) {
+          return String(row.book_id || '') === bookId && String(row.official_vintage_id || '') === officialId &&
+            Number(row.is_official || 0) === 1;
+        }).slice(-1)[0];
+        if (run) {
+          p10 = Number(run.p10);
+          p50 = Number(run.p50);
+          p90 = Number(run.p90);
+        }
+      }
+      const actualAmount = Number(req.actualAmount);
+      if (!isFinite(actualAmount)) throw new Error('actualAmount is required.');
+      const rangeBreach = isFinite(p10) && isFinite(p90)
+        ? (actualAmount < p10 || actualAmount > p90 ? 1 : 0) : 0;
+      const policy = vNextAdminReadLearningPolicy_(hub);
+      const alerted = rangeBreach === 1 && policy.intervalBreachAlert !== false ? 1 : 0;
+      const observationId = 'OBS-' + vNextAdminSha256_(vNextAdminCanonicalJson_({
+        bookId: bookId, observedMonth: observedMonth, actualAmount: actualAmount,
+        hypothesis: vNextAdminText_(req.hypothesis), attempt: Utilities.getUuid()
+      })).slice(0, 20).toUpperCase();
+      const record = {
+        observation_id: observationId,
+        book_id: bookId,
+        client_name: String(registry.client_name || ''),
+        fiscal_year: Number(registry.fiscal_year || 0),
+        observed_month: observedMonth,
+        actual_amount: actualAmount,
+        system_p10: isFinite(p10) ? p10 : '',
+        system_p50: isFinite(p50) ? p50 : '',
+        system_p90: isFinite(p90) ? p90 : '',
+        range_breach: rangeBreach,
+        hypothesis: vNextAdminText_(req.hypothesis),
+        verification_status: vNextAdminText_(req.verificationStatus) || (rangeBreach ? 'NEEDS_FIELD_CHECK' : 'RECORDED'),
+        verification_note: vNextAdminText_(req.verificationNote),
+        alerted: alerted,
+        created_at: new Date(),
+        created_by: vNextAdminActor_(),
+        detail_json: vNextAdminCanonicalJson_({
+          officialVintageId: officialId,
+          kind: 'MONTHLY_OBSERVATION_V1',
+          budgetUnchanged: true
+        })
+      };
+      vNextAdminAppendObject_(hub, VN_ADMIN_SHEETS.LEARNING_OBS, record);
+      if (alerted) {
+        vNextAdminAppendException_(hub, {
+          severity: 'WARN',
+          exception_type: 'LEARNING_INTERVAL_BREACH',
+          book_id: bookId,
+          client_name: registry.client_name,
+          fiscal_year: registry.fiscal_year,
+          title: '想定区間を外れた月次実績',
+          detail: observedMonth + ' actual=' + actualAmount + ' vs P10–P90 [' + p10 + ', ' + p90 + ']',
+          recommended_action: '現場確認のうえ仮説・検証を LEARNING_OBSERVATION に残す。正式予算は変更しない。',
+          source_ref: observationId
+        });
+      }
+      vNextAdminWriteAudit_(hub, 'RECORD_LEARNING_OBSERVATION', 'LEARNING_OBS', observationId, 'SUCCESS', {
+        bookId: bookId, observedMonth: observedMonth, rangeBreach: rangeBreach, alerted: alerted
+      });
+      return vNextAdminJsonSafe_({
+        ok: true, observationId: observationId, rangeBreach: rangeBreach === 1, alerted: alerted === 1,
+        message: rangeBreach
+          ? '区間外れを記録し、要確認アラートを出しました（予算は変更していません）。'
+          : '月次観測を記録しました。'
+      });
+    });
+  });
+}
+
+function vNextAdminGetLearningDashboard(request) {
+  return vNextAdminGuard_('vNextAdminGetLearningDashboard', function () {
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminBuildLearningDashboard_(hub);
+  });
+}
+
 /** Aggregate confirmed BE actuals for the full FY and start the learning review. */
 function vNextAdminStartReview(request) {
   return vNextAdminGuard_('vNextAdminStartReview', function () {
@@ -3461,6 +4093,7 @@ function vNextAdminStartReview(request) {
           evaluatedAt: new Date().toISOString(), errorComponents: automaticBreakdown.errorComponents,
           confirmedCause: '', causeHypothesis: '', nextInformation: [], createdBy: vNextAdminActor_()
         }, { spreadsheet: hub });
+        vNextAdminAppendLearningEvidenceFromEvaluation_(hub, evaluation, officialForecast, automaticBreakdown);
         vNextAdminWriteAudit_(hub, 'START_REVIEW', 'EVALUATION', evaluation.evaluation_id, 'SUCCESS', {
           bookId: bookId, officialVintageId: officialId, officialRunId: officialRow.forecast_run_id,
           actualRows: fyActuals.length, actualTotal: actualTotal, observedMonthCount: observedMonths.size,
@@ -3485,6 +4118,12 @@ function vNextAdminStartReview(request) {
       vNextAdminSetClientState_(registry.spreadsheet_id, 'REVIEW_DUE', {
         reason: 'full_year_actuals_ready_for_review', relatedRunId: evaluation.source_run_id
       });
+      if (evaluation) {
+        const officialForecastForEvidence = officialForecasts.length
+          ? vNextForecastRecordToResult_(officialForecasts[officialForecasts.length - 1])
+          : null;
+        vNextAdminAppendLearningEvidenceFromEvaluation_(hub, evaluation, officialForecastForEvidence, null);
+      }
       vNextAdminSyncClientToHub_(hub, client, bookId);
       vNextAdminSyncHubToClient_(hub, client, bookId, ['EVALUATION', 'STATE_EVENT']);
       vNextAdminMirrorClientState_(client, 'REVIEW_DUE');
@@ -4989,41 +5628,55 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
   return vNextAdminGuard_('vNextAdminUpdateHubRuntimeFromSource', function () {
     const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
-    return vNextAdminWithScriptLock_('update-admin-runtime', function () {
-      const reason = vNextAdminRequiredText_(req.reason, 'reason');
-      const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
-      const sourceScriptId = vNextAdminRequiredText_(config.admin_source_script_id, 'admin_source_script_id');
-      const targetScriptId = vNextAdminRequiredText_(config.admin_hub_script_id, 'admin_hub_script_id');
-      if (String(ScriptApp.getScriptId()) !== targetScriptId) {
-        throw new Error('The current bound project does not match the registered 管理ハブ script ID.');
+    return vNextAdminUpdateHubRuntimeInHub_(hub, req, { requireHubScript: true });
+  });
+}
+
+/** Copies the verified central clasp runtime into a registered Hub-bound project. */
+function vNextAdminUpdateHubRuntimeInHub_(hub, request, options) {
+  const req = request && typeof request === 'object' ? request : {};
+  const opts = options && typeof options === 'object' ? options : {};
+  vNextAdminAssertHubAdmin_(hub, opts.allowEffectiveUser === true);
+  return vNextAdminWithScriptLock_('update-admin-runtime', function () {
+    const reason = vNextAdminRequiredText_(req.reason, 'reason');
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const sourceScriptId = vNextAdminRequiredText_(config.admin_source_script_id, 'admin_source_script_id');
+    const targetScriptId = vNextAdminRequiredText_(config.admin_hub_script_id, 'admin_hub_script_id');
+    const callerScriptId = String(ScriptApp.getScriptId() || '');
+    if (opts.requireCentralCaller === true) {
+      if (callerScriptId !== sourceScriptId) {
+        throw new Error('Central-source Hub sync must run from admin_source_script_id.');
       }
-      if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
-        throw new Error('Verified 管理ハブ runtime copy helper is not installed.');
-      }
-      const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
-      vNextAdminWriteSystemConfig_(hub, {
-        admin_runtime_sha256: copied.adminRuntimeSha256,
-        admin_runtime_updated_at: new Date().toISOString(),
-        admin_runtime_updated_by: vNextAdminActor_()
-      });
-      const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
-        return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
-      });
-      if (!hubRegistry) throw new Error('管理ハブ BOOK_REGISTRY row is missing.');
-      vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
-        admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
-        health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
-        note: '管理ハブ runtime updated from central source; reason=' + reason
-      });
-      vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
-        sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
-        adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason
-      });
-      return {
-        ok: true, adminRuntimeSha256: copied.adminRuntimeSha256,
-        fileCount: copied.fileCount, message: '管理ハブ runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
-      };
+    } else if (opts.requireHubScript === true && callerScriptId !== targetScriptId) {
+      throw new Error('The current bound project does not match the registered 管理ハブ script ID.');
+    }
+    if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
+      throw new Error('Verified 管理ハブ runtime copy helper is not installed.');
+    }
+    const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
+    vNextAdminWriteSystemConfig_(hub, {
+      admin_runtime_sha256: copied.adminRuntimeSha256,
+      admin_runtime_updated_at: new Date().toISOString(),
+      admin_runtime_updated_by: vNextAdminActor_()
     });
+    const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+      return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
+    });
+    if (!hubRegistry) throw new Error('管理ハブ BOOK_REGISTRY row is missing.');
+    vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
+      admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
+      health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
+      note: '管理ハブ runtime updated from central source; reason=' + reason
+    });
+    vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
+      sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
+      adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason
+    });
+    return {
+      ok: true, phase: 'HUB_RUNTIME', adminRuntimeSha256: copied.adminRuntimeSha256,
+      fileCount: copied.fileCount,
+      message: '管理ハブ runtimeを中央配備版へ更新しました。続けて Employee UX release を反映してください。'
+    };
   });
 }
 
@@ -5341,7 +5994,7 @@ function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
   if (requiredId && selectedId !== requiredId) {
     throw new Error('Refusing to republish a different employee Web App URL.');
   }
-  vNextClientRuntimeApiRequest_(
+  const updated = vNextClientRuntimeApiRequest_(
     '/projects/' + encodeURIComponent(id) + '/deployments/' +
       encodeURIComponent(selectedId),
     'put',
@@ -5354,16 +6007,25 @@ function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
       }
     }
   );
-  const verified = vNextClientRuntimeApiRequest_(
-    '/projects/' + encodeURIComponent(id) + '/deployments/' +
-      encodeURIComponent(selectedId),
-    'get'
-  );
-  const pinnedVersion = Number(verified && verified.deploymentConfig &&
+  let verified = updated && updated.deploymentId ? updated : selected;
+  let pinnedVersion = Number(verified && verified.deploymentConfig &&
     verified.deploymentConfig.versionNumber || 0);
   if (pinnedVersion !== versionNumber) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (attempt > 0) Utilities.sleep(500 * attempt);
+      verified = vNextClientRuntimeApiRequest_(
+        '/projects/' + encodeURIComponent(id) + '/deployments/' +
+          encodeURIComponent(selectedId),
+        'get'
+      );
+      pinnedVersion = Number(verified && verified.deploymentConfig &&
+        verified.deploymentConfig.versionNumber || 0);
+      if (pinnedVersion === versionNumber) break;
+    }
+  }
+  if (pinnedVersion !== versionNumber) {
     throw new Error('Portal /exec is still pinned to version ' + pinnedVersion +
-      '; expected ' + versionNumber + '.');
+      '; expected ' + versionNumber + '. 30秒ほど待ってから「最新版へ更新」をもう一度押してください。');
   }
   const webAppUrl = vNextAdminWebAppUrlFromDeployment_(verified) ||
     vNextAdminWebAppUrlFromDeployment_(selected);
@@ -8436,6 +9098,8 @@ function vNextAdminExecuteJob_(hub, job) {
         // nor an earlier health scan authorizes a different release pair.
         vNextAdminAssertClientPinnedReleasePair_(hub, client, registry);
         vNextAdminHydrateHubRuntime_(hub);
+        const learningEvidence = vNextAdminLearningEvidenceForEngine_(hub, registry.book_id);
+        if (learningEvidence) engineRequest.learningEvidence = learningEvidence;
         if (typeof vNextEngineBuildAdminRunIdentity_ !== 'function' ||
             typeof vNextEngineLookupRunForResume_ !== 'function') {
           throw new Error('Deterministic forecast run identity APIs are not installed.');

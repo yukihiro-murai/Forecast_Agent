@@ -1,0 +1,11 @@
+{
+  "name": "forecast-vnext-admin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/vnext-integration.test.mjs",
+    "deploy:dev": "node scripts/deploy-dev.mjs",
+    "deploy:push": "node scripts/deploy-dev.mjs --push-only",
+    "deploy:local": "node scripts/deploy-dev.mjs --skip-remote"
+  }
+}

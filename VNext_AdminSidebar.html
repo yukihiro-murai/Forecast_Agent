@@ -44,6 +44,14 @@
       .overview { border-left:4px solid var(--green); }
       .overview.attention { border-left-color:var(--amber); }
       .overview.error { border-left-color:var(--red); background:#fff8f7; }
+      .overview.success { border-left-color:var(--green); background:#f3fbf5; }
+      .deploy-check {
+        border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0;
+        background:#fff; font-size:12px;
+      }
+      .deploy-check.ok { border-left:4px solid var(--green); }
+      .deploy-check.bad { border-left:4px solid var(--red); background:#fff8f7; }
+      .deploy-check b { display:block; margin-bottom:2px; }
       .overview.processing { border-left-color:var(--blue); }
       .overview-title { font-size:14px; font-weight:700; }
       .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
@@ -136,7 +144,7 @@
   <body>
     <header class="page-header">
       <h1>管理ハブ</h1>
-      <p class="page-lead">日常の承認・例外・処理はこの画面の上側だけです。現場がブックを探す・作るのは Web入口の 01〜03 です。</p>
+      <p class="page-lead">日常の承認・例外は上側です。Cursor 反映はすぐ下の「開発反映」カードです。現場がブックを探す・作るのは Web入口の 01〜03 です。</p>
       <div class="page-meta">
         <span id="mode" class="badge">loading</span>
         <span id="book" class="book-name"></span>
@@ -188,11 +196,48 @@
         <div id="attentionGuidance" class="muted">少しお待ちください。</div>
       </div>
 
+      <div class="card card-primary" id="devDeployCard">
+        <h2 class="section-title">開発反映</h2>
+        <p class="muted" style="margin-top:4px">Cursor で <code>clasp push</code> したあと、ここで反映します。結果は下の ✓/✗ で自動確認されます。</p>
+        <div id="devDeployStatusCard" style="margin:8px 0;padding:0;">
+          <div id="devDeploySummary" class="overview">案内を開くと、ここに反映状態が出ます。</div>
+          <div id="devDeployChecks"></div>
+        </div>
+        <label>反映理由<input id="devDeployReason" value="Cursor開発反映"></label>
+        <div class="btn-row cols-2">
+          <button id="devDeployButton" class="btn good" onclick="deployVerifiedEmployeeUxRelease()">開発反映を実行</button>
+          <button class="btn secondary" onclick="refreshDevDeployStatus()">いま反映済みか確認</button>
+        </div>
+        <div class="btn-row"><a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a></div>
+      </div>
+
       <div class="card metrics">
         <div class="metric">承認待ち<b id="approvalCount">0</b></div>
         <div class="metric">要確認<b id="exceptionCount">0</b></div>
         <div class="metric">自動処理中<b id="jobCount">0</b></div>
         <div class="metric">クライアント年度ブック<b id="clientCount">0</b></div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">適応学習（System / Budget）</h2>
+        <p class="muted">代理目的と二系統評価の要約です。正式予算は学習に戻しません。区間外れは要確認になります。</p>
+        <div id="learningConcept" class="status compact">学習方針を確認中…</div>
+        <div id="learningStats" class="status compact"></div>
+        <div id="learningTracks"></div>
+        <div id="learningBreaches"></div>
+        <details class="accordion nested">
+          <summary>月次観測を記録</summary>
+          <div class="accordion-body">
+            <label>クライアント年度ブック ID<input id="learningObsBookId" placeholder="CLIENT-..."></label>
+            <label>観測月（YYYY-MM）<input id="learningObsMonth" placeholder="2027-06"></label>
+            <label>実績金額<input id="learningObsActual" type="number"></label>
+            <label>仮説（任意）<textarea id="learningObsHypothesis" placeholder="案件が想定より遅延した、など"></textarea></label>
+            <div class="btn-row cols-2">
+              <button class="btn secondary" onclick="recordLearningObservation()">観測を記録</button>
+              <button class="btn secondary" onclick="refreshLearningDashboard()">学習ダッシュボード更新</button>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="card card-primary">
@@ -230,7 +275,7 @@
       <details class="accordion" id="systemCare">
         <summary>システムの手入れ</summary>
         <div class="accordion-body">
-          <p class="muted">版の更新、初回セットアップ、個別作成など、毎日は使わない操作です。</p>
+          <p class="muted">版の更新、初回セットアップ、個別作成など、毎日は使わない操作です。開発反映は画面上部の「開発反映」カードから行います。</p>
 
       <details class="accordion nested">
         <summary>初回セットアップ（1回だけ）</summary>
@@ -623,6 +668,8 @@
           $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           renderModelReleases(model);
           renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
+          renderDevDeployStatus(model.devDeployStatus || null);
+          renderLearningDashboard(model.learningDashboard || null);
         }
         if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
       }
@@ -1080,6 +1127,171 @@
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('adminRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({reason});
+      }
+      function renderDevDeployStatus(status) {
+        const summary = $('devDeploySummary');
+        const checksRoot = $('devDeployChecks');
+        const link = $('devDeployWebEntryLink');
+        if (!summary || !checksRoot) return;
+        if (!status || !status.verification) {
+          summary.className = 'overview';
+          summary.textContent = '反映状態をまだ取得していません。「いま反映済みか確認」を押してください。';
+          checksRoot.innerHTML = '';
+          return;
+        }
+        const verification = status.verification;
+        const lastDeploy = status.lastDeploy || null;
+        summary.className = 'overview ' + (verification.ok ? 'success' : 'error');
+        const lastLine = lastDeploy && lastDeploy.completedAt
+          ? `最終反映：${lastDeploy.completedAt}\n`
+          : '';
+        summary.textContent =
+          lastLine +
+          `${verification.ok ? '✓ 反映済み（自動確認）' : '✗ 要確認 ' + Number(verification.failedCount || 0) + ' 件'}\n` +
+          `Client：${verification.targetClientVersion || '—'} / Portal：${verification.targetPortalVersion || '—'}`;
+        checksRoot.innerHTML = '';
+        (verification.checks || []).forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'deploy-check ' + (row.ok ? 'ok' : 'bad');
+          div.innerHTML =
+            `<b>${row.ok ? '✓' : '✗'} ${row.label || row.id || 'check'}</b>` +
+            `期待：${row.expected || '—'}<br>` +
+            `現在：${row.actual || '—'}` +
+            (row.detail ? `<br><span class="muted">${row.detail}</span>` : '');
+          checksRoot.appendChild(div);
+        });
+        if (link) {
+          if (verification.webAppUrl) {
+            link.href = verification.webAppUrl;
+            link.classList.remove('hidden');
+          } else {
+            link.removeAttribute('href');
+            link.classList.add('hidden');
+          }
+        }
+      }
+      function refreshDevDeployStatus() {
+        setBusy(true);
+        showStatus('反映状態を自動確認しています…');
+        google.script.run.withSuccessHandler(status => {
+          setBusy(false);
+          renderDevDeployStatus(status);
+          const ok = status && status.verification && status.verification.ok;
+          showStatus(ok ? '反映済み（自動確認）' : '要確認項目があります。下の一覧を確認してください。', !ok);
+        }).withFailureHandler(onFailure).vNextAdminGetVerifiedEmployeeUxDeployStatus({});
+      }
+      function renderLearningDashboard(dashboard) {
+        const concept = $('learningConcept');
+        const stats = $('learningStats');
+        const tracks = $('learningTracks');
+        const breaches = $('learningBreaches');
+        if (!concept || !stats || !tracks || !breaches) return;
+        if (!dashboard || dashboard.error) {
+          concept.textContent = dashboard && dashboard.error
+            ? ('学習ダッシュボード: ' + dashboard.error)
+            : '学習方針をまだ読み込んでいません。';
+          stats.textContent = '';
+          tracks.innerHTML = '';
+          breaches.innerHTML = '';
+          return;
+        }
+        const proxies = (dashboard.proxyObjectives || []).map(row =>
+          `${row.rank}. ${row.label || row.id}`).join(' → ');
+        concept.textContent =
+          (dashboard.concept || '') +
+          (proxies ? '\n代理目的: ' + proxies : '');
+        const s = dashboard.stats || {};
+        stats.textContent =
+          `評価 ${s.evaluationCount || 0} / 学習証拠 ${s.evidenceCount || 0} / 月次観測 ${s.observationCount || 0}` +
+          `\n区間外れ（未検証） ${s.openIntervalBreaches || 0} / 直近評価の区間ミス ${s.recentIntervalMisses || 0}`;
+        tracks.innerHTML = '';
+        (dashboard.dualTracks || []).slice(0, 5).forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'deploy-check ' + (row.system && row.system.rangeContainsActual ? 'ok' : 'bad');
+          const sysApe = row.system && Number.isFinite(Number(row.system.ape))
+            ? (Number(row.system.ape) * 100).toFixed(1) + '%' : '—';
+          const budApe = row.budget && Number.isFinite(Number(row.budget.ape))
+            ? (Number(row.budget.ape) * 100).toFixed(1) + '%' : '—';
+          div.innerHTML =
+            `<b>${row.bookId || ''} / FY${row.fiscalYear || ''}</b>` +
+            `System APE ${sysApe}（区間${row.system && row.system.rangeContainsActual ? '内' : '外'}）<br>` +
+            `Budget APE ${budApe}（学習対象外）`;
+          tracks.appendChild(div);
+        });
+        if (!(dashboard.dualTracks || []).length) {
+          tracks.innerHTML = '<div class="muted">まだ評価がありません。振り返り開始後に表示されます。</div>';
+        }
+        breaches.innerHTML = '';
+        (dashboard.openBreaches || []).forEach(row => {
+          const div = document.createElement('div');
+          div.className = 'deploy-check bad';
+          div.innerHTML =
+            `<b>要確認 ${row.observedMonth || ''} ${row.clientName || row.bookId || ''}</b>` +
+            (row.hypothesis ? row.hypothesis : '仮説未記入');
+          breaches.appendChild(div);
+        });
+      }
+      function refreshLearningDashboard() {
+        setBusy(true);
+        showStatus('学習ダッシュボードを更新しています…');
+        google.script.run.withSuccessHandler(dashboard => {
+          setBusy(false);
+          renderLearningDashboard(dashboard);
+          showStatus('学習ダッシュボードを更新しました。');
+        }).withFailureHandler(onFailure).vNextAdminGetLearningDashboard({});
+      }
+      function recordLearningObservation() {
+        const bookId = value('learningObsBookId');
+        const observedMonth = value('learningObsMonth');
+        const actualAmount = Number(value('learningObsActual'));
+        if (!bookId || !observedMonth || !Number.isFinite(actualAmount)) {
+          showStatus('ブック ID・観測月・実績金額を入力してください。', true); return;
+        }
+        setBusy(true);
+        showStatus('月次観測を記録しています…');
+        google.script.run.withSuccessHandler(result => {
+          setBusy(false);
+          showStatus(result && result.message ? result.message : result);
+          refreshLearningDashboard();
+        }).withFailureHandler(onFailure).vNextAdminRecordLearningObservation({
+          bookId, observedMonth, actualAmount,
+          hypothesis: value('learningObsHypothesis')
+        });
+      }
+      function formatDevDeployResult(phaseA, phaseB) {
+        const verification = phaseB && phaseB.verification;
+        if (verification) {
+          renderDevDeployStatus({ lastDeploy: phaseB, verification: verification });
+          if (verification.ok) {
+            return '開発反映が完了し、自動確認もすべて一致しました。';
+          }
+          return '開発反映は完了しましたが、自動確認で ' + Number(verification.failedCount || 0) + ' 件の不一致があります。下の一覧を確認してください。';
+        }
+        const lines = ['開発反映が完了しました。'];
+        if (phaseA && phaseA.adminRuntimeSha256) {
+          lines.push('Hub runtime SHA: ' + String(phaseA.adminRuntimeSha256).slice(0, 12) + '…');
+        }
+        if (phaseB && phaseB.clientRuntimeVersion) lines.push('Client runtime: ' + phaseB.clientRuntimeVersion);
+        if (phaseB && phaseB.portalRuntimeVersion) lines.push('Portal runtime: ' + phaseB.portalRuntimeVersion);
+        if (phaseB && phaseB.emptyPilots) lines.push('空Pilot更新: ' + Number(phaseB.emptyPilots.count || 0) + ' 冊');
+        return lines.join('\n');
+      }
+      function deployVerifiedEmployeeUxRelease() {
+        const reason = value('devDeployReason');
+        if (!reason) { showStatus('反映理由を入力してください。', true); return; }
+        if (!window.confirm('中央 clasp の最新版を Hub・Client release・Portal へ反映します。2〜3分かかります。続行しますか？')) return;
+        setBusy(true);
+        showStatus('1/2 管理ハブ runtime を中央配備版へ更新しています…');
+        google.script.run.withSuccessHandler(function(phaseA) {
+          showStatus('1/2 完了。2/2 Client release と Portal を反映しています…');
+          google.script.run.withSuccessHandler(function(phaseB) {
+            setBusy(false);
+            showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+            load();
+          }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_({
+            reason: reason, upgradeEmptyPilots: true
+          });
+        }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
       }
       function relocateLibrary() {
         const reason = value('libraryRelocateReason') || '社内共有ドライブへ整理';
