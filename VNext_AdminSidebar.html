@@ -198,7 +198,7 @@
 
       <div class="card card-primary" id="devDeployCard">
         <h2 class="section-title">開発反映</h2>
-        <p class="muted" style="margin-top:4px">Cursor で <code>clasp push</code> したあと、ここで反映します。結果は下の ✓/✗ で自動確認されます。</p>
+        <p class="muted" style="margin-top:4px">Cursor で <code>clasp push</code> したあと、ここで反映します。処理は 4 段に分けて進みます（途中で止まっても再実行可）。</p>
         <div id="devDeployStatusCard" style="margin:8px 0;padding:0;">
           <div id="devDeploySummary" class="overview">案内を開くと、ここに反映状態が出ます。</div>
           <div id="devDeployChecks"></div>
@@ -1145,10 +1145,16 @@
         const lastLine = lastDeploy && lastDeploy.completedAt
           ? `最終反映：${lastDeploy.completedAt}\n`
           : '';
+        const progress = status.progress;
+        const progressLine = progress && progress.step && progress.step !== 'DONE'
+          ? `直前の進捗：${progress.step}（${progress.updatedAt || ''}）\n`
+          : '';
         summary.textContent =
           lastLine +
+          progressLine +
           `${verification.ok ? '✓ 反映済み（自動確認）' : '✗ 要確認 ' + Number(verification.failedCount || 0) + ' 件'}\n` +
-          `Client：${verification.targetClientVersion || '—'} / Portal：${verification.targetPortalVersion || '—'}`;
+          `Client：${verification.targetClientVersion || '—'} / Portal：${verification.targetPortalVersion || '—'}` +
+          (verification.light ? '\n（版一致の簡易確認。詳細SHAは「いま反映済みか確認」）' : '');
         checksRoot.innerHTML = '';
         (verification.checks || []).forEach(row => {
           const div = document.createElement('div');
@@ -1279,17 +1285,28 @@
       function deployVerifiedEmployeeUxRelease() {
         const reason = value('devDeployReason');
         if (!reason) { showStatus('反映理由を入力してください。', true); return; }
-        if (!window.confirm('中央 clasp の最新版を Hub・Client release・Portal へ反映します。2〜3分かかります。続行しますか？')) return;
+        if (!window.confirm('中央 clasp の最新版を Hub・Client release・Portal へ反映します。4段に分けて実行します。続行しますか？')) return;
         setBusy(true);
-        showStatus('1/2 管理ハブ runtime を中央配備版へ更新しています…');
+        showStatus('1/4 管理ハブ runtime を中央配備版へ更新しています…');
         google.script.run.withSuccessHandler(function(phaseA) {
-          showStatus('1/2 完了。2/2 Client release と Portal を反映しています…');
-          google.script.run.withSuccessHandler(function(phaseB) {
-            setBusy(false);
-            showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
-            load();
-          }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_({
-            reason: reason, upgradeEmptyPilots: true
+          showStatus('2/4 Client release（Template/Model）を反映しています…');
+          google.script.run.withSuccessHandler(function(release) {
+            showStatus('3/4 Portal（申請入口）を反映しています…');
+            google.script.run.withSuccessHandler(function(portal) {
+              showStatus('4/4 反映結果を確認しています…');
+              google.script.run.withSuccessHandler(function(phaseB) {
+                setBusy(false);
+                showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+                load();
+              }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
+                reason: reason,
+                upgradeEmptyPilots: false,
+                release: release,
+                portal: portal
+              });
+            }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason });
+          }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxClientRelease_({
+            reason: reason
           });
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
       }

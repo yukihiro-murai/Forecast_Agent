@@ -521,19 +521,26 @@ async function checkAdminRecoveryContracts() {
     'Generated Admin Hubs need a centrally managed runtime update path');
   assert.ok(source.includes('function vNextAdminUpdateHubRuntimeInHub_(') &&
     source.includes('function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(') &&
+    source.includes('function vNextAdminDeployVerifiedEmployeeUxClientRelease_(') &&
+    source.includes('function vNextAdminDeployVerifiedEmployeeUxPortal_(') &&
+    source.includes('function vNextAdminDeployVerifiedEmployeeUxFinalize_(') &&
     source.includes('function vNextAdminDeployVerifiedEmployeeUxReleaseFromSource(') &&
     source.includes('function vNextAdminUpgradeEligibleEmptyPilotsInHub_(') &&
     source.includes('function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(') &&
-    source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus('),
-    'Dev deploy must expose phased Hub sync, employee UX promotion, and verification helpers');
+    source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus(') &&
+    source.includes('skipPortal: true'),
+    'Dev deploy must expose stepped Hub sync, Client/Portal/finalize helpers, and skipPortal release path');
   assert.ok(sidebar.includes('deployVerifiedEmployeeUxRelease()') &&
     sidebar.includes('refreshDevDeployStatus()') &&
     sidebar.includes('renderDevDeployStatus') &&
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
+    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxClientRelease_') &&
+    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
+    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxFinalize_') &&
     sidebar.includes('開発反映') &&
     sidebar.includes('いま反映済みか確認') &&
     sidebar.includes('id="devDeployCard"'),
-    'Admin Sidebar must expose the one-button Cursor dev deploy flow with auto verification');
+    'Admin Sidebar must expose the stepped Cursor dev deploy flow with auto verification');
   assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
     source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&

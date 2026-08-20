@@ -1676,7 +1676,10 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       });
     }
 
-    const portal = vNextAdminProvisionSharedPortal({ title: VNEXT_NAMING.LAYER2_DEFAULT_TITLE });
+    const skipPortal = req.skipPortal === true;
+    const portal = skipPortal
+      ? { skipped: true, reason: 'skipPortal' }
+      : vNextAdminProvisionSharedPortal({ title: VNEXT_NAMING.LAYER2_DEFAULT_TITLE });
     const result = vNextAdminJsonSafe_({
       ok: true,
       activeTemplateReleaseId: releaseId,
@@ -1684,6 +1687,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       staged: staged,
       activation: activation,
       portal: portal,
+      skipPortal: skipPortal,
       completedAt: new Date().toISOString()
     });
     PropertiesService.getScriptProperties().setProperty(
@@ -1693,6 +1697,19 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
     Logger.log('EMPLOYEE_PORTAL_PILOT_READY %s', vNextAdminCanonicalJson_(result));
     return result;
   });
+}
+
+function vNextAdminWriteDevDeployProgress_(step, detail) {
+  const payload = {
+    step: String(step || ''),
+    detail: detail && typeof detail === 'object' ? detail : { message: String(detail || '') },
+    updatedAt: new Date().toISOString()
+  };
+  PropertiesService.getScriptProperties().setProperty(
+    'VNEXT_DEV_DEPLOY_PROGRESS_JSON', vNextAdminCanonicalJson_(payload)
+  );
+  Logger.log('DEV_DEPLOY_PROGRESS %s', vNextAdminCanonicalJson_(payload));
+  return payload;
 }
 
 /**
@@ -1745,31 +1762,67 @@ function vNextAdminPrepareEmployeeUxReleaseForManualTest() {
 }
 
 /**
- * Phase B of the dev deploy flow. Run only after Hub runtime sync so this
- * execution loads the freshly copied central bundle definitions.
+ * Phase B step: stage+activate Client Template/Model only (no Portal).
+ * Keep this separate from Portal update so each Hub call stays under Apps Script limits.
  */
-function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(request) {
-  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_', function () {
+function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxClientRelease_', function () {
     const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
     const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
-    const releaseReason = vNextAdminText_(req.releaseReason) || reason;
+    vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE', { reason: reason });
     const release = vNextAdminPrepareEmployeePortalPilot({
       attestationConfirmed: true,
-      releaseReason: releaseReason,
-      evidenceArtifact: vNextAdminBuildEmployeeUxReleaseEvidence_(req)
+      releaseReason: vNextAdminText_(req.releaseReason) || reason,
+      evidenceArtifact: vNextAdminBuildEmployeeUxReleaseEvidence_(req),
+      skipPortal: true
     });
+    vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE_DONE', {
+      releaseId: release && release.activeTemplateReleaseId,
+      modelReleaseId: release && release.activeModelReleaseId
+    });
+    return release;
+  });
+}
+
+/** Phase B step: Portal runtime put + web app republish. */
+function vNextAdminDeployVerifiedEmployeeUxPortal_(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxPortal_', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    vNextAdminWriteDevDeployProgress_('PORTAL', { reason: reason });
     const portal = vNextAdminUpdateSharedPortalRuntime({ reason: reason });
-    let emptyPilots = { upgraded: [], skipped: [], count: 0, skippedAll: true };
-    if (req.upgradeEmptyPilots !== false) {
+    vNextAdminWriteDevDeployProgress_('PORTAL_DONE', {
+      runtimeVersion: portal && portal.runtimeVersion,
+      webAppUrl: portal && portal.webAppUrl
+    });
+    return portal;
+  });
+}
+
+/**
+ * Phase B finalize: optional empty-pilot upgrades + light verification + audit.
+ * Full script-content SHA compare is skipped here (use status refresh with full=true).
+ */
+function vNextAdminDeployVerifiedEmployeeUxFinalize_(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxFinalize_', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    vNextAdminWriteDevDeployProgress_('FINALIZE', { reason: reason });
+    let emptyPilots = { upgraded: [], skipped: [], count: 0, skippedAll: true, skippedByRequest: true };
+    if (req.upgradeEmptyPilots === true) {
       emptyPilots = vNextAdminUpgradeEligibleEmptyPilotsInHub_(hub, {
         reason: vNextAdminText_(req.emptyPilotReason) || '受入試験開始前のUI・操作性改善'
       });
     }
     const pair = vNextAdminReadActiveReleasePair_(hub);
     const activeRelease = vNextAdminResolveRelease_(hub, pair.releaseId);
-    const verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub);
+    const verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, { light: true });
     const result = vNextAdminJsonSafe_({
       ok: verification.ok === true,
       phase: 'EMPLOYEE_UX',
@@ -1777,21 +1830,45 @@ function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(request) {
       activeTemplateReleaseId: pair.releaseId,
       activeModelReleaseId: pair.modelReleaseId,
       clientRuntimeVersion: String(activeRelease.client_runtime_version || ''),
-      portalRuntimeVersion: String(portal && portal.runtimeVersion || ''),
-      release: release,
-      portal: portal,
+      portalRuntimeVersion: String(
+        (req.portal && req.portal.runtimeVersion) ||
+        verification.targetPortalVersion || ''
+      ),
+      release: req.release || null,
+      portal: req.portal || null,
       emptyPilots: emptyPilots,
       verification: verification,
       completedAt: new Date().toISOString(),
       message: verification.ok
-        ? '反映を自動確認しました。すべて一致しています。'
+        ? '反映を自動確認しました（版一致）。必要なら「いま反映済みか確認」で詳細検査できます。'
         : '反映は完了しましたが、自動確認で ' + verification.failedCount + ' 件の不一致があります。'
     });
     vNextAdminWriteAudit_(hub, 'DEPLOY_VERIFIED_EMPLOYEE_UX', 'ADMIN_RUNTIME', hub.getId(), 'SUCCESS', result);
     PropertiesService.getScriptProperties().setProperty(
       'VNEXT_LAST_DEV_DEPLOY_RESULT_JSON', vNextAdminCanonicalJson_(result)
     );
+    vNextAdminWriteDevDeployProgress_('DONE', { ok: result.ok });
     return result;
+  });
+}
+
+/**
+ * Monolithic Phase B (CLI fallback). Prefer the stepped Hub sidebar calls;
+ * this still skips Portal-inside-prepare and uses light verification.
+ */
+function vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_(request) {
+  return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const release = vNextAdminDeployVerifiedEmployeeUxClientRelease_(req);
+    const portal = vNextAdminDeployVerifiedEmployeeUxPortal_(req);
+    return vNextAdminDeployVerifiedEmployeeUxFinalize_({
+      reason: req.reason,
+      releaseReason: req.releaseReason,
+      emptyPilotReason: req.emptyPilotReason,
+      upgradeEmptyPilots: req.upgradeEmptyPilots === true,
+      release: release,
+      portal: portal
+    });
   });
 }
 
@@ -1990,19 +2067,28 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
 }
 
 function vNextAdminBuildDevDeployStatus_(hub, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const light = opts.light !== false && opts.full !== true;
   let lastDeploy = null;
+  let progress = null;
   try {
     const raw = PropertiesService.getScriptProperties().getProperty('VNEXT_LAST_DEV_DEPLOY_RESULT_JSON') || '';
     if (raw) lastDeploy = JSON.parse(raw);
   } catch (ignoredParse) {
     lastDeploy = null;
   }
+  try {
+    const progressRaw = PropertiesService.getScriptProperties().getProperty('VNEXT_DEV_DEPLOY_PROGRESS_JSON') || '';
+    if (progressRaw) progress = JSON.parse(progressRaw);
+  } catch (ignoredProgress) {
+    progress = null;
+  }
   let verification;
   try {
-    verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options);
+    verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, { light: light });
   } catch (verifyError) {
     verification = {
-      ok: false, light: !!(options && options.light), checkedAt: new Date().toISOString(),
+      ok: false, light: light, checkedAt: new Date().toISOString(),
       targetClientVersion: '', targetPortalVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, webAppUrl: '',
       checks: [vNextAdminBuildDevDeployCheck_('verify_error', '反映確認', false, '成功', '失敗',
         String(verifyError && verifyError.message || verifyError))],
@@ -2011,6 +2097,7 @@ function vNextAdminBuildDevDeployStatus_(hub, options) {
   }
   return {
     lastDeploy: lastDeploy,
+    progress: progress,
     verification: verification,
     ok: verification.ok === true
   };
@@ -2018,8 +2105,12 @@ function vNextAdminBuildDevDeployStatus_(hub, options) {
 
 function vNextAdminGetVerifiedEmployeeUxDeployStatus(request) {
   return vNextAdminGuard_('vNextAdminGetVerifiedEmployeeUxDeployStatus', function () {
+    const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
-    return vNextAdminBuildDevDeployStatus_(hub);
+    return vNextAdminBuildDevDeployStatus_(hub, {
+      light: req.full !== true,
+      full: req.full === true
+    });
   });
 }
 

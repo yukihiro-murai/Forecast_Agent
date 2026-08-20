@@ -61,21 +61,41 @@ async function main() {
 
   await sleep(4000);
 
-  process.stdout.write('Phase B: promoting Client release and Portal…\n');
+  process.stdout.write('Phase B1: Client release…\n');
   try {
+    const release = await runScript({
+      token,
+      scriptId: config.hubScriptId,
+      deploymentId: config.hubDeploymentId,
+      functionName: 'vNextAdminDeployVerifiedEmployeeUxClientRelease_',
+      parameters: [{ reason }]
+    });
+    process.stdout.write(`Phase B1 OK: ${summarize(release)}\n`);
+    await sleep(2000);
+    process.stdout.write('Phase B2: Portal…\n');
+    const portal = await runScript({
+      token,
+      scriptId: config.hubScriptId,
+      deploymentId: config.hubDeploymentId,
+      functionName: 'vNextAdminDeployVerifiedEmployeeUxPortal_',
+      parameters: [{ reason }]
+    });
+    process.stdout.write(`Phase B2 OK: ${summarize(portal)}\n`);
+    await sleep(2000);
+    process.stdout.write('Phase B3: Finalize…\n');
     const phaseB = await runScript({
       token,
       scriptId: config.hubScriptId,
       deploymentId: config.hubDeploymentId,
-      functionName: 'vNextAdminDeployVerifiedEmployeeUxReleasePhaseB_',
-      parameters: [{ reason, upgradeEmptyPilots: true }]
+      functionName: 'vNextAdminDeployVerifiedEmployeeUxFinalize_',
+      parameters: [{ reason, upgradeEmptyPilots: false, release, portal }]
     });
-    process.stdout.write(`Phase B OK: ${summarize(phaseB)}\n`);
+    process.stdout.write(`Phase B3 OK: ${summarize(phaseB)}\n`);
     process.stdout.write('\nDeploy complete. Hard refresh Web入口 /exec (Cmd+Shift+R).\n');
   } catch (error) {
     process.stdout.write('\nPhase B could not run via API.\n');
     process.stdout.write(`${String(error.message || error)}\n`);
-    process.stdout.write('Hub を開き「システムの手入れ → 開発反映を実行」を押してください。\n');
+    process.stdout.write('Hub を開き「開発反映を実行」を押してください（4段表示）。\n');
     process.stdout.write('初回のみ Hub script に API executable deployment が必要です。\n');
   }
 }
