@@ -531,25 +531,23 @@ async function checkAdminRecoveryContracts() {
     source.includes('VN_ADMIN_RUNTIME_BUILD_STAMP') &&
     source.includes("'central_hub_sync'") &&
     source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus(') &&
-    source.includes('function vNextAdminGetDevDeployPlan_(') &&
+    source.includes('function vNextAdminMenuCatchUpPortalRuntime(') &&
+    source.includes('function vNextAdminMenuSmartDeploy(') &&
+    source.includes('fastDeploy: true') &&
     source.includes('skippedHeavyRelease: true') &&
     source.includes('skipPortal: true'),
-    'Dev deploy must expose stepped Hub sync, central-drift detection, client skip, and skipPortal release path');
-  assert.ok(sidebar.includes('deployVerifiedEmployeeUxRelease()') &&
-    sidebar.includes('deployPortalOnly()') &&
+    'Dev deploy must expose menu catch-up, portal-first smart deploy, and skip paths');
+  assert.ok(sidebar.includes('runSmartDeploy()') &&
     sidebar.includes('refreshDevDeployStatus()') &&
     sidebar.includes('renderDevDeployStatus') &&
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
     sidebar.includes('vNextAdminGetDevDeployPlan_') &&
-    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxClientRelease_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
-    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxFinalize_') &&
-    sidebar.includes('開発反映を実行') &&
-    sidebar.includes('Portalだけ反映') &&
-    sidebar.includes('確認だけでは Web入口は変わりません') &&
-    sidebar.includes('いま反映済みか確認') &&
+    sidebar.includes('Cursor反映') &&
+    sidebar.includes('反映する') &&
+    sidebar.includes('Web入口を最新版にする') &&
     sidebar.includes('id="devDeployCard"'),
-    'Admin Sidebar must expose smart deploy, portal-only path, and warn that status check does not publish Portal');
+    'Admin Sidebar must expose a single Cursor反映 CTA and menu fallback copy');
   assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
     source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
@@ -1113,7 +1111,7 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('apply:true') &&
     sidebar.includes('管理ハブ監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
-  assert.ok(sidebar.includes('Web入口の 01〜03') &&
+  assert.ok(sidebar.includes('Cursor反映') &&
     sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理') &&
     sidebar.includes('システムの手入れ') &&

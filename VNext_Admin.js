@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260820-portal-only-skip-client';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260820-smart-deploy-portal-first';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -408,6 +408,8 @@ function vNextBuildAdminMenu_() {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu(VN_ADMIN_MENU_NAME)
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
+      .addItem('Web入口を最新版にする', 'vNextAdminMenuCatchUpPortalRuntime')
+      .addItem('Cursor反映（Hub同期→必要分）', 'vNextAdminMenuSmartDeploy')
       .addSubMenu(ui.createMenu(VN_ADMIN_MENU_OTHER)
         .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
         .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry'))
@@ -1850,7 +1852,7 @@ function vNextAdminGetDevDeployPlan_(request) {
   });
 }
 
-/** Phase B step: Portal runtime put + web app republish. */
+/** Phase B step: Portal runtime put + web app republish (fast path for Cursor deploy). */
 function vNextAdminDeployVerifiedEmployeeUxPortal_(request) {
   return vNextAdminGuard_('vNextAdminDeployVerifiedEmployeeUxPortal_', function () {
     const req = request && typeof request === 'object' ? request : {};
@@ -1858,13 +1860,88 @@ function vNextAdminDeployVerifiedEmployeeUxPortal_(request) {
     vNextAdminAssertHubAdmin_(hub, false);
     const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
     vNextAdminWriteDevDeployProgress_('PORTAL', { reason: reason });
-    const portal = vNextAdminUpdateSharedPortalRuntime({ reason: reason });
+    const portal = vNextAdminUpdateSharedPortalRuntime({
+      reason: reason,
+      fastDeploy: req.fastDeploy !== false
+    });
     vNextAdminWriteDevDeployProgress_('PORTAL_DONE', {
       runtimeVersion: portal && portal.runtimeVersion,
       webAppUrl: portal && portal.webAppUrl
     });
     return portal;
   });
+}
+
+/** Spreadsheet menu: update Web entry only (no Client release). */
+function vNextAdminMenuCatchUpPortalRuntime() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    vNextAdminWriteDevDeployProgress_('MENU_PORTAL', {});
+    const portal = vNextAdminUpdateSharedPortalRuntime({
+      reason: 'メニュー: Web入口を最新版にする',
+      fastDeploy: true
+    });
+    const finalize = vNextAdminDeployVerifiedEmployeeUxFinalize_({
+      reason: 'メニュー: Web入口を最新版にする',
+      upgradeEmptyPilots: false,
+      portal: portal
+    });
+    const message = (finalize && finalize.verification && finalize.verification.ok)
+      ? ('完了しました。Portal ' + (portal.runtimeVersion || '') +
+        '\nWeb入口をハード再読み込み（Cmd+Shift+R）してください。')
+      : ((portal && portal.message) || 'Portal更新は終わりましたが、確認に不一致があります。案内を開いて状態を見てください。');
+    ui.alert(message);
+    return finalize;
+  } catch (error) {
+    ui.alert('Web入口の更新に失敗しました。\n' + String(error && error.message || error));
+    throw error;
+  }
+}
+
+/** Spreadsheet menu: Hub sync then Portal (and Client only if needed). */
+function vNextAdminMenuSmartDeploy() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const reason = 'メニュー: Cursor反映';
+    const hub = vNextAdminRequireHub_();
+    const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const central = vNextAdminPeekCentralRuntimeMarkers_(String(hubConfig.admin_source_script_id || ''));
+    const hubBehind = !(central.ok === true &&
+      String(central.portalVersion || '') === String(VN_ADMIN_PORTAL_RUNTIME_VERSION) &&
+      (!central.buildStamp || String(central.buildStamp) === String(VN_ADMIN_RUNTIME_BUILD_STAMP)));
+    if (hubBehind) {
+      vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
+      ui.alert(
+        '管理ハブを中央 clasp に合わせました。\n' +
+        '同じメニュー「Cursor反映（Hub同期→必要分）」をもう一度押してください。\n' +
+        '（Apps Script は同じ実行のままでは新しい Portal バンドルを読めないため、2回に分けます）'
+      );
+      return { ok: true, phase: 'HUB_SYNCED_RECLICK' };
+    }
+    const plan = vNextAdminGetDevDeployPlan_({});
+    let portal = null;
+    let release = null;
+    if (plan.needPortal) {
+      portal = vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason, fastDeploy: true });
+    }
+    if (plan.needClient) {
+      release = vNextAdminDeployVerifiedEmployeeUxClientRelease_({ reason: reason });
+    } else {
+      release = { reused: true, skippedHeavyRelease: true, clientRuntimeVersion: plan.clientCurrent };
+    }
+    const finalize = vNextAdminDeployVerifiedEmployeeUxFinalize_({
+      reason: reason, upgradeEmptyPilots: false, release: release,
+      portal: portal || { skipped: !plan.needPortal }
+    });
+    ui.alert(finalize && finalize.verification && finalize.verification.ok
+      ? ('反映完了。Portal ' + (finalize.portalRuntimeVersion || plan.portalTarget) +
+        '\nWeb入口をハード再読み込み（Cmd+Shift+R）してください。')
+      : ('反映処理は終わりましたが確認不一致があります。案内サイドバーで詳細を見てください。'));
+    return finalize;
+  } catch (error) {
+    ui.alert('Cursor反映に失敗しました。\n' + String(error && error.message || error));
+    throw error;
+  }
 }
 
 /**
@@ -6050,9 +6127,21 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         throw new Error('Current Portal content scriptId mismatch.');
       }
       const expectedWebAppUrl = vNextAdminEmployeePortalWebAppUrl_(hub);
+      const fastDeploy = req.fastDeploy === true;
       if (currentSha === targetSha &&
           portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION &&
           portal.runtimeSha256 === targetSha) {
+        if (fastDeploy) {
+          vNextAdminWriteDevDeployProgress_('PORTAL_DONE', {
+            reused: true, runtimeVersion: portal.runtimeVersion, fastDeploy: true
+          });
+          return {
+            ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
+            runtimeSha256: portal.runtimeSha256, catalog: { skipped: true },
+            webAppUrl: expectedWebAppUrl,
+            message: 'Web入口はすでに最新版です。ブラウザでハード再読み込みしてください。'
+          };
+        }
         const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
@@ -6120,8 +6209,10 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           portal_runtime_updated_by: vNextAdminActor_()
         });
         pinsUpdated = true;
-        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
-        vNextAdminRefreshPortalDirectory_(hub);
+        const catalog = fastDeploy
+          ? { skipped: true }
+          : vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
+        if (!fastDeploy) vNextAdminRefreshPortalDirectory_(hub);
         const settingValue = vNextAdminCanonicalJson_({
           portalId: portal.portalId, spreadsheetId: portal.spreadsheetId,
           scriptId: portal.scriptId, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
@@ -6143,7 +6234,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           fromVersion: portal.runtimeVersion, fromSha256: portal.runtimeSha256,
           toVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, toSha256: targetSha,
           scriptId: portal.scriptId, spreadsheetId: portal.spreadsheetId,
-          parentTitle: project.title, catalogVersion: catalog.catalogVersion, reason: reason
+          parentTitle: project.title,
+          catalogVersion: catalog && catalog.catalogVersion, reason: reason, fastDeploy: fastDeploy
         });
         migrated = {
           ok: true, reused: false, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
