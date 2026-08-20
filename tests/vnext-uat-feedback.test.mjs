@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const admin = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+const naming = await readFile(path.join(root, '0_VNext_Naming.js'), 'utf8');
 const engine = await readFile(path.join(root, 'VNext_Engine.js'), 'utf8');
 const ux = await readFile(path.join(root, 'VNext_UX.js'), 'utf8');
 const input = await readFile(path.join(root, 'VNext_InputSidebar.html'), 'utf8');
@@ -34,6 +35,7 @@ function checkEvidenceMonthNormalization() {
     Session: { getScriptTimeZone: () => 'Asia/Tokyo' }
   };
   vm.createContext(sandbox);
+  vm.runInContext(naming, sandbox, { filename: '0_VNext_Naming.js' });
   vm.runInContext(admin, sandbox, { filename: 'VNext_Admin.js' });
   assert.equal(sandbox.vNextAdminNormalizeEvidenceMonth_('2027-04', 'target_start_month'), '2027-04');
   const gasDate = vm.runInContext("new Date('2027-04-01T00:00:00Z')", sandbox);
@@ -144,6 +146,8 @@ function checkEmployeeInteractionContract() {
   assert.match(openMenu, /addItem\('案内を開く'/);
   assert.doesNotMatch(openMenu, /自分の情報を入力|予測ダッシュボード|使い方・困ったとき/,
     'Daily employee actions must live in the guidance sidebar, not the top menu');
+  assert.doesNotMatch(ux, /上部メニュー「年度予算策定」→「自分の情報を入力/);
+  assert.doesNotMatch(ux, /予測ダッシュボードを開く」から/);
   const hubOpen = functionSource(ux, 'vNextHandleOnOpen_', 'vNextBuildClientMenu_');
   assert.match(hubOpen, /vNextAdminLooksLikeHub_/);
   assert.doesNotMatch(hubOpen, /vNextIsAdminHub_/,

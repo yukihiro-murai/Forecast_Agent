@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.11');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.12');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -378,7 +378,7 @@ async function testStaticUxContracts() {
     'Portal views must not leave hidden note popups or stale memo markers');
   assert.match(ux, /var headers = \['状態', 'クライアント', '年度', '次の案内', '更新', '開く'\]/,
     'Home must expose the compact six-column employee view');
-  assert.match(ux, /var headers = \['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'\]/,
+  assert.match(ux, /var headers = \['状態', 'クライアント', '見込み', '採用予測', '決めた予算', '担当・関与', '次の対応', '更新日', '開く'\]/,
     'FY tabs must expose the compact nine-column planning view');
   assert.match(ux, /dataRange\.getMergedRanges\(\)/);
   assert.doesNotMatch(ux, /sheet\.clear\(\)/,
@@ -421,10 +421,14 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /font-weight:800/);
   assert.equal((entry.match(/class="bubble"/g) || []).length, 3);
   assert.equal((entry.match(/class="who"/g) || []).length, 3);
-  assert.match(entry, /第1層：申請入口/);
+  assert.match(entry, />はじめる</);
   assert.match(entry, /年度予算策定/);
-  assert.match(entry, /第2層：クライアント年度ブック/);
-  assert.match(entry, /第3層：管理ハブ/);
+  assert.match(entry, />続ける</);
+  assert.match(entry, />承認する</);
+  assert.match(entry, /緑の案内/);
+  assert.match(entry, /青の案内/);
+  assert.match(entry, /橙の案内/);
+  assert.doesNotMatch(entry, /第[123]層/);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
     'Numbered section headers must appear above each bot and bubble');

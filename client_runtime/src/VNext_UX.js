@@ -1019,7 +1019,7 @@ function vNextUxGetPrimaryAction_(context) {
       : canContribute && !submitted
         ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '予測依頼前であれば、あなたの情報を追加できます。' }
         : { key: 'WAIT', label: canContribute ? '予算策定担当の操作待ち' : '閲覧のみです', instruction: canContribute ? 'あなたの入力は保存されています。予算策定担当が予測を依頼します。' : '予算策定担当が予測を依頼します。現在、必要な操作はありません。' },
-    RUNNING: { key: 'WAIT', label: '予測の完成をお待ちください', instruction: '通常は5～10分で完了します。15分以上この表示が変わらない場合は「年度予算策定」→「ホームに戻る」で更新し、それでも変わらなければ管理担当者へ連絡してください。' },
+    RUNNING: { key: 'WAIT', label: '予測の完成をお待ちください', instruction: '通常は5～10分で完了します。15分以上この表示が変わらない場合は右の案内の「最新状態に更新」を使い、それでも変わらなければ管理担当者へ連絡してください。' },
     DRAFT_READY: { key: owner ? 'EDIT_PLAN' : 'VIEW_PLAN', label: owner ? '予測を確認して予算案を作る' : '予測を見る', instruction: owner ? 'システム推奨予測を確認し、採用判断と営業上積みを分けて入力してください。' : '予測の結論と根拠を確認してください。' },
     SUBMITTED: { key: 'WAIT', label: '管理ハブの確認をお待ちください', instruction: '予算案は提出済みです。差戻しまたは正式予算の通知まで、操作は不要です。' },
     CHANGES_REQUESTED: { key: owner ? 'EDIT_PLAN' : 'WAIT', label: owner ? '差戻し内容を確認して再提出する' : '予算策定担当の対応待ち', instruction: owner ? '差戻し理由を確認し、予算案を修正して再提出してください。' : '予算策定担当が差戻しに対応します。' },
@@ -1847,39 +1847,38 @@ function vNextUxEnsureClientSheets_(context) {
 
 function vNextUxRenderHome_(context, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.HOME_SHEET);
-  vNextUxResetViewSheet_(sheet, 15, 6);
+  vNextUxResetViewSheet_(sheet, 14, 2);
   vNextUxRemoveLegacyImages_(sheet);
   var action = vNextUxGetPrimaryAction_(context);
   var input = context.inputStatus || {};
-  sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度予算').setFontSize(18).setFontWeight('bold');
-  sheet.getRange('A2').setValue('現在の状態と、次の1つの作業を確認できます。').setFontColor('#5f6368');
+  sheet.getRange('A1').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + ' 年度予算').setFontSize(20).setFontWeight('bold');
+  sheet.getRange('A2').setValue('シートは見る専用です。作業は右の案内から行います。').setFontColor('#5f6368').setFontSize(12);
   sheet.getRange('A4:B7').setValues([
-    ['現在の状態', VNEXT_UX_STATE_LABELS_[context.state] || context.state],
+    ['いまの状態', VNEXT_UX_STATE_LABELS_[context.state] || context.state],
     ['実績基準日', vNextUxDateText_(context.cutoff) || '未設定'],
     ['あなたの役割', vNextUxRoleLabel_(context)],
     ['回答状況', vNextUxInputStatusText_(input)]
   ]);
   sheet.getRange('A4:A7').setFontWeight('bold').setBackground('#f8f9fa');
-  sheet.getRange('B4').setFontWeight('bold');
-  vNextUxSetSectionHeader_(sheet, 9, 1, 6, '次にすること');
+  sheet.getRange('B4').setFontWeight('bold').setFontSize(13);
+  vNextUxSetSectionHeader_(sheet, 9, 1, 2, '次にすること');
   sheet.getRange('A10:B11').setValues([
     ['操作', action.label],
     ['案内', action.instruction]
   ]);
   sheet.getRange('A10:A11').setFontWeight('bold').setBackground('#f8f9fa');
-  sheet.getRange('B10').setFontSize(13).setFontWeight('bold')
+  sheet.getRange('B10').setFontSize(14).setFontWeight('bold')
     .setBackground(action.key === 'WAIT' ? '#f8f9fa' : '#e8f0fe')
     .setFontColor(action.key === 'WAIT' ? '#3c4043' : '#174ea6');
   sheet.getRange('B11').setWrap(true);
   if (action.issueKey) sheet.getRange('A10:B11').setBackground('#fef7e0');
-  sheet.getRange('A13').setValue('右側の案内に従ってください。案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。')
+  sheet.getRange('A13').setValue('案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。')
     .setFontColor('#5f6368').setFontSize(9);
   sheet.setFrozenRows(2);
-  sheet.setHiddenGridlines(false);
+  sheet.setHiddenGridlines(true);
   sheet.setColumnWidth(1, 170);
-  sheet.setColumnWidth(2, 520);
-  for (var col = 3; col <= 6; col++) sheet.setColumnWidth(col, 88);
-  sheet.setRowHeight(11, 44);
+  sheet.setColumnWidth(2, 560);
+  sheet.setRowHeight(11, 52);
   vNextUxProtectView_(sheet, context.state === 'YEAR_CLOSED');
 }
 
@@ -1894,12 +1893,12 @@ function vNextUxRemoveLegacyImages_(sheet) {
 
 function vNextUxRenderPlan_(context, rawForecast, sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VNEXT_UX_CONFIG_.PLAN_SHEET);
-  vNextUxResetViewSheet_(sheet, 60, 13);
+  vNextUxResetViewSheet_(sheet, 56, 13);
   var f = vNextUxForecastForView_(context, rawForecast);
-  sheet.getRange('A1').setValue('予測と年度予算').setFontSize(18).setFontWeight('bold');
-  sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + '｜' + (VNEXT_UX_STATE_LABELS_[context.state] || context.state)).setFontColor('#5f6368');
+  sheet.getRange('A1').setValue('結果').setFontSize(20).setFontWeight('bold');
+  sheet.getRange('A2').setValue((context.clientName || 'クライアント') + '｜FY' + (context.fiscalYear || '') + '｜' + (VNEXT_UX_STATE_LABELS_[context.state] || context.state) + '　・　詳しい内訳は右の案内から').setFontColor('#5f6368');
   if (!rawForecast) {
-    vNextUxSetSectionHeader_(sheet, 4, 1, 13, '現在の状況');
+    vNextUxSetSectionHeader_(sheet, 4, 1, 13, 'いま');
     sheet.getRange('A5').setValue(vNextUxEmptyForecastMessage_(context)).setFontSize(13).setWrap(true);
     sheet.setRowHeight(5, 58);
     vNextUxFinishPlanFormat_(sheet, context.state === 'YEAR_CLOSED');
@@ -1907,46 +1906,36 @@ function vNextUxRenderPlan_(context, rawForecast, sheet) {
   }
   var official = context.state === 'OFFICIAL_LOCKED' || context.state === 'REVIEW_DUE' || context.state === 'YEAR_CLOSED';
   var headline = vNextUxHeadlineAmount_(official, f);
-  vNextUxSetSectionHeader_(sheet, 4, 1, 13, official ? '正式な年度予算' : '今回の予測');
+  vNextUxSetSectionHeader_(sheet, 4, 1, 13, official ? '決めた予算' : '結論');
   sheet.getRange('A5:B7').setValues([
-    [official ? '正式な最終予算' : '中心見込み', headline],
-    ['通常の振れ幅', vNextUxFormatMoney_(f.p10) + ' ～ ' + vNextUxFormatMoney_(f.p90)],
-    ['根拠のそろい具合', f.evidenceCoverage.label]
+    [official ? '決めた予算' : '見込み', headline],
+    ['振れ幅', vNextUxFormatMoney_(f.p10) + ' ～ ' + vNextUxFormatMoney_(f.p90)],
+    [official ? '見込み' : '決めた予算', official ? f.systemRecommended : (f.hasPlan ? f.finalBudget : '未決定')]
   ]);
   sheet.getRange('A5:A7').setFontWeight('bold').setBackground('#f8f9fa');
   sheet.getRange('B5').setNumberFormat('¥#,##0').setFontSize(20).setFontWeight('bold');
+  if (official || f.hasPlan) sheet.getRange('B7').setNumberFormat('¥#,##0').setFontWeight('bold');
+  else sheet.getRange('B7').setHorizontalAlignment('left').setFontColor('#5f6368').setFontWeight('bold');
   if (f.warnings.length) {
     sheet.getRange('A8').setValue('要確認').setFontWeight('bold').setBackground('#fef7e0');
     sheet.getRange('B8').setValue(f.warnings.join('／')).setBackground('#fef7e0').setWrap(true);
   }
-  vNextUxSetSectionHeader_(sheet, 10, 1, 13, '数字ができるまで');
+  vNextUxSetSectionHeader_(sheet, 10, 1, 13, '内訳');
   var waterfall = [
-    ['履歴基準値', f.historyBaseline], ['客観情報の差分', f.objectiveDelta], ['客観予測', f.objectiveForecast],
-    ['現場情報の差分', f.humanDelta], ['AI調査の差分', f.aiDelta], ['システム推奨予測', f.systemRecommended]
+    ['履歴の水準', f.historyBaseline], ['現場の情報', f.humanDelta], ['外部情報', f.aiDelta], ['見込み', f.systemRecommended]
   ];
-  if (f.hasPlan) {
-    waterfall = waterfall.concat([
-      ['採用判断の差分', f.adoptionDelta], ['採用予測', f.adoptedForecast],
-      ['営業上積み', f.uplift], ['最終予算', f.finalBudget]
-    ]);
-  }
+  if (f.hasPlan) waterfall.push(['決めた予算', f.finalBudget]);
   sheet.getRange(11, 1, waterfall.length, 2).setValues(waterfall);
   sheet.getRange(11, 2, waterfall.length, 1).setNumberFormat('¥#,##0');
-  if (!f.hasPlan) {
-    sheet.getRange('A18:B19').setValues([
-      ['採用予測', '未決定'], ['最終予算', '未決定']
-    ]).setBackground('#f8f9fa');
-    sheet.getRange('B18:B19').setHorizontalAlignment('center').setFontColor('#5f6368').setFontWeight('bold');
-  }
   var displayedQuarters = official && f.planQuarters.length ? f.planQuarters : f.quarters;
   var displayedMonths = official && f.planMonths.length ? f.planMonths : f.months;
-  vNextUxSetSectionHeader_(sheet, 22, 1, 13, official ? '最終予算の四半期配分' : '中心見込みの四半期展開');
-  vNextUxWritePeriodRow_(sheet, 23, displayedQuarters, 4, ['Q1', 'Q2', 'Q3', 'Q4']);
-  vNextUxSetSectionHeader_(sheet, 26, 1, 13, official ? '最終予算の12か月配分' : '中心見込みの12か月展開');
-  vNextUxWritePeriodRow_(sheet, 27, displayedMonths, 12, ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月']);
-  vNextUxWriteListBlock_(sheet, 'A31:F31', 32, 1, 6, '主な根拠', f.drivers, '根拠はまだ登録されていません。');
-  vNextUxWriteListBlock_(sheet, 'H31:M31', 32, 8, 6, '次に確認すると有効な情報', f.nextInformation, '追加確認の提案はありません。');
-  vNextUxWriteListBlock_(sheet, 'A39:M39', 40, 1, 13, '前回から変わった理由', f.changeReasons, '初回の予測です。');
+  vNextUxSetSectionHeader_(sheet, 18, 1, 13, official ? '決めた予算の四半期' : '見込みの四半期');
+  vNextUxWritePeriodRow_(sheet, 19, displayedQuarters, 4, ['Q1', 'Q2', 'Q3', 'Q4']);
+  vNextUxWriteListBlock_(sheet, 'A23:F23', 24, 1, 6, '主な根拠', (f.drivers || []).slice(0, 3), '根拠はまだ登録されていません。');
+  vNextUxWriteListBlock_(sheet, 'H23:M23', 24, 8, 6, '次に確認するとよいこと', (f.nextInformation || []).slice(0, 3), '追加確認の提案はありません。');
+  vNextUxSetSectionHeader_(sheet, 31, 1, 13, official ? '決めた予算の12か月' : '見込みの12か月');
+  vNextUxWritePeriodRow_(sheet, 32, displayedMonths, 12, ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月']);
+  vNextUxWriteListBlock_(sheet, 'A36:M36', 37, 1, 13, '前回から変わった理由', (f.changeReasons || []).slice(0, 3), '初回の予測です。');
   vNextUxWriteAiEvidence_(sheet, f.aiEvidence);
   vNextUxFinishPlanFormat_(sheet, context.state === 'YEAR_CLOSED');
 }
@@ -1965,9 +1954,9 @@ function vNextUxRenderReview_(context, sheet) {
     if (evaluation) {
       var rows = [
         ['確定実績', Number(evaluation.actual_total || 0)],
-        ['システム推奨予測', Number(evaluation.system_forecast || 0)],
+        ['見込み', Number(evaluation.system_forecast || 0)],
         ['採用予測', Number(evaluation.adopted_forecast || 0)],
-        ['最終予算', Number(evaluation.final_budget || 0)],
+        ['決めた予算', Number(evaluation.final_budget || 0)],
         ['システム予測－実績', Number(evaluation.system_signed_error || 0)]
       ];
       sheet.getRange(5, 1, rows.length, 2).setValues(rows);
@@ -2015,10 +2004,10 @@ function vNextUxRenderReview_(context, sheet) {
       sheet.getRange('A32').setValue(learningLines.join('\n')).setWrap(true).setVerticalAlignment('top');
       sheet.setRowHeight(32, Math.min(180, 36 + learningLines.length * 24));
     } else {
-      sheet.getRange('A32').setValue(context.state === 'REVIEW_DUE' && evaluation ? '上部メニュー「年度予算策定」→「予測ダッシュボードを開く」から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
+      sheet.getRange('A32').setValue(context.state === 'REVIEW_DUE' && evaluation ? '右の案内から振り返りを保存してください。' : 'あなたが保存した振り返りはありません。').setWrap(true);
     }
   }
-  sheet.setHiddenGridlines(false);
+  sheet.setHiddenGridlines(true);
   sheet.setColumnWidth(1, 190);
   sheet.setColumnWidth(2, 150);
   sheet.setColumnWidth(3, 360);
@@ -2054,7 +2043,7 @@ function vNextUxWriteListBlock_(sheet, headerRange, startRow, startCol, width, t
 
 function vNextUxWriteAiEvidence_(sheet, items) {
   var evidence = (items || []).slice(0, 3);
-  vNextUxSetSectionHeader_(sheet, 47, 1, 13, 'AI調査の外部情報（詳細は案内サイドバー）');
+  vNextUxSetSectionHeader_(sheet, 47, 1, 13, '外部情報（詳細は右の案内）');
   if (!evidence.length) {
     sheet.getRange('A48').setValue('現在表示できるAI外部情報はありません。');
     return;
@@ -2086,7 +2075,7 @@ function vNextUxItemText_(item) {
 
 function vNextUxFinishPlanFormat_(sheet, hardProtection) {
   sheet.setFrozenRows(2);
-  sheet.setHiddenGridlines(false);
+  sheet.setHiddenGridlines(true);
   for (var col = 1; col <= 13; col++) sheet.setColumnWidth(col, 94);
   sheet.setColumnWidth(1, 160);
   sheet.setColumnWidth(2, 130);
@@ -2111,10 +2100,10 @@ function vNextUxEmptyForecastMessage_(context) {
   var issue = vNextUxStateIssue_(context);
   if (issue) return issue.instruction;
   var state = String(context && context.state || '').toUpperCase();
-  if (state === 'RUNNING') return '予測を作成しています。通常は5～10分で完了します。15分以上変わらない場合はホームを更新し、それでも変わらなければ管理担当者へ連絡してください。';
-  if (state === 'INPUT_OPEN') return 'まだ予測前です。上部メニュー「年度予算策定」→「自分の情報を入力・更新する」から、来年度の変化を回答してください。';
+  if (state === 'RUNNING') return '予測を作成しています。通常は5～10分で完了します。15分以上変わらない場合は右の案内の「最新状態に更新」を使い、それでも変わらなければ管理担当者へ連絡してください。';
+  if (state === 'INPUT_OPEN') return 'まだ予測前です。右の案内から、来年度の変化を回答してください。';
   if (state === 'READY_TO_RUN') return context && context.isForecastOwner
-    ? '回答状況を確認後、上部メニュー「年度予算策定」→「予測ダッシュボードを開く」から予測を依頼してください。'
+    ? '回答状況を確認後、右の案内から予測を依頼してください。'
     : '回答は受け付け済みです。予算策定担当が予測を依頼するまでお待ちください。';
   return 'この年度の予測結果はまだありません。ホームの「次にすること」を確認してください。';
 }

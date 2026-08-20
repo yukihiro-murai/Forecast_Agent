@@ -136,7 +136,7 @@
   <body>
     <header class="page-header">
       <h1>管理ハブ</h1>
-      <p class="page-lead">現場の年度・クライアント指定は、申請入口（第1層）から行います。日常の承認・例外・処理は管理ハブ（第3層）のこのサイドバーで行います。</p>
+      <p class="page-lead">日常の承認・例外・処理はこの画面の上側だけです。現場がブックを探す・作るのは Web入口の 01〜03 です。</p>
       <div class="page-meta">
         <span id="mode" class="badge">loading</span>
         <span id="book" class="book-name"></span>
@@ -146,7 +146,7 @@
     <div id="legacyPanel" class="hidden">
       <div class="card">
         <h2>管理ハブ / Master Templateを作成</h2>
-        <p class="muted">現在の Spreadsheet は変更しません。管理ハブ（第3層）と、顧客データを含まない clean Template を private 保存先へ作ります。</p>
+        <p class="muted">現在の Spreadsheet は変更しません。管理ハブと、顧客データを含まない clean Template を private 保存先へ作ります。</p>
         <label>ZAC実績データのSpreadsheet ID（初回のみ・必須）<input id="forecastSourceId" placeholder="1Abc..."></label>
         <details>
           <summary>名前・保存先などの詳細設定</summary>
@@ -227,7 +227,12 @@
         </details>
       </div>
 
-      <details class="accordion">
+      <details class="accordion" id="systemCare">
+        <summary>システムの手入れ</summary>
+        <div class="accordion-body">
+          <p class="muted">版の更新、初回セットアップ、個別作成など、毎日は使わない操作です。</p>
+
+      <details class="accordion nested">
         <summary>初回セットアップ（1回だけ）</summary>
         <div class="accordion-body">
           <p class="muted">検証データを消してから置き場を整え、Web入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
@@ -245,8 +250,8 @@
         </div>
       </details>
 
-      <details class="accordion">
-        <summary>申請入口（第1層）の設定</summary>
+      <details class="accordion nested">
+        <summary>申請入口の設定</summary>
         <div class="accordion-body">
           <p class="muted">全社員が client×FY を探し、未作成分を申請する Spreadsheet です。</p>
           <label>会社ドメイン（空欄は自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
@@ -279,7 +284,7 @@
         </div>
       </details>
 
-      <details class="accordion">
+      <details class="accordion nested">
         <summary>クライアント年度ブックを個別作成（例外）</summary>
         <div class="accordion-body">
           <p class="muted">通常は申請入口から依頼します。代理作成が必要な場合のみ。</p>
@@ -316,7 +321,7 @@
         <div class="btn-row"><button id="recoverEmptyPilotUpgradeButton" class="btn warn hidden" onclick="recoverEmptyPilotUpgrade()">中断した更新を復旧</button></div>
       </div>
 
-      <details class="accordion">
+      <details class="accordion nested">
         <summary>保守・高度な操作</summary>
         <div class="accordion-body">
           <details class="accordion nested">
@@ -467,11 +472,13 @@
           </details>
         </div>
       </details>
+        </div>
+      </details>
     </div>
 
     <div id="nonAdminPanel" class="hidden card">
       <b>このクライアント年度ブックは管理ハブではありません。</b>
-      <p class="muted">管理操作は管理ハブ（第3層）で行います。</p>
+      <p class="muted">管理操作は管理ハブで行います。</p>
     </div>
 
     <div class="status-dock">
@@ -987,7 +994,7 @@
           .withFailureHandler(onFailure).vNextAdminProvisionClient(req);
       }
       function provisionSharedPortal() {
-        setBusy(true); showStatus('申請入口（第1層）を安全な専用 Spreadsheet として準備しています…');
+        setBusy(true); showStatus('申請入口を安全な専用 Spreadsheet として準備しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const url = result && result.spreadsheetUrl;

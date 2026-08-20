@@ -142,11 +142,11 @@ function vNextPortalOpenHelp() {
       'body{font-family:Arial,sans-serif;color:#202124;padding:18px;line-height:1.65}' +
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
-      '</style></head><body><h2>申請入口（第1層）の使い方</h2>' +
-      '<div class="step"><b>1. 開く</b><br>年度予算策定 Web入口の年度ボタンとクライアントボタンから、すでにあるクライアント年度ブックを選びます。</div>' +
-      '<div class="step"><b>2. なければ申請</b><br>右側の案内から「新しいクライアント年度ブックを申請する」を選びます。候補確認後に作成依頼を送ります。</div>' +
-      '<div class="step"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、の状態が表示されます。</div>' +
-      '<div class="note">申請入口ではセルへ直接入力しません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。</div>' +
+      '</style></head><body><h2>申請入口の使い方</h2>' +
+      '<div class="step"><b>1. 開く</b><br>Web入口の青の案内（02）で、年度とクライアント名を押して既存のブックを開きます。</div>' +
+      '<div class="step"><b>2. なければ申請</b><br>Web入口の緑の案内（01）か、このシート右の案内から新しいクライアントの年度予算を申請します。</div>' +
+      '<div class="step"><b>3. 状況を見る</b><br>このホームには受付済み・作成中・完成・確認が必要、の状態だけが出ます。セルは書き換えません。</div>' +
+      '<div class="note">案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。</div>' +
       '</body></html>'
     ).setTitle('使い方・困ったとき').setWidth(420);
     SpreadsheetApp.getUi().showSidebar(html);
@@ -178,7 +178,7 @@ function vNextPortalRenderHome_(sheet, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
   sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.PORTAL)
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('既存のクライアント年度ブックは年度予算策定 Web入口から開きます。新規申請は右側の案内から行います。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。')
+  sheet.getRange('A2').setValue('探す・開くは Web入口の 01（緑）と 02（青）から。この表は申請の進み具合です。作業は右の案内。セルは書き換えません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
@@ -214,10 +214,10 @@ function vNextPortalRenderHome_(sheet, data) {
   sheet.getRange(4, 1, Math.max(1, requests.length + 1), headers.length)
     .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
-  sheet.setHiddenGridlines(false);
+  sheet.setHiddenGridlines(true);
   [118, 210, 76, 330, 124, 72].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
-  sheet.setRowHeight(2, 24);
+  sheet.setRowHeight(2, 48);
   vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は右側の案内から行います）');
 }
 
@@ -226,12 +226,12 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
   sheet.getRange('A1').setValue('FY' + fiscalYear + ' クライアント年度ブック')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('クライアントを選び、「開く」からクライアント年度ブックへ進んでください。')
+  sheet.getRange('A2').setValue('Web入口の 02（青）から開くのが簡単です。ここは年度ごとの一覧です。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
     .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
-  var headers = ['状態', 'クライアント', '中心見込み', '採用予測', '最終予算', '担当・関与', '次の対応', '更新日', '開く'];
+  var headers = ['状態', 'クライアント', '見込み', '採用予測', '決めた予算', '担当・関与', '次の対応', '更新日', '開く'];
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
   if (!entries.length) {
