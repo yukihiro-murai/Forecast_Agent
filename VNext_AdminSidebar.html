@@ -1233,6 +1233,19 @@
         armSmartDeployWatchdog('管理ハブ同期');
         showStatus('① 管理ハブを最新化しています…');
         google.script.run.withSuccessHandler(function(phaseA) {
+          // After Hub file copy, this open sidebar still runs OLD JavaScript.
+          // Continuing here re-enters the legacy "2/4 Client" hang. Stop and reopen.
+          if (phaseA && phaseA.requiresSidebarReload) {
+            clearSmartDeployWatchdog();
+            setBusy(false);
+            showStatus(
+              '管理ハブは最新化できました。\n' +
+              '右上の × で案内を閉じ → メニュー「年度予算策定」→「案内を開く」→ 緑ボタンをもう一度。\n' +
+              '（開き直さないと、古い「2/4 Client」処理が続いて止まります）',
+              false
+            );
+            return;
+          }
           armSmartDeployWatchdog('反映計画');
           showStatus('② 何を直すか確認しています…');
           google.script.run.withSuccessHandler(function(plan) {
@@ -1248,7 +1261,9 @@
                   }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
                     reason: reason, upgradeEmptyPilots: false, release: release, portal: portal
                   });
-                }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxClientRelease_({ reason: reason });
+                }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxClientRelease_({
+                  reason: reason, allowHeavyRelease: true
+                });
                 return;
               }
               armSmartDeployWatchdog('確認');
@@ -1261,7 +1276,6 @@
                 portal: portal || { skipped: true }
               });
             };
-            // Portal first: Web入口の遅れを Client 再作成より先に直す（停止の主因だった）。
             if (!plan || plan.needPortal !== false) {
               armSmartDeployWatchdog('Web入口');
               showStatus('③ Web入口を更新しています…');

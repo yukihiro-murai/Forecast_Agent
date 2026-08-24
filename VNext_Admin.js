@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-home-findable-cta';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-stop-after-hub-sync';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -1790,19 +1790,27 @@ function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
       activeRelease = null;
     }
     const currentVersion = activeRelease ? String(activeRelease.client_runtime_version || '') : '';
-    if (req.forceClientRelease !== true && targetVersion && currentVersion === targetVersion) {
+    // Old sidebar chains used to call this before Portal and hang on Template republish.
+    // Heavy release is opt-in only (allowHeavyRelease=true). Default = skip.
+    if (req.allowHeavyRelease !== true ||
+        (req.forceClientRelease !== true && targetVersion && currentVersion === targetVersion)) {
       const reused = vNextAdminJsonSafe_({
         ok: true,
         reused: true,
         skippedHeavyRelease: true,
-        activeTemplateReleaseId: pair.releaseId,
-        activeModelReleaseId: pair.modelReleaseId,
-        clientRuntimeVersion: currentVersion,
-        message: 'Client runtime は既に ' + currentVersion + ' です。Template/Model 再作成を省略しました。',
+        activeTemplateReleaseId: pair ? pair.releaseId : '',
+        activeModelReleaseId: pair ? pair.modelReleaseId : '',
+        clientRuntimeVersion: currentVersion || targetVersion,
+        message: req.allowHeavyRelease !== true
+          ? 'Client Template/Model の再作成は省略しました（Web入口更新を優先）。'
+          : ('Client runtime は既に ' + currentVersion + ' です。Template/Model 再作成を省略しました。'),
         completedAt: new Date().toISOString()
       });
       vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE_DONE', {
-        reused: true, releaseId: pair.releaseId, modelReleaseId: pair.modelReleaseId
+        reused: true,
+        skippedHeavyRelease: true,
+        releaseId: pair ? pair.releaseId : '',
+        modelReleaseId: pair ? pair.modelReleaseId : ''
       });
       return reused;
     }
@@ -5974,7 +5982,9 @@ function vNextAdminUpdateHubRuntimeInHub_(hub, request, options) {
     if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
       throw new Error('Verified 管理ハブ runtime copy helper is not installed.');
     }
+    const beforeSha = String(config.admin_runtime_sha256 || '');
     const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
+    const changed = !beforeSha || beforeSha !== String(copied.adminRuntimeSha256 || '');
     vNextAdminWriteSystemConfig_(hub, {
       admin_runtime_sha256: copied.adminRuntimeSha256,
       admin_runtime_updated_at: new Date().toISOString(),
@@ -5991,12 +6001,21 @@ function vNextAdminUpdateHubRuntimeInHub_(hub, request, options) {
     });
     vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
       sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
-      adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason
+      adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason,
+      contentChanged: changed
     });
+    try { vNextAdminRefreshHome_(hub); } catch (ignoredHome) {}
     return {
-      ok: true, phase: 'HUB_RUNTIME', adminRuntimeSha256: copied.adminRuntimeSha256,
+      ok: true,
+      phase: 'HUB_RUNTIME',
+      adminRuntimeSha256: copied.adminRuntimeSha256,
       fileCount: copied.fileCount,
-      message: '管理ハブ runtimeを中央配備版へ更新しました。続けて Employee UX release を反映してください。'
+      contentChanged: changed,
+      // Open sidebar keeps old JS after a real content replace; force reopen then.
+      requiresSidebarReload: changed === true,
+      message: changed
+        ? '管理ハブを最新化しました。案内パネルを一度閉じて「案内を開く」から開き直し、もう一度緑ボタンを押してください。'
+        : '管理ハブは既に中央と一致しています。続けて Web入口を確認します。'
     };
   });
 }
