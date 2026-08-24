@@ -82,9 +82,10 @@ vm.runInContext(
 );
 
 testAdminCopy();
+testAdminCopyUnchanged();
 testAdminGuards();
 testAdminCreate();
-process.stdout.write('PASS vNext Admin runtime copy tests (3 groups)\n');
+process.stdout.write('PASS vNext Admin runtime copy tests (4 groups)\n');
 
 function testAdminCopy() {
   const calls = [];
@@ -95,6 +96,11 @@ function testAdminCopy() {
     }
     if (apiPath === `/projects/${encodeURIComponent(sourceId)}/content` && method === 'get') {
       return { scriptId: sourceId, files: clone(files).reverse() };
+    }
+    if (apiPath === `/projects/${encodeURIComponent(targetId)}/content` && method === 'get') {
+      const stale = clone(files);
+      stale.find(file => file.name === 'VNext_Admin').source += '\n// stale';
+      return { scriptId: targetId, files: stale };
     }
     if (apiPath === `/projects/${encodeURIComponent(targetId)}/content` && method === 'put') {
       return { scriptId: targetId, files: clone(body.files).reverse() };
@@ -109,10 +115,34 @@ function testAdminCopy() {
   assert.equal(result.updateResult.verificationSource, 'UPDATE_RESPONSE');
   assert.equal(calls[0].apiPath, `/projects/${encodeURIComponent(targetId)}`, 'parent binding is checked before source content is read');
   assert.equal(
-    JSON.stringify(calls[2].body.files.map(file => file.name)),
+    JSON.stringify(calls[3].body.files.map(file => file.name)),
     JSON.stringify(files.map(file => file.name).sort()),
     'PUT files use canonical name order'
   );
+}
+
+function testAdminCopyUnchanged() {
+  const calls = [];
+  sandbox.vNextClientRuntimeApiRequest_ = (apiPath, method, body) => {
+    calls.push({ apiPath, method, body });
+    if (apiPath === `/projects/${encodeURIComponent(targetId)}` && method === 'get') {
+      return { scriptId: targetId, parentId: spreadsheetId, title: 'Known Hub' };
+    }
+    if (apiPath === `/projects/${encodeURIComponent(sourceId)}/content` && method === 'get') {
+      return { scriptId: sourceId, files: clone(files) };
+    }
+    if (apiPath === `/projects/${encodeURIComponent(targetId)}/content` && method === 'get') {
+      return { scriptId: targetId, files: clone(files) };
+    }
+    throw new Error(`Unexpected API call ${method} ${apiPath}`);
+  };
+  const result = sandbox.vNextAdminRuntimeCopyScriptContent_(sourceId, targetId, spreadsheetId);
+  assert.equal(result.ok, true);
+  assert.equal(result.unchanged, true, 'identical target content must be reported as unchanged');
+  assert.equal(result.adminRuntimeSha256, expectedSha);
+  assert.equal(result.updateResult.verificationSource, 'UNCHANGED_SKIP');
+  assert.equal(calls.some(call => call.method === 'put'), false,
+    'the heavy PUT must be skipped when the target already matches the source');
 }
 
 function testAdminGuards() {
@@ -172,6 +202,12 @@ function testAdminCreate() {
     }
     if (apiPath === `/projects/${encodeURIComponent(sourceId)}/content` && method === 'get') {
       return { scriptId: sourceId, files: clone(files) };
+    }
+    if (apiPath === `/projects/${encodeURIComponent(targetId)}/content` && method === 'get') {
+      return { scriptId: targetId, files: [
+        { name: 'appsscript', type: 'JSON', source: '{}' },
+        { name: 'Code', type: 'SERVER_JS', source: '' }
+      ] };
     }
     if (apiPath === `/projects/${encodeURIComponent(targetId)}/content` && method === 'put') {
       return { scriptId: targetId, files: clone(body.files) };

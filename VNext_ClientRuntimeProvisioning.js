@@ -277,6 +277,34 @@ function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, exp
     var targetProject = vNextAdminRuntimeAssertBoundParent_(targetId, spreadsheetId);
     var sourceContent = vNextClientRuntimeGetContent_(sourceId);
     var verifiedSource = vNextAdminRuntimeVerifyScriptContent_(sourceContent, sourceId);
+    // Fast path: the heavy PUT (and its re-provisioning side effects) is skipped
+    // when the target already holds byte-identical verified content.
+    var existingSha = '';
+    try {
+      var existingContent = vNextClientRuntimeGetContent_(targetId);
+      existingSha = String(vNextAdminRuntimeVerifyScriptContent_(existingContent, targetId).sha256 || '');
+    } catch (ignoredExisting) {
+      existingSha = '';
+    }
+    if (existingSha && existingSha === verifiedSource.sha256) {
+      Logger.log('[vNext Admin Runtime] content already identical source=%s target=%s bundle=%s',
+        sourceId, targetId, existingSha);
+      return {
+        ok: true,
+        unchanged: true,
+        sourceScriptId: sourceId,
+        targetScriptId: targetId,
+        targetSpreadsheetId: spreadsheetId,
+        targetProject: targetProject,
+        adminRuntimeSha256: verifiedSource.sha256,
+        fileCount: verifiedSource.files.length,
+        updateResult: {
+          scriptId: targetId,
+          fileCount: 0,
+          verificationSource: 'UNCHANGED_SKIP'
+        }
+      };
+    }
     var updateResult = vNextClientRuntimePutContent_(targetId, verifiedSource);
     if (updateResult && updateResult.scriptId && String(updateResult.scriptId) !== targetId) {
       throw new Error('Apps Script update response scriptId does not match targetScriptId.');

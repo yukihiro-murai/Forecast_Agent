@@ -41,11 +41,12 @@
         display:block; margin-top:3px; font-size:22px; line-height:1.1;
         color:var(--ink); font-weight:700;
       }
-      .overview { border-left:4px solid var(--green); }
+      .overview { border-left:4px solid var(--green); overflow-wrap:anywhere; }
       .overview.attention { border-left-color:var(--amber); }
       .overview.error { border-left-color:var(--red); background:#fff8f7; }
       .overview.success { border-left-color:var(--green); background:#f3fbf5; }
       .deploy-check {
+        overflow-wrap:anywhere;
         border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0;
         background:#fff; font-size:12px;
       }
@@ -216,7 +217,7 @@
       <div class="card card-primary" id="devDeployCard">
         <h2 class="section-title">Cursor反映</h2>
         <div id="devDeployHeadline" class="overview">状態を確認しています…</div>
-        <p id="devDeployHint" class="muted" style="margin-top:6px">正本は下の緑ボタンです（管理ハブ同期 → 必要な分だけ反映）。途中で止まっても、同じボタンで再開できます。</p>
+        <p id="devDeployHint" class="muted" style="margin-top:6px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
         <div id="devDeployChecks" class="hidden"></div>
         <input type="hidden" id="devDeployReason" value="Cursor開発反映">
         <div class="btn-row" style="margin-top:10px">
@@ -271,10 +272,15 @@
       <div class="card">
         <h2 class="section-title">適応学習（System / Budget）</h2>
         <p class="muted">予測がどれだけ当たったかの学習状況です。学習にはシステム推奨（System）だけを使い、正式予算（Budget）は学習に戻しません。実績が想定範囲を外れた月は「要確認」に出ます。</p>
-        <div id="learningConcept" class="status compact">学習方針を確認中…</div>
-        <div id="learningStats" class="status compact"></div>
-        <div id="learningTracks"></div>
-        <div id="learningBreaches"></div>
+        <details class="accordion nested" id="learningSection" ontoggle="onLearningToggle(this)">
+          <summary>学習状況を見る</summary>
+          <div class="accordion-body">
+            <div id="learningConcept" class="status compact">開くと読み込みます…</div>
+            <div id="learningStats" class="status compact"></div>
+            <div id="learningTracks"></div>
+            <div id="learningBreaches"></div>
+          </div>
+        </details>
         <details class="accordion nested">
           <summary>月次観測を記録</summary>
           <div class="accordion-body">
@@ -716,7 +722,7 @@
           renderModelReleases(model);
           renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
           renderDevDeployStatus(model.devDeployStatus || null);
-          renderLearningDashboard(model.learningDashboard || null);
+          if (model.learningDashboard) renderLearningDashboard(model.learningDashboard);
           renderClientBookList(model.clientBooks || []);
         }
         if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
@@ -1178,6 +1184,14 @@
           setBusy(false); showStatus(result); $('adminRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({reason});
       }
+      function shortVersion(value) {
+        return String(value || '').replace(/^vnext-(?:portal|client)-/, '');
+      }
+      function shortToken(value) {
+        const text = String(value || '');
+        if (/^[0-9a-f]{40,}$/i.test(text)) return text.slice(0, 10) + '…';
+        return shortVersion(text);
+      }
       function renderDevDeployStatus(status) {
         const headline = $('devDeployHeadline');
         const hint = $('devDeployHint');
@@ -1202,13 +1216,13 @@
         const needsDeploy = status.needsDeploy || verification.needsDeploy;
         headline.className = 'overview ' + (ok ? 'success' : 'error');
         if (ok) {
-          headline.textContent = '✓ 反映済み（Web入口 ' + (portalTarget || '最新') + '）';
+          headline.textContent = '✓ 反映済み（Web入口 ' + (shortVersion(portalTarget) || '最新') + '）';
           if (hint) {
             hint.textContent = '問題なければ Web入口をハード再読み込み（Cmd+Shift+R）して文言を確認してください。';
           }
           if (button) button.textContent = 'もう一度反映する';
         } else if (portalTarget && portalCurrent && portalCurrent !== portalTarget) {
-          headline.textContent = '✗ Web入口が古いです（いま ' + portalCurrent + ' → 必要 ' + portalTarget + '）';
+          headline.textContent = '✗ Web入口が旧版です（' + shortVersion(portalCurrent) + ' → ' + shortVersion(portalTarget) + '）';
           if (hint) {
             hint.textContent = '下の「反映する」を1回押してください。途中で止まっても、同じボタンで再開できます。';
           }
@@ -1228,7 +1242,7 @@
             div.className = 'deploy-check bad';
             div.innerHTML =
               `<b>${row.label || row.id || 'check'}</b>` +
-              `期待：${row.expected || '—'} / 現在：${row.actual || '—'}` +
+              `期待：${shortToken(row.expected) || '—'} / 現在：${shortToken(row.actual) || '—'}` +
               (row.detail ? `<br><span class="muted">${row.detail}</span>` : '');
             checksRoot.appendChild(div);
           });
@@ -1275,19 +1289,27 @@
         showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
         load();
       }
-      function runSmartDeploy() {
+      function runSmartDeploy(isSecondPass) {
         const reason = value('devDeployReason') || 'Cursor開発反映';
         setBusy(true);
         armSmartDeployWatchdog('管理ハブ同期');
-        showStatus('① 管理ハブを最新化しています…');
+        showStatus(isSecondPass === true ? '① 続きを自動実行しています…' : '① 管理ハブを最新化しています…');
         google.script.run.withSuccessHandler(function(phaseA) {
-          // After Hub file copy, this open sidebar still runs OLD JavaScript.
-          // Continuing here re-enters the legacy "2/4 Client" hang. Stop and reopen.
+          // After a real Hub content replace, later RPCs run the NEW server code
+          // (each google.script.run call is a fresh execution), so we can wait a
+          // few seconds and rerun the same chain automatically. The reopen banner
+          // stays as the fallback if the automatic second pass also asks for it.
           if (phaseA && phaseA.requiresSidebarReload) {
-            clearSmartDeployWatchdog();
-            setBusy(false);
-            showReloadBanner();
-            showStatus('管理ハブは最新化できました。上部の黄色い案内のとおり、開き直してから緑ボタンをもう一度押してください。', false);
+            if (isSecondPass === true) {
+              clearSmartDeployWatchdog();
+              setBusy(false);
+              showReloadBanner();
+              showStatus('自動での続行ができませんでした。上部の黄色い案内のとおり、開き直してから緑ボタンをもう一度押してください。', true);
+              return;
+            }
+            armSmartDeployWatchdog('自動続行');
+            showStatus('① 管理ハブを最新化しました。5秒待って続きを自動実行します…');
+            setTimeout(function() { runSmartDeploy(true); }, 5000);
             return;
           }
           armSmartDeployWatchdog('反映計画');
@@ -1359,7 +1381,7 @@
         if (!dashboard || dashboard.error) {
           concept.textContent = dashboard && dashboard.error
             ? ('学習ダッシュボード: ' + dashboard.error)
-            : '学習方針をまだ読み込んでいません。';
+            : '「学習状況を見る」を開くと読み込みます。';
           stats.textContent = '';
           tracks.innerHTML = '';
           breaches.innerHTML = '';
@@ -1400,6 +1422,12 @@
             (row.hypothesis ? row.hypothesis : '仮説未記入');
           breaches.appendChild(div);
         });
+      }
+      var learningLoaded = false;
+      function onLearningToggle(node) {
+        if (!node.open || learningLoaded) return;
+        learningLoaded = true;
+        refreshLearningDashboard();
       }
       function refreshLearningDashboard() {
         setBusy(true);

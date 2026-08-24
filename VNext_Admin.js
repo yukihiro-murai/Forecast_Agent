@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.14';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-admin-ux-clarity';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-one-click-deploy';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -801,15 +801,9 @@ function vNextAdminGetSidebarDetailModel() {
     };
     vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
     model.devDeployStatus = vNextAdminBuildDevDeployStatus_(ss, { light: true });
-    try {
-      model.learningDashboard = vNextAdminBuildLearningDashboard_(ss);
-    } catch (learningError) {
-      model.learningDashboard = {
-        error: String(learningError && learningError.message || learningError),
-        proxyObjectives: [], dualTracks: [], recentObservations: [], openBreaches: [],
-        stats: { evaluationCount: 0, evidenceCount: 0, observationCount: 0, openIntervalBreaches: 0 }
-      };
-    }
+    // Learning dashboard is heavy (multiple table reads); the sidebar loads it
+    // lazily via vNextAdminGetLearningDashboard when its section is opened.
+    model.learningDashboard = null;
     return vNextAdminJsonSafe_(model);
   });
 }
@@ -5997,27 +5991,33 @@ function vNextAdminUpdateHubRuntimeInHub_(hub, request, options) {
     }
     const beforeSha = String(config.admin_runtime_sha256 || '');
     const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
-    const changed = !beforeSha || beforeSha !== String(copied.adminRuntimeSha256 || '');
+    const changed = copied.unchanged === true
+      ? false
+      : (!beforeSha || beforeSha !== String(copied.adminRuntimeSha256 || ''));
     vNextAdminWriteSystemConfig_(hub, {
       admin_runtime_sha256: copied.adminRuntimeSha256,
       admin_runtime_updated_at: new Date().toISOString(),
       admin_runtime_updated_by: vNextAdminActor_()
     });
-    const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
-      return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
-    });
-    if (!hubRegistry) throw new Error('管理ハブ BOOK_REGISTRY row is missing.');
-    vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
-      admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
-      health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
-      note: '管理ハブ runtime updated from central source; reason=' + reason
-    });
+    if (changed) {
+      const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
+        return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
+      });
+      if (!hubRegistry) throw new Error('管理ハブ BOOK_REGISTRY row is missing.');
+      vNextAdminPatchRegistryByBookId_(hub, hubRegistry.book_id, {
+        admin_script_id: targetScriptId, admin_runtime_sha256: copied.adminRuntimeSha256,
+        health_status: 'PENDING', health_code: 'ADMIN_RUNTIME_UPDATED', updated_at: new Date(),
+        note: '管理ハブ runtime updated from central source; reason=' + reason
+      });
+    }
     vNextAdminWriteAudit_(hub, 'UPDATE_ADMIN_RUNTIME', 'ADMIN_RUNTIME', targetScriptId, 'SUCCESS', {
       sourceScriptId: sourceScriptId, targetSpreadsheetId: hub.getId(),
       adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason,
       contentChanged: changed
     });
-    try { vNextAdminRefreshHome_(hub); } catch (ignoredHome) {}
+    if (changed) {
+      try { vNextAdminRefreshHome_(hub); } catch (ignoredHome) {}
+    }
     return {
       ok: true,
       phase: 'HUB_RUNTIME',

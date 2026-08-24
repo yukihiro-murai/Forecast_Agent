@@ -28,8 +28,8 @@ const USER_NEXT = [
   '【あなた（いまの画面で見つかる手順）】',
   '管理ハブ Spreadsheet で:',
   '  1. 上部メニュー「年度予算策定」→「案内を開く」',
-  '  2. 右パネル「Cursor反映」カードの緑ボタン「反映する」',
-  '     （完了済みのときは「もう一度反映する」と表示）',
+  '  2. 右パネル「Cursor反映」カードの緑ボタン「反映する」を1回押す',
+  '     （Hub同期後は自動で続行し、Web入口更新まで進みます）',
   '  3. Web入口を Cmd+Shift+R',
   '',
   '※ メニューに「Web入口を最新版にする」が見えるならそれでOK。',
@@ -47,6 +47,10 @@ main().catch(error => {
 });
 
 async function main() {
+  const totalStartedAt = Date.now();
+  process.on('exit', () => {
+    process.stdout.write(`\n合計: ${((Date.now() - totalStartedAt) / 1000).toFixed(1)}s\n`);
+  });
   if (!skipTests) {
     run(process.execPath, ['tests/vnext-integration.test.mjs'], root, 'contract tests');
   }
@@ -177,7 +181,9 @@ function shortErr(error) {
 
 function run(command, argsList, cwd, label) {
   process.stdout.write(`\n> ${label}\n`);
+  const startedAt = Date.now();
   const result = spawnSync(command, argsList, { cwd, stdio: 'inherit' });
+  process.stdout.write(`  (${label}: ${((Date.now() - startedAt) / 1000).toFixed(1)}s)\n`);
   if (result.status !== 0) throw new Error(`${label} failed (${result.status})`);
 }
 
