@@ -533,7 +533,7 @@ async function checkAdminRecoveryContracts() {
     source.includes('function vNextAdminGetVerifiedEmployeeUxDeployStatus(') &&
     source.includes('function vNextAdminMenuCatchUpPortalRuntime(') &&
     source.includes('function vNextAdminMenuSmartDeploy(') &&
-    source.includes('requiresSidebarReload: true') &&
+    source.includes('requiresSidebarReload: changed === true') &&
     source.includes('allowHeavyRelease !== true') &&
     source.includes('skipPortal: true'),
     'Dev deploy must expose menu catch-up, portal-first smart deploy, and skip paths');
