@@ -542,7 +542,9 @@ async function checkAdminRecoveryContracts() {
     sidebar.includes('refreshDevDeployStatus()') &&
     sidebar.includes('renderDevDeployStatus') &&
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
-    sidebar.includes('vNextAdminGetDevDeployPlan_') &&
+    sidebar.includes('DEPLOY_TIMEOUTS') &&
+    sidebar.includes('onDeployTimeout') &&
+    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxClientRelease_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
     sidebar.includes('開発反映') &&
     sidebar.includes('反映する') &&
