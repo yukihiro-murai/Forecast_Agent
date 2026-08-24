@@ -11,6 +11,7 @@ const source = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
 const sidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
 const sandbox = { console, Logger: { log() {} } };
 vm.createContext(sandbox);
+vm.runInContext(await readFile(path.join(root, '0_VNext_Naming.js'), 'utf8'), sandbox, { filename: '0_VNext_Naming.js' });
 vm.runInContext(source, sandbox, { filename: 'VNext_Admin.js' });
 
 const safePortalRetry = {
@@ -83,8 +84,8 @@ assert.equal(sandbox.vNextAdminAttentionSummary_({
 const menuStart = source.indexOf('function vNextBuildAdminMenu_()');
 const menuEnd = source.indexOf('function vNextBuildLegacySetupMenu_()', menuStart);
 const menuSource = source.slice(menuStart, menuEnd);
-assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 3,
-  'The normal Admin menu is a recovery item plus nested irregular ops');
+assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 5,
+  'The normal Admin menu is 案内を開く + two deploy shortcuts + nested irregular ops');
 assert.match(menuSource, /addSubMenu/);
 assert.doesNotMatch(menuSource, /vNextDetectBookMode_|vNextAdminIsRegisteredHub_|vNextAdminHydrateLocalRuntime_/,
   'Hub menu construction must not wait on config, registry, or property hydration');
@@ -116,7 +117,7 @@ assert.equal(/<div class="metric">\u5f85\u6a5fjob/.test(sidebar), false);
 assert.equal(sidebar.includes('enqueueMigration(false)'), false,
   'The disabled migration APPLY action must not be exposed in the Admin sidebar');
 assert.ok(sidebar.includes('dataset.recoveryRequired') &&
-  sidebar.includes('中断した更新を安全に復旧'),
+  sidebar.includes('中断した更新を復旧'),
   'an interrupted empty-Pilot upgrade must remain recoverable from the normal Admin UI');
 
 process.stdout.write('PASS vNext Admin decision UX contracts\n');

@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.13');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.14');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -425,9 +425,9 @@ async function testStaticUxContracts() {
   assert.match(entry, /年度予算策定/);
   assert.match(entry, />続ける</);
   assert.match(entry, />承認する</);
-  assert.match(entry, /緑の案内/);
-  assert.match(entry, /青の案内/);
-  assert.match(entry, /橙の案内/);
+  assert.match(entry, /ここから新しい年度予算を申請/);
+  assert.match(entry, /作成済みの年度予算はここから開きます/);
+  assert.match(entry, /管理担当者向けの入口/);
   assert.doesNotMatch(entry, /第[123]層/);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),

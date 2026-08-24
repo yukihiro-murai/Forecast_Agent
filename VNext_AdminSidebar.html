@@ -99,6 +99,14 @@
         border-top:1px solid var(--line); backdrop-filter:blur(6px);
       }
       .status-dock .status { margin:0; max-height:72px; }
+      .reload-banner {
+        position:fixed; top:0; left:0; right:0; z-index:30;
+        padding:12px 14px; background:#fef7e0; border-bottom:2px solid var(--amber);
+        color:#5f4200; font-size:12px; box-shadow:0 2px 8px rgba(15,23,42,.18);
+      }
+      .reload-banner b { display:block; font-size:13px; margin-bottom:5px; }
+      .reload-banner ol { margin:0 0 5px; padding-left:18px; }
+      .reload-banner li { margin:2px 0; }
       .approval, .exception, .work-item {
         border-top:1px solid var(--line); padding-top:12px; margin-top:12px;
       }
@@ -142,9 +150,18 @@
     </style>
   </head>
   <body>
+    <div id="reloadBanner" class="reload-banner hidden" role="alert">
+      <b>管理ハブを最新化しました — この案内を開き直してください</b>
+      <ol>
+        <li>右上の × でこの案内を閉じる</li>
+        <li>上部メニュー「年度予算策定」→「案内を開く」</li>
+        <li>緑の「反映する」をもう一度押す</li>
+      </ol>
+      <div>開き直さずに続けると、古い処理（「2/4 Client release…」表示）のまま止まります。</div>
+    </div>
     <header class="page-header">
       <h1>管理ハブ</h1>
-      <p class="page-lead">日常の承認・例外は上側です。Cursor のあとで Web入口を変えるときは、すぐ下の「Cursor反映」です。</p>
+      <p class="page-lead">上から順に、Cursor反映 → 日常の承認・要確認・申請 → 学習 → システムの手入れ、の並びです。</p>
       <div class="page-meta">
         <span id="mode" class="badge">loading</span>
         <span id="book" class="book-name"></span>
@@ -199,7 +216,7 @@
       <div class="card card-primary" id="devDeployCard">
         <h2 class="section-title">Cursor反映</h2>
         <div id="devDeployHeadline" class="overview">状態を確認しています…</div>
-        <p id="devDeployHint" class="muted" style="margin-top:6px">いちばん簡単なのは、Spreadsheet 上部メニュー <b>年度予算策定 → Web入口を最新版にする</b> です。下の緑ボタンは同じ処理の別入口です。</p>
+        <p id="devDeployHint" class="muted" style="margin-top:6px">正本は下の緑ボタンです（管理ハブ同期 → 必要な分だけ反映）。途中で止まっても、同じボタンで再開できます。</p>
         <div id="devDeployChecks" class="hidden"></div>
         <input type="hidden" id="devDeployReason" value="Cursor開発反映">
         <div class="btn-row" style="margin-top:10px">
@@ -209,7 +226,7 @@
           <a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a>
           <button class="btn secondary" onclick="refreshDevDeployStatus()">再確認</button>
         </div>
-        <p class="muted" style="margin-top:8px">おすすめ: 上部メニュー <b>年度予算策定 → Web入口を最新版にする</b></p>
+        <p class="muted" style="margin-top:8px">管理ハブが最新のときは、上部メニュー「年度予算策定 → Web入口を最新版にする」でも同じ結果になります。</p>
       </div>
 
       <div class="card metrics">
@@ -217,28 +234,6 @@
         <div class="metric">要確認<b id="exceptionCount">0</b></div>
         <div class="metric">自動処理中<b id="jobCount">0</b></div>
         <div class="metric">クライアント年度ブック<b id="clientCount">0</b></div>
-      </div>
-
-      <div class="card">
-        <h2 class="section-title">適応学習（System / Budget）</h2>
-        <p class="muted">代理目的と二系統評価の要約です。正式予算は学習に戻しません。区間外れは要確認になります。</p>
-        <div id="learningConcept" class="status compact">学習方針を確認中…</div>
-        <div id="learningStats" class="status compact"></div>
-        <div id="learningTracks"></div>
-        <div id="learningBreaches"></div>
-        <details class="accordion nested">
-          <summary>月次観測を記録</summary>
-          <div class="accordion-body">
-            <label>クライアント年度ブック ID<input id="learningObsBookId" placeholder="CLIENT-..."></label>
-            <label>観測月（YYYY-MM）<input id="learningObsMonth" placeholder="2027-06"></label>
-            <label>実績金額<input id="learningObsActual" type="number"></label>
-            <label>仮説（任意）<textarea id="learningObsHypothesis" placeholder="案件が想定より遅延した、など"></textarea></label>
-            <div class="btn-row cols-2">
-              <button class="btn secondary" onclick="recordLearningObservation()">観測を記録</button>
-              <button class="btn secondary" onclick="refreshLearningDashboard()">学習ダッシュボード更新</button>
-            </div>
-          </div>
-        </details>
       </div>
 
       <div class="card card-primary">
@@ -273,6 +268,28 @@
         </details>
       </div>
 
+      <div class="card">
+        <h2 class="section-title">適応学習（System / Budget）</h2>
+        <p class="muted">予測がどれだけ当たったかの学習状況です。学習にはシステム推奨（System）だけを使い、正式予算（Budget）は学習に戻しません。実績が想定範囲を外れた月は「要確認」に出ます。</p>
+        <div id="learningConcept" class="status compact">学習方針を確認中…</div>
+        <div id="learningStats" class="status compact"></div>
+        <div id="learningTracks"></div>
+        <div id="learningBreaches"></div>
+        <details class="accordion nested">
+          <summary>月次観測を記録</summary>
+          <div class="accordion-body">
+            <label>クライアント年度ブック ID<input id="learningObsBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+            <label>観測月（YYYY-MM）<input id="learningObsMonth" placeholder="2027-06"></label>
+            <label>実績金額<input id="learningObsActual" type="number"></label>
+            <label>仮説（任意）<textarea id="learningObsHypothesis" placeholder="案件が想定より遅延した、など"></textarea></label>
+            <div class="btn-row cols-2">
+              <button class="btn secondary" onclick="recordLearningObservation()">観測を記録</button>
+              <button class="btn secondary" onclick="refreshLearningDashboard()">学習ダッシュボード更新</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
       <details class="accordion" id="systemCare">
         <summary>システムの手入れ</summary>
         <div class="accordion-body">
@@ -281,12 +298,12 @@
       <details class="accordion nested">
         <summary>初回セットアップ（1回だけ）</summary>
         <div class="accordion-body">
-          <p class="muted">検証データを消してから置き場を整え、Web入口を公開します。各操作のあとに画面を再読み込みしてください。</p>
+          <p class="muted">検証データを消してから置き場を整え、Web入口を公開します。各操作のあとに画面を再読み込みしてください。手順の下線部を押すと、該当の操作欄が開きます。</p>
           <ol class="setup-steps">
-            <li>下の「保守・高度な操作」→「中央配備版へ更新」</li>
-            <li>同欄の「受入試験をゼロからやり直す」（確認語 RESET_GENERATED_CLIENTS）</li>
-            <li>「共有ドライブ『年度予算策定』へ移す」</li>
-            <li>「申請入口を最新版へ更新」（理由は空欄可）</li>
+            <li><a href="#" onclick="return openSection('hubRuntimeSection')">「中央配備版へ更新」を開く</a></li>
+            <li><a href="#" onclick="return openSection('uatResetSection')">「受入試験をゼロからやり直す」を開く</a>（確認語 RESET_GENERATED_CLIENTS）</li>
+            <li>下の「共有ドライブへ移す」を押す</li>
+            <li>下の「申請入口を更新」を押す（理由は空欄可）</li>
             <li>申請入口 Spreadsheet から Web アプリを社内向け公開</li>
           </ol>
           <div class="btn-row cols-2">
@@ -318,7 +335,7 @@
             <summary>初回 Pilot を段階的に準備</summary>
             <div class="accordion-body">
               <p class="muted">1回に1段階だけ進みます。「完了」まで同じボタンを繰り返してください。</p>
-              <label class="check"><input id="portalPilotAttestation" type="checkbox"> Client 10 / Portal 11 / 統合 test PASS を確認した</label>
+              <label class="check"><input id="portalPilotAttestation" type="checkbox"> ローカルテスト（client / portal / 統合）がすべて PASS したことを確認した</label>
               <div class="btn-row"><button class="btn warn" onclick="prepareEmployeePortalPilot()">準備を1段階進める</button></div>
             </div>
           </details>
@@ -370,7 +387,7 @@
       <details class="accordion nested">
         <summary>保守・高度な操作</summary>
         <div class="accordion-body">
-          <details class="accordion nested">
+          <details class="accordion nested" id="hubRuntimeSection">
             <summary>管理ハブ runtime・配備</summary>
             <div class="accordion-body">
               <p class="muted">中央 clasp 配備 project から Admin コードだけを反映します。</p>
@@ -457,10 +474,10 @@
             <div class="accordion-body">
               <div class="subsection">
                 <div class="subsection-title">AI 調査・取消</div>
-                <label>クライアント年度ブック ID<input id="aiBookId"></label>
+                <label>クライアント年度ブック ID<input id="aiBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="確認したい外部変化"></textarea></label>
                 <div class="btn-row"><button class="btn secondary" onclick="enqueueAiResearch()">AI 調査を追加</button></div>
-                <label>クライアント年度ブック ID<input id="aiRollbackBookId" placeholder="CLIENT-..."></label>
+                <label>クライアント年度ブック ID<input id="aiRollbackBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn secondary" onclick="loadAiRollbackBasis()">AI 反映を確認</button></div>
                 <div id="aiRollbackBasisSummary" class="status compact">ID を入力して対象を確認してください。</div>
                 <div id="aiRollbackEvidenceList"></div>
@@ -470,9 +487,9 @@
               </div>
               <div class="subsection">
                 <div class="subsection-title">予測・正式予算</div>
-                <label>クライアント年度ブック ID<input id="forecastBookId" placeholder="CLIENT-..."></label>
+                <label>クライアント年度ブック ID<input id="forecastBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn" onclick="requestForecast()">予測を再投入</button></div>
-                <label>クライアント年度ブック ID<input id="amendmentBookId" placeholder="CLIENT-..."></label>
+                <label>クライアント年度ブック ID<input id="amendmentBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn secondary" onclick="loadAmendmentBasis()">正式予算を読み込む</button></div>
                 <div id="amendmentBasisSummary" class="status compact">ID を入力して現在値を読み込んでください。</div>
                 <label>訂正理由（必須）<textarea id="amendmentReason"></textarea></label>
@@ -488,12 +505,12 @@
               </div>
               <div class="subsection">
                 <div class="subsection-title">差戻し・振り返り</div>
-                <label>クライアント年度ブック ID<input id="returnedBookId" placeholder="CLIENT-..."></label>
+                <label>クライアント年度ブック ID<input id="returnedBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
                 <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">予算案だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
                 <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
                 <div class="btn-row"><button class="btn secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button></div>
-                <label>クライアント年度ブック ID<input id="reviewBookId"></label>
+                <label>クライアント年度ブック ID<input id="reviewBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>実績確認日<input id="reviewAsOf" placeholder="2027/04/01"></label>
                 <label class="check"><input id="reviewAllowIncomplete" type="checkbox"> 欠損警告を確認して例外的に開始</label>
                 <label>例外開始の理由<textarea id="reviewOverrideReason"></textarea></label>
@@ -505,7 +522,7 @@
               </div>
             </div>
           </details>
-          <details class="accordion nested">
+          <details class="accordion nested" id="uatResetSection">
             <summary>受入試験をゼロからやり直す</summary>
             <div class="accordion-body">
               <p class="muted">生成済みクライアント年度ブックと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・申請入口・Template は残します。</p>
@@ -526,6 +543,8 @@
       <b>このクライアント年度ブックは管理ハブではありません。</b>
       <p class="muted">管理操作は管理ハブで行います。</p>
     </div>
+
+    <datalist id="clientBookList"></datalist>
 
     <div class="status-dock">
       <div id="status" class="status">初期化中…</div>
@@ -559,6 +578,32 @@
         $('status').classList.toggle('error', !!isError);
         $('statusTechnicalText').textContent = technical;
         $('statusTechnical').classList.toggle('hidden', !technical);
+      }
+      function showReloadBanner() {
+        $('reloadBanner').classList.remove('hidden');
+        window.scrollTo({ top: 0 });
+      }
+      function openSection(id) {
+        const target = $(id);
+        if (!target) return false;
+        let node = target;
+        while (node && node !== document.body) {
+          if (node.tagName === 'DETAILS') node.open = true;
+          node = node.parentElement;
+        }
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return false;
+      }
+      function renderClientBookList(rows) {
+        const list = $('clientBookList');
+        if (!list) return;
+        list.innerHTML = '';
+        (rows || []).forEach(row => {
+          const option = document.createElement('option');
+          option.value = row.bookId;
+          option.label = (row.clientName || row.bookId) + ' / FY' + (row.fiscalYear || '-');
+          list.appendChild(option);
+        });
       }
       function onFailure(error) {
         setBusy(false);
@@ -672,6 +717,7 @@
           renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
           renderDevDeployStatus(model.devDeployStatus || null);
           renderLearningDashboard(model.learningDashboard || null);
+          renderClientBookList(model.clientBooks || []);
         }
         if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
       }
@@ -712,7 +758,7 @@
         $('recoverEmptyPilotUpgradeButton').classList.add('hidden');
         const selected = $('emptyPilotBookSelect').selectedOptions[0];
         if (selected && selected.dataset.recoveryRequired === '1') {
-          $('emptyPilotBasis').textContent = '前回の更新が中断されています。新しく更新せず、記録済みjournalから安全に復旧してください。';
+          $('emptyPilotBasis').textContent = '前回の更新が途中で止まっています。新しく更新せず、下の「中断した更新を復旧」を押してください。';
           $('emptyPilotBasis').classList.add('error');
           $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
         } else if ($('emptyPilotBookSelect').options.length) {
@@ -727,7 +773,7 @@
         const selected = $('emptyPilotBookSelect').selectedOptions[0];
         if (selected && selected.dataset.recoveryRequired === '1') {
           $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
-          showStatus('中断した更新があります。「中断した更新を安全に復旧」を実行してください。', true);
+          showStatus('中断した更新があります。「中断した更新を復旧」を押してください。', true);
           return;
         }
         setBusy(true); showStatus('回答や予測が一度もなく、安全に更新できるか確認しています…');
@@ -781,7 +827,7 @@
       function recoverEmptyPilotUpgrade() {
         const bookId = value('emptyPilotBookSelect');
         if (!bookId) { showStatus('復旧するクライアント年度ブックを選んでください。', true); return; }
-        setBusy(true); showStatus('記録済みjournalから、旧版または新版の整合した状態へ復旧しています…');
+        setBusy(true); showStatus('記録済みの更新ログから、安全な状態（旧版か新版のどちらか）へ復旧しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           $('recoverEmptyPilotUpgradeButton').classList.add('hidden');
@@ -978,7 +1024,7 @@
         });
       }
       function bootstrapBooks() {
-        setBusy(true); showStatus('copyを作成しています…');
+        setBusy(true); showStatus('管理ハブと Master Template の2冊を作成しています…');
         const req = {
           forecastSourceSpreadsheetId:value('forecastSourceId'),
           hubName:value('hubName'), templateName:value('templateName'), releaseId:value('releaseId'),
@@ -1018,7 +1064,7 @@
           showStatus('管理ハブ Spreadsheet ID、ZACと一致するクライアント名、FY、予算策定担当を入力してください。', true);
           return;
         }
-        setBusy(true); showStatus('中央 project から clean なクライアント年度ブック runtime を生成しています…');
+        setBusy(true); showStatus('中央プロジェクトからテスト用のクライアント年度ブックを生成しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminProvisionPilotClientFromSource({
             hubSpreadsheetId, clientName, fiscalYear, forecastOwnerEmails,
@@ -1028,7 +1074,7 @@
       function installPilotSourceAutomation() {
         const hubSpreadsheetId = value('pilotSourceHubId');
         if (!hubSpreadsheetId) { showStatus('管理ハブ Spreadsheet ID を入力してください。', true); return; }
-        setBusy(true); showStatus('中央projectに5分間隔のPilot workerを設定しています…');
+        setBusy(true); showStatus('中央プロジェクトに5分ごとの自動処理を設定しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminInstallPilotAutomationFromSource({hubSpreadsheetId});
       }
@@ -1086,13 +1132,15 @@
           load();
         }).withFailureHandler(onFailure).vNextAdminContinueEmployeePortalPilotRecovery({
           attestationConfirmed:true,
-          evidenceArtifact:'git:5a93273 + local-suite:2026-08-12/client12/portal7/integration-pass'
+          evidenceArtifact:'sidebar-attestation:hub-sha:' +
+            ((sidebarModel && sidebarModel.adminRuntimeSha256) ? String(sidebarModel.adminRuntimeSha256).slice(0, 12) : 'unknown') +
+            ':portal:' + ((sidebarModel && sidebarModel.portalRuntimeVersion) || 'unknown')
         });
       }
       function publishTemplateRelease() {
         const reason = value('templateReleaseReason');
         if (!reason) { showStatus('公開理由を入力してください。', true); return; }
-        setBusy(true); showStatus('clean known-bound TemplateへUIを複製し、STAGED manifestを検証しています…');
+        setBusy(true); showStatus('新しい Template 版（STAGED）を作成し、内容を検証しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('templateReleaseReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminPublishTemplateRelease({
@@ -1114,7 +1162,7 @@
       function activateReleasePair() {
         const reason = value('pairActivationReason');
         if (!reason) { showStatus('Pair有効化理由を入力してください。', true); return; }
-        setBusy(true); showStatus('新pairを有効化し、CASで現行pointerを切り替えています…');
+        setBusy(true); showStatus('選んだ Template＋Model の組を、新しい現行版として有効化しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); load(); })
           .withFailureHandler(onFailure).vNextAdminActivateReleasePair({
             releaseId:value('pairTemplateReleaseId'), modelReleaseId:value('pairModelReleaseId'), reason,
@@ -1206,7 +1254,7 @@
         clearSmartDeployWatchdog();
         smartDeployWatchdog = setTimeout(function() {
           showStatus(
-            (label || '反映') + 'が長引いています。キャンセルしてメニュー「年度計画 → Web入口を最新版にする」を試してください。',
+            (label || '反映') + 'に時間がかかっています。処理は裏で続いていることが多いため、1〜2分待ってから「再確認」を押してください。それでも進まないときは、上部メニュー「年度予算策定」→「Web入口を最新版にする」を試してください。',
             true
           );
         }, 90000);
@@ -1238,12 +1286,8 @@
           if (phaseA && phaseA.requiresSidebarReload) {
             clearSmartDeployWatchdog();
             setBusy(false);
-            showStatus(
-              '管理ハブは最新化できました。\n' +
-              '右上の × で案内を閉じ → メニュー「年度予算策定」→「案内を開く」→ 緑ボタンをもう一度。\n' +
-              '（開き直さないと、古い「2/4 Client」処理が続いて止まります）',
-              false
-            );
+            showReloadBanner();
+            showStatus('管理ハブは最新化できました。上部の黄色い案内のとおり、開き直してから緑ボタンをもう一度押してください。', false);
             return;
           }
           armSmartDeployWatchdog('反映計画');

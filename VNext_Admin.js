@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.14';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-stop-after-hub-sync';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-admin-ux-clarity';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -648,6 +648,7 @@ function vNextAdminGetSidebarModel() {
       templateDrafts: [],
       stagedTemplateReleases: [],
       emptyPilotUpgradeCandidates: [],
+      clientBooks: [],
       operations: {},
       pilot: { loading: true }
     };
@@ -686,6 +687,18 @@ function vNextAdminGetSidebarModel() {
         return String(row.mode || '').toUpperCase() === 'CLIENT' &&
           String(row.status || '').toUpperCase() !== 'ARCHIVED';
       }).length;
+      model.clientBooks = registryRows.filter(function (row) {
+        return String(row.mode || '').toUpperCase() === 'CLIENT' &&
+          String(row.status || '').toUpperCase() !== 'ARCHIVED';
+      }).map(function (row) {
+        return {
+          bookId: String(row.book_id || ''),
+          clientName: String(row.client_name || ''),
+          fiscalYear: Number(row.fiscal_year || 0)
+        };
+      }).sort(function (a, b) {
+        return a.clientName.localeCompare(b.clientName, 'ja') || a.fiscalYear - b.fiscalYear;
+      });
       model.operations = vNextAdminOperationalMetrics_(ss, model.automationInstalled, jobRows);
       const severityRank = { ERROR: 0, WARN: 1, INFO: 2 };
       const registryByBook = {};
@@ -12435,7 +12448,7 @@ function vNextAdminRefreshHome_(hub) {
     ['', ''],
     ['Cursorで直した内容をWeb入口へ出す', '下の手順のどちらか1つ'],
     ['手順A（いちばん見つけやすい）', '① 上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
-    ['', '② 右に出るパネルの上のほうにある、緑の大きいボタン（「反映する」または「開発反映を実行」）'],
+    ['', '② 右に出るパネル「Cursor反映」カードの緑ボタン「反映する」（完了済みのときは「もう一度反映する」）'],
     ['手順B（メニューに項目がある場合）', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「Web入口を最新版にする」'],
     ['そのあと', 'Web入口のページで Cmd+Shift+R（ハード再読み込み）'],
     ['', ''],

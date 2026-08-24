@@ -143,8 +143,8 @@ function vNextPortalOpenHelp() {
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
       '</style></head><body><h2>申請入口の使い方</h2>' +
-      '<div class="step"><b>1. 開く</b><br>Web入口の青の案内（02）で、年度とクライアント名を押して既存のブックを開きます。</div>' +
-      '<div class="step"><b>2. なければ申請</b><br>Web入口の緑の案内（01）か、このシート右の案内から新しいクライアントの年度予算を申請します。</div>' +
+      '<div class="step"><b>1. 開く</b><br>Web入口の 02（続ける）で、年度とクライアント名を押して既存のクライアント年度ブックを開きます。</div>' +
+      '<div class="step"><b>2. なければ申請</b><br>Web入口の 01（はじめる）か、このシート右の案内から新しいクライアントの年度予算を申請します。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>このホームには受付済み・作成中・完成・確認が必要、の状態だけが出ます。セルは書き換えません。</div>' +
       '<div class="note">案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。</div>' +
       '</body></html>'
@@ -178,7 +178,7 @@ function vNextPortalRenderHome_(sheet, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
   sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.PORTAL)
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('探す・開くは Web入口の 01（緑）と 02（青）から。この表は申請の進み具合です。作業は右の案内。セルは書き換えません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」。')
+  sheet.getRange('A2').setValue('開く・申請は Web入口の 01（はじめる）・02（続ける）から。この表は申請の進み具合です。作業は右の案内から行い、セルは書き換えません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
@@ -226,7 +226,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
   sheet.getRange('A1').setValue('FY' + fiscalYear + ' クライアント年度ブック')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('Web入口の 02（青）から開くのが簡単です。ここは年度ごとの一覧です。')
+  sheet.getRange('A2').setValue('Web入口の 02（続ける）から開くのが簡単です。ここは年度ごとの一覧です。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
