@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.13';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-npm-run-reflect';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-home-findable-cta';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -12414,6 +12414,12 @@ function vNextAdminRefreshHome_(hub) {
     [VN_ADMIN_MENU_NAME, overall],
     ['最終確認', new Date()],
     ['', ''],
+    ['Cursorで直した内容をWeb入口へ出す', '下の手順のどちらか1つ'],
+    ['手順A（いちばん見つけやすい）', '① 上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
+    ['', '② 右に出るパネルの上のほうにある、緑の大きいボタン（「反映する」または「開発反映を実行」）'],
+    ['手順B（メニューに項目がある場合）', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「Web入口を最新版にする」'],
+    ['そのあと', 'Web入口のページで Cmd+Shift+R（ハード再読み込み）'],
+    ['', ''],
     ['今日、判断すること', approvalCount + exceptionRows.length + '件'],
     ['承認待ち', approvalCount + '件'],
     ['要確認', exceptionRows.length + '件'],
@@ -12427,7 +12433,7 @@ function vNextAdminRefreshHome_(hub) {
     ['登録済みクライアント年度ブック', clientCount + '冊'],
     ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
     ['', ''],
-    ['次の操作', '右側の案内に従ってください。案内が出ないときだけ、上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」を使います。'],
+    ['次の操作', '迷ったら手順A。右側の案内が出ないときだけメニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」。'],
     ['正式予算', '確定済みの計画は上書きせず、訂正履歴を追加します。']
   ];
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
@@ -12435,13 +12441,14 @@ function vNextAdminRefreshHome_(hub) {
   sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setFontSize(15)
     .setBackground('#1f2937').setFontColor('#ffffff');
   sheet.getRange(2, 2).setNumberFormat('yyyy/MM/dd HH:mm');
-  [4, 9, 14, 17].forEach(function (rowNumber) {
+  sheet.getRange(4, 1, 5, 2).setFontWeight('bold').setBackground('#dbeafe');
+  [10, 15, 20, 23].forEach(function (rowNumber) {
     sheet.getRange(rowNumber, 1, 1, 2).setFontWeight('bold').setBackground('#eef2f7');
   });
   sheet.getRange(1, 1, rows.length, 2).setVerticalAlignment('middle');
   sheet.getRange(1, 1, rows.length, 1).setFontWeight('bold');
-  sheet.setColumnWidth(1, 210);
-  sheet.setColumnWidth(2, 520);
+  sheet.setColumnWidth(1, 260);
+  sheet.setColumnWidth(2, 640);
   sheet.setFrozenRows(2);
 }
 
