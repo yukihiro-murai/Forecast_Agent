@@ -2,6 +2,8 @@
 
 このリポジトリで作業する全ての AI コーディングエージェント (Claude Code / Codex / Grok Build / Hermes Agent / Cursor 等) は、コードに触れる前にまずこのファイルを読むこと。
 
+**レビュー／監査・現状把握の入口:** [`REVIEW_AUDIT_BRIEF_JA.md`](./REVIEW_AUDIT_BRIEF_JA.md)
+
 ## マルチマシン Git 同期プロトコル (必須・スキップ禁止)
 
 このリポジトリは Mac mini と MacBook Pro の2台で並行運用されている。

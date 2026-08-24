@@ -1,15 +1,18 @@
 # Forecast vNext — AIエージェント引継ぎ
 
+> **2026-08-24:** レビュー／監査の単一入口は [`REVIEW_AUDIT_BRIEF_JA.md`](./REVIEW_AUDIT_BRIEF_JA.md) に移した。  
+> 本ファイルの「ライブ状態」表は古くなりうる。版・ACTIVE pair は Hub／GAS 実機で照合すること。
+
 最終更新: 2026-08-19 JST（社員入口 1.7.7。3体を同じ幅の枠に置き、吹き出し開始位置を揃えた）  
-対象ブランチ: `codex/vnext-annual-planning`  
+対象ブランチ: `codex/vnext-annual-planning`（※現行作業は `cursor/7dfecef5` のことが多い。必ず `git branch` で確認）  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
 
-1. [`AGENTS.md`](./AGENTS.md) とワークスペースルートの `AGENTS.md` / `GIT_SYNC_RULES.md` を読む。
-2. `git branch --show-current`、`git status -sb`、`git fetch origin --prune` を実行する。
-3. この文書と [`README_VNEXT_JA.md`](./README_VNEXT_JA.md) を読む。
-4. `origin/codex/vnext-annual-planning` と同期していることを確認する。分岐、未push、競合があれば勝手にmerge/rebase/stashしない。
+1. [`REVIEW_AUDIT_BRIEF_JA.md`](./REVIEW_AUDIT_BRIEF_JA.md) を読む（現状・設計・監査論点の正本）。
+2. [`AGENTS.md`](./AGENTS.md) とワークスペースルートの `AGENTS.md` / `GIT_SYNC_RULES.md` を読む。
+3. `git branch --show-current`、`git status -sb`、`git fetch origin --prune` を実行する。
+4. [`README_VNEXT_JA.md`](./README_VNEXT_JA.md) を読む。
 5. 実装前に下記の「ライブ状態」と実際のHub状態を照合する。Sheets/GASの状態はGitだけでは更新されないため、記載値を盲信しない。
 
 ## 現在のコードと配備状態
