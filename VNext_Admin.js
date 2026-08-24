@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.15';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.16';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-ssr-and-tabs';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-quick-status-design';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -409,7 +409,7 @@ function vNextBuildAdminMenu_() {
     ui.createMenu(VN_ADMIN_MENU_NAME)
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
       .addItem('Web入口を最新版にする', 'vNextAdminMenuCatchUpPortalRuntime')
-      .addItem('Cursor反映（Hub同期→必要分）', 'vNextAdminMenuSmartDeploy')
+      .addItem('開発反映（同期→必要分）', 'vNextAdminMenuSmartDeploy')
       .addSubMenu(ui.createMenu(VN_ADMIN_MENU_OTHER)
         .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
         .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry'))
@@ -1785,7 +1785,7 @@ function vNextAdminDeployVerifiedEmployeeUxClientRelease_(request) {
     const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
-    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    const reason = vNextAdminText_(req.reason) || '開発反映';
     vNextAdminWriteDevDeployProgress_('CLIENT_RELEASE', { reason: reason });
     const clientBundle = vNextClientRuntimeVerifiedBundle_();
     const targetVersion = String(clientBundle.version || '');
@@ -1875,7 +1875,7 @@ function vNextAdminDeployVerifiedEmployeeUxPortal_(request) {
     const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
-    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    const reason = vNextAdminText_(req.reason) || '開発反映';
     vNextAdminWriteDevDeployProgress_('PORTAL', { reason: reason });
     const portal = vNextAdminUpdateSharedPortalRuntime({
       reason: reason,
@@ -1919,7 +1919,7 @@ function vNextAdminMenuCatchUpPortalRuntime() {
 function vNextAdminMenuSmartDeploy() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const reason = 'メニュー: Cursor反映';
+    const reason = 'メニュー: 開発反映';
     const hub = vNextAdminRequireHub_();
     const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
     const central = vNextAdminPeekCentralRuntimeMarkers_(String(hubConfig.admin_source_script_id || ''));
@@ -1930,7 +1930,7 @@ function vNextAdminMenuSmartDeploy() {
       vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
       ui.alert(
         '管理ハブを中央 clasp に合わせました。\n' +
-        '同じメニュー「Cursor反映（Hub同期→必要分）」をもう一度押してください。\n' +
+        '同じメニュー「開発反映（同期→必要分）」をもう一度押してください。\n' +
         '（Apps Script は同じ実行のままでは新しい Portal バンドルを読めないため、2回に分けます）'
       );
       return { ok: true, phase: 'HUB_SYNCED_RECLICK' };
@@ -1956,7 +1956,7 @@ function vNextAdminMenuSmartDeploy() {
       : ('反映処理は終わりましたが確認不一致があります。案内サイドバーで詳細を見てください。'));
     return finalize;
   } catch (error) {
-    ui.alert('Cursor反映に失敗しました。\n' + String(error && error.message || error));
+    ui.alert('開発反映に失敗しました。\n' + String(error && error.message || error));
     throw error;
   }
 }
@@ -1970,7 +1970,7 @@ function vNextAdminDeployVerifiedEmployeeUxFinalize_(request) {
     const req = request && typeof request === 'object' ? request : {};
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
-    const reason = vNextAdminText_(req.reason) || 'Cursor開発反映';
+    const reason = vNextAdminText_(req.reason) || '開発反映';
     vNextAdminWriteDevDeployProgress_('FINALIZE', { reason: reason });
     let emptyPilots = { upgraded: [], skipped: [], count: 0, skippedAll: true, skippedByRequest: true };
     if (req.upgradeEmptyPilots === true) {
@@ -2357,6 +2357,38 @@ function vNextAdminGetVerifiedEmployeeUxDeployStatus(request) {
     return vNextAdminBuildDevDeployStatus_(hub, {
       light: req.full !== true,
       full: req.full === true
+    });
+  });
+}
+
+/**
+ * Instant freshness snapshot from Hub pins only. No Apps Script API fetch,
+ * no bundle hashing, no Portal spreadsheet open — safe on every tab switch.
+ */
+function vNextAdminGetDevDeployQuickStatus() {
+  return vNextAdminGuard_('vNextAdminGetDevDeployQuickStatus', function () {
+    const hub = vNextAdminRequireHub_();
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const portalCurrent = String(config.portal_runtime_version || '');
+    const portalTarget = String(VN_ADMIN_PORTAL_RUNTIME_VERSION);
+    let lastDeploy = null;
+    try {
+      const raw = PropertiesService.getScriptProperties().getProperty('VNEXT_LAST_DEV_DEPLOY_RESULT_JSON') || '';
+      if (raw) lastDeploy = JSON.parse(raw);
+    } catch (ignoredParse) {
+      lastDeploy = null;
+    }
+    return vNextAdminJsonSafe_({
+      quick: true,
+      ok: !!portalCurrent && portalCurrent === portalTarget,
+      portalCurrent: portalCurrent,
+      portalTarget: portalTarget,
+      portalUpdatedAt: String(config.portal_runtime_updated_at || ''),
+      hubBuildStamp: String(VN_ADMIN_RUNTIME_BUILD_STAMP),
+      hubRuntimeUpdatedAt: String(config.admin_runtime_updated_at || ''),
+      webAppUrl: String(config.portal_web_app_url || ''),
+      lastDeployAt: lastDeploy && lastDeploy.completedAt || '',
+      lastDeployOk: !!(lastDeploy && lastDeploy.ok)
     });
   });
 }
@@ -12448,7 +12480,7 @@ function vNextAdminRefreshHome_(hub) {
     [VN_ADMIN_MENU_NAME, overall],
     ['最終確認', new Date()],
     ['', ''],
-    ['Cursorで直した内容をWeb入口へ出す', '下の手順のどちらか1つ'],
+    ['開発で直した内容をWeb入口へ出す', '下の手順のどちらか1つ'],
     ['手順A（いちばん見つけやすい）', '① 上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
     ['', '② 右に出るパネルの「反映」タブ → 緑ボタン「反映する」を1回（あとは自動で進みます）'],
     ['手順B（メニューに項目がある場合）', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「Web入口を最新版にする」'],

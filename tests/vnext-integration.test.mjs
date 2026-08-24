@@ -281,7 +281,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.15');
+  assert.equal(bundle.version, 'vnext-portal-1.7.16');
   assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -544,12 +544,12 @@ async function checkAdminRecoveryContracts() {
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
     sidebar.includes('vNextAdminGetDevDeployPlan_') &&
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
-    sidebar.includes('Cursor反映') &&
+    sidebar.includes('開発反映') &&
     sidebar.includes('反映する') &&
     sidebar.includes('年度予算策定 → Web入口を最新版にする') &&
     sidebar.includes('Web入口を最新版にする') &&
     sidebar.includes('id="devDeployCard"'),
-    'Admin Sidebar must expose a single Cursor反映 CTA and menu fallback copy');
+    'Admin Sidebar must expose a single 開発反映 CTA and menu fallback copy');
   assert.ok(source.includes('function vNextAdminProvisionPilotClientFromSource(request)') &&
     source.includes('return vNextAdminProvisionClientInHub_(hub, req);') &&
     source.includes('function vNextAdminInstallPilotAutomationFromSource(request)') &&
@@ -1113,7 +1113,7 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('apply:true') &&
     sidebar.includes('管理ハブ監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
-  assert.ok(sidebar.includes('Cursor反映') &&
+  assert.ok(sidebar.includes('開発反映') &&
     sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理') &&
     sidebar.includes('システムの手入れ') &&

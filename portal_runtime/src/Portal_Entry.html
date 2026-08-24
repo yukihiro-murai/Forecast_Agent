@@ -142,6 +142,11 @@
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
     .hidden { display:none !important; }
+    .ver {
+      position:fixed; right:14px; bottom:10px; margin:0;
+      color:#9AAaB8; font-size:12px; font-variant-numeric:tabular-nums;
+      user-select:none; pointer-events:none;
+    }
     @media (max-width:520px) {
       h1 { font-size:24px; }
       h2 { font-size:17px; }
@@ -163,6 +168,7 @@
 
   <div id="error" class="error hidden" role="alert"></div>
   <div id="loading" class="loading">画面を読み込んでいます…</div>
+  <p id="entryVersion" class="ver" aria-hidden="true"></p>
 
   <div id="app" class="hidden">
     <article class="choice">
@@ -322,6 +328,10 @@
       entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
+      var versionLabel = document.getElementById('entryVersion');
+      if (versionLabel && model && model.runtimeVersion) {
+        versionLabel.textContent = '版 ' + String(model.runtimeVersion).replace('vnext-portal-', '');
+      }
       var portalButton = document.getElementById('portalButton');
       if (model.portalUrl) {
         portalButton.href = model.portalUrl;

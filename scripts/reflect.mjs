@@ -14,7 +14,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, '..');
 const args = process.argv.slice(2);
 const skipTests = args.includes('--skip-tests');
-const reason = readArg('--reason') || 'Cursor reflect';
+const reason = readArg('--reason') || '開発反映';
 
 const HUB_SHEET =
   process.env.VNEXT_HUB_SPREADSHEET_ID || '1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8';
@@ -89,7 +89,7 @@ async function main() {
       ]);
       process.stdout.write(`確認: ${summarize(fin)}\n`);
       if (fin && fin.verification && fin.verification.ok) {
-        process.stdout.write('\n自動反映まで完了。Web入口を Cmd+Shift+R してください。\n');
+        process.stdout.write('\n自動反映まで完了。Web入口を Cmd+Shift+R し、右下の「版」表示で確認してください。\n');
         process.stdout.write(`管理ハブ: ${HUB_URL}\n`);
         return;
       }

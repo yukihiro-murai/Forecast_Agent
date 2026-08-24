@@ -5,153 +5,202 @@
     <meta charset="utf-8">
     <style>
       :root {
-        --green:#137333; --blue:#1769aa; --red:#b3261e; --amber:#9a4f00;
-        --ink:#1f2937; --muted:#64748b; --line:#e2e8f0; --soft:#f6f8fb; --panel:#ffffff;
-        --radius:10px; --btn-h:40px;
+        --green:#15803d; --blue:#2563eb; --red:#dc2626; --amber:#b45309;
+        --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --line-soft:#eef2f7;
+        --soft:#f1f5f9; --panel:#ffffff; --bg:#f5f7fa;
+        --green-bg:#f0fdf4; --red-bg:#fef2f2; --amber-bg:#fffbeb; --blue-bg:#eff6ff;
+        --radius:12px; --radius-s:9px; --btn-h:40px;
+        --shadow:0 1px 2px rgba(15,23,42,.05), 0 4px 14px rgba(15,23,42,.05);
       }
       * { box-sizing:border-box; }
       body {
-        font: 13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-        color:var(--ink); margin:0; padding:14px 14px 88px; background:#f4f6f9;
+        font: 13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans",sans-serif;
+        color:var(--ink); margin:0; padding:14px 14px 92px; background:var(--bg);
+        -webkit-font-smoothing:antialiased;
       }
       h1 { font-size:18px; letter-spacing:-.2px; margin:0; line-height:1.3; }
-      h2, .section-title { font-size:14px; font-weight:700; margin:0; line-height:1.35; }
+      h2, .section-title { font-size:14px; font-weight:700; margin:0 0 4px; line-height:1.35; letter-spacing:-.1px; }
       p { margin:6px 0; }
-      .page-header { margin-bottom:12px; }
-      .page-lead { margin:4px 0 8px; color:var(--muted); font-size:12px; }
+      .page-header { margin-bottom:10px; }
+      .page-lead { margin:4px 0 6px; color:var(--muted); font-size:12px; }
       .page-meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
       .book-name { color:var(--muted); font-size:12px; width:100%; }
       .muted { color:var(--muted); }
       .badge {
-        display:inline-block; padding:3px 9px; border-radius:999px;
-        background:#e8f0fe; color:#174ea6; font-size:11px; font-weight:700;
+        display:inline-block; padding:3px 10px; border-radius:999px;
+        background:var(--blue-bg); color:#1d4ed8; font-size:11px; font-weight:700;
       }
       .card {
         border:1px solid var(--line); border-radius:var(--radius);
-        padding:12px 14px; margin:10px 0; background:var(--panel);
-        box-shadow:0 1px 2px rgba(15,23,42,.04);
+        padding:14px 15px; margin:12px 0; background:var(--panel);
+        box-shadow:var(--shadow);
       }
-      .card-primary { border-color:#c9daf8; }
+      .card-primary { border-color:#bfdbfe; }
       .metrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .metric {
-        background:var(--soft); border-radius:8px; padding:10px 11px;
+        background:var(--soft); border-radius:var(--radius-s); padding:10px 12px;
         color:var(--muted); font-size:11px; font-weight:600;
       }
       .metric b {
         display:block; margin-top:3px; font-size:22px; line-height:1.1;
-        color:var(--ink); font-weight:700;
+        color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums;
       }
-      .overview { border-left:4px solid var(--green); overflow-wrap:anywhere; }
-      .overview.attention { border-left-color:var(--amber); }
-      .overview.error { border-left-color:var(--red); background:#fff8f7; }
-      .overview.success { border-left-color:var(--green); background:#f3fbf5; }
-      .deploy-check {
-        overflow-wrap:anywhere;
-        border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0;
-        background:#fff; font-size:12px;
+      .overview {
+        position:relative; padding:11px 13px 11px 16px; border-radius:var(--radius-s);
+        background:var(--soft); overflow-wrap:anywhere; font-size:13px;
       }
-      .deploy-check.ok { border-left:4px solid var(--green); }
-      .deploy-check.bad { border-left:4px solid var(--red); background:#fff8f7; }
-      .deploy-check b { display:block; margin-bottom:2px; }
-      .overview.processing { border-left-color:var(--blue); }
+      .overview::before {
+        content:""; position:absolute; left:0; top:8px; bottom:8px; width:4px;
+        border-radius:99px; background:var(--green);
+      }
+      .overview.attention::before { background:var(--amber); }
+      .overview.attention { background:var(--amber-bg); }
+      .overview.error::before { background:var(--red); }
+      .overview.error { background:var(--red-bg); }
+      .overview.success::before { background:var(--green); }
+      .overview.success { background:var(--green-bg); }
+      .overview.processing::before { background:var(--blue); }
+      .overview.processing { background:var(--blue-bg); }
       .overview-title { font-size:14px; font-weight:700; }
+      .deploy-check {
+        position:relative; overflow-wrap:anywhere;
+        border:1px solid var(--line); border-radius:var(--radius-s);
+        padding:9px 12px 9px 16px; margin:8px 0; background:#fff; font-size:12px;
+      }
+      .deploy-check::before {
+        content:""; position:absolute; left:0; top:7px; bottom:7px; width:4px;
+        border-radius:99px; background:var(--line);
+      }
+      .deploy-check.ok::before { background:var(--green); }
+      .deploy-check.bad::before { background:var(--red); }
+      .deploy-check.bad { background:var(--red-bg); border-color:#fecaca; }
+      .deploy-check b { display:block; margin-bottom:2px; }
+      .ver-grid { display:grid; gap:6px; margin-top:10px; }
+      .ver-row {
+        display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+        padding:8px 12px; border-radius:var(--radius-s); background:var(--soft);
+        font-size:12px; overflow-wrap:anywhere;
+      }
+      .ver-row .k { color:var(--muted); font-weight:600; flex:0 0 auto; }
+      .ver-row .v { text-align:right; font-variant-numeric:tabular-nums; }
+      .ver-row .v small { display:block; color:var(--muted); font-size:11px; }
+      .ver-row.ok .v { color:var(--green); font-weight:700; }
+      .ver-row.bad .v { color:var(--red); font-weight:700; }
       .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
       .count-pill {
-        min-width:26px; padding:2px 8px; border-radius:999px; text-align:center;
-        background:#eef2f7; font-weight:700; font-size:12px;
+        min-width:26px; padding:2px 9px; border-radius:999px; text-align:center;
+        background:var(--soft); font-weight:700; font-size:12px;
+        font-variant-numeric:tabular-nums;
       }
       label { display:block; font-weight:600; margin-top:10px; font-size:12px; color:#475569; }
       input, textarea, select {
-        width:100%; margin-top:4px; padding:8px 10px;
-        border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff;
+        width:100%; margin-top:4px; padding:9px 11px;
+        border:1px solid var(--line); border-radius:var(--radius-s); font:inherit; background:#fff;
       }
       input:focus, textarea:focus, select:focus {
-        outline:2px solid #c9daf8; outline-offset:0; border-color:var(--blue);
+        outline:2px solid #bfdbfe; outline-offset:0; border-color:var(--blue);
       }
       textarea { min-height:64px; resize:vertical; }
       label.check {
         display:flex; align-items:flex-start; gap:8px; font-weight:400; color:var(--ink);
       }
       label.check input { width:auto; margin-top:3px; flex:0 0 auto; }
+      a.btn { text-decoration:none; font-size:inherit; }
       .btn, button {
         display:inline-flex; align-items:center; justify-content:center;
         width:100%; min-height:var(--btn-h); padding:0 14px; margin:0;
-        border:0; border-radius:8px; background:var(--blue); color:#fff;
+        border:0; border-radius:var(--radius-s); background:var(--blue); color:#fff;
         font:inherit; font-weight:600; cursor:pointer; text-align:center;
+        transition:filter .12s ease;
       }
-      .btn.secondary, button.secondary { background:#5f6368; }
-      .btn.good, button.good { background:var(--green); }
+      .btn:hover, button:hover { filter:brightness(1.06); }
+      .btn.secondary, button.secondary {
+        background:#fff; color:#334155; border:1px solid var(--line);
+      }
+      .btn.secondary:hover, button.secondary:hover { background:var(--soft); filter:none; }
+      .btn.good, button.good { background:var(--green); box-shadow:0 2px 8px rgba(21,128,61,.25); }
       .btn.warn, button.warn { background:var(--amber); }
       .btn.danger, button.danger { background:var(--red); }
-      .btn:disabled, button:disabled { opacity:.5; cursor:default; }
+      .btn:disabled, button:disabled { opacity:.45; cursor:default; filter:none; box-shadow:none; }
       .btn-row { display:grid; gap:8px; margin-top:10px; }
       .btn-row.cols-2 { grid-template-columns:1fr 1fr; }
       .btn-row.cols-3 { grid-template-columns:repeat(3,1fr); }
       .hidden { display:none !important; }
       .status {
-        white-space:pre-wrap; padding:10px 11px; border-radius:8px;
-        margin-top:10px; background:var(--soft); max-height:160px; overflow:auto; font-size:12px;
+        white-space:pre-wrap; padding:10px 12px; border-radius:var(--radius-s);
+        margin-top:10px; background:var(--soft); max-height:160px; overflow:auto;
+        font-size:12px; overflow-wrap:anywhere;
       }
       .status.compact { max-height:100px; }
-      .status.error { color:var(--red); background:#fce8e6; }
+      .status.error { color:#991b1b; background:var(--red-bg); }
       .status-dock {
         position:fixed; left:0; right:0; bottom:0; z-index:20;
-        padding:10px 14px 12px; background:rgba(244,246,249,.97);
-        border-top:1px solid var(--line); backdrop-filter:blur(6px);
+        padding:10px 14px 12px; background:rgba(245,247,250,.92);
+        border-top:1px solid var(--line); backdrop-filter:blur(8px);
       }
       .status-dock .status { margin:0; max-height:72px; }
       .tabbar {
-        position:sticky; top:0; z-index:20; display:flex; gap:6px;
-        background:var(--soft); padding:10px 0 8px; margin:0 0 4px;
-        border-bottom:1px solid var(--line);
+        position:sticky; top:0; z-index:20; display:flex; gap:4px;
+        background:#e7ecf3; padding:4px; margin:2px 0 6px;
+        border-radius:var(--radius); box-shadow:inset 0 1px 2px rgba(15,23,42,.06);
       }
       .tab {
-        flex:1; position:relative; border:1px solid var(--line); border-radius:8px;
-        background:#fff; color:var(--ink); font-size:13px; font-weight:700;
-        padding:8px 4px; cursor:pointer;
+        flex:1; position:relative; border:0; border-radius:var(--radius-s);
+        background:transparent; color:#475569; font-size:13px; font-weight:700;
+        padding:9px 4px; cursor:pointer; min-height:0; transition:background .12s ease;
       }
-      .tab.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+      .tab:hover { background:rgba(255,255,255,.55); filter:none; }
+      .tab.active {
+        background:#fff; color:var(--blue);
+        box-shadow:0 1px 3px rgba(15,23,42,.12);
+      }
       .tab:disabled { opacity:1; cursor:pointer; }
       .tab-badge {
-        display:inline-block; min-width:16px; margin-left:5px; padding:1px 5px;
+        display:inline-block; min-width:16px; margin-left:5px; padding:1px 6px;
         border-radius:99px; background:var(--red); color:#fff; font-size:11px; line-height:1.3;
+        vertical-align:1px;
       }
-      .tab.active .tab-badge { background:#fff; color:var(--red); }
       .tab-pane { display:none; }
       .tab-pane.active { display:block; }
       .reload-banner {
         position:fixed; top:0; left:0; right:0; z-index:30;
-        padding:12px 14px; background:#fef7e0; border-bottom:2px solid var(--amber);
-        color:#5f4200; font-size:12px; box-shadow:0 2px 8px rgba(15,23,42,.18);
+        padding:12px 14px; background:var(--amber-bg); border-bottom:2px solid var(--amber);
+        color:#78350f; font-size:12px; box-shadow:0 2px 10px rgba(15,23,42,.18);
       }
       .reload-banner b { display:block; font-size:13px; margin-bottom:5px; }
       .reload-banner ol { margin:0 0 5px; padding-left:18px; }
       .reload-banner li { margin:2px 0; }
       .approval, .exception, .work-item {
-        border-top:1px solid var(--line); padding-top:12px; margin-top:12px;
+        border-top:1px solid var(--line-soft); padding-top:12px; margin-top:12px;
       }
       .approval:first-child, .exception:first-child, .work-item:first-child {
         border-top:0; padding-top:0; margin-top:0;
       }
       .item-label { font-weight:700; font-size:13px; }
-      .item-meta { color:var(--muted); font-size:12px; margin-top:3px; }
+      .item-meta { color:var(--muted); font-size:12px; margin-top:3px; overflow-wrap:anywhere; }
       .item-error { color:var(--red); }
       .accordion {
         border:1px solid var(--line); border-radius:var(--radius);
-        background:var(--panel); margin:10px 0; overflow:hidden;
+        background:var(--panel); margin:12px 0; overflow:hidden; box-shadow:var(--shadow);
       }
       .accordion > summary {
-        list-style:none; cursor:pointer; padding:11px 14px;
-        font-weight:700; font-size:13px; background:var(--soft); color:#334155;
+        list-style:none; cursor:pointer; padding:12px 15px;
+        font-weight:700; font-size:13px; background:var(--panel); color:#334155;
+        display:flex; justify-content:space-between; align-items:center; gap:8px;
       }
       .accordion > summary::-webkit-details-marker { display:none; }
-      .accordion[open] > summary { border-bottom:1px solid var(--line); }
-      .accordion-body { padding:12px 14px 14px; }
-      .accordion.nested { margin:10px 0 0; border-radius:8px; }
-      .accordion.nested > summary {
-        padding:9px 12px; font-size:12px; font-weight:600; background:#fafbfc;
+      .accordion > summary::after {
+        content:"▾"; color:#94a3b8; font-size:11px;
+        transition:transform .15s ease; flex:0 0 auto;
       }
-      .subsection { margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+      .accordion[open] > summary::after { transform:rotate(180deg); }
+      .accordion[open] > summary { border-bottom:1px solid var(--line-soft); }
+      .accordion-body { padding:12px 15px 15px; }
+      .accordion.nested { margin:10px 0 0; border-radius:var(--radius-s); box-shadow:none; }
+      .accordion.nested > summary {
+        padding:10px 12px; font-size:12px; font-weight:600; background:#fafbfd;
+      }
+      .subsection { margin-top:14px; padding-top:14px; border-top:1px solid var(--line-soft); }
       .subsection:first-child { margin-top:0; padding-top:0; border-top:0; }
       .subsection-title { font-size:13px; font-weight:700; margin:0 0 6px; }
       .setup-steps { margin:8px 0; padding-left:18px; color:var(--muted); font-size:12px; }
@@ -181,7 +230,7 @@
     </div>
     <header class="page-header">
       <h1>管理ハブ</h1>
-      <p class="page-lead">日常＝承認・要確認・申請 ／ 反映＝Cursor反映 ／ 保守＝設定・高度な操作</p>
+      <p class="page-lead">日常の確認・開発の反映・保守を、下のタブで切り替えます。</p>
       <div class="page-meta">
         <span id="mode" class="badge">loading</span>
         <span id="book" class="book-name"></span>
@@ -311,17 +360,18 @@
 
       <div id="tab-deploy" class="tab-pane">
       <div class="card card-primary" id="devDeployCard">
-        <h2 class="section-title">Cursor反映</h2>
-        <div id="devDeployHeadline" class="overview">状態を確認しています…</div>
-        <p id="devDeployHint" class="muted" style="margin-top:6px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
+        <h2 class="section-title">開発反映</h2>
+        <div id="devDeployHeadline" class="overview processing">最新かどうか確認しています…（操作はそのまま可能です）</div>
+        <div id="deployVersions" class="ver-grid hidden"></div>
+        <p id="devDeployHint" class="muted" style="margin-top:8px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
         <div id="devDeployChecks" class="hidden"></div>
-        <input type="hidden" id="devDeployReason" value="Cursor開発反映">
+        <input type="hidden" id="devDeployReason" value="開発反映">
         <div class="btn-row" style="margin-top:10px">
           <button id="devDeployButton" class="btn good" onclick="runSmartDeploy()">反映する</button>
         </div>
         <div class="btn-row cols-2">
           <a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a>
-          <button class="btn secondary" onclick="refreshDevDeployStatus()">再確認</button>
+          <button class="btn secondary" onclick="refreshDevDeployStatus()">再確認（詳しく）</button>
         </div>
         <p class="muted" style="margin-top:8px">管理ハブが最新のときは、上部メニュー「年度予算策定 → Web入口を最新版にする」でも同じ結果になります。</p>
       </div>
@@ -618,7 +668,7 @@
         $('statusTechnicalText').textContent = technical;
         $('statusTechnical').classList.toggle('hidden', !technical);
       }
-      var devDeployStatusRequested = false;
+      var lastQuickStatusAt = 0;
       function switchTab(name) {
         ['work', 'deploy', 'care'].forEach(function(key) {
           var btn = $('tabBtn-' + key);
@@ -627,9 +677,9 @@
           if (pane) pane.classList.toggle('active', key === name);
         });
         try { localStorage.setItem('vnext-admin-tab', name); } catch (ignored) {}
-        if (name === 'deploy' && !devDeployStatusRequested) {
-          devDeployStatusRequested = true;
-          try { refreshDevDeployStatus(); } catch (ignored) {}
+        if (name === 'deploy' && Date.now() - lastQuickStatusAt > 20000) {
+          lastQuickStatusAt = Date.now();
+          try { refreshDevDeployQuick(); } catch (ignored) {}
         }
       }
       function restoreTab() {
@@ -1334,23 +1384,104 @@
         }, 90000);
       }
       function refreshDevDeployStatus() {
-        setBusy(true);
-        showStatus('反映状態を確認しています…');
+        const headline = $('devDeployHeadline');
+        if (headline) {
+          headline.className = 'overview processing';
+          headline.textContent = '詳しく確認しています…（1分ほどかかることがあります。他の操作はそのまま可能です）';
+        }
         google.script.run.withSuccessHandler(status => {
-          setBusy(false);
           renderDevDeployStatus(status);
           const ok = status && status.verification && status.verification.ok;
-          showStatus(ok ? '反映済みです。' : 'まだ古い箇所があります。「反映する」を押してください。', !ok);
-        }).withFailureHandler(onFailure).vNextAdminGetVerifiedEmployeeUxDeployStatus({});
+          showStatus(ok ? '詳細確認: 反映済みです。' : '詳細確認: まだ古い箇所があります。「反映する」を押してください。', !ok);
+        }).withFailureHandler(function(error) {
+          if (headline) {
+            headline.className = 'overview attention';
+            headline.textContent = '詳細確認に失敗しました。緑ボタンはそのまま使えます。';
+          }
+          showStatus('詳細確認に失敗しました: ' + String(error && error.message || error), true);
+        }).vNextAdminGetVerifiedEmployeeUxDeployStatus({});
+      }
+      function formatStamp(iso) {
+        if (!iso) return '';
+        const date = new Date(iso);
+        if (!isFinite(date.getTime())) return '';
+        return (date.getMonth() + 1) + '/' + date.getDate() + ' ' +
+          ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2);
+      }
+      function renderQuickStatus(quick) {
+        const headline = $('devDeployHeadline');
+        const hint = $('devDeployHint');
+        const grid = $('deployVersions');
+        const link = $('devDeployWebEntryLink');
+        const button = $('devDeployButton');
+        if (!headline || !quick) return;
+        if (quick.ok) {
+          headline.className = 'overview success';
+          headline.textContent = '✓ Web入口 ' + shortVersion(quick.portalTarget) + ' — 管理ハブの記録では最新です';
+          if (hint) hint.textContent = 'コードを更新した直後は、そのまま緑ボタンを1回押してください。厳密な一致確認は「再確認（詳しく）」です。';
+          if (button) button.textContent = 'もう一度反映する';
+        } else {
+          headline.className = 'overview error';
+          headline.textContent = '✗ Web入口が旧版です（' + (shortVersion(quick.portalCurrent) || '未設定') + ' → ' + shortVersion(quick.portalTarget) + '）';
+          if (hint) hint.textContent = '下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。';
+          if (button) button.textContent = '反映する（Web入口を更新）';
+        }
+        if (grid) {
+          grid.classList.remove('hidden');
+          grid.innerHTML = '';
+          [
+            { k: 'Web入口の版', v: shortVersion(quick.portalCurrent) || '未設定',
+              sub: formatStamp(quick.portalUpdatedAt), state: quick.ok ? 'ok' : 'bad' },
+            { k: '目標の版', v: shortVersion(quick.portalTarget),
+              sub: 'build ' + (quick.hubBuildStamp || '—'), state: '' },
+            { k: '最終反映', v: quick.lastDeployAt ? (quick.lastDeployOk ? '成功' : '要確認') : '記録なし',
+              sub: formatStamp(quick.lastDeployAt), state: quick.lastDeployAt ? (quick.lastDeployOk ? 'ok' : 'bad') : '' }
+          ].forEach(function(row) {
+            const div = document.createElement('div');
+            div.className = 'ver-row' + (row.state ? ' ' + row.state : '');
+            const key = document.createElement('span');
+            key.className = 'k'; key.textContent = row.k;
+            const val = document.createElement('span');
+            val.className = 'v'; val.textContent = row.v;
+            if (row.sub) {
+              const small = document.createElement('small');
+              small.textContent = row.sub;
+              val.appendChild(small);
+            }
+            div.appendChild(key); div.appendChild(val);
+            grid.appendChild(div);
+          });
+        }
+        if (link && /^https:\/\//.test(String(quick.webAppUrl || ''))) {
+          link.href = quick.webAppUrl;
+          link.classList.remove('hidden');
+        }
+      }
+      function refreshDevDeployQuick() {
+        const headline = $('devDeployHeadline');
+        if (headline) {
+          headline.className = 'overview processing';
+          headline.textContent = '最新かどうか確認しています…（操作はそのまま可能です）';
+        }
+        google.script.run.withSuccessHandler(renderQuickStatus)
+          .withFailureHandler(function() {
+            if (headline) {
+              headline.className = 'overview attention';
+              headline.textContent = '状態を取得できませんでした。緑ボタンはそのまま使えます。';
+            }
+          }).vNextAdminGetDevDeployQuickStatus();
       }
       function finishSmartDeploy(phaseA, phaseB) {
         clearSmartDeployWatchdog();
         setBusy(false);
         showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+        if (phaseB && phaseB.verification) renderDevDeployStatus({ lastDeploy: phaseB, verification: phaseB.verification });
+        lastQuickStatusAt = Date.now();
+        try { refreshDevDeployQuick(); } catch (ignored) {}
         load();
       }
       function runSmartDeploy(isSecondPass) {
-        const reason = value('devDeployReason') || 'Cursor開発反映';
+        const reason = value('devDeployReason') || '開発反映';
         setBusy(true);
         armSmartDeployWatchdog('管理ハブ同期');
         showStatus(isSecondPass === true ? '① 続きを自動実行しています…' : '① 管理ハブを最新化しています…');
