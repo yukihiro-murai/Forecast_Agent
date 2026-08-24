@@ -355,12 +355,17 @@
       el.textContent = message;
       el.classList.remove('hidden');
     }
-    google.script.run
-      .withSuccessHandler(render)
-      .withFailureHandler(function (error) {
-        fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
-      })
-      .vNextPortalGetEntryModel();
+    var injectedEntryModel = <?!= entryModelJson ?>;
+    if (injectedEntryModel && injectedEntryModel.ok) {
+      render(injectedEntryModel);
+    } else {
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function (error) {
+          fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
+        })
+        .vNextPortalGetEntryModel();
+    }
   </script>
 </body>
 </html>

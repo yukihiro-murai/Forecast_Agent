@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.14';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.15';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-one-click-deploy';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260824-ssr-and-tabs';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -800,9 +800,11 @@ function vNextAdminGetSidebarDetailModel() {
       pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss)
     };
     vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
-    model.devDeployStatus = vNextAdminBuildDevDeployStatus_(ss, { light: true });
-    // Learning dashboard is heavy (multiple table reads); the sidebar loads it
-    // lazily via vNextAdminGetLearningDashboard when its section is opened.
+    // Deploy verification (portal open + central marker fetch) and the learning
+    // dashboard are heavy; the sidebar fetches both lazily when their tab or
+    // section is opened (vNextAdminGetVerifiedEmployeeUxDeployStatus /
+    // vNextAdminGetLearningDashboard).
+    model.devDeployStatus = null;
     model.learningDashboard = null;
     return vNextAdminJsonSafe_(model);
   });
@@ -12448,7 +12450,7 @@ function vNextAdminRefreshHome_(hub) {
     ['', ''],
     ['Cursorで直した内容をWeb入口へ出す', '下の手順のどちらか1つ'],
     ['手順A（いちばん見つけやすい）', '① 上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」'],
-    ['', '② 右に出るパネル「Cursor反映」カードの緑ボタン「反映する」（完了済みのときは「もう一度反映する」）'],
+    ['', '② 右に出るパネルの「反映」タブ → 緑ボタン「反映する」を1回（あとは自動で進みます）'],
     ['手順B（メニューに項目がある場合）', '上部メニュー「' + VN_ADMIN_MENU_NAME + '」→「Web入口を最新版にする」'],
     ['そのあと', 'Web入口のページで Cmd+Shift+R（ハード再読み込み）'],
     ['', ''],

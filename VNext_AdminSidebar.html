@@ -100,6 +100,25 @@
         border-top:1px solid var(--line); backdrop-filter:blur(6px);
       }
       .status-dock .status { margin:0; max-height:72px; }
+      .tabbar {
+        position:sticky; top:0; z-index:20; display:flex; gap:6px;
+        background:var(--soft); padding:10px 0 8px; margin:0 0 4px;
+        border-bottom:1px solid var(--line);
+      }
+      .tab {
+        flex:1; position:relative; border:1px solid var(--line); border-radius:8px;
+        background:#fff; color:var(--ink); font-size:13px; font-weight:700;
+        padding:8px 4px; cursor:pointer;
+      }
+      .tab.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+      .tab:disabled { opacity:1; cursor:pointer; }
+      .tab-badge {
+        display:inline-block; min-width:16px; margin-left:5px; padding:1px 5px;
+        border-radius:99px; background:var(--red); color:#fff; font-size:11px; line-height:1.3;
+      }
+      .tab.active .tab-badge { background:#fff; color:var(--red); }
+      .tab-pane { display:none; }
+      .tab-pane.active { display:block; }
       .reload-banner {
         position:fixed; top:0; left:0; right:0; z-index:30;
         padding:12px 14px; background:#fef7e0; border-bottom:2px solid var(--amber);
@@ -162,7 +181,7 @@
     </div>
     <header class="page-header">
       <h1>管理ハブ</h1>
-      <p class="page-lead">上から順に、Cursor反映 → 日常の承認・要確認・申請 → 学習 → システムの手入れ、の並びです。</p>
+      <p class="page-lead">日常＝承認・要確認・申請 ／ 反映＝Cursor反映 ／ 保守＝設定・高度な操作</p>
       <div class="page-meta">
         <span id="mode" class="badge">loading</span>
         <span id="book" class="book-name"></span>
@@ -214,21 +233,13 @@
         <div id="attentionGuidance" class="muted">少しお待ちください。</div>
       </div>
 
-      <div class="card card-primary" id="devDeployCard">
-        <h2 class="section-title">Cursor反映</h2>
-        <div id="devDeployHeadline" class="overview">状態を確認しています…</div>
-        <p id="devDeployHint" class="muted" style="margin-top:6px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
-        <div id="devDeployChecks" class="hidden"></div>
-        <input type="hidden" id="devDeployReason" value="Cursor開発反映">
-        <div class="btn-row" style="margin-top:10px">
-          <button id="devDeployButton" class="btn good" onclick="runSmartDeploy()">反映する</button>
-        </div>
-        <div class="btn-row cols-2">
-          <a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a>
-          <button class="btn secondary" onclick="refreshDevDeployStatus()">再確認</button>
-        </div>
-        <p class="muted" style="margin-top:8px">管理ハブが最新のときは、上部メニュー「年度予算策定 → Web入口を最新版にする」でも同じ結果になります。</p>
-      </div>
+      <nav class="tabbar" id="tabbar">
+        <button type="button" class="tab active" id="tabBtn-work" onclick="switchTab('work')">日常<span id="tabWorkBadge" class="tab-badge hidden">0</span></button>
+        <button type="button" class="tab" id="tabBtn-deploy" onclick="switchTab('deploy')">反映</button>
+        <button type="button" class="tab" id="tabBtn-care" onclick="switchTab('care')">保守</button>
+      </nav>
+
+      <div id="tab-work" class="tab-pane active">
 
       <div class="card metrics">
         <div class="metric">承認待ち<b id="approvalCount">0</b></div>
@@ -296,10 +307,31 @@
         </details>
       </div>
 
-      <details class="accordion" id="systemCare">
+      </div>
+
+      <div id="tab-deploy" class="tab-pane">
+      <div class="card card-primary" id="devDeployCard">
+        <h2 class="section-title">Cursor反映</h2>
+        <div id="devDeployHeadline" class="overview">状態を確認しています…</div>
+        <p id="devDeployHint" class="muted" style="margin-top:6px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
+        <div id="devDeployChecks" class="hidden"></div>
+        <input type="hidden" id="devDeployReason" value="Cursor開発反映">
+        <div class="btn-row" style="margin-top:10px">
+          <button id="devDeployButton" class="btn good" onclick="runSmartDeploy()">反映する</button>
+        </div>
+        <div class="btn-row cols-2">
+          <a id="devDeployWebEntryLink" class="btn secondary hidden" target="_blank" rel="noopener noreferrer">Web入口を開く</a>
+          <button class="btn secondary" onclick="refreshDevDeployStatus()">再確認</button>
+        </div>
+        <p class="muted" style="margin-top:8px">管理ハブが最新のときは、上部メニュー「年度予算策定 → Web入口を最新版にする」でも同じ結果になります。</p>
+      </div>
+      </div>
+
+      <div id="tab-care" class="tab-pane">
+      <details class="accordion" id="systemCare" open>
         <summary>システムの手入れ</summary>
         <div class="accordion-body">
-          <p class="muted">版の更新、初回セットアップ、個別作成など、毎日は使わない操作です。開発反映は画面上部の「Cursor反映」カードの「反映する」か、メニュー「Web入口を最新版にする」から行います。</p>
+          <p class="muted">版の更新、初回セットアップ、個別作成など、毎日は使わない操作です。開発の反映は「反映」タブから行います。</p>
 
       <details class="accordion nested">
         <summary>初回セットアップ（1回だけ）</summary>
@@ -543,6 +575,7 @@
       </details>
         </div>
       </details>
+      </div>
     </div>
 
     <div id="nonAdminPanel" class="hidden card">
@@ -569,7 +602,7 @@
       const value = id => $(id).value.trim();
 
       function setBusy(busy) {
-        document.querySelectorAll('button').forEach(b => b.disabled = busy);
+        document.querySelectorAll('button:not(.tab)').forEach(b => b.disabled = busy);
       }
       function showStatus(message, isError) {
         let display = '';
@@ -585,6 +618,25 @@
         $('statusTechnicalText').textContent = technical;
         $('statusTechnical').classList.toggle('hidden', !technical);
       }
+      var devDeployStatusRequested = false;
+      function switchTab(name) {
+        ['work', 'deploy', 'care'].forEach(function(key) {
+          var btn = $('tabBtn-' + key);
+          var pane = $('tab-' + key);
+          if (btn) btn.classList.toggle('active', key === name);
+          if (pane) pane.classList.toggle('active', key === name);
+        });
+        try { localStorage.setItem('vnext-admin-tab', name); } catch (ignored) {}
+        if (name === 'deploy' && !devDeployStatusRequested) {
+          devDeployStatusRequested = true;
+          try { refreshDevDeployStatus(); } catch (ignored) {}
+        }
+      }
+      function restoreTab() {
+        var saved = '';
+        try { saved = localStorage.getItem('vnext-admin-tab') || ''; } catch (ignored) {}
+        if (saved === 'deploy' || saved === 'care') switchTab(saved);
+      }
       function showReloadBanner() {
         $('reloadBanner').classList.remove('hidden');
         window.scrollTo({ top: 0 });
@@ -592,6 +644,8 @@
       function openSection(id) {
         const target = $(id);
         if (!target) return false;
+        const pane = target.closest('.tab-pane');
+        if (pane && !pane.classList.contains('active')) switchTab(pane.id.replace('tab-', ''));
         let node = target;
         while (node && node !== document.body) {
           if (node.tagName === 'DETAILS') node.open = true;
@@ -721,9 +775,15 @@
           $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           renderModelReleases(model);
           renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
-          renderDevDeployStatus(model.devDeployStatus || null);
+          if (model.devDeployStatus) renderDevDeployStatus(model.devDeployStatus);
           if (model.learningDashboard) renderLearningDashboard(model.learningDashboard);
           renderClientBookList(model.clientBooks || []);
+          const workBadge = $('tabWorkBadge');
+          if (workBadge) {
+            const attentionCount = Number(model.counts && model.counts.attention || 0);
+            workBadge.textContent = attentionCount;
+            workBadge.classList.toggle('hidden', !attentionCount);
+          }
         }
         if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
       }
@@ -1762,6 +1822,7 @@
       function escapeHtml(value) {
         return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       }
+      restoreTab();
       load();
     </script>
   </body>

@@ -26,7 +26,9 @@ new vm.Script(sources['Portal_UX.js'], { filename: 'Portal_UX.js' });
 const inlineScripts = actual.filter((name) => name.endsWith('.html')).map((name) => {
   const inlineScript = sources[name].match(/<script>([\s\S]*?)<\/script>/);
   if (!inlineScript) throw new Error(name + ' inline script is missing.');
-  new vm.Script(inlineScript[1], { filename: name + '.inline.js' });
+  // GAS template scriptlets (<?!= ... ?>) resolve server-side; parse with a
+  // JS-safe placeholder so the surrounding client code is still validated.
+  new vm.Script(inlineScript[1].replace(/<\?!?=?[\s\S]*?\?>/g, 'null'), { filename: name + '.inline.js' });
   return inlineScript[1];
 });
 const sidebarSource = sources['Portal_CreateSidebar.html'];
@@ -101,8 +103,12 @@ if (/isForecastOwner|isTeamMember|allowedEmails|emailAllowlist/i.test(serverSour
 if (!sources['Portal_Entry.html'].includes('vNextPortalGetEntryModel()')) {
   throw new Error('Employee entry must load vNextPortalGetEntryModel.');
 }
-if (!serverSource.includes('function doGet(') || !serverSource.includes("createHtmlOutputFromFile('Portal_Entry')")) {
+if (!serverSource.includes('function doGet(') || !serverSource.includes("createTemplateFromFile('Portal_Entry')")) {
   throw new Error('Portal Web App entry is missing.');
+}
+if (!serverSource.includes('function vNextPortalEntryModelJsonForTemplate_') ||
+    !sources['Portal_Entry.html'].includes('injectedEntryModel')) {
+  throw new Error('Portal entry must be server-side rendered (SSR model + RPC fallback).');
 }
 
 process.stdout.write(`PASS portal runtime verification (${actual.length} files, 4 scopes, 1 menu item)\n`);

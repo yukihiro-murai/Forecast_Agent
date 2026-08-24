@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.14');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.15');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -405,12 +405,16 @@ async function testStaticUxContracts() {
   assert.match(ux, /vNextPortalDisplayPlanningValue_\(entry\.centerForecast, actualShortage \? '実績不足' : '未算出'\)/,
     'Empty and insufficient forecast values must be explained, not shown as zero');
   assert.match(ux, /function doGet\(/);
-  assert.match(ux, /createHtmlOutputFromFile\('Portal_Entry'\)/);
+  assert.match(ux, /createTemplateFromFile\('Portal_Entry'\)/,
+    'doGet must server-side render the entry model to avoid a second RPC roundtrip');
+  assert.match(core, /function vNextPortalEntryModelJsonForTemplate_/);
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
   assert.match(entry, /申請入口を開く（新規申請）/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
+  assert.match(entry, /injectedEntryModel/,
+    'Entry page must consume the server-side rendered model and keep the RPC as fallback');
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);

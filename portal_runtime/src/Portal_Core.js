@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.14',
+  RUNTIME_VERSION: 'vnext-portal-1.7.15',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -32,7 +32,7 @@ var VNEXT_PORTAL = Object.freeze({
   CLIENT_CATALOG_CACHE_KEY: 'vnext-portal-client-catalog-v1',
   CLIENT_CATALOG_CACHE_SECONDS: 300,
   ENTRY_CACHE_KEY: 'vnext-portal-entry-model-v1',
-  ENTRY_CACHE_SECONDS: 45,
+  ENTRY_CACHE_SECONDS: 120,
   PAYLOAD_KEYS: Object.freeze([
     'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
@@ -314,24 +314,51 @@ function vNextPortalNormalizeRequestId_(value) {
 /** Employee launcher used by the published Web App. */
 function vNextPortalGetEntryModel() {
   try {
-    try { vNextPortalPrepareOpenExperience(); }
-    catch (prepareError) {
-      vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', prepareError);
-    }
-    var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    var cached = vNextPortalReadEntryCache_();
-    if (cached) return cached;
-    var data = vNextPortalGetLocalViewData_(spreadsheet);
-    var config = vNextPortalReadConfig_(spreadsheet);
-    var model = vNextPortalBuildEntryModel_(data, {
-      portalUrl: spreadsheet.getUrl(),
-      adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url)
-    });
-    vNextPortalWriteEntryCache_(model);
-    return model;
+    vNextPortalPrepareOpenExperienceThrottled_();
+    return vNextPortalBuildEntryModelCached_();
   } catch (error) {
     vNextPortalLog_('vNextPortalGetEntryModel failed', error);
     throw new Error(error && error.message ? error.message : '入口を準備できませんでした。');
+  }
+}
+
+function vNextPortalBuildEntryModelCached_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var cached = vNextPortalReadEntryCache_();
+  if (cached) return cached;
+  var data = vNextPortalGetLocalViewData_(spreadsheet);
+  var config = vNextPortalReadConfig_(spreadsheet);
+  var model = vNextPortalBuildEntryModel_(data, {
+    portalUrl: spreadsheet.getUrl(),
+    adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url)
+  });
+  vNextPortalWriteEntryCache_(model);
+  return model;
+}
+
+/** JSON payload for the doGet server-side render. Returns 'null' on failure. */
+function vNextPortalEntryModelJsonForTemplate_() {
+  try {
+    vNextPortalPrepareOpenExperienceThrottled_();
+    return JSON.stringify(vNextPortalBuildEntryModelCached_()).replace(/</g, '\\u003c');
+  } catch (error) {
+    vNextPortalLog_('entry SSR skipped', error);
+    return 'null';
+  }
+}
+
+/**
+ * The onOpen-trigger check hits ScriptApp on every call; entry loads are hot,
+ * so ensure it at most once per 6 hours.
+ */
+function vNextPortalPrepareOpenExperienceThrottled_() {
+  try {
+    var cache = typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null;
+    if (cache && cache.get('vnext-portal-open-prepared')) return;
+    vNextPortalPrepareOpenExperience();
+    if (cache) cache.put('vnext-portal-open-prepared', '1', 21600);
+  } catch (prepareError) {
+    vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', prepareError);
   }
 }
 

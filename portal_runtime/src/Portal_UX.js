@@ -5,7 +5,11 @@
 
 function doGet() {
   try {
-    return HtmlService.createHtmlOutputFromFile('Portal_Entry')
+    // Server-side render: the entry model is embedded into the first response so
+    // the page paints without a second google.script.run roundtrip.
+    var template = HtmlService.createTemplateFromFile('Portal_Entry');
+    template.entryModelJson = vNextPortalEntryModelJsonForTemplate_();
+    return template.evaluate()
       .setTitle(VNEXT_PORTAL_NAMING.SYSTEM)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (error) {
