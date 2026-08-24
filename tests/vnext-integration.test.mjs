@@ -545,7 +545,7 @@ async function checkAdminRecoveryContracts() {
     sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
     sidebar.includes('Cursor反映') &&
     sidebar.includes('反映する') &&
-    sidebar.includes('npm run reflect') &&
+    sidebar.includes('年度予算策定 → Web入口を最新版にする') &&
     sidebar.includes('Web入口を最新版にする') &&
     sidebar.includes('id="devDeployCard"'),
     'Admin Sidebar must expose a single Cursor反映 CTA and menu fallback copy');

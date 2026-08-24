@@ -38,7 +38,7 @@ async function main() {
   run('clasp', ['push'], root, 'clasp push');
   if (skipRemote) {
     process.stdout.write('\nLocal build/push complete.\n');
-    process.stdout.write('管理ハブ →「Cursor反映」→「反映する」→ Web入口 Cmd+Shift+R\n');
+    process.stdout.write('管理ハブ上部メニュー「年度予算策定」→「Web入口を最新版にする」→ Web入口 Cmd+Shift+R\n');
     return;
   }
 
@@ -104,7 +104,7 @@ async function main() {
   } catch (error) {
     process.stdout.write('\nHub/Portal API 反映はできませんでした。\n');
     process.stdout.write(`${String(error.message || error)}\n`);
-    process.stdout.write('管理ハブ →「Cursor反映」→「反映する」を1回押してください。\n');
+    process.stdout.write('管理ハブ上部メニュー「年度予算策定」→「Web入口を最新版にする」を実行してください。\n');
   }
 }
 

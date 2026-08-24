@@ -25,13 +25,12 @@ const HUB_URL = `https://docs.google.com/spreadsheets/d/${HUB_SHEET}/edit`;
 const USER_NEXT = [
   '',
   '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-  '【あなた（1回だけ）】',
-  '1. 管理ハブを開く',
-  '2. 「Cursor反映」→「反映する」',
-  '3. Web入口を Cmd+Shift+R',
+  '【あなた（場所つき）】',
+  '管理ハブ Spreadsheet の上部メニューから:',
+  '  年度予算策定 → Web入口を最新版にする',
+  'その後: Web入口を Cmd+Shift+R',
   '',
   `管理ハブ: ${HUB_URL}`,
-  '（メニュー代替: 年度計画 → Web入口を最新版にする）',
   '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   ''
 ].join('\n');
