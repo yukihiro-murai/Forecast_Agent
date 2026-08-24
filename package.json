@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node tests/vnext-integration.test.mjs",
+    "reflect": "node scripts/reflect.mjs",
+    "reflect:push": "node scripts/reflect.mjs --skip-tests",
     "deploy:dev": "node scripts/deploy-dev.mjs",
     "deploy:push": "node scripts/deploy-dev.mjs --push-only",
     "deploy:local": "node scripts/deploy-dev.mjs --skip-remote"

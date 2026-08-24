@@ -37,13 +37,31 @@ async function main() {
 
   run('clasp', ['push'], root, 'clasp push');
   if (skipRemote) {
-    process.stdout.write('\nLocal build/push complete. Hub で「開発反映を実行」を押してください。\n');
+    process.stdout.write('\nLocal build/push complete.\n');
+    process.stdout.write('管理ハブ →「Cursor反映」→「反映する」→ Web入口 Cmd+Shift+R\n');
     return;
   }
 
-  const clasp = JSON.parse(await readFile(path.join(os.homedir(), '.clasprc.json'), 'utf8'));
-  const token = (clasp.token || clasp.tokens?.default || clasp).access_token || clasp.accessToken;
-  if (!token) throw new Error('clasp OAuth token not found in ~/.clasprc.json');
+  const token = await (async () => {
+    const clasprc = JSON.parse(await readFile(path.join(os.homedir(), '.clasprc.json'), 'utf8'));
+    const entry = clasprc.tokens?.default || clasprc.token || clasprc;
+    let access = entry.access_token || entry.accessToken;
+    const expiry = Number(entry.expiry_date || 0);
+    if (expiry && Date.now() > expiry - 60000 && entry.refresh_token) {
+      const body = new URLSearchParams({
+        client_id: entry.client_id,
+        client_secret: entry.client_secret,
+        refresh_token: entry.refresh_token,
+        grant_type: 'refresh_token'
+      });
+      const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body });
+      const json = await res.json();
+      if (!res.ok) throw new Error('token refresh failed');
+      access = json.access_token;
+    }
+    if (!access) throw new Error('clasp OAuth token not found in ~/.clasprc.json');
+    return access;
+  })();
 
   if (!config.centralScriptId) {
     config.centralScriptId = JSON.parse(await readFile(path.join(root, '.clasp.json'), 'utf8')).scriptId;
@@ -61,42 +79,32 @@ async function main() {
 
   await sleep(4000);
 
-  process.stdout.write('Phase B1: Client release…\n');
+  // Portal first (same order as Hub smart deploy). Client only if still needed later.
+  process.stdout.write('Phase B: Portal first…\n');
   try {
-    const release = await runScript({
-      token,
-      scriptId: config.hubScriptId,
-      deploymentId: config.hubDeploymentId,
-      functionName: 'vNextAdminDeployVerifiedEmployeeUxClientRelease_',
-      parameters: [{ reason }]
-    });
-    process.stdout.write(`Phase B1 OK: ${summarize(release)}\n`);
-    await sleep(2000);
-    process.stdout.write('Phase B2: Portal…\n');
     const portal = await runScript({
       token,
       scriptId: config.hubScriptId,
       deploymentId: config.hubDeploymentId,
       functionName: 'vNextAdminDeployVerifiedEmployeeUxPortal_',
-      parameters: [{ reason }]
+      parameters: [{ reason, fastDeploy: true }]
     });
-    process.stdout.write(`Phase B2 OK: ${summarize(portal)}\n`);
+    process.stdout.write(`Portal OK: ${summarize(portal)}\n`);
     await sleep(2000);
-    process.stdout.write('Phase B3: Finalize…\n');
+    process.stdout.write('Finalize…\n');
     const phaseB = await runScript({
       token,
       scriptId: config.hubScriptId,
       deploymentId: config.hubDeploymentId,
       functionName: 'vNextAdminDeployVerifiedEmployeeUxFinalize_',
-      parameters: [{ reason, upgradeEmptyPilots: false, release, portal }]
+      parameters: [{ reason, upgradeEmptyPilots: false, portal }]
     });
-    process.stdout.write(`Phase B3 OK: ${summarize(phaseB)}\n`);
+    process.stdout.write(`Finalize OK: ${summarize(phaseB)}\n`);
     process.stdout.write('\nDeploy complete. Hard refresh Web入口 /exec (Cmd+Shift+R).\n');
   } catch (error) {
-    process.stdout.write('\nPhase B could not run via API.\n');
+    process.stdout.write('\nHub/Portal API 反映はできませんでした。\n');
     process.stdout.write(`${String(error.message || error)}\n`);
-    process.stdout.write('Hub を開き「開発反映を実行」を押してください（4段表示）。\n');
-    process.stdout.write('初回のみ Hub script に API executable deployment が必要です。\n');
+    process.stdout.write('管理ハブ →「Cursor反映」→「反映する」を1回押してください。\n');
   }
 }
 

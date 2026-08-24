@@ -21,7 +21,7 @@
 2. `git pull --ff-only` (push 直前の最終同期)。
 3. `git push origin <branch>` (新規ブランチは `git push -u origin <branch>`)。
 4. push が拒否されても force push はしない。fetch して状況を報告する。
-5. `.clasp.json` があるプロジェクトでは、git push 後に `clasp status` で対象ファイルを確認してから `clasp push` で GAS に反映する。`.clasp.json` が無いプロジェクトでは、GAS エディタへの手動反映が別途必要なことをユーザーに伝える。
+5. `.clasp.json` があるプロジェクトでは、git push 後に `npm run reflect`（失敗時は `clasp push`）で中央 GAS に載せ、ユーザーには **「Cursor反映 → 反映する」1操作**だけ案内する。ネストした「システムの手入れ」案内はしない。
 
 ### 禁止事項
 
@@ -29,6 +29,14 @@
 - fetch / pull を省略して作業を始めること
 - push を完了していないのに「作業完了」と報告すること
 - コンフリクトの独断解決 (解決方針を先に報告し、合意してから解決する)
+
+## Cursor 対話開発（反映のストレス低減）
+
+ユーザーは対話で小さく直しながら進める。毎回の反映で迷わせない。
+
+- エージェント: `npm run reflect` までやる（clasp + 可能なら Hub 同期）
+- ユーザー: 管理ハブの **「反映する」** → Web入口 **Cmd+Shift+R** だけ
+- 詳細契約: `DESIGN_deploy_truth_JA.md` / `.cursor/rules/forecast-reflect.mdc`
 
 ## 共通開発規約
 
