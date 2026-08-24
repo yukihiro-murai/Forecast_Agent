@@ -162,6 +162,46 @@
       }
       .tab-pane { display:none; }
       .tab-pane.active { display:block; }
+      .steps { list-style:none; margin:12px 0 0; padding:0; display:grid; gap:6px; }
+      .step-row {
+        display:flex; align-items:center; gap:9px; padding:8px 11px;
+        border-radius:var(--radius-s); background:var(--soft); font-size:12px;
+      }
+      .step-row .ic {
+        flex:0 0 auto; width:16px; height:16px; border-radius:99px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:10px; font-weight:700;
+      }
+      .step-row .lb { flex:1; overflow-wrap:anywhere; }
+      .step-row .tm {
+        flex:0 0 auto; color:var(--muted); font-size:11px;
+        font-variant-numeric:tabular-nums;
+      }
+      .step-row.pending { color:var(--muted); }
+      .step-row.pending .ic { border:2px solid #cbd5e1; }
+      .step-row.active { background:var(--blue-bg); }
+      .step-row.active .ic {
+        border:2px solid var(--blue); border-top-color:transparent;
+        animation:deploy-spin .9s linear infinite;
+      }
+      .step-row.done .ic { background:var(--green); }
+      .step-row.done .ic::after { content:"✓"; }
+      .step-row.skip { color:var(--muted); }
+      .step-row.skip .ic { background:#94a3b8; }
+      .step-row.skip .ic::after { content:"–"; }
+      .step-row.fail { background:var(--red-bg); }
+      .step-row.fail .ic { background:var(--red); }
+      .step-row.fail .ic::after { content:"✕"; }
+      @keyframes deploy-spin { to { transform:rotate(360deg); } }
+      @media (prefers-reduced-motion:reduce) {
+        .step-row.active .ic { animation:none; border-top-color:var(--blue); }
+      }
+      .deploy-note {
+        margin-top:8px; padding:9px 12px; border-radius:var(--radius-s);
+        background:var(--blue-bg); color:#1e40af; font-size:12px; overflow-wrap:anywhere;
+      }
+      .deploy-note.amber { background:var(--amber-bg); color:#92400e; }
+      .deploy-note.good { background:var(--green-bg); color:#166534; }
       .reload-banner {
         position:fixed; top:0; left:0; right:0; z-index:30;
         padding:12px 14px; background:var(--amber-bg); border-bottom:2px solid var(--amber);
@@ -364,6 +404,8 @@
         <div id="devDeployHeadline" class="overview processing">最新かどうか確認しています…（操作はそのまま可能です）</div>
         <div id="deployVersions" class="ver-grid hidden"></div>
         <p id="devDeployHint" class="muted" style="margin-top:8px">下の緑ボタンを1回押せば、管理ハブ同期 → Web入口更新まで自動で進みます。途中で止まっても、同じボタンで再開できます。</p>
+        <ol id="deployProgress" class="steps hidden"></ol>
+        <div id="deployNote" class="deploy-note hidden"></div>
         <div id="devDeployChecks" class="hidden"></div>
         <input type="hidden" id="devDeployReason" value="開発反映">
         <div class="btn-row" style="margin-top:10px">
@@ -717,7 +759,12 @@
       }
       function onFailure(error) {
         setBusy(false);
-        if (typeof clearSmartDeployWatchdog === 'function') clearSmartDeployWatchdog();
+        if (typeof stopDeployProgress === 'function' &&
+            typeof activeDeployStep !== 'undefined' && activeDeployStep) {
+          stopDeployProgress('ここで失敗しました。原因は下のメッセージを確認してください。もう一度緑ボタンを押すと再開できます。');
+        } else if (typeof clearSmartDeployWatchdog === 'function') {
+          clearSmartDeployWatchdog();
+        }
         const raw = (error && error.message) || String(error);
         let friendly = raw || '処理を完了できませんでした。';
         if (/Another .* operation is running|別の処理|running:/i.test(raw)) {
@@ -1367,22 +1414,99 @@
           }
         }
       }
-      var smartDeployWatchdog = null;
-      function clearSmartDeployWatchdog() {
-        if (smartDeployWatchdog) {
-          clearTimeout(smartDeployWatchdog);
-          smartDeployWatchdog = null;
+      var DEPLOY_STEPS = [
+        { id: 'hub', label: '管理ハブを同期' },
+        { id: 'plan', label: '反映する内容を確認' },
+        { id: 'portal', label: 'Web入口を更新' },
+        { id: 'client', label: 'Client 版を更新' },
+        { id: 'finalize', label: '結果を確認' }
+      ];
+      var deployProgressTimer = null;
+      var deployStepStartedAt = 0;
+      var activeDeployStep = '';
+      function beginDeployProgress() {
+        const list = $('deployProgress');
+        if (!list) return;
+        list.classList.remove('hidden');
+        list.innerHTML = '';
+        DEPLOY_STEPS.forEach(function(step) {
+          const li = document.createElement('li');
+          li.id = 'deployStep-' + step.id;
+          li.className = 'step-row pending' + (step.id === 'client' ? ' hidden' : '');
+          const ic = document.createElement('span'); ic.className = 'ic';
+          const lb = document.createElement('span'); lb.className = 'lb'; lb.textContent = step.label;
+          const tm = document.createElement('span'); tm.className = 'tm';
+          li.appendChild(ic); li.appendChild(lb); li.appendChild(tm);
+          list.appendChild(li);
+        });
+        const checks = $('devDeployChecks');
+        if (checks) { checks.classList.add('hidden'); checks.innerHTML = ''; }
+        const headline = $('devDeployHeadline');
+        if (headline) { headline.className = 'overview processing'; headline.textContent = '反映を実行しています…'; }
+        setDeployNote('');
+        activeDeployStep = '';
+      }
+      function setDeployNote(text, tone) {
+        const note = $('deployNote');
+        if (!note) return;
+        note.textContent = text || '';
+        note.classList.toggle('hidden', !text);
+        note.classList.remove('amber', 'good');
+        if (tone) note.classList.add(tone);
+      }
+      function deployStepEl(id) { return $('deployStep-' + id); }
+      function startDeployStep(id, labelOverride) {
+        const row = deployStepEl(id);
+        if (!row) return;
+        row.classList.remove('hidden', 'pending', 'done', 'fail', 'skip');
+        row.classList.add('active');
+        if (labelOverride) row.querySelector('.lb').textContent = labelOverride;
+        activeDeployStep = id;
+        deployStepStartedAt = Date.now();
+        setDeployNote('');
+        if (!deployProgressTimer) deployProgressTimer = setInterval(tickDeployProgress, 1000);
+        tickDeployProgress();
+      }
+      function formatElapsed(seconds) {
+        return Math.floor(seconds / 60) + ':' + ('0' + (seconds % 60)).slice(-2);
+      }
+      function tickDeployProgress() {
+        if (!activeDeployStep) return;
+        const row = deployStepEl(activeDeployStep);
+        if (!row) return;
+        const seconds = Math.floor((Date.now() - deployStepStartedAt) / 1000);
+        row.querySelector('.tm').textContent = formatElapsed(seconds);
+        if (seconds >= 240) {
+          setDeployNote('4分以上応答がありません。もう一度緑ボタンを押すと、同じところから安全に再開できます。', 'amber');
+        } else if (seconds >= 90) {
+          setDeployNote('時間がかかっていますが、処理は裏で続いています。このままお待ちください。');
         }
       }
-      function armSmartDeployWatchdog(label) {
-        clearSmartDeployWatchdog();
-        smartDeployWatchdog = setTimeout(function() {
-          showStatus(
-            (label || '反映') + 'に時間がかかっています。処理は裏で続いていることが多いため、1〜2分待ってから「再確認」を押してください。それでも進まないときは、上部メニュー「年度予算策定」→「Web入口を最新版にする」を試してください。',
-            true
-          );
-        }, 90000);
+      function endDeployStep(id, state, labelOverride) {
+        const row = deployStepEl(id);
+        if (row) {
+          const seconds = Math.floor((Date.now() - deployStepStartedAt) / 1000);
+          row.classList.remove('pending', 'active', 'hidden');
+          row.classList.add(state);
+          row.querySelector('.tm').textContent =
+            state === 'skip' ? '省略' : state === 'fail' ? '失敗' :
+            (activeDeployStep === id ? formatElapsed(seconds) : '');
+          if (labelOverride) row.querySelector('.lb').textContent = labelOverride;
+        }
+        if (activeDeployStep === id) activeDeployStep = '';
+        setDeployNote('');
       }
+      function stopDeployProgress(failMessage) {
+        if (deployProgressTimer) { clearInterval(deployProgressTimer); deployProgressTimer = null; }
+        if (failMessage) {
+          if (activeDeployStep) endDeployStep(activeDeployStep, 'fail');
+          setDeployNote(failMessage, 'amber');
+          const headline = $('devDeployHeadline');
+          if (headline) { headline.className = 'overview error'; headline.textContent = '✗ 反映が途中で失敗しました。もう一度緑ボタンを押すと再開できます。'; }
+        }
+        activeDeployStep = '';
+      }
+      function clearSmartDeployWatchdog() { stopDeployProgress(); }
       function refreshDevDeployStatus() {
         const headline = $('devDeployHeadline');
         if (headline) {
@@ -1472,19 +1596,25 @@
           }).vNextAdminGetDevDeployQuickStatus();
       }
       function finishSmartDeploy(phaseA, phaseB) {
-        clearSmartDeployWatchdog();
+        endDeployStep('finalize', 'done');
+        stopDeployProgress();
         setBusy(false);
-        showStatus(formatDevDeployResult(phaseA, phaseB), !!(phaseB && phaseB.verification && !phaseB.verification.ok));
+        const ok = !!(phaseB && phaseB.verification && phaseB.verification.ok);
+        showStatus(formatDevDeployResult(phaseA, phaseB), !ok);
         if (phaseB && phaseB.verification) renderDevDeployStatus({ lastDeploy: phaseB, verification: phaseB.verification });
+        setDeployNote(ok
+          ? '✓ 完了しました。Web入口を Cmd+Shift+R で開き直し、右下の「版」表示を確認してください。'
+          : '反映処理は終わりましたが、確認で不一致があります。上の内容を確認してください。',
+          ok ? 'good' : 'amber');
         lastQuickStatusAt = Date.now();
-        try { refreshDevDeployQuick(); } catch (ignored) {}
         load();
       }
       function runSmartDeploy(isSecondPass) {
         const reason = value('devDeployReason') || '開発反映';
         setBusy(true);
-        armSmartDeployWatchdog('管理ハブ同期');
-        showStatus(isSecondPass === true ? '① 続きを自動実行しています…' : '① 管理ハブを最新化しています…');
+        if (isSecondPass !== true) beginDeployProgress();
+        startDeployStep('hub', isSecondPass === true ? '管理ハブを同期（自動続行）' : null);
+        showStatus(isSecondPass === true ? '続きを自動実行しています…' : '反映を開始しました。進み具合は上の一覧に出ます。');
         google.script.run.withSuccessHandler(function(phaseA) {
           // After a real Hub content replace, later RPCs run the NEW server code
           // (each google.script.run call is a fresh execution), so we can wait a
@@ -1492,27 +1622,27 @@
           // stays as the fallback if the automatic second pass also asks for it.
           if (phaseA && phaseA.requiresSidebarReload) {
             if (isSecondPass === true) {
-              clearSmartDeployWatchdog();
+              stopDeployProgress('自動での続行ができませんでした。上部の黄色い案内のとおり開き直してください。');
               setBusy(false);
               showReloadBanner();
               showStatus('自動での続行ができませんでした。上部の黄色い案内のとおり、開き直してから緑ボタンをもう一度押してください。', true);
               return;
             }
-            armSmartDeployWatchdog('自動続行');
-            showStatus('① 管理ハブを最新化しました。5秒待って続きを自動実行します…');
+            endDeployStep('hub', 'done', '管理ハブを更新しました');
+            setDeployNote('5秒後に続きを自動で実行します…');
             setTimeout(function() { runSmartDeploy(true); }, 5000);
             return;
           }
-          armSmartDeployWatchdog('反映計画');
-          showStatus('② 何を直すか確認しています…');
+          endDeployStep('hub', 'done');
+          startDeployStep('plan');
           google.script.run.withSuccessHandler(function(plan) {
+            endDeployStep('plan', 'done');
             const afterPortal = function(portal) {
               if (plan && plan.needClient) {
-                armSmartDeployWatchdog('Client');
-                showStatus('④ Client 版を合わせています…');
+                startDeployStep('client');
                 google.script.run.withSuccessHandler(function(release) {
-                  armSmartDeployWatchdog('確認');
-                  showStatus('⑤ 結果を確認しています…');
+                  endDeployStep('client', 'done');
+                  startDeployStep('finalize');
                   google.script.run.withSuccessHandler(function(phaseB) {
                     finishSmartDeploy(phaseA, phaseB);
                   }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
@@ -1523,8 +1653,7 @@
                 });
                 return;
               }
-              armSmartDeployWatchdog('確認');
-              showStatus('④ 結果を確認しています…');
+              startDeployStep('finalize');
               google.script.run.withSuccessHandler(function(phaseB) {
                 finishSmartDeploy(phaseA, phaseB);
               }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({
@@ -1534,14 +1663,15 @@
               });
             };
             if (!plan || plan.needPortal !== false) {
-              armSmartDeployWatchdog('Web入口');
-              showStatus('③ Web入口を更新しています…');
-              google.script.run.withSuccessHandler(afterPortal)
-                .withFailureHandler(onFailure)
+              startDeployStep('portal');
+              google.script.run.withSuccessHandler(function(portal) {
+                endDeployStep('portal', 'done');
+                afterPortal(portal);
+              }).withFailureHandler(onFailure)
                 .vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason, fastDeploy: true });
               return;
             }
-            showStatus('③ Web入口は最新のため省略…');
+            endDeployStep('portal', 'skip', 'Web入口は最新（省略）');
             afterPortal({ reused: true, skipped: true, runtimeVersion: plan.portalCurrent });
           }).withFailureHandler(onFailure).vNextAdminGetDevDeployPlan_({});
         }).withFailureHandler(onFailure).vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
@@ -1551,11 +1681,14 @@
       function deployPortalOnly() {
         const reason = value('devDeployReason') || 'Web入口のみ反映';
         setBusy(true);
-        armSmartDeployWatchdog('Web入口');
+        beginDeployProgress();
+        endDeployStep('hub', 'skip', '管理ハブ同期（この操作では行いません）');
+        endDeployStep('plan', 'skip');
+        startDeployStep('portal');
         showStatus('Web入口だけ更新しています…');
         google.script.run.withSuccessHandler(function(portal) {
-          armSmartDeployWatchdog('確認');
-          showStatus('結果を確認しています…');
+          endDeployStep('portal', 'done');
+          startDeployStep('finalize');
           google.script.run.withSuccessHandler(function(phaseB) {
             finishSmartDeploy(null, phaseB);
           }).withFailureHandler(onFailure).vNextAdminDeployVerifiedEmployeeUxFinalize_({

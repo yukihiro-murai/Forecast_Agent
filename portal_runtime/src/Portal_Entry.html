@@ -143,9 +143,9 @@
     }
     .hidden { display:none !important; }
     .ver {
-      position:fixed; right:14px; bottom:10px; margin:0;
-      color:#9AAaB8; font-size:12px; font-variant-numeric:tabular-nums;
-      user-select:none; pointer-events:none;
+      margin:40px 0 0; text-align:center;
+      color:#A8B4C2; font-size:11px; font-variant-numeric:tabular-nums;
+      user-select:none;
     }
     @media (max-width:520px) {
       h1 { font-size:24px; }
@@ -168,7 +168,6 @@
 
   <div id="error" class="error hidden" role="alert"></div>
   <div id="loading" class="loading">画面を読み込んでいます…</div>
-  <p id="entryVersion" class="ver" aria-hidden="true"></p>
 
   <div id="app" class="hidden">
     <article class="choice">
@@ -241,6 +240,8 @@
       <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
     </article>
   </div>
+
+  <footer id="entryVersion" class="ver" aria-hidden="true"></footer>
 
   <script>
     var entryModel = null;
