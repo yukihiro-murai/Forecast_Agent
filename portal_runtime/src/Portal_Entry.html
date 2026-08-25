@@ -26,7 +26,7 @@
       letter-spacing:.01em;
     }
     h2 { font-size:18px; font-weight:600; margin:0; line-height:1.45; color:var(--navy); }
-    .lede { margin:0 0 22px; color:var(--muted); font-size:16px; }
+    .lede { margin:0 0 22px; color:var(--muted); font-size:14px; line-height:1.7; }
     .choice {
       background:var(--card); border-radius:var(--radius); padding:22px 22px 24px;
       margin:0 0 16px; border:1px solid var(--line); box-shadow:var(--shadow);
@@ -45,7 +45,7 @@
       position:relative; flex:1; min-width:0;
       background:var(--bubble-bg); color:var(--text);
       border:1.5px solid var(--bubble-line); border-radius:16px;
-      padding:13px 16px; font-size:16px; font-weight:400; line-height:1.6;
+      padding:12px 15px; font-size:14px; font-weight:400; line-height:1.7;
     }
     .bubble::before {
       content:""; position:absolute; left:-7px; top:50%; width:12px; height:12px;
@@ -125,7 +125,7 @@
       pointer-events:none; box-shadow:none;
     }
     .book-name { font-size:16px; font-weight:600; color:var(--navy); line-height:1.4; }
-    .book-meta { font-size:14px; color:var(--muted); margin-top:2px; line-height:1.4; }
+    .book-meta { font-size:13px; color:var(--muted); margin-top:2px; line-height:1.4; }
     .book.ghost .book-name, .book.ghost .book-meta { color:#8A99A8; }
     .chip {
       display:inline-block; border-radius:99px; padding:5px 12px;
@@ -136,7 +136,7 @@
     .book.ghost .chip {
       background:#fff; border:1.5px dashed var(--line-strong); color:#8A99A8; font-weight:500;
     }
-    .empty { color:var(--muted); margin:8px 0 0; font-size:15px; line-height:1.55; }
+    .empty { color:var(--muted); margin:8px 0 0; font-size:13px; line-height:1.6; }
     .loading { color:var(--muted); padding:8px 0; }
     .error {
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
@@ -211,7 +211,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>作成済みの年度予算シートの一覧です。まず下の<b>年度ボタン</b>で対象の年度を選び、続けて開きたい<b>クライアント名</b>を押すと、その年度予算シートが新しいタブで開きます。シートでの入力の進め方は、開いたシートの右側に表示される案内が説明します。</p>
+          <p id="bubbleOpen">作成済みの年度予算シートの一覧です。まず下の<b>年度ボタン</b>で対象の年度を選び、続けて開きたい<b>クライアント名</b>を押すと、その年度予算シートが新しいタブで開きます。シートでの入力の進め方は、開いたシートの右側に表示される案内が説明します。</p>
         </div>
       </div>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
@@ -303,19 +303,27 @@
         });
       });
     }
+    var BUBBLE_OPEN_DEFAULT_HTML = '';
+    function setOpenBubble(html) {
+      var bubble = document.getElementById('bubbleOpen');
+      if (!bubble) return;
+      if (!BUBBLE_OPEN_DEFAULT_HTML) BUBBLE_OPEN_DEFAULT_HTML = bubble.innerHTML;
+      bubble.innerHTML = html || BUBBLE_OPEN_DEFAULT_HTML;
+    }
     function paintBooks() {
       var box = document.getElementById('books');
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
-        box.innerHTML = previewBooksHtml() +
-          '<p class="empty">年度予算シートが作成されると、この枠にクライアント名と状態、次にすることが表示されます。まだ1件も無い場合は、上の 01 から作成を申請してください。</p>';
+        setOpenBubble('まだ年度予算シートは1件もありません。作成されると、この枠にクライアント名と状態、次にすることが並びます。まずは上の <b>01</b> から作成を申請してください。');
+        box.innerHTML = previewBooksHtml();
         return;
       }
       if (!rows.length) {
-        box.innerHTML = previewBooksHtml() +
-          '<p class="empty">選んだ年度の年度予算シートはまだありません。上の 01 から作成を申請するか、別の年度ボタンを選んでください。</p>';
+        setOpenBubble('選んだ年度の年度予算シートはまだありません。<b>別の年度ボタン</b>を選ぶか、上の <b>01</b> から作成を申請してください。');
+        box.innerHTML = previewBooksHtml();
         return;
       }
+      setOpenBubble('');
       box.innerHTML = rows.map(function (book) {
         var body =
           '<div><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
