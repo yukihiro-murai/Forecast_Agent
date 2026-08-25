@@ -844,7 +844,7 @@ function vNextResolveStoreSpreadsheet_(options) {
       return SpreadsheetApp.openById(String(hubId));
     } catch (accessError) {
       throw new Error(
-        '管理ハブへアクセスできません。クライアント年度ブック利用者へ管理ハブを共有して解決しないでください。' +
+        '管理ハブへアクセスできません。年度予算シート利用者へ管理ハブを共有して解決しないでください。' +
         '管理ハブ担当者権限で実行する Forecast Service / Web App 経路が必要です。hub=' + String(hubId) +
         '; cause=' + String(accessError && accessError.message || accessError)
       );

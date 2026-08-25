@@ -334,7 +334,7 @@
         <div class="metric">承認待ち<b id="approvalCount">0</b></div>
         <div class="metric">要確認<b id="exceptionCount">0</b></div>
         <div class="metric">自動処理中<b id="jobCount">0</b></div>
-        <div class="metric">クライアント年度ブック<b id="clientCount">0</b></div>
+        <div class="metric">年度予算シート<b id="clientCount">0</b></div>
       </div>
 
       <div class="card card-primary">
@@ -384,7 +384,7 @@
         <details class="accordion nested">
           <summary>月次観測を記録</summary>
           <div class="accordion-body">
-            <label>クライアント年度ブック ID<input id="learningObsBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+            <label>年度予算シート ID<input id="learningObsBookId" list="clientBookList" placeholder="CLIENT-..."></label>
             <label>観測月（YYYY-MM）<input id="learningObsMonth" placeholder="2027-06"></label>
             <label>実績金額<input id="learningObsActual" type="number"></label>
             <label>仮説（任意）<textarea id="learningObsHypothesis" placeholder="案件が想定より遅延した、など"></textarea></label>
@@ -484,7 +484,7 @@
       </details>
 
       <details class="accordion nested">
-        <summary>クライアント年度ブックを個別作成（例外）</summary>
+        <summary>年度予算シートを個別作成（例外）</summary>
         <div class="accordion-body">
           <p class="muted">通常は申請入口から依頼します。代理作成が必要な場合のみ。</p>
           <label>クライアント名<input id="clientName"></label>
@@ -501,14 +501,14 @@
               <label>保存先 folder ID<input id="clientFolderId"></label>
             </div>
           </details>
-          <div class="btn-row"><button class="btn" onclick="provisionClient()">クライアント年度ブックを作成</button></div>
+          <div class="btn-row"><button class="btn" onclick="provisionClient()">年度予算シートを作成</button></div>
         </div>
       </details>
 
       <div id="emptyPilotUpgradeCard" class="card hidden">
-        <h2>テスト前のクライアント年度ブックを最新版へ更新</h2>
-        <p class="muted">まだ誰も回答していないテスト用クライアント年度ブックだけを、同じ URL のまま現在の正式版へ更新します。最初に安全条件を自動確認します。</p>
-        <label>更新するクライアント年度ブック
+        <h2>テスト前の年度予算シートを最新版へ更新</h2>
+        <p class="muted">まだ誰も回答していないテスト用年度予算シートだけを、同じ URL のまま現在の正式版へ更新します。最初に安全条件を自動確認します。</p>
+        <label>更新する年度予算シート
           <select id="emptyPilotBookSelect" onchange="resetEmptyPilotBasis()"></select>
         </label>
         <div id="emptyPilotBasis" class="status">対象を選び、「安全条件を確認」を押してください。</div>
@@ -610,10 +610,10 @@
             <div class="accordion-body">
               <div class="subsection">
                 <div class="subsection-title">AI 調査・取消</div>
-                <label>クライアント年度ブック ID<input id="aiBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="aiBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>調査観点（任意）<textarea id="aiResearchQuestion" placeholder="確認したい外部変化"></textarea></label>
                 <div class="btn-row"><button class="btn secondary" onclick="enqueueAiResearch()">AI 調査を追加</button></div>
-                <label>クライアント年度ブック ID<input id="aiRollbackBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="aiRollbackBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn secondary" onclick="loadAiRollbackBasis()">AI 反映を確認</button></div>
                 <div id="aiRollbackBasisSummary" class="status compact">ID を入力して対象を確認してください。</div>
                 <div id="aiRollbackEvidenceList"></div>
@@ -623,9 +623,9 @@
               </div>
               <div class="subsection">
                 <div class="subsection-title">予測・正式予算</div>
-                <label>クライアント年度ブック ID<input id="forecastBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="forecastBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn" onclick="requestForecast()">予測を再投入</button></div>
-                <label>クライアント年度ブック ID<input id="amendmentBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="amendmentBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <div class="btn-row"><button class="btn secondary" onclick="loadAmendmentBasis()">正式予算を読み込む</button></div>
                 <div id="amendmentBasisSummary" class="status compact">ID を入力して現在値を読み込んでください。</div>
                 <label>訂正理由（必須）<textarea id="amendmentReason"></textarea></label>
@@ -641,12 +641,12 @@
               </div>
               <div class="subsection">
                 <div class="subsection-title">差戻し・振り返り</div>
-                <label>クライアント年度ブック ID<input id="returnedBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="returnedBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>Approval Request ID（任意）<input id="returnedApprovalId"></label>
                 <label>進め方<select id="returnedRoute"><option value="PLAN_ONLY">予算案だけ修正</option><option value="REOPEN_INPUT">入力を再開</option><option value="RERUN_SAME_INPUT">同じ入力で再予測</option></select></label>
                 <label>理由（必須）<textarea id="returnedRouteReason"></textarea></label>
                 <div class="btn-row"><button class="btn secondary" onclick="routeReturnedPlan()">差戻し後の進め方を確定</button></div>
-                <label>クライアント年度ブック ID<input id="reviewBookId" list="clientBookList" placeholder="CLIENT-..."></label>
+                <label>年度予算シート ID<input id="reviewBookId" list="clientBookList" placeholder="CLIENT-..."></label>
                 <label>実績確認日<input id="reviewAsOf" placeholder="2027/04/01"></label>
                 <label class="check"><input id="reviewAllowIncomplete" type="checkbox"> 欠損警告を確認して例外的に開始</label>
                 <label>例外開始の理由<textarea id="reviewOverrideReason"></textarea></label>
@@ -661,7 +661,7 @@
           <details class="accordion nested" id="uatResetSection">
             <summary>受入試験をゼロからやり直す</summary>
             <div class="accordion-body">
-              <p class="muted">生成済みクライアント年度ブックと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・申請入口・Template は残します。</p>
+              <p class="muted">生成済み年度予算シートと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・申請入口・Template は残します。</p>
               <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
               <div class="btn-row cols-2">
                 <button class="btn secondary" onclick="previewFreshUatReset()">対象を確認</button>
@@ -677,7 +677,7 @@
     </div>
 
     <div id="nonAdminPanel" class="hidden card">
-      <b>このクライアント年度ブックは管理ハブではありません。</b>
+      <b>この年度予算シートは管理ハブではありません。</b>
       <p class="muted">管理操作は管理ハブで行います。</p>
     </div>
 
@@ -778,7 +778,7 @@
         } else if (/At least 5 fiscal years|confirmed actual history/i.test(raw)) {
           friendly = '予測に必要な確定実績が5年度未満です。ZACの実績範囲を確認してください。';
         } else if (/Requested release is not ACTIVE/i.test(raw)) {
-          friendly = '使用するクライアント年度ブックの版に不整合がありました。「申請を今すぐ処理」から安全な再開を試してください。';
+          friendly = '使用する年度予算シートの版に不整合がありました。「申請を今すぐ処理」から安全な再開を試してください。';
         }
         showStatus(friendly, true);
         $('statusTechnicalText').textContent = raw;
@@ -846,7 +846,7 @@
           } else {
             $('pilotStatus').textContent =
               `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
-              (pilot.blockedReason || '現在の範囲で次のクライアント年度ブックを生成できます。');
+              (pilot.blockedReason || '現在の範囲で次の年度予算シートを生成できます。');
             $('pilotStatus').classList.toggle('error', !!pilot.blocked);
             $('pilotCanaryApproval').classList.toggle('hidden',
               !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
@@ -859,7 +859,7 @@
           const drafts = (model.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
           const staged = (model.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
           $('activeTemplateRelease').textContent =
-            `現行：${model.activeTemplateReleaseId || '未設定'}\nクライアント年度ブック用 runtime：${model.templateRuntimeVersion || '未設定'}\n` +
+            `現行：${model.activeTemplateReleaseId || '未設定'}\n年度予算シート用 runtime：${model.templateRuntimeVersion || '未設定'}\n` +
             `編集用Draft：${drafts || 'なし'}\nSTAGED：${staged || 'なし'}`;
           $('adminRuntimeStatus').textContent = model.adminRuntimeUpdatable
             ? `中央更新経路：有効\n現在SHA-256：${model.adminRuntimeSha256 || '未記録'}`
@@ -963,7 +963,7 @@
           if (/未完了の空Pilot更新|migrationId=|RECOVERY_REQUIRED/i.test(raw)) {
             $('recoverEmptyPilotUpgradeButton').classList.remove('hidden');
           }
-          $('emptyPilotBasis').textContent = 'このクライアント年度ブックは自動更新の安全条件を満たしません。管理ハブ担当者向け詳細を確認してください。';
+          $('emptyPilotBasis').textContent = 'この年度予算シートは自動更新の安全条件を満たしません。管理ハブ担当者向け詳細を確認してください。';
           $('emptyPilotBasis').classList.add('error');
           onFailure(error);
           $('applyEmptyPilotUpgradeButton').disabled = true;
@@ -977,7 +977,7 @@
           showStatus('先に「安全条件を確認」を実行してください。', true); return;
         }
         if (!reason) { showStatus('更新理由を入力してください。', true); return; }
-        if (!window.confirm('選択したテスト用クライアント年度ブックを、同じURLのまま現在の正式版へ更新します。続行しますか？')) return;
+        if (!window.confirm('選択したテスト用年度予算シートを、同じURLのまま現在の正式版へ更新します。続行しますか？')) return;
         setBusy(true); showStatus('同じURLを維持したまま最新版へ更新しています。画面を閉じずにお待ちください…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); emptyPilotUpgradeBasis = null;
@@ -995,7 +995,7 @@
 
       function recoverEmptyPilotUpgrade() {
         const bookId = value('emptyPilotBookSelect');
-        if (!bookId) { showStatus('復旧するクライアント年度ブックを選んでください。', true); return; }
+        if (!bookId) { showStatus('復旧する年度予算シートを選んでください。', true); return; }
         setBusy(true); showStatus('記録済みの更新ログから、安全な状態（旧版か新版のどちらか）へ復旧しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
@@ -1044,7 +1044,7 @@
           } else if (row.bookUrl) {
             const link = document.createElement('a');
             link.href = row.bookUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-            link.textContent = '対象のクライアント年度ブックを開く';
+            link.textContent = '対象の年度予算シートを開く';
             div.appendChild(document.createElement('br'));
             div.appendChild(link);
           }
@@ -1233,7 +1233,7 @@
           showStatus('管理ハブ Spreadsheet ID、ZACと一致するクライアント名、FY、予算策定担当を入力してください。', true);
           return;
         }
-        setBusy(true); showStatus('中央プロジェクトからテスト用のクライアント年度ブックを生成しています…');
+        setBusy(true); showStatus('中央プロジェクトからテスト用の年度予算シートを生成しています…');
         google.script.run.withSuccessHandler(result => { setBusy(false); showStatus(result); })
           .withFailureHandler(onFailure).vNextAdminProvisionPilotClientFromSource({
             hubSpreadsheetId, clientName, fiscalYear, forecastOwnerEmails,
@@ -1248,7 +1248,7 @@
           .withFailureHandler(onFailure).vNextAdminInstallPilotAutomationFromSource({hubSpreadsheetId});
       }
       function provisionClient() {
-        setBusy(true); showStatus('クライアント年度ブックを生成しています…');
+        setBusy(true); showStatus('年度予算シートを生成しています…');
         const req = {
           clientId:value('clientId'), clientName:value('clientName'), fiscalYear:value('fiscalYear'),
           forecastOwnerEmails:value('ownerEmails'), editorEmails:value('editorEmails'), viewerEmails:value('viewerEmails'),
@@ -1913,7 +1913,7 @@
       }
       function loadAmendmentBasis() {
         const bookId = value('amendmentBookId');
-        if (!bookId) { showStatus('訂正対象のクライアント年度ブック IDを入力してください。', true); return; }
+        if (!bookId) { showStatus('訂正対象の年度予算シート IDを入力してください。', true); return; }
         setBusy(true); showStatus('現在の正式予算を確認しています…');
         google.script.run.withSuccessHandler(basis => {
           setBusy(false); amendmentBasis = basis;
@@ -1936,7 +1936,7 @@
       function createAmendmentApproval() {
         const bookId = value('amendmentBookId');
         if (!amendmentBasis || amendmentBasis.bookId !== bookId) {
-          showStatus('先に対象クライアント年度ブックの現在の正式予算を読み込んでください。', true); return;
+          showStatus('先に対象年度予算シートの現在の正式予算を読み込んでください。', true); return;
         }
         const rawAllocation = value('amendmentAllocation');
         const allocation = rawAllocation
@@ -2038,7 +2038,7 @@
       }
       function loadAiRollbackBasis() {
         const bookId = value('aiRollbackBookId');
-        if (!bookId) { showStatus('AI反映を確認するクライアント年度ブック IDを入力してください。', true); return; }
+        if (!bookId) { showStatus('AI反映を確認する年度予算シート IDを入力してください。', true); return; }
         setBusy(true); showStatus('最新runのAI反映を確認しています…');
         google.script.run.withSuccessHandler(basis => {
           setBusy(false); aiRollbackBasis = basis;
@@ -2078,7 +2078,7 @@
       function rollbackAiEvidence() {
         const bookId = value('aiRollbackBookId');
         if (!aiRollbackBasis || aiRollbackBasis.bookId !== bookId) {
-          showStatus('先に対象クライアント年度ブックの最新 run を読み込んでください。', true); return;
+          showStatus('先に対象年度予算シートの最新 run を読み込んでください。', true); return;
         }
         const scope = value('aiRollbackScope');
         const evidenceIds = [...document.querySelectorAll('.aiRollbackEvidence:checked')].map(input => input.value);
@@ -2151,7 +2151,7 @@
           .withFailureHandler(onFailure).vNextAdminCloseYear({bookId:value('reviewBookId'), reason:value('closeReason')});
       }
       function previewFreshUatReset() {
-        setBusy(true); showStatus('削除対象のクライアント年度ブックを確認しています（シートは変更しません）…');
+        setBusy(true); showStatus('削除対象の年度予算シートを確認しています（シートは変更しません）…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const lines = (result.clients || []).map(item =>
@@ -2165,8 +2165,8 @@
         if (confirmation !== 'RESET_GENERATED_CLIENTS') {
           showStatus('確認語 RESET_GENERATED_CLIENTS を入力してください。', true); return;
         }
-        if (!window.confirm('生成済みのクライアント年度ブックをゴミ箱へ移し、予測・申請・承認の試験データを消します。管理ハブと申請入口は残ります。続行しますか？')) return;
-        setBusy(true); showStatus('生成済みクライアント年度ブックを削除し、申請入口を初期状態へ戻しています。画面を閉じずにお待ちください…');
+        if (!window.confirm('生成済みの年度予算シートをゴミ箱へ移し、予測・申請・承認の試験データを消します。管理ハブと申請入口は残ります。続行しますか？')) return;
+        setBusy(true); showStatus('生成済み年度予算シートを削除し、申請入口を初期状態へ戻しています。画面を閉じずにお待ちください…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           $('freshUatResetConfirmation').value = '';

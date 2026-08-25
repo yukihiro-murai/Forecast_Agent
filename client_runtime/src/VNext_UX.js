@@ -86,7 +86,7 @@ function vNextOpenTemplateGuidance() {
   try {
     SpreadsheetApp.getUi().alert(
       '年度予算策定',
-      'このクライアント年度ブックは生成用のひな型です。現場のクライアント年度ブックは申請入口から作成してください。',
+      'この年度予算シートは生成用のひな型です。現場の年度予算シートは申請入口から作成してください。',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   } catch (err) {
@@ -104,7 +104,7 @@ function vNextSetupClientExperience_() {
     return { ok: true };
   } catch (err) {
     Logger.log('vNextSetupClientExperience_ error: ' + vNextUxErrorText_(err));
-    throw new Error('クライアント年度ブック画面を準備できませんでした。管理ハブ担当者へ連絡してください。');
+    throw new Error('年度予算シート画面を準備できませんでした。管理ハブ担当者へ連絡してください。');
   }
 }
 
@@ -130,7 +130,7 @@ function vNextGoHomeAndShowGuidance() {
   }
 }
 
-/** 案内の自動表示を、このクライアント年度ブックのproject triggerとして有効化する。 */
+/** 案内の自動表示を、この年度予算シートのproject triggerとして有効化する。 */
 function vNextInstallAutomaticGuidance() {
   try {
     var installed = vNextUxEnsureGuidanceOnOpenTrigger_();
@@ -1013,7 +1013,7 @@ function vNextUxGetPrimaryAction_(context) {
   var definitions = {
     INPUT_OPEN: canContribute
       ? { key: 'INPUT', label: '自分の見立てを回答する', instruction: '過去実績だけでは表せない変化について回答してください。' }
-      : { key: 'WAIT', label: '閲覧のみです', instruction: 'このクライアント年度ブックの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
+      : { key: 'WAIT', label: '閲覧のみです', instruction: 'この年度予算シートの情報提供メンバーには登録されていません。現在、必要な操作はありません。' },
     READY_TO_RUN: owner
       ? { key: 'REQUEST_FORECAST', label: '予測を依頼する', instruction: '入力状況を確認し、予測の作成を依頼してください。' }
       : canContribute && !submitted

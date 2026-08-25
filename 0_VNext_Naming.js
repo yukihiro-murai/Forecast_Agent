@@ -13,9 +13,9 @@ var VNEXT_NAMING = Object.freeze({
   LEGACY_SHARED_DRIVE: '年度計画',
   ADMIN_HUB: '管理ハブ',
   PORTAL: '申請入口',
-  CLIENT_BOOK: 'クライアント年度ブック',
+  CLIENT_BOOK: '年度予算シート',
   LAYER1_SHORT: '第1層：申請入口',
-  LAYER2_SHORT: '第2層：クライアント年度ブック',
+  LAYER2_SHORT: '第2層：年度予算シート',
   LAYER3_SHORT: '第3層：管理ハブ',
   PORTAL_DEFAULT_TITLE: '申請入口',
   WEB_ENTRY: '年度予算策定 Web入口',
@@ -36,13 +36,13 @@ var VNEXT_NAMING = Object.freeze({
   FORMAL_BUDGET: '正式予算',
   BUDGET_DRAFT: '予算案',
   ADMIN_CONTACT: '管理ハブ担当者',
-  CLIENT_BOOK_ID: 'クライアント年度ブック ID',
+  CLIENT_BOOK_ID: '年度予算シート ID',
   /** @deprecated Use ADMIN_HUB / PORTAL / CLIENT_BOOK. Kept for internal audit notes. */
   LAYER1: '管理ハブ',
   /** @deprecated Use PORTAL. */
   LAYER2: '申請入口',
   /** @deprecated Use CLIENT_BOOK. */
-  LAYER3: 'クライアント年度ブック',
+  LAYER3: '年度予算シート',
   /** @deprecated Use PORTAL_DEFAULT_TITLE. */
   LAYER2_DEFAULT_TITLE: '申請入口'
 });

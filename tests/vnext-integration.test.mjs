@@ -232,7 +232,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.8.1',
+    version: 'vnext-client-1.8.2',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -281,7 +281,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.21');
+  assert.equal(bundle.version, 'vnext-portal-1.7.22');
   assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -775,7 +775,7 @@ async function checkAdminCoverageContracts() {
     {job_type:'FORECAST_REQUEST',status:'RUNNING',job_id:'J2',created_at:'2026-08-12T00:01:00.000Z'}
   ]);
   assert.equal(sidebarJobs[0].status, 'FAILED');
-  assert.equal(sidebarJobs[0].taskLabel, 'クライアント年度ブックの作成');
+  assert.equal(sidebarJobs[0].taskLabel, '年度予算シートの作成');
   assert.equal(sidebarJobs[0].safeRetryCandidate, true);
   const mismatchedException = sandbox.vNextAdminExceptionForSidebar_({
     exception_type:'JOB_FAILED', source_ref:'CURRENT-UNSAFE', book_id:'BOOK-1'

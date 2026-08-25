@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.21';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.22';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-stability-pass';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-naming-unify';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20', 'vnext-portal-1.7.21',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -875,12 +875,12 @@ function vNextAdminExceptionForSidebar_(row, registryByBook, jobRows) {
   const registry = registryByBook && registryByBook[bookId] || {};
   const actualIssue = vNextAdminIsActualDataIssue_(source);
   const categoryLabels = {
-    BOOK_HEALTH: actualIssue ? '実績データの確認' : 'クライアント年度ブックの状態確認',
+    BOOK_HEALTH: actualIssue ? '実績データの確認' : '年度予算シートの状態確認',
     JOB_FAILED: actualIssue ? '実績データ不足' : '自動処理を完了できませんでした',
     JOB_QUEUE_STALE: '処理に時間がかかっています',
     SCHEDULER_STALE: '自動更新が止まっている可能性があります',
-    PORTAL_PROVISION_FAILED: 'クライアント年度ブックを作成できませんでした',
-    CLIENT_PROVISION_FAILED: 'クライアント年度ブックを作成できませんでした',
+    PORTAL_PROVISION_FAILED: '年度予算シートを作成できませんでした',
+    CLIENT_PROVISION_FAILED: '年度予算シートを作成できませんでした',
     OFFICIAL_CLIENT_SYNC_FAILED: '正式予算の反映が未完了です',
     OFFICIAL_COPY_FAILED: '正式予算の反映が未完了です',
     PORTAL_REQUEST_REJECTED: '申請入口からの作成依頼を確認してください'
@@ -942,13 +942,13 @@ function vNextAdminIsKnownSafeRetryCandidate_(job) {
 
 function vNextAdminJobsForSidebar_(rows) {
   const labels = {
-    PORTAL_PROVISION_CLIENT: 'クライアント年度ブックの作成',
+    PORTAL_PROVISION_CLIENT: '年度予算シートの作成',
     FORECAST_REQUEST: '売上予測の計算',
     AI_ROLLBACK_FORECAST: 'AI反映取消後の再計算',
     AI_RESEARCH: '外部情報の確認',
-    HEALTH_SCAN: 'クライアント年度ブックの状態確認',
+    HEALTH_SCAN: '年度予算シートの状態確認',
     REFRESH_CLIENT_VIEW: '画面の更新',
-    MIGRATION: 'クライアント年度ブックの版更新'
+    MIGRATION: '年度予算シートの版更新'
   };
   const statusLabels = {
     QUEUED: '受付済み', RUNNING: '処理中', FAILED: '要確認', SUCCEEDED: '完了'
@@ -1997,6 +1997,14 @@ function vNextAdminDeployVerifiedEmployeeUxFinalize_(request) {
     }
     const pair = vNextAdminReadActiveReleasePair_(hub);
     const activeRelease = vNextAdminResolveRelease_(hub, pair.releaseId);
+    // Drive titles drift (legacy names, manual renames); every deploy pulls them
+    // back to the user-facing names so UI copy and file names never diverge.
+    let nameAlignment = null;
+    try {
+      nameAlignment = vNextAdminAlignSpreadsheetNamesInHub_(hub);
+    } catch (alignError) {
+      nameAlignment = { renamed: [], skipped: ['align failed: ' + String(alignError && alignError.message || alignError)] };
+    }
     const verification = vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, { light: true });
     const result = vNextAdminJsonSafe_({
       ok: verification.ok === true,
@@ -2012,11 +2020,15 @@ function vNextAdminDeployVerifiedEmployeeUxFinalize_(request) {
       release: req.release || null,
       portal: req.portal || null,
       emptyPilots: emptyPilots,
+      nameAlignment: nameAlignment,
       verification: verification,
       completedAt: new Date().toISOString(),
-      message: verification.ok
+      message: (verification.ok
         ? '反映を自動確認しました（版一致）。必要なら「いま反映済みか確認」で詳細検査できます。'
-        : '反映は完了しましたが、自動確認で ' + verification.failedCount + ' 件の不一致があります。'
+        : '反映は完了しましたが、自動確認で ' + verification.failedCount + ' 件の不一致があります。') +
+        (nameAlignment && nameAlignment.renamed && nameAlignment.renamed.length
+          ? '\nファイル名' + nameAlignment.renamed.length + '件を表示名にそろえました。'
+          : '')
     });
     vNextAdminWriteAudit_(hub, 'DEPLOY_VERIFIED_EMPLOYEE_UX', 'ADMIN_RUNTIME', hub.getId(), 'SUCCESS', result);
     PropertiesService.getScriptProperties().setProperty(
@@ -5231,7 +5243,7 @@ function vNextAdminRecoverOnlyFailedPreflightPilotForManualTest() {
   return vNextAdminRecoverFailedPreflightPilotClientUpgrade({
     bookId: String(rows[0].book_id || ''), migrationId: String(rows[0].migration_id || ''),
     direction: 'TARGET',
-    reason: 'Apps Script editorから中断した入力済みPilot更新を現在のクライアント年度ブック用 release へ復旧'
+    reason: 'Apps Script editorから中断した入力済みPilot更新を現在の年度予算シート用 release へ復旧'
   });
 }
 
@@ -5514,7 +5526,7 @@ function vNextAdminUpgradeOnlyDraftReadyPilotUxForManualTest() {
   if (candidates.length !== 1) throw new Error('更新候補のDRAFT_READY Pilotが1冊に確定しません: ' +
     candidates.length + '冊');
   return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
-    dryRun: false, reason: '予測 record を保持したままクライアント年度ブック案内を現在版へ更新' });
+    dryRun: false, reason: '予測 record を保持したまま年度予算シート案内を現在版へ更新' });
 }
 
 /** Same-URL employee UX update for the single submitted, not-yet-official Pilot. */
@@ -5533,7 +5545,7 @@ function vNextAdminUpgradeOnlySubmittedPilotUxForManualTest() {
     candidates.length + '冊');
   return vNextAdminUpgradeDraftReadyPilotUx({ bookId: String(candidates[0].book_id || ''),
     preservedState: 'SUBMITTED', dryRun: false,
-    reason: '予測・提出済み予算案・承認待ちを保持したままクライアント年度ブック UX を現在版へ更新' });
+    reason: '予測・提出済み予算案・承認待ちを保持したまま年度予算シート UX を現在版へ更新' });
 }
 
 function vNextAdminRecoverDraftReadyPilotUxUpgrade(request) {
@@ -6105,6 +6117,15 @@ function vNextAdminAlignSpreadsheetNames() {
   return vNextAdminGuard_('vNextAdminAlignSpreadsheetNames', function () {
     const hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
+    const result = vNextAdminAlignSpreadsheetNamesInHub_(hub);
+    return result.renamed.length
+      ? ('ファイル名を表示名にそろえました（' + result.renamed.length + '件）: ' +
+        result.renamed.map(function (row) { return '「' + row.before + '」→「' + row.after + '」'; }).join(' / '))
+      : 'すべてのファイル名は既に表示名と一致しています。';
+  });
+}
+
+function vNextAdminAlignSpreadsheetNamesInHub_(hub) {
     const renamed = [];
     const skipped = [];
     function renameFile(id, title, label) {
@@ -6129,14 +6150,12 @@ function vNextAdminAlignSpreadsheetNames() {
         '年度予算シート ' + String(row.client_name || '') + ' FY' + String(row.fiscal_year || ''),
         String(row.client_name || row.book_id || ''));
     });
-    vNextAdminWriteAudit_(hub, 'ALIGN_SPREADSHEET_NAMES', 'DRIVE', hub.getId(), 'SUCCESS', {
-      renamed: renamed, skipped: skipped
-    });
-    return renamed.length
-      ? ('ファイル名を表示名にそろえました（' + renamed.length + '件）: ' +
-        renamed.map(function (row) { return '「' + row.before + '」→「' + row.after + '」'; }).join(' / '))
-      : 'すべてのファイル名は既に表示名と一致しています。';
-  });
+    if (renamed.length) {
+      vNextAdminWriteAudit_(hub, 'ALIGN_SPREADSHEET_NAMES', 'DRIVE', hub.getId(), 'SUCCESS', {
+        renamed: renamed, skipped: skipped
+      });
+    }
+    return { renamed: renamed, skipped: skipped };
 }
 
 /** Central-source fallback used when Hub is not the active container. */
@@ -7403,7 +7422,7 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
       protectedSpreadsheetCount: protectedIds.size
     },
     message: apply
-      ? '生成済みクライアント年度ブックと検証ログを削除し、申請入口から作り直せる状態に戻しました。'
+      ? '生成済み年度予算シートと検証ログを削除し、申請入口から作り直せる状態に戻しました。'
       : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。試験ログも消します。' +
         VNEXT_NAMING.LAYER1 + ' / ' + VNEXT_NAMING.LAYER2 + ' / Template は残します。')
   };
@@ -8320,7 +8339,7 @@ function vNextAdminEnsureUiShell_(ss, options) {
           : vNextFormatClientBookTitle_(opt.clientName, opt.fiscalYear);
         sheet.getRange('A1').setValue(title).setFontWeight('bold').setFontSize(16);
         sheet.getRange('A3').setValue(opt.template
-          ? 'Master Templateです。クライアント年度ブックは' + VNEXT_NAMING.LAYER1 + 'から生成してください。'
+          ? 'Master Templateです。年度予算シートは' + VNEXT_NAMING.LAYER1 + 'から生成してください。'
           : '準備中です。メニュー「' + VNEXT_NAMING.MENU + '」から「ホームに戻る」を選んでください。');
       } else if (name === '2_予測と計画') {
         sheet.getRange('A1').setValue('予測と計画').setFontWeight('bold');
@@ -8418,7 +8437,7 @@ function vNextAdminMarkPortalJobFailed_(hub, job, message) {
   vNextAdminAppendException_(hub, {
     severity: 'ERROR', exception_type: 'PORTAL_PROVISION_FAILED', book_id: String(payload.requestId || ''),
     client_name: String(payload.clientName || ''), fiscal_year: Number(payload.fiscalYear || 0),
-    title: '申請入口経由のクライアント年度ブック作成に失敗', detail: String(message || '').slice(0, 1200),
+    title: '申請入口経由の年度予算シート作成に失敗', detail: String(message || '').slice(0, 1200),
     recommended_action: 'JOB_QUEUEと生成途中BOOK_REGISTRYを確認し、必要なら再依頼', source_ref: job.job_id
   });
   return true;
@@ -9340,12 +9359,12 @@ function vNextAdminRejectPortalExistingBook_(hub, portal, validated, registry, d
   const extra = detail || {};
   vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'REJECTED', 'REJECTED', {
     relatedBookId: '', relatedBookUrl: '', detailCode: String(extra.code || 'EXISTING_BOOK_ADMIN_ACCESS_REQUIRED'),
-    detailMessage: '既存のクライアント年度ブックがありますが、社内共通アクセスの確認が必要です。管理担当者へ連絡してください。'
+    detailMessage: '既存の年度予算シートがありますが、社内共通アクセスの確認が必要です。管理担当者へ連絡してください。'
   });
   vNextAdminAppendException_(hub, {
     severity: 'WARN', exception_type: 'PORTAL_EXISTING_BOOK_ACCESS_REQUIRED',
     book_id: String(registry.book_id || ''), client_name: String(registry.client_name || ''),
-    fiscal_year: Number(registry.fiscal_year || 0), title: '既存クライアント年度ブックのアクセス確認が必要',
+    fiscal_year: Number(registry.fiscal_year || 0), title: '既存年度予算シートのアクセス確認が必要',
     detail: 'request=' + String(validated.payload && validated.payload.requestId || '') +
       '; code=' + String(extra.code || '') + (extra.detail ? '; ' + String(extra.detail) : ''),
     recommended_action: '既存bookの共有方針を管理ハブが確認し、必要ならversioned migrationでINTERNAL_OPENへ変更',
@@ -9390,7 +9409,7 @@ function vNextAdminHarvestPortalRequests_(hub) {
         }
         vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
           relatedBookId: duplicates[0].book_id, relatedBookUrl: duplicates[0].spreadsheet_url,
-          detailCode: 'EXISTING_BOOK_REUSED', detailMessage: '既存のクライアント年度ブックをご利用ください。'
+          detailCode: 'EXISTING_BOOK_REUSED', detailMessage: '既存の年度予算シートをご利用ください。'
         });
         result.reused++;
         return;
@@ -9794,7 +9813,7 @@ function vNextAdminExecuteJob_(hub, job) {
       vNextAdminAppendPortalRequestEvent_(portal.spreadsheet, validated, 'COMPLETED', 'COMPLETED', {
         relatedJobId: job.job_id, relatedBookId: provisioned.bookId,
         relatedBookUrl: provisioned.spreadsheetUrl, detailCode: provisioned.reused ? 'EXISTING_BOOK_REUSED' : 'CREATED',
-        detailMessage: provisioned.reused ? '既存のクライアント年度ブックをご利用ください。' : 'クライアント年度ブックを利用できます。'
+        detailMessage: provisioned.reused ? '既存の年度予算シートをご利用ください。' : '年度予算シートを利用できます。'
       });
       vNextAdminResolveOpenExceptions_(hub, validated.payload.requestId,
         ['PORTAL_PROVISION_FAILED'], job.job_id);
@@ -12603,7 +12622,7 @@ function vNextAdminRefreshHome_(hub) {
     ['自動更新', !automationInstalled ? '未設定' : operations.schedulerStale ? '要確認' : '正常'],
     ['最終自動更新', operations.lastSweepSucceededAt || '未実行'],
     ['', ''],
-    ['登録済みクライアント年度ブック', clientCount + '冊'],
+    ['登録済み年度予算シート', clientCount + '冊'],
     ['Pilot展開', pilot.clientCount + ' / ' + pilot.currentLimit + '冊'],
     ['', ''],
     ['次の操作', '迷ったら手順A。右側の案内が出ないときだけメニュー「' + VN_ADMIN_MENU_NAME + '」→「' + VN_ADMIN_MENU_OPEN_SIDEBAR + '」。'],

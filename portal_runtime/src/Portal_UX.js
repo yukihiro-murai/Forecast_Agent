@@ -10,7 +10,7 @@ function doGet() {
     var template = HtmlService.createTemplateFromFile('Portal_Entry');
     template.entryModelJson = vNextPortalEntryModelJsonForTemplate_();
     return template.evaluate()
-      .setTitle(VNEXT_PORTAL_NAMING.SYSTEM)
+      .setTitle(VNEXT_PORTAL_NAMING.WEB_ENTRY)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (error) {
     vNextPortalLog_('doGet failed', error);

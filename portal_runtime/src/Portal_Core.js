@@ -8,20 +8,20 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
   MENU: '年度予算策定',
   ADMIN_HUB: '管理ハブ',
   PORTAL: '申請入口',
-  CLIENT_BOOK: 'クライアント年度ブック',
+  CLIENT_BOOK: '年度予算シート',
   LAYER1_SHORT: '第1層：申請入口',
-  LAYER2_SHORT: '第2層：クライアント年度ブック',
+  LAYER2_SHORT: '第2層：年度予算シート',
   LAYER3_SHORT: '第3層：管理ハブ',
   WEB_ENTRY: '年度予算策定 Web入口',
   /** @deprecated Use PORTAL. */
   LAYER2: '申請入口',
   /** @deprecated Use CLIENT_BOOK. */
-  LAYER3: 'クライアント年度ブック'
+  LAYER3: '年度予算シート'
 });
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.21',
+  RUNTIME_VERSION: 'vnext-portal-1.7.22',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
