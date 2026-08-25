@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.20';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.21';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-type-hierarchy';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-file-naming';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -1152,7 +1152,7 @@ function vNextAdminBootstrapFromCurrent(request) {
       const actor = vNextAdminActor_();
       const vertexConfig = vNextAdminResolveBootstrapVertexConfig_(runtime);
       const stamp = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
-      const hubName = vNextAdminText_(req.hubName) || ('Forecast vNext 管理ハブ ' + stamp);
+      const hubName = vNextAdminText_(req.hubName) || ('年度予算策定 管理ハブ ' + stamp);
       const templateName = vNextAdminText_(req.templateName) || ('Forecast vNext Master Template ' + stamp);
       const releaseId = vNextAdminText_(req.releaseId) || ('vnext-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd'));
       const modelReleaseId = vNextAdminText_(req.modelReleaseId) ||
@@ -2577,7 +2577,7 @@ function vNextAdminProvisionClientInHub_(hub, request) {
       vNextAdminAssertReleaseTemplateManifest_(release, template);
 
       const idempotencyKey = vNextAdminText_(req.idempotencyKey) || ['PROVISION', clientId, fiscalYear, release.release_id].join('|');
-      const name = vNextAdminText_(req.bookName) || ('Forecast ' + clientName + ' FY' + fiscalYear);
+      const name = vNextAdminText_(req.bookName) || ('年度予算シート ' + clientName + ' FY' + fiscalYear);
       const bookId = 'CLIENT-' + Utilities.getUuid();
       const actor = vNextAdminActor_();
       const now = new Date();
@@ -6092,6 +6092,50 @@ function vNextAdminRelocateLibraryToSharedDrive(request) {
   return vNextAdminGuard_('vNextAdminRelocateLibraryToSharedDrive', function () {
     const hub = vNextAdminRequireHub_();
     return vNextAdminRelocateLibraryInHub_(hub, request, false);
+  });
+}
+
+/**
+ * Renames the Hub / Portal / client-book Drive files so their titles match the
+ * user-facing names in the UI copy. Spreadsheet IDs are untouched and nothing
+ * in the runtime keys off file names (detection is sheet/config based), so
+ * this is safe to run at any time. Public name: called from the sidebar.
+ */
+function vNextAdminAlignSpreadsheetNames() {
+  return vNextAdminGuard_('vNextAdminAlignSpreadsheetNames', function () {
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const renamed = [];
+    const skipped = [];
+    function renameFile(id, title, label) {
+      if (!id || !title) { skipped.push(label + ': 対象なし'); return; }
+      try {
+        const file = DriveApp.getFileById(id);
+        const before = String(file.getName() || '');
+        if (before === title) { skipped.push(label + ': 一致済み'); return; }
+        file.setName(title);
+        renamed.push({ label: label, before: before, after: title });
+      } catch (error) {
+        skipped.push(label + ': ' + String(error && error.message || error));
+      }
+    }
+    renameFile(hub.getId(), VNEXT_NAMING.SYSTEM + ' ' + VNEXT_NAMING.ADMIN_HUB, VNEXT_NAMING.ADMIN_HUB);
+    const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    renameFile(String(hubConfig.portal_spreadsheet_id || ''), VNEXT_NAMING.PORTAL_DEFAULT_TITLE, VNEXT_NAMING.PORTAL);
+    vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.REGISTRY).rows.forEach(function (row) {
+      if (String(row.mode || '').toUpperCase() !== 'CLIENT' ||
+          String(row.status || '').toUpperCase() === 'ARCHIVED') return;
+      renameFile(String(row.spreadsheet_id || ''),
+        '年度予算シート ' + String(row.client_name || '') + ' FY' + String(row.fiscal_year || ''),
+        String(row.client_name || row.book_id || ''));
+    });
+    vNextAdminWriteAudit_(hub, 'ALIGN_SPREADSHEET_NAMES', 'DRIVE', hub.getId(), 'SUCCESS', {
+      renamed: renamed, skipped: skipped
+    });
+    return renamed.length
+      ? ('ファイル名を表示名にそろえました（' + renamed.length + '件）: ' +
+        renamed.map(function (row) { return '「' + row.before + '」→「' + row.after + '」'; }).join(' / '))
+      : 'すべてのファイル名は既に表示名と一致しています。';
   });
 }
 
