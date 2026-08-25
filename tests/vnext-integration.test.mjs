@@ -356,6 +356,8 @@ async function checkPortalRuntimeBoundary() {
   assert.match(adminSource, /VN_ADMIN_PORTAL_REQUEST_SCHEMA\s*=\s*'vnext-portal-request-2'/);
   assert.match(adminSource, /function vNextAdminRefreshZacClientCatalog\(/);
   assert.match(adminSource, /function vNextAdminUpdateSharedPortalRuntime\(/);
+  assert.match(adminSource, /function vNextAdminPortalWebAppPinnedToStored_\(/);
+  assert.match(adminSource, /portal_web_app_version/);
   assert.match(adminSource, /VN_ADMIN_ZAC_CLIENT_CODE_COLUMN\s*=\s*40/);
   assert.match(adminSource, /VN_ADMIN_ZAC_CLIENT_NAME_COLUMN\s*=\s*41/);
   assert.match(adminSource, /forecastOwnerEmail:\s*requestedBy/,

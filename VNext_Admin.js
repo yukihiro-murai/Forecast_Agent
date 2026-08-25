@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.21';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-file-naming';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-stability-pass';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -6259,20 +6259,38 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION &&
           portal.runtimeSha256 === targetSha) {
         if (fastDeploy) {
+          if (vNextAdminPortalWebAppPinnedToStored_(portal.scriptId, hub, expectedWebAppUrl)) {
+            vNextAdminWriteDevDeployProgress_('PORTAL_DONE', {
+              reused: true, runtimeVersion: portal.runtimeVersion, fastDeploy: true
+            });
+            return {
+              ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
+              runtimeSha256: portal.runtimeSha256, catalog: { skipped: true },
+              webAppUrl: expectedWebAppUrl,
+              message: 'Web入口はすでに最新版です。ブラウザでハード再読み込みしてください。'
+            };
+          }
+          const fastWebApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
+          vNextAdminRememberPortalWebAppUrl_(hub, portal, fastWebApp.webAppUrl, fastWebApp.versionNumber);
+          vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
+            scriptId: portal.scriptId, versionNumber: fastWebApp.versionNumber,
+            webAppUrl: fastWebApp.webAppUrl, runtimeVersion: portal.runtimeVersion,
+            reused: true, republishedStalePin: true
+          });
           vNextAdminWriteDevDeployProgress_('PORTAL_DONE', {
-            reused: true, runtimeVersion: portal.runtimeVersion, fastDeploy: true
+            reused: true, republished: true, runtimeVersion: portal.runtimeVersion, fastDeploy: true
           });
           return {
-            ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
+            ok: true, reused: true, republished: true, runtimeVersion: portal.runtimeVersion,
             runtimeSha256: portal.runtimeSha256, catalog: { skipped: true },
-            webAppUrl: expectedWebAppUrl,
-            message: 'Web入口はすでに最新版です。ブラウザでハード再読み込みしてください。'
+            webAppUrl: fastWebApp.webAppUrl, webAppVersion: fastWebApp.versionNumber,
+            message: 'Web入口の内容は最新でしたが、公開されている版が古かったため公開し直しました。ハード再読み込みしてください。' + fastWebApp.versionWarning
           };
         }
         const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
-        vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
+        vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl, webApp.versionNumber);
         vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
           scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
           webAppUrl: webApp.webAppUrl, runtimeVersion: portal.runtimeVersion, reused: true
@@ -6281,7 +6299,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
           runtimeSha256: portal.runtimeSha256, catalog: catalog,
           webAppUrl: webApp.webAppUrl, webAppVersion: webApp.versionNumber,
-          message: '申請入口のファイルは最新版です。' + VNEXT_NAMING.WEB_ENTRY + 'を同じURLのまま公開し直しました。入口をハード再読み込みしてください。'
+          message: '申請入口のファイルは最新版です。' + VNEXT_NAMING.WEB_ENTRY + 'を同じURLのまま公開し直しました。入口をハード再読み込みしてください。' + webApp.versionWarning
         };
       }
       if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
@@ -6419,14 +6437,14 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
         throw migrationError;
       }
       const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
-      vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
+      vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl, webApp.versionNumber);
       vNextAdminWriteAudit_(hub, 'PUBLISH_EMPLOYEE_PORTAL_WEBAPP', 'PORTAL', portal.portalId, 'SUCCESS', {
         scriptId: portal.scriptId, versionNumber: webApp.versionNumber,
         webAppUrl: webApp.webAppUrl, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, reused: false
       });
       migrated.webAppUrl = webApp.webAppUrl;
       migrated.webAppVersion = webApp.versionNumber;
-      migrated.message = '申請入口を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。';
+      migrated.message = '申請入口を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。' + webApp.versionWarning;
       return migrated;
     }, 90000);
   });
@@ -6496,7 +6514,33 @@ function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
   if (requiredId && webAppUrl.indexOf(requiredId) < 0) {
     throw new Error('Portal /exec URL changed during republish.');
   }
-  return { versionNumber: versionNumber, webAppUrl: webAppUrl, deploymentId: selectedId };
+  // Apps Script projects cap out around 200 saved versions and each publish
+  // consumes one; surface the runway before the web app becomes unpublishable.
+  const versionWarning = versionNumber >= 150
+    ? '\n注意: Web公開の内部版数が ' + versionNumber + '/約200 に達しています。上限に近づくと公開更新ができなくなるため、管理者へ相談してください。'
+    : '';
+  return { versionNumber: versionNumber, webAppUrl: webAppUrl, deploymentId: selectedId, versionWarning: versionWarning };
+}
+
+/**
+ * True when the /exec deployment is pinned to the version recorded at the last
+ * successful publish. Guards the fastDeploy reuse path against the interrupted
+ * case "content PUT + pins succeeded but republish failed" — content alone
+ * matching must not report the live web app as up to date.
+ */
+function vNextAdminPortalWebAppPinnedToStored_(scriptId, hub, expectedUrl) {
+  try {
+    const stored = Number(
+      vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET).portal_web_app_version || 0);
+    if (!stored) return false;
+    const listed = vNextClientRuntimeApiRequest_(
+      '/projects/' + encodeURIComponent(scriptId) + '/deployments', 'get');
+    const selected = vNextAdminSelectPortalWebAppDeployment_(listed.deployments || [], expectedUrl);
+    return Number(selected && selected.deploymentConfig &&
+      selected.deploymentConfig.versionNumber || 0) === stored;
+  } catch (error) {
+    return false;
+  }
 }
 
 function vNextAdminWebAppUrlFromDeployment_(deployment) {
@@ -6541,10 +6585,12 @@ function vNextAdminEmployeePortalWebAppUrl_(hub) {
   }
 }
 
-function vNextAdminRememberPortalWebAppUrl_(hub, portal, webAppUrl) {
+function vNextAdminRememberPortalWebAppUrl_(hub, portal, webAppUrl, versionNumber) {
   const url = String(webAppUrl || '').trim();
   if (!url) return;
-  vNextAdminWriteSystemConfig_(hub, { portal_web_app_url: url });
+  const config = { portal_web_app_url: url };
+  if (Number(versionNumber) > 0) config.portal_web_app_version = String(versionNumber);
+  vNextAdminWriteSystemConfig_(hub, config);
   const existing = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (item) {
     return String(item.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
   });

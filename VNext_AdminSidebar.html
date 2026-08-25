@@ -1513,6 +1513,7 @@
         const headline = $('devDeployHeadline');
         if (headline) { headline.className = 'overview processing'; headline.textContent = '反映を実行しています…'; }
         setDeployNote('');
+        deployRetryWaiting = false;
         activeDeployStep = '';
       }
       function setDeployNote(text, tone) {
