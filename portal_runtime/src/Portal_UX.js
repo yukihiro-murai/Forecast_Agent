@@ -179,25 +179,14 @@ function vNextPortalRenderHome_(sheet, data) {
   var requests = data.requests.slice().sort(function (a, b) {
     return String(b.updatedAt || b.requestedAt).localeCompare(String(a.updatedAt || a.requestedAt));
   }).slice(0, 20);
-  vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
-  sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.PORTAL)
-    .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('このシートは、年度予算シート（クライアント1社×1年度ごとのスプレッドシート）の作成申請の状況一覧です。セルは直接編集しません。シートを開く・新しく作成を申請する操作は Web入口ページの 01・02 から。右側に案内が出ていないときは、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」で表示できます。')
-    .setFontSize(10).setFontColor('#5f6368');
-  sheet.getRange('A3').setValue('作成依頼の状況')
-    .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('E3').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
-  sheet.getRange('F3').setValue(vNextPortalDisplayDateTime_(new Date()))
-    .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
-
+  vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 3), 6);
+  // Data-hygiene rule: view sheets hold ONLY a header row plus data rows.
+  // All explanations live in the guidance sidebar, never in cells.
   var headers = ['状態', 'クライアント', '年度', '次の案内', '更新', '開く'];
-  sheet.getRange(4, 1, 1, headers.length).setValues([headers])
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4')
     .setHorizontalAlignment('left');
-  if (!requests.length) {
-    sheet.getRange('A5').setValue('作成依頼はまだありません。')
-      .setFontColor('#5f6368').setFontStyle('italic');
-  } else {
+  if (requests.length) {
     var rows = requests.map(function (request) {
       var progress = vNextPortalRequestProgressModel_(request);
       return [
@@ -206,42 +195,33 @@ function vNextPortalRenderHome_(sheet, data) {
         vNextPortalDisplayDateTime_(request.updatedAt), request.url ? '開く' : '準備中'
       ];
     });
-    sheet.getRange(5, 1, rows.length, headers.length).setValues(rows).setWrap(true).setVerticalAlignment('middle');
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows).setWrap(true).setVerticalAlignment('middle');
     requests.forEach(function (request, index) {
-      var row = 5 + index;
+      var row = 2 + index;
       sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(request.status)).setFontWeight('bold');
       if (request.url) vNextPortalWriteLink_(sheet.getRange(row, 6), request.url, '開く');
     });
-    try { sheet.getRange(4, 1, rows.length + 1, headers.length).createFilter(); }
-    catch (error) { vNextPortalLog_('Home filter creation skipped', error); }
+    try {
+      var existingHomeFilter = sheet.getFilter();
+      if (existingHomeFilter) existingHomeFilter.remove();
+      sheet.getRange(1, 1, rows.length + 1, headers.length).createFilter();
+    } catch (error) { vNextPortalLog_('Home filter creation skipped', error); }
   }
-  sheet.getRange(4, 1, Math.max(1, requests.length + 1), headers.length)
+  sheet.getRange(1, 1, Math.max(1, requests.length + 1), headers.length)
     .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
-  sheet.setFrozenRows(4);
+  sheet.setFrozenRows(1);
   sheet.setHiddenGridlines(true);
   [118, 210, 76, 330, 124, 72].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
-  sheet.setRowHeight(1, 30);
-  sheet.setRowHeight(2, 48);
-  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は右側の案内から行います）');
+  vNextPortalProtectWarningOnly_(sheet, '自動生成の一覧です（操作は右側の案内から）');
 }
 
 function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   var entries = vNextPortalFiscalYearEntries_(fiscalYear, data);
-  vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
-  sheet.getRange('A1').setValue('FY' + fiscalYear + ' 年度予算シート一覧')
-    .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('このシートは、この年度の年度予算シートの一覧です。開くときは、Web入口ページの 02 のクライアント名ボタンから開くのが簡単です。')
-    .setFontSize(10).setFontColor('#5f6368');
-  sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
-  sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
-    .setFontColor('#5f6368').setFontSize(9).setHorizontalAlignment('right');
+  vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 3), 9);
   var headers = ['状態', 'クライアント', '見込み', '採用予測', '決めた予算', '担当・関与', '次の対応', '更新日', '開く'];
-  sheet.getRange(4, 1, 1, headers.length).setValues([headers])
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
-  if (!entries.length) {
-    sheet.getRange('A5').setValue('この年度の年度予算シートはまだありません。右側の案内から作成を申請できます。')
-      .setFontColor('#5f6368').setFontStyle('italic');
-  } else {
+  if (entries.length) {
     var rows = entries.map(function (entry) {
       var people = [];
       if (entry.forecastOwnerEmail) people.push(entry.forecastOwnerEmail);
@@ -260,28 +240,26 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
         entry.url ? '開く' : '準備中'
       ];
     });
-    sheet.getRange(5, 1, rows.length, headers.length).setValues(rows).setWrap(true).setVerticalAlignment('middle');
-    sheet.getRange(5, 3, rows.length, 3).setNumberFormat('¥#,##0;[Red]-¥#,##0;―');
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows).setWrap(true).setVerticalAlignment('middle');
+    sheet.getRange(2, 3, rows.length, 3).setNumberFormat('¥#,##0;[Red]-¥#,##0;―');
     entries.forEach(function (entry, index) {
-      var row = 5 + index;
+      var row = 2 + index;
       sheet.getRange(row, 1).setFontColor(vNextPortalStatusColor_(entry.status || entry.state || entry.statusLabel)).setFontWeight('bold');
       if (entry.url) vNextPortalWriteLink_(sheet.getRange(row, 9), entry.url, '開く');
     });
     try {
       var existingFilter = sheet.getFilter();
       if (existingFilter) existingFilter.remove();
-      sheet.getRange(4, 1, rows.length + 1, headers.length).createFilter();
+      sheet.getRange(1, 1, rows.length + 1, headers.length).createFilter();
     } catch (error) {
       vNextPortalLog_('FY filter creation skipped', error);
     }
   }
-  sheet.getRange(4, 1, Math.max(1, entries.length + 1), headers.length)
+  sheet.getRange(1, 1, Math.max(1, entries.length + 1), headers.length)
     .setBorder(true, true, true, true, true, true, '#dadce0', SpreadsheetApp.BorderStyle.SOLID);
-  sheet.setFrozenRows(4);
+  sheet.setFrozenRows(1);
   sheet.setHiddenGridlines(false);
   [106, 190, 104, 104, 104, 210, 260, 100, 68].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
-  sheet.setRowHeight(1, 30);
-  sheet.setRowHeight(2, 24);
   vNextPortalProtectWarningOnly_(sheet, '自動生成の一覧です（予算の入力は各年度予算シートで行います）');
 }
 

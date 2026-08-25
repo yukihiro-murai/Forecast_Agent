@@ -101,6 +101,12 @@
         <p style="margin-top:8px"><b>3. 開く</b><br>完成した年度予算シートは、「FY○○○○」シートのリンクか、年度予算策定の Web入口から開けます。</p>
       </details>
       <details class="card" style="margin-top:10px">
+        <summary>シートの見方</summary>
+        <p style="margin-top:10px"><b>ホーム</b><br>作成申請の一覧です。「状態」が 受付済み → 作成中 → 完成 と進み、「開く」の列から完成した年度予算シートへ移動できます。</p>
+        <p style="margin-top:8px"><b>FY○○○○（年度別）</b><br>その年度の年度予算シートの一覧です。「見込み」はシステムの算出値、「採用予測」は採用を決めた予測、「決めた予算」は確定した正式予算です。</p>
+        <p class="hint" style="margin-top:8px">どちらのシートも自動で更新されるため、セルは直接編集しません。</p>
+      </details>
+      <details class="card" style="margin-top:10px">
         <summary>困ったとき</summary>
         <p style="margin-top:10px"><b>この案内が消えた</b><br>上部メニュー「年度予算策定」→「案内を開く」で再表示できます。</p>
         <p style="margin-top:8px"><b>15分以上「作成中」のまま</b><br>受付番号を添えて管理担当者へ連絡してください。</p>
@@ -277,7 +283,7 @@
       }
       catalogClients = Array.isArray(model.clients) ? model.clients.slice() : [];
       if (!catalogClients.length) {
-        showFailure({ message:'利用できるZACクライアントがありません。管理担当者へ一覧更新を依頼してください。' }, 'model');
+        showFailure({ message:'選択できるクライアントがありません。管理担当者へ連絡してください。' }, 'model');
         return;
       }
       elements.lead.textContent = model.instructions || elements.lead.textContent;
@@ -308,7 +314,7 @@
         elements.fiscalYearButtons.appendChild(button);
       });
       elements.requester.textContent = model.requesterEmail || '確認できません';
-      elements.catalogInfo.textContent = 'ZAC一覧更新：' + displayDateTime(model.catalogSyncedAt);
+      elements.catalogInfo.classList.add('hidden');
       elements.modelLoading.classList.add('hidden');
       elements.form.setAttribute('aria-busy', 'false');
       elements.fiscalYear.disabled = false;
@@ -338,8 +344,6 @@
         elements.clientKey.appendChild(option);
       });
       if (selectedKey) elements.clientKey.value = selectedKey;
-      elements.catalogInfo.textContent =
-        'ZAC登録 ' + catalogClients.length + '社から選択できます（一覧はZACの正式名称です）。';
     }
 
     function addMember() {
