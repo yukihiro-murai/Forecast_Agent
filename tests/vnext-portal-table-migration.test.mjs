@@ -94,7 +94,7 @@ const sandbox = {
   VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS: Object.freeze([
     'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
   ]),
-  VN_ADMIN_PORTAL_RUNTIME_VERSION: 'vnext-portal-1.7.23',
+  VN_ADMIN_PORTAL_RUNTIME_VERSION: 'vnext-portal-1.7.24',
   sheets: {},
   vNextAdminCanonicalJson_(value) { return JSON.stringify(value); },
   vNextAdminGetOrCreateSheet_(ss, name) {

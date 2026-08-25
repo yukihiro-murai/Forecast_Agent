@@ -439,28 +439,28 @@
             <li><a href="#" onclick="return openSection('hubRuntimeSection')">「中央配備版へ更新」を開く</a></li>
             <li><a href="#" onclick="return openSection('uatResetSection')">「受入試験をゼロからやり直す」を開く</a>（確認語 RESET_GENERATED_CLIENTS）</li>
             <li>下の「共有ドライブへ移す」を押す</li>
-            <li>下の「申請入口を更新」を押す（理由は空欄可）</li>
-            <li>申請入口 Spreadsheet から Web アプリを社内向け公開</li>
+            <li>下の「クライアント年度予算の管理表を更新」を押す（理由は空欄可）</li>
+            <li>クライアント年度予算の管理表 Spreadsheet から Web アプリを社内向け公開</li>
           </ol>
           <div class="btn-row cols-2">
             <button class="btn good" onclick="relocateLibrary()">共有ドライブへ移す</button>
-            <button class="btn warn" onclick="updatePortalRuntime()">申請入口を更新</button>
+            <button class="btn warn" onclick="updatePortalRuntime()">クライアント年度予算の管理表を更新</button>
           </div>
         </div>
       </details>
 
       <details class="accordion nested">
-        <summary>申請入口の設定</summary>
+        <summary>クライアント年度予算の管理表の設定</summary>
         <div class="accordion-body">
           <p class="muted">全社員が client×FY を探し、未作成分を申請する Spreadsheet です。</p>
           <label>会社ドメイン（空欄は自動判定）<input id="portalEmployeeDomain" placeholder="example.co.jp"></label>
-          <label>申請入口名（任意）<input id="portalTitle" placeholder="申請入口"></label>
-          <div class="btn-row"><button class="btn good" onclick="provisionSharedPortal()">申請入口を準備する</button></div>
+          <label>クライアント年度予算の管理表名（任意）<input id="portalTitle" placeholder="クライアント年度予算の管理表"></label>
+          <div class="btn-row"><button class="btn good" onclick="provisionSharedPortal()">クライアント年度予算の管理表を準備する</button></div>
           <div id="portalRuntimeStatus" class="status compact">Portal runtimeを確認中…</div>
           <div id="clientCatalogStatus" class="status compact">ZACクライアント候補を確認中…</div>
           <div class="btn-row"><button id="refreshClientCatalogButton" class="btn secondary" onclick="refreshClientCatalog()">ZAC候補を更新</button></div>
           <details class="accordion nested">
-            <summary>既存の申請入口を最新版へ</summary>
+            <summary>既存のクライアント年度予算の管理表を最新版へ</summary>
             <div class="accordion-body">
               <p class="muted">受付履歴は残したまま runtime を更新します。理由は空欄可。</p>
               <label>更新理由（空欄可）<input id="portalRuntimeReason" placeholder="不具合修正など"></label>
@@ -486,7 +486,7 @@
       <details class="accordion nested">
         <summary>年度予算シートを個別作成（例外）</summary>
         <div class="accordion-body">
-          <p class="muted">通常は申請入口から依頼します。代理作成が必要な場合のみ。</p>
+          <p class="muted">通常はクライアント年度予算の管理表から依頼します。代理作成が必要な場合のみ。</p>
           <label>クライアント名<input id="clientName"></label>
           <label>年度（FY）<input id="fiscalYear" placeholder="2026"></label>
           <label>予算策定担当（メール）<input id="ownerEmails" type="email"></label>
@@ -661,7 +661,7 @@
           <details class="accordion nested" id="uatResetSection">
             <summary>受入試験をゼロからやり直す</summary>
             <div class="accordion-body">
-              <p class="muted">生成済み年度予算シートと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・申請入口・Template は残します。</p>
+              <p class="muted">生成済み年度予算シートと試験記録（管理ハブ監査ログ含む）を削除。管理ハブ・クライアント年度予算の管理表・Template は残します。</p>
               <label>確認語（RESET_GENERATED_CLIENTS）<input id="freshUatResetConfirmation" autocomplete="off"></label>
               <div class="btn-row cols-2">
                 <button class="btn secondary" onclick="previewFreshUatReset()">対象を確認</button>
@@ -856,7 +856,7 @@
           $('updateAdminRuntimeButton').classList.toggle('hidden', !model.adminRuntimeUpdatable);
           $('portalRuntimeStatus').textContent = model.portalRuntimeUpdatable
             ? `現在：${model.portalRuntimeVersion || '未記録'}\nSHA-256：${model.portalRuntimeSha256 || '未記録'}`
-            : '申請入口はまだ準備されていません。';
+            : 'クライアント年度予算の管理表はまだ準備されていません。';
           $('updatePortalRuntimeButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           if (model.devDeployStatus) renderDevDeployStatus(model.devDeployStatus);
@@ -1081,24 +1081,24 @@
         const root = $('portalRequests');
         root.innerHTML = '';
         if (model.loading) {
-          root.textContent = '申請入口からの依頼を確認中…';
+          root.textContent = 'クライアント年度予算の管理表からの依頼を確認中…';
           return;
         }
         if (model.unavailable) {
           const warning = document.createElement('div');
           warning.className = 'item-label item-error';
-          warning.textContent = '申請入口の状態を確認できません。';
+          warning.textContent = 'クライアント年度予算の管理表の状態を確認できません。';
           root.appendChild(warning);
           return;
         }
         if (!model.configured) {
-          root.textContent = '申請入口はまだ準備されていません。';
+          root.textContent = 'クライアント年度予算の管理表はまだ準備されていません。';
           return;
         }
         const counts = model.counts || {};
         const summary = document.createElement('div');
         summary.className = 'item-meta';
-        summary.textContent = `申請入口からの依頼：受付済み ${counts.waiting || 0}件 / 処理中 ${counts.processing || 0}件 / 要確認 ${counts.failed || 0}件`;
+        summary.textContent = `クライアント年度予算の管理表からの依頼：受付済み ${counts.waiting || 0}件 / 処理中 ${counts.processing || 0}件 / 要確認 ${counts.failed || 0}件`;
         root.appendChild(summary);
         (model.attention || []).slice(0, 5).forEach(row => {
           const div = document.createElement('div');
@@ -1116,7 +1116,7 @@
         if (model.spreadsheetUrl) {
           const link = document.createElement('a');
           link.href = model.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-          link.textContent = '申請入口を開く';
+          link.textContent = 'クライアント年度予算の管理表を開く';
           root.appendChild(document.createElement('br')); root.appendChild(link);
         }
       }
@@ -1279,44 +1279,44 @@
           .withFailureHandler(onFailure).vNextAdminProvisionClient(req);
       }
       function provisionSharedPortal() {
-        setBusy(true); showStatus('申請入口を安全な専用 Spreadsheet として準備しています…');
+        setBusy(true); showStatus('クライアント年度予算の管理表を安全な専用 Spreadsheet として準備しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const url = result && result.spreadsheetUrl;
-          showStatus(url ? `申請入口を準備しました。\n${url}` : result);
+          showStatus(url ? `クライアント年度予算の管理表を準備しました。\n${url}` : result);
           load();
         }).withFailureHandler(onFailure).vNextAdminProvisionSharedPortal({
           employeeDomain:value('portalEmployeeDomain'), title:value('portalTitle')
         });
       }
       function refreshClientCatalog() {
-        setBusy(true); showStatus('ZAC からクライアント候補をまとめて取得し、申請入口へ反映しています…');
+        setBusy(true); showStatus('ZAC からクライアント候補をまとめて取得し、クライアント年度予算の管理表へ反映しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRefreshZacClientCatalog({force:true});
       }
       function runOperationalCycle() {
         setBusy(true);
-        showStatus('申請入口からの依頼と自動処理を確認しています。この画面を閉じずにお待ちください。');
+        showStatus('クライアント年度予算の管理表からの依頼と自動処理を確認しています。この画面を閉じずにお待ちください。');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); load();
         }).withFailureHandler(onFailure).vNextAdminRunOperationalCycle();
       }
       function updatePortalRuntime() {
         const reason = value('portalRuntimeReason') || '共有ドライブ移設後の最新版';
-        setBusy(true); showStatus('受付履歴を保ったまま、申請入口を検証済み最新版へ更新しています…');
+        setBusy(true); showStatus('受付履歴を保ったまま、クライアント年度予算の管理表を検証済み最新版へ更新しています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false); showStatus(result); $('portalRuntimeReason').value = ''; load();
         }).withFailureHandler(onFailure).vNextAdminUpdateSharedPortalRuntime({reason});
       }
       function prepareEmployeePortalPilot() {
         if (!$('portalPilotAttestation').checked) { showStatus('テスト結果を確認したチェックを入れてください。', true); return; }
-        setBusy(true); showStatus('申請入口の準備を1段階進めています…');
+        setBusy(true); showStatus('クライアント年度予算の管理表の準備を1段階進めています…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           const url = result && result.portalSpreadsheetUrl;
           const message = result && result.completed
-            ? `申請入口 Pilot を準備しました。\n${url || ''}`
+            ? `クライアント年度予算の管理表 Pilot を準備しました。\n${url || ''}`
             : `この段階は完了しました。\n現在: ${result && result.phaseLabel || ''}\n同じボタンをもう1回押してください。`;
           showStatus(message);
           load();
@@ -2192,8 +2192,8 @@
         if (confirmation !== 'RESET_GENERATED_CLIENTS') {
           showStatus('確認語 RESET_GENERATED_CLIENTS を入力してください。', true); return;
         }
-        if (!window.confirm('生成済みの年度予算シートをゴミ箱へ移し、予測・申請・承認の試験データを消します。管理ハブと申請入口は残ります。続行しますか？')) return;
-        setBusy(true); showStatus('生成済み年度予算シートを削除し、申請入口を初期状態へ戻しています。画面を閉じずにお待ちください…');
+        if (!window.confirm('生成済みの年度予算シートをゴミ箱へ移し、予測・申請・承認の試験データを消します。管理ハブとクライアント年度予算の管理表は残ります。続行しますか？')) return;
+        setBusy(true); showStatus('生成済み年度予算シートを削除し、クライアント年度予算の管理表を初期状態へ戻しています。画面を閉じずにお待ちください…');
         google.script.run.withSuccessHandler(result => {
           setBusy(false);
           $('freshUatResetConfirmation').value = '';

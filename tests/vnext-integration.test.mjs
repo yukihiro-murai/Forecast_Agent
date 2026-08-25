@@ -232,7 +232,7 @@ async function checkClientBundleBoundary() {
     });
   }
   const generatedBundle = {
-    version: 'vnext-client-1.8.2',
+    version: 'vnext-client-1.8.3',
     sha256: createHash('sha256').update(
       generatedFiles.map(file => `${file.name}\0${file.type}\0${file.source}`).join('\0')
     ).digest('hex'),
@@ -281,7 +281,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.23');
+  assert.equal(bundle.version, 'vnext-portal-1.7.24');
   assert.equal(bundle.files.length, 5);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -348,7 +348,7 @@ async function checkPortalRuntimeBoundary() {
     catalog_key:'', related_member_names_json:''
   }, legacyPortalPayload), true, 'Legacy v1 rows must remain readable after the v2 table migration');
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
-  assert.match(adminSidebar, /申請入口を準備する/);
+  assert.match(adminSidebar, /クライアント年度予算の管理表を準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
   assert.match(adminSidebar, /vNextAdminRelocateLibraryToSharedDrive/);
   assert.match(adminSidebar, /共有ドライブ「年度予算策定」へ移す/);
@@ -1119,7 +1119,7 @@ async function checkAdminCoverageContracts() {
     sidebar.includes('管理ハブ監査ログ'),
     'Admin Sidebar must hide the reset behind the exact confirmation phrase');
   assert.ok(sidebar.includes('開発反映') &&
-    sidebar.includes('申請入口') &&
+    sidebar.includes('クライアント年度予算の管理表') &&
     sidebar.includes('申請を今すぐ処理') &&
     sidebar.includes('システムの手入れ') &&
     sidebar.includes('適応学習（System / Budget）') &&

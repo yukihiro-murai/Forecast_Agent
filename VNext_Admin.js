@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.23';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.24';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-hide-stale-versions';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-portal-sheet-ux';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20', 'vnext-portal-1.7.21', 'vnext-portal-1.7.22',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20', 'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -902,7 +902,7 @@ function vNextAdminExceptionForSidebar_(row, registryByBook, jobRows) {
     CLIENT_PROVISION_FAILED: '年度予算シートを作成できませんでした',
     OFFICIAL_CLIENT_SYNC_FAILED: '正式予算の反映が未完了です',
     OFFICIAL_COPY_FAILED: '正式予算の反映が未完了です',
-    PORTAL_REQUEST_REJECTED: '申請入口からの作成依頼を確認してください'
+    PORTAL_REQUEST_REJECTED: 'クライアント年度予算の管理表からの作成依頼を確認してください'
   };
   // A JOB_FAILED exception must only control its own durable job. Falling
   // through to an older failed job for the same book can attach the wrong
@@ -1086,7 +1086,7 @@ function vNextAdminAttentionSummary_(model, safeRetryCandidates) {
       guidance: '「' + VN_ADMIN_MENU_RUN_NOW + '」を実行し、要確認事項を確認してください。', safeRetryCandidates: retryCount };
   }
   if (model.portalRequests && model.portalRequests.unavailable) {
-    return { status: 'ATTENTION', label: '申請入口の状態を確認できません',
+    return { status: 'ATTENTION', label: 'クライアント年度予算の管理表の状態を確認できません',
       guidance: '他の判断項目は表示できています。続く場合はポータルの権限を確認します。', safeRetryCandidates: retryCount };
   }
   if (Number(counts.pendingApprovals || 0) || Number(counts.exceptions || 0) ||
@@ -1639,7 +1639,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
 
     const staged = vNextAdminPublishTemplateRelease({
       reason: vNextAdminText_(req.releaseReason) ||
-        '申請入口・社内情報提供メンバー対応のPilot release',
+        'クライアント年度予算の管理表・社内情報提供メンバー対応のPilot release',
       expectedActiveReleaseId: initialPair.releaseId,
       stageOnly: true
     });
@@ -1649,7 +1649,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       engineVersion: engineVersion,
       parameters: parameters
     })).slice(0, 20).toUpperCase();
-    const note = '申請入口Pilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。';
+    const note = 'クライアント年度予算の管理表Pilot。予測Engineとparameterは直前のACTIVE Model Releaseから変更なし。';
     const checks = {
       backtest: {
         status: 'PASS',
@@ -1703,7 +1703,7 @@ function vNextAdminPrepareEmployeePortalPilot(request) {
       activation = vNextAdminActivateReleasePair({
         releaseId: releaseId,
         modelReleaseId: modelReleaseId,
-        reason: '申請入口PilotのTemplate・Model pairを有効化',
+        reason: 'クライアント年度予算の管理表PilotのTemplate・Model pairを有効化',
         expectedActiveReleaseId: initialPair.releaseId,
         expectedActiveModelReleaseId: initialPair.modelReleaseId
       });
@@ -1754,7 +1754,7 @@ function vNextAdminWriteDevDeployProgress_(step, detail) {
 function vNextAdminPrepareEmployeePortalPilotForManualTest() {
   const ui = SpreadsheetApp.getUi();
   const answer = ui.alert(
-    '申請入口Pilotを準備',
+    'クライアント年度予算の管理表Pilotを準備',
     '次の検証結果を確認したうえで実行します。\n\n' +
       '・Client runtime behavior: 10 suites PASS\n' +
       '・Portal runtime behavior: 11 suites PASS\n' +
@@ -2309,7 +2309,7 @@ function vNextAdminVerifyVerifiedEmployeeUxDeployInHub_(hub, options) {
     : hubPortalTarget;
   if (!portal) {
     checks.push(vNextAdminBuildDevDeployCheck_(
-      'portal_runtime', 'Portal runtime', false, centralPortalTarget, '（未設定）', '申請入口が未準備です。'
+      'portal_runtime', 'Portal runtime', false, centralPortalTarget, '（未設定）', 'クライアント年度予算の管理表が未準備です。'
     ));
   } else {
     // Prefer central target so a stale Hub cannot green-light an old Portal.
@@ -6337,7 +6337,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           ok: true, reused: true, runtimeVersion: portal.runtimeVersion,
           runtimeSha256: portal.runtimeSha256, catalog: catalog,
           webAppUrl: webApp.webAppUrl, webAppVersion: webApp.versionNumber,
-          message: '申請入口のファイルは最新版です。' + VNEXT_NAMING.WEB_ENTRY + 'を同じURLのまま公開し直しました。入口をハード再読み込みしてください。' + webApp.versionWarning
+          message: 'クライアント年度予算の管理表のファイルは最新版です。' + VNEXT_NAMING.WEB_ENTRY + 'を同じURLのまま公開し直しました。入口をハード再読み込みしてください。' + webApp.versionWarning
         };
       }
       if ([VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
@@ -6482,7 +6482,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       });
       migrated.webAppUrl = webApp.webAppUrl;
       migrated.webAppVersion = webApp.versionNumber;
-      migrated.message = '申請入口を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。' + webApp.versionWarning;
+      migrated.message = 'クライアント年度予算の管理表を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。' + webApp.versionWarning;
       return migrated;
     }, 90000);
   });
@@ -7334,13 +7334,13 @@ function vNextAdminMenuRefreshZacClientCatalog() {
 function vNextAdminMenuUpdatePortalRuntime() {
   const ui = SpreadsheetApp.getUi();
   const choice = ui.alert(
-    '申請入口を最新版へ更新',
+    'クライアント年度予算の管理表を最新版へ更新',
     '既存の受付履歴を残したまま、Portal runtimeとZACクライアント候補を最新版へ更新します。続行しますか？',
     ui.ButtonSet.OK_CANCEL
   );
   if (choice !== ui.Button.OK) return { cancelled: true };
   const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
-  ui.alert('完了', result.message || '申請入口を更新しました。', ui.ButtonSet.OK);
+  ui.alert('完了', result.message || 'クライアント年度予算の管理表を更新しました。', ui.ButtonSet.OK);
   return result;
 }
 
@@ -7441,7 +7441,7 @@ function vNextAdminResetGeneratedClientsInHub_(hub, request) {
       protectedSpreadsheetCount: protectedIds.size
     },
     message: apply
-      ? '生成済み年度予算シートと検証ログを削除し、申請入口から作り直せる状態に戻しました。'
+      ? '生成済み年度予算シートと検証ログを削除し、クライアント年度予算の管理表から作り直せる状態に戻しました。'
       : ('対象 ' + inventory.length + '冊を確認しました。確認語を入力すると削除します。試験ログも消します。' +
         VNEXT_NAMING.LAYER1 + ' / ' + VNEXT_NAMING.LAYER2 + ' / Template は残します。')
   };
@@ -8456,7 +8456,7 @@ function vNextAdminMarkPortalJobFailed_(hub, job, message) {
   vNextAdminAppendException_(hub, {
     severity: 'ERROR', exception_type: 'PORTAL_PROVISION_FAILED', book_id: String(payload.requestId || ''),
     client_name: String(payload.clientName || ''), fiscal_year: Number(payload.fiscalYear || 0),
-    title: '申請入口経由の年度予算シート作成に失敗', detail: String(message || '').slice(0, 1200),
+    title: 'クライアント年度予算の管理表経由の年度予算シート作成に失敗', detail: String(message || '').slice(0, 1200),
     recommended_action: 'JOB_QUEUEと生成途中BOOK_REGISTRYを確認し、必要なら再依頼', source_ref: job.job_id
   });
   return true;
@@ -8947,7 +8947,7 @@ function vNextAdminHarvestPortalRequestsSafely_(hub) {
       if (!alreadyOpen) {
         vNextAdminAppendException_(hub, {
           severity: 'ERROR', exception_type: 'PORTAL_HARVEST_FAILED', book_id: '',
-          title: '申請入口の受付確認に失敗', detail: detail,
+          title: 'クライアント年度予算の管理表の受付確認に失敗', detail: detail,
           recommended_action: 'Portalの権限・runtime identity・内部sheet列構成を確認',
           source_ref: 'EMPLOYEE_PORTAL'
         });

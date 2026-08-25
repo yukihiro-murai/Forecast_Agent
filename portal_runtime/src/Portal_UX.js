@@ -146,7 +146,7 @@ function vNextPortalOpenHelp() {
       'body{font-family:Arial,sans-serif;color:#202124;padding:18px;line-height:1.65}' +
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
-      '</style></head><body><h2>申請入口の使い方</h2>' +
+      '</style></head><body><h2>クライアント年度予算の管理表の使い方</h2>' +
       '<div class="step"><b>1. 開く</b><br>Web入口ページの 02 で、年度とクライアント名を押すと、作成済みの年度予算シートが開きます。</div>' +
       '<div class="step"><b>2. なければ申請</b><br>Web入口ページの 01 か、このシート右側の案内から、年度予算シートの新規作成を申請します。</div>' +
       '<div class="step"><b>3. 状況を見る</b><br>ホームのシートには、作成申請の状態（受付済み・作成中・完成・確認が必要）が表示されます。セルは直接編集しません。</div>' +

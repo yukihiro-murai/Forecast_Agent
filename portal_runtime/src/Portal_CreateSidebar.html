@@ -88,23 +88,28 @@
 </head>
 <body>
   <main>
-    <section id="homePanel">
-      <h1>次にすること</h1>
-      <p class="lead">作成済みの年度予算シート（クライアント1社×1年度ごと）は、年度予算策定の Web入口ページから開きます。まだ無いクライアント・年度の分は、下のボタンから作成を申請してください。</p>
+    <section id="homePanel" class="hidden">
+      <h1>このシートの使い方</h1>
+      <p class="lead">この「クライアント年度予算の管理表」は、年度予算シートの<b>作成を申請</b>し、その<b>進み具合と一覧</b>を確認するためのシートです。セルは自動で更新されるため、直接入力はしません。</p>
       <div class="home-actions">
-        <button class="primary" type="button" id="startCreateButton" style="width:100%">年度予算シートの作成を申請する</button>
+        <button class="primary" type="button" id="startCreateButton" style="width:100%">申請フォームへ戻る</button>
       </div>
-      <details class="card" style="margin-top:16px">
-        <summary>使い方・困ったとき</summary>
-        <p style="margin-top:10px"><b>1. 開く</b><br>Web入口ページの 02 で、年度とクライアント名を押すと年度予算シートが開きます。</p>
-        <p style="margin-top:8px"><b>2. なければ作る</b><br>Web入口ページの 01 か、上のボタンから作成を申請します。</p>
-        <p style="margin-top:8px"><b>3. 状況を見る</b><br>ホームには受付済み・作成中・完成・確認が必要、だけ出ます。</p>
-        <p class="hint" style="margin-top:10px">セルへ直接入力しません。案内が出ないときだけ、上部メニュー「年度予算策定」→「案内を開く」を使います。</p>
+      <details class="card" style="margin-top:16px" open>
+        <summary>使い方（3ステップ）</summary>
+        <p style="margin-top:10px"><b>1. 申請する</b><br>右の申請フォームで年度とクライアントを選び、担当メンバーを入れて申請します。</p>
+        <p style="margin-top:8px"><b>2. 進み具合を見る</b><br>「ホーム」シートに申請の状態（受付済み → 作成中 → 完成）が自動で表示されます。通常は5〜10分で完成します。</p>
+        <p style="margin-top:8px"><b>3. 開く</b><br>完成した年度予算シートは、「FY○○○○」シートのリンクか、年度予算策定の Web入口から開けます。</p>
+      </details>
+      <details class="card" style="margin-top:10px">
+        <summary>困ったとき</summary>
+        <p style="margin-top:10px"><b>この案内が消えた</b><br>上部メニュー「年度予算策定」→「案内を開く」で再表示できます。</p>
+        <p style="margin-top:8px"><b>15分以上「作成中」のまま</b><br>受付番号を添えて管理担当者へ連絡してください。</p>
+        <p style="margin-top:8px"><b>完成したのに一覧に出ない</b><br>メニュー「年度予算策定」→「案内を開く」を押すと、ホームが最新の状態に更新されます。</p>
       </details>
     </section>
 
-    <section id="createPanel" class="hidden">
-    <button class="link-button" type="button" id="backToHomeButton">案内に戻る</button>
+    <section id="createPanel">
+    <button class="link-button" type="button" id="backToHomeButton">使い方・困ったとき</button>
     <h1>年度予算シートの作成を申請する</h1>
     <p class="lead" id="lead">対象の年度とクライアントを選び、担当メンバーを登録します。申請すると年度予算シートが自動で作成されます。</p>
 
@@ -121,14 +126,9 @@
       <select id="fiscalYear" class="sr-only" required disabled aria-describedby="fiscalYearHint"></select>
       <div class="hint" id="fiscalYearHint">年度は4月から翌年3月です。ボタンで選んでください。</div>
 
-      <label for="clientSearch">クライアントの絞り込み（任意）</label>
-      <input id="clientSearch" type="search" placeholder="必要なときだけ入力" disabled aria-controls="clientButtons" aria-describedby="clientCount">
-      <div class="hint" id="clientCount">ZAC一覧を読み込んでいます。</div>
-
       <label class="required" for="clientKey">クライアント</label>
-      <div id="clientButtons" class="pick-grid" role="group" aria-label="クライアント"></div>
-      <select id="clientKey" class="sr-only" required disabled aria-describedby="catalogInfo"></select>
-      <div class="hint" id="catalogInfo">表示された正式名称を押してください。手入力は不要です。</div>
+      <select id="clientKey" required disabled aria-describedby="catalogInfo"></select>
+      <div class="hint" id="catalogInfo">一覧を読み込んでいます…</div>
 
       <fieldset aria-describedby="memberHint">
         <legend class="required">関与メンバー</legend>
@@ -157,7 +157,7 @@
       </fieldset>
 
       <div class="actions">
-        <button class="secondary" type="button" id="previewButton" disabled>重複候補を確認</button>
+        <button class="secondary" type="button" id="previewButton" disabled>重複がないか確認する</button>
       </div>
       <div id="result" class="hidden" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></div>
       <label id="similarConfirmWrap" class="check hidden">
@@ -165,7 +165,7 @@
         <span>表示された候補とは別のクライアントです。</span>
       </label>
       <div class="actions">
-        <button class="primary" type="button" id="submitButton" disabled>このクライアントの作成を依頼</button>
+        <button class="primary" type="button" id="submitButton" disabled>この内容で作成を申請する</button>
       </div>
     </form>
     </section>
@@ -215,12 +215,12 @@
     var memberIds = ['memberName1','memberName2','memberName3','memberName4','memberName5'];
     var payloadIds = ['fiscalYear','clientKey'].concat(memberIds);
     var elementIds = payloadIds.concat([
-      'lead','requester','catalogInfo','clientSearch','clientCount','form','result','modelLoading','modelError',
+      'lead','requester','catalogInfo','form','result','modelLoading','modelError',
       'previewButton','submitButton','addMemberButton','confirmSimilarDuplicates','similarConfirmWrap',
       'submission','submissionTitle','submissionTarget','submissionId','statusLabel','statusAction',
       'statusWait','statusUpdated','statusCheckNote','openBookLink','refreshStatusButton','showHomeButton',
       'phase1','phase2','phase3','phase4','homePanel','createPanel','startCreateButton','backToHomeButton',
-      'fiscalYearButtons','clientButtons'
+      'fiscalYearButtons'
     ]);
     var elements = {};
     elementIds.forEach(function(id) { elements[id] = document.getElementById(id); });
@@ -230,7 +230,7 @@
     elements.previewButton.addEventListener('click', preview);
     elements.submitButton.addEventListener('click', submit);
     elements.addMemberButton.addEventListener('click', addMember);
-    elements.clientSearch.addEventListener('input', filterClients);
+    elements.clientKey.addEventListener('change', function() { invalidatePreview(); updatePreviewState(); });
     elements.confirmSimilarDuplicates.addEventListener('change', updateSubmitState);
     elements.refreshStatusButton.addEventListener('click', function() { pollRequestStatus(true); });
     elements.showHomeButton.addEventListener('click', showHomeAndClose);
@@ -241,6 +241,9 @@
       });
     });
     window.addEventListener('pagehide', clearPolling);
+    // The form is the primary purpose of this panel: show it immediately and
+    // start loading the catalog without an extra tap.
+    showCreate();
 
     function showHome() {
       if (submitted) return;
@@ -309,76 +312,32 @@
       elements.modelLoading.classList.add('hidden');
       elements.form.setAttribute('aria-busy', 'false');
       elements.fiscalYear.disabled = false;
-      elements.clientSearch.disabled = false;
       elements.clientKey.disabled = false;
       elements.memberName1.disabled = false;
       elements.addMemberButton.disabled = false;
       modelLoaded = true;
-      renderClientOptions('');
+      renderClientOptions();
       updatePreviewState();
     }
 
-    function renderClientOptions(query) {
-      var normalizedQuery = normalizeSearchText(query);
+    function renderClientOptions() {
       var selectedKey = elements.clientKey.value;
-      var matches = catalogClients.filter(function(client) {
-        return !normalizedQuery || normalizeSearchText(client.name).indexOf(normalizedQuery) >= 0;
-      });
-      var selected = catalogClients.filter(function(client) { return client.key === selectedKey; })[0];
-      var selectedMatches = selected && matches.some(function(client) { return client.key === selectedKey; });
-      if (!selectedMatches) selectedKey = '';
       elements.clientKey.textContent = '';
       var placeholder = document.createElement('option');
-      placeholder.value = selectedKey;
-      placeholder.textContent = selected && selectedMatches ? selected.name : '';
+      placeholder.value = '';
+      placeholder.textContent = 'クライアントを選択してください';
+      placeholder.disabled = true;
+      placeholder.selected = true;
       elements.clientKey.appendChild(placeholder);
+      catalogClients.forEach(function(client) {
+        var option = document.createElement('option');
+        option.value = client.key;
+        option.textContent = client.name;
+        elements.clientKey.appendChild(option);
+      });
       if (selectedKey) elements.clientKey.value = selectedKey;
-      elements.clientButtons.textContent = '';
-      if (!matches.length) {
-        var empty = document.createElement('div');
-        empty.className = 'hint';
-        empty.textContent = '該当するクライアントはありません。絞り込みを消してください。';
-        elements.clientButtons.appendChild(empty);
-      } else {
-        matches.forEach(function(client) {
-          var button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'pick' + (client.key === selectedKey ? ' selected' : '');
-          button.textContent = client.name;
-          button.setAttribute('aria-pressed', client.key === selectedKey ? 'true' : 'false');
-          button.addEventListener('click', function() {
-            if (busy || submitted) return;
-            elements.clientKey.textContent = '';
-            var option = document.createElement('option');
-            option.value = client.key;
-            option.textContent = client.name;
-            option.selected = true;
-            elements.clientKey.appendChild(option);
-            elements.clientKey.value = client.key;
-            renderClientOptions(elements.clientSearch.value);
-            invalidatePreview();
-            updatePreviewState();
-          });
-          elements.clientButtons.appendChild(button);
-        });
-      }
-      elements.clientCount.textContent = normalizedQuery
-        ? matches.length + '件に絞り込み（全' + catalogClients.length + '件）'
-        : 'ZAC登録 ' + catalogClients.length + '件。正式名称を押してください。';
-    }
-
-    function filterClients() {
-      if (!modelLoaded || busy || submitted) return;
-      var previous = elements.clientKey.value;
-      renderClientOptions(elements.clientSearch.value);
-      if (elements.clientKey.value !== previous) invalidatePreview();
-      updatePreviewState();
-    }
-
-    function normalizeSearchText(value) {
-      var text = String(value || '');
-      try { text = text.normalize('NFKC'); } catch (ignoredNormalize) {}
-      return text.toLowerCase().replace(/[\s\u3000]+/g, '');
+      elements.catalogInfo.textContent =
+        'ZAC登録 ' + catalogClients.length + '社から選択できます（一覧はZACの正式名称です）。';
     }
 
     function addMember() {
@@ -403,7 +362,7 @@
     function preview() {
       if (busy || submitted || !modelLoaded || !elements.form.reportValidity()) return;
       latestPreview = null;
-      setBusy(true, '重複候補を確認しています。通常は数秒で完了します…');
+      setBusy(true, '重複がないか確認するしています。通常は数秒で完了します…');
       google.script.run.withSuccessHandler(function(result) {
         setBusy(false);
         latestPreview = result;
@@ -614,7 +573,6 @@
 
     function setFormControlsDisabled(value) {
       elements.fiscalYear.disabled = value || !modelLoaded;
-      elements.clientSearch.disabled = value || !modelLoaded;
       elements.clientKey.disabled = value || !modelLoaded;
       memberIds.forEach(function(id, index) {
         elements[id].disabled = value || !modelLoaded || index >= visibleMemberCount;
@@ -642,7 +600,7 @@
       setFormControlsDisabled(false);
       clearResult('bad');
       appendText(elements.result, errorMessage(error));
-      if (phase === 'submit') appendText(elements.result, '保存結果が不明な場合の二重依頼を防ぐため、もう一度「重複候補を確認」から進めてください。');
+      if (phase === 'submit') appendText(elements.result, '保存結果が不明な場合の二重依頼を防ぐため、もう一度「重複がないか確認する」から進めてください。');
       elements.result.focus();
       updatePreviewState();
       updateSubmitState();

@@ -107,7 +107,7 @@ function vNextOpenTemplateGuidance() {
   try {
     SpreadsheetApp.getUi().alert(
       '年度予算策定',
-      'この年度予算シートは生成用のひな型です。現場の年度予算シートは申請入口から作成してください。',
+      'この年度予算シートは生成用のひな型です。現場の年度予算シートはクライアント年度予算の管理表から作成してください。',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   } catch (err) {

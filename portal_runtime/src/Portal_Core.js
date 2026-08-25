@@ -7,21 +7,21 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
   SYSTEM: '年度予算策定',
   MENU: '年度予算策定',
   ADMIN_HUB: '管理ハブ',
-  PORTAL: '申請入口',
+  PORTAL: 'クライアント年度予算の管理表',
   CLIENT_BOOK: '年度予算シート',
-  LAYER1_SHORT: '第1層：申請入口',
+  LAYER1_SHORT: '第1層：クライアント年度予算の管理表',
   LAYER2_SHORT: '第2層：年度予算シート',
   LAYER3_SHORT: '第3層：管理ハブ',
   WEB_ENTRY: '年度予算策定 Web入口',
   /** @deprecated Use PORTAL. */
-  LAYER2: '申請入口',
+  LAYER2: 'クライアント年度予算の管理表',
   /** @deprecated Use CLIENT_BOOK. */
   LAYER3: '年度予算シート'
 });
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.23',
+  RUNTIME_VERSION: 'vnext-portal-1.7.24',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -167,7 +167,7 @@ function vNextPortalSubmitCreationRequest(input) {
     }
     var duplicateCheckHash = String(input.duplicateCheckHash || '').trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(duplicateCheckHash)) {
-      throw new Error('先に「重複候補を確認」を押してください。');
+      throw new Error('先に「重複がないか確認する」を押してください。');
     }
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     return vNextPortalWithDocumentLock_(function () {
@@ -178,7 +178,7 @@ function vNextPortalSubmitCreationRequest(input) {
       var normalized = vNextPortalResolveCreationInput_(input, spreadsheet, actor, false);
       var check = vNextPortalBuildDuplicateCheck_(spreadsheet, normalized);
       if (check.hash !== duplicateCheckHash) {
-        throw new Error('候補一覧が更新されました。もう一度「重複候補を確認」を押してください。');
+        throw new Error('候補一覧が更新されました。もう一度「重複がないか確認する」を押してください。');
       }
       if (check.hasExact) {
         throw new Error('同じクライアント・同じ年度の年度予算シート（または作成依頼）が既にあります。既存の年度予算シートを利用してください。');

@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.23');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.24');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -370,7 +370,7 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(html, /id="clientName"|id="clientId"|id="forecastOwnerEmail"/);
   assert.equal((html.match(/id="memberName[1-5]"/g) || []).length, 5);
   assert.match(html, /関与メンバー/);
-  assert.match(html, /重複候補を確認/);
+  assert.match(html, /重複がないか確認する/);
   assert.match(core, /CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG'/);
   assert.doesNotMatch(ux, /\.merge\(/,
     'Portal view rendering must not create merged cells');
@@ -393,11 +393,10 @@ async function testStaticUxContracts() {
     'Automatic status checks must be sparse and bounded');
   assert.match(html, /if \(busy \|\| submitted/,
     'Client-side submission must synchronously guard double clicks');
-  assert.match(html, /id="clientSearch" type="search"/,
-    'Client selection must support local catalog filtering');
-  const filterBody = html.slice(html.indexOf('function filterClients()'), html.indexOf('function normalizeSearchText'));
-  assert.doesNotMatch(filterBody, /google\.script\.run/,
-    'Client search must stay local and must not create RPC traffic');
+  assert.match(html, /<select id="clientKey" required/,
+    'Client selection must be a single visible pulldown');
+  assert.doesNotMatch(html, /clientSearch|clientButtons/,
+    'The two-step search-then-pick client flow must stay removed');
   assert.match(html, /meta name="viewport"/);
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /prefers-reduced-motion/);
