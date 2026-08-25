@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.26',
+  RUNTIME_VERSION: 'vnext-portal-1.7.27',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -33,6 +33,9 @@ var VNEXT_PORTAL = Object.freeze({
   CLIENT_CATALOG_CACHE_SECONDS: 300,
   ENTRY_CACHE_KEY: 'vnext-portal-entry-model-v1',
   ENTRY_CACHE_SECONDS: 120,
+  SNAPSHOT_CACHE_KEY: 'vnext-portal-snapshot-v1',
+  SNAPSHOT_CACHE_SECONDS: 60,
+  SNAPSHOT_SCHEMA: 'vnext-portal-snapshot-1',
   PAYLOAD_KEYS: Object.freeze([
     'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
@@ -402,6 +405,69 @@ function vNextPortalBuildEntryModel_(data, options) {
   };
 }
 
+/**
+ * Machine-readable snapshot for upper systems (BI / AI integration).
+ * Served by the web app as ?format=json. SNAPSHOT_SCHEMA is a contract id:
+ * fields within a schema version stay stable; bump the id to change shape.
+ * See DATA_CONTRACT_JA.md for the full contract.
+ */
+function vNextPortalMachineSnapshot_() {
+  try {
+    if (typeof CacheService !== 'undefined') {
+      var cache = CacheService.getDocumentCache();
+      var cached = cache && cache.get(VNEXT_PORTAL.SNAPSHOT_CACHE_KEY);
+      if (cached) return JSON.parse(cached);
+    }
+  } catch (cacheReadError) {}
+  var data = vNextPortalGetLocalViewData_(SpreadsheetApp.getActiveSpreadsheet());
+  var snapshot = {
+    ok: true,
+    schema: VNEXT_PORTAL.SNAPSHOT_SCHEMA,
+    runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
+    generatedAt: new Date().toISOString(),
+    books: (data.directory || []).map(function (row) {
+      return {
+        requestId: row.requestId || '',
+        clientId: row.clientId || '',
+        clientName: row.clientName || '',
+        fiscalYear: Number(row.fiscalYear || 0),
+        state: row.state || '',
+        stateLabel: vNextPortalDirectoryStateLabel_(row.state),
+        centerForecast: row.centerForecast,
+        adoptedForecast: row.adoptedForecast,
+        finalBudget: row.finalBudget,
+        nextAction: row.nextAction || '',
+        url: row.url || '',
+        updatedAt: row.updatedAt || ''
+      };
+    }),
+    requests: (data.requests || []).map(function (row) {
+      return {
+        requestId: row.requestId || '',
+        clientId: row.clientId || '',
+        clientName: row.clientName || '',
+        fiscalYear: Number(row.fiscalYear || 0),
+        status: row.status || '',
+        statusLabel: row.statusLabel || '',
+        relatedBookId: row.relatedBookId || '',
+        url: row.url || '',
+        requestedAt: row.requestedAt || '',
+        updatedAt: row.updatedAt || ''
+      };
+    })
+  };
+  try {
+    if (typeof CacheService !== 'undefined') {
+      var writeCache = CacheService.getDocumentCache();
+      if (writeCache) {
+        writeCache.put(VNEXT_PORTAL.SNAPSHOT_CACHE_KEY, JSON.stringify(snapshot),
+          VNEXT_PORTAL.SNAPSHOT_CACHE_SECONDS);
+      }
+    }
+  } catch (cacheWriteError) {}
+  return snapshot;
+}
+
 function vNextPortalReadEntryCache_() {
   try {
     if (typeof CacheService === 'undefined') return null;
@@ -438,7 +504,10 @@ function vNextPortalClearEntryCache_() {
   try {
     if (typeof CacheService === 'undefined') return;
     var cache = CacheService.getDocumentCache();
-    if (cache) cache.remove(VNEXT_PORTAL.ENTRY_CACHE_KEY);
+    if (cache) {
+      cache.remove(VNEXT_PORTAL.ENTRY_CACHE_KEY);
+      cache.remove(VNEXT_PORTAL.SNAPSHOT_CACHE_KEY);
+    }
   } catch (cacheClearError) {
     vNextPortalLog_('entry cache clear skipped', cacheClearError);
   }

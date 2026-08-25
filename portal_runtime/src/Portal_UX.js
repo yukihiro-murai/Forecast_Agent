@@ -3,7 +3,21 @@
  * Daily work stays in one guidance sidebar. The top menu is only a recovery path.
  */
 
-function doGet() {
+function doGet(e) {
+  // Machine-readable seam for upper systems (BI / AI): ?format=json returns a
+  // schema-versioned snapshot instead of the HTML entry page.
+  if (e && e.parameter && String(e.parameter.format || '').toLowerCase() === 'json') {
+    var payload;
+    try {
+      payload = vNextPortalMachineSnapshot_();
+    } catch (snapshotError) {
+      vNextPortalLog_('snapshot failed', snapshotError);
+      payload = { ok: false, schema: VNEXT_PORTAL.SNAPSHOT_SCHEMA,
+        error: 'スナップショットを生成できませんでした。' };
+    }
+    return ContentService.createTextOutput(JSON.stringify(payload))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   try {
     // Server-side render: the entry model is embedded into the first response so
     // the page paints without a second google.script.run roundtrip.

@@ -45,6 +45,7 @@ testAppendRequestContract();
 testCreateModel();
 testRequestProgress();
 testEntryModel();
+testMachineSnapshot();
 await testStaticUxContracts();
 process.stdout.write('PASS portal runtime behavior tests (12)\n');
 
@@ -272,7 +273,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[2], model.fiscalYears[0] + 2);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.26');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.27');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -326,6 +327,39 @@ function testRequestProgress() {
     assert.equal(endpoint.phase, 2);
   } finally {
     sandbox.vNextPortalReadRequestModels_ = originalRead;
+  }
+}
+
+function testMachineSnapshot() {
+  const originalView = sandbox.vNextPortalGetLocalViewData_;
+  const originalSheetApp = sandbox.SpreadsheetApp;
+  sandbox.SpreadsheetApp = { getActiveSpreadsheet: () => ({}) };
+  sandbox.vNextPortalGetLocalViewData_ = () => ({
+    directory: [{
+      requestId: 'PORTAL-REQ-abcdefgh', clientId: 'ZAC-C-001', clientName: 'アストラゼネカ',
+      fiscalYear: 2027, state: 'SUBMITTED', centerForecast: 1000, adoptedForecast: 1200,
+      finalBudget: null, nextAction: '承認待ち', url: 'https://docs.google.com/spreadsheets/d/1234567890123456789012/edit',
+      updatedAt: '2026-08-25T00:00:00.000Z'
+    }],
+    requests: [{
+      requestId: 'PORTAL-REQ-ijklmnop', clientId: '', clientName: '新規株式会社',
+      fiscalYear: 2027, status: 'CREATING', statusLabel: '年度予算シートを作成中',
+      relatedBookId: 'CLIENT-1', url: '', requestedAt: '2026-08-25T01:00:00.000Z',
+      updatedAt: '2026-08-25T01:05:00.000Z'
+    }]
+  });
+  try {
+    const snapshot = sandbox.vNextPortalMachineSnapshot_();
+    assert.equal(snapshot.ok, true);
+    assert.equal(snapshot.schema, 'vnext-portal-snapshot-1');
+    assert.equal(snapshot.books.length, 1);
+    assert.equal(snapshot.books[0].stateLabel, '承認待ち');
+    assert.equal(snapshot.books[0].adoptedForecast, 1200);
+    assert.equal(snapshot.requests[0].relatedBookId, 'CLIENT-1');
+    assert.equal(typeof snapshot.generatedAt, 'string');
+  } finally {
+    sandbox.vNextPortalGetLocalViewData_ = originalView;
+    sandbox.SpreadsheetApp = originalSheetApp;
   }
 }
 
@@ -404,6 +438,10 @@ async function testStaticUxContracts() {
   assert.match(ux, /vNextPortalDisplayPlanningValue_\(entry\.centerForecast, actualShortage \? '実績不足' : '未算出'\)/,
     'Empty and insufficient forecast values must be explained, not shown as zero');
   assert.match(ux, /function doGet\(/);
+  assert.match(ux, /format.*json/i,
+    'doGet must expose the machine-readable ?format=json seam');
+  assert.match(ux, /ContentService\.createTextOutput/,
+    'The JSON seam must return a ContentService JSON payload');
   assert.match(ux, /createTemplateFromFile\('Portal_Entry'\)/,
     'doGet must server-side render the entry model to avoid a second RPC roundtrip');
   assert.match(core, /function vNextPortalEntryModelJsonForTemplate_/);
