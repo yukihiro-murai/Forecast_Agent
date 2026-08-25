@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.18';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.19';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-ver-footer';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-plain-language';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =

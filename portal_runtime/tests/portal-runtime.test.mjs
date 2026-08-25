@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.18');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.19');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -348,7 +348,7 @@ function testEntryModel() {
   assert.equal(model.years.join(','), '2027');
   assert.equal(model.books[0].clientName, 'アストラゼネカ');
   assert.equal(model.books[0].tone, 'warn');
-  assert.equal(model.books[1].stateLabel, 'クライアント年度ブック作成中');
+  assert.equal(model.books[1].stateLabel, '年度予算シートを作成中');
   assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
   assert.equal('actorEmail' in model, false);
   assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
@@ -411,7 +411,7 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /申請入口を開く（新規申請）/);
+  assert.match(entry, /年度予算シートの作成を申請する/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(entry, /injectedEntryModel/,
     'Entry page must consume the server-side rendered model and keep the RPC as fallback');
@@ -429,9 +429,9 @@ async function testStaticUxContracts() {
   assert.match(entry, /年度予算策定/);
   assert.match(entry, />続ける</);
   assert.match(entry, />承認する</);
-  assert.match(entry, /ここから新しい年度予算を申請/);
-  assert.match(entry, /作成済みの年度予算はここから開きます/);
-  assert.match(entry, /管理担当者向けの入口/);
+  assert.match(entry, /年度予算シートの新規作成を申請/);
+  assert.match(entry, /作成済みの年度予算シートの一覧です/);
+  assert.match(entry, /管理担当者専用/);
   assert.doesNotMatch(entry, /第[123]層/);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),

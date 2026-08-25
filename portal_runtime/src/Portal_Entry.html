@@ -142,8 +142,9 @@
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
     .hidden { display:none !important; }
+    #app .choice:last-child { margin-bottom:8px; }
     .ver {
-      margin:28px 0 0; text-align:right;
+      margin:0; text-align:right;
       color:#B6C1CD; font-size:11px; line-height:1;
       font-variant-numeric:tabular-nums; user-select:none;
     }
@@ -163,7 +164,7 @@
 <body>
   <header class="appHead">
     <h1>年度予算策定</h1>
-    <p class="lede">クライアントごとの年度予算を<b>始める・続ける・承認する</b>ための入口です。下の 01〜03 から、今の目的に合うものを選んでください。</p>
+    <p class="lede">クライアントの年度予算は、クライアント1社×1年度ごとに1つの<b>「年度予算シート」</b>（Google スプレッドシート）で作成します。このページはその入口です。下の 01〜03 から、今の目的に合うものを選んでください。</p>
   </header>
 
   <div id="error" class="error hidden" role="alert"></div>
@@ -175,7 +176,7 @@
         <div class="step">
           <span class="num">01</span>
           <p class="who">はじめる</p>
-          <h2>まだクライアントの年度予算が無いとき</h2>
+          <h2>クライアントの年度予算を策定するためのシートがまだ無いとき</h2>
         </div>
       </header>
       <div class="cast">
@@ -187,10 +188,10 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>ここから新しい年度予算を申請できます。下のボタンで申請画面が開くので、<b>開いた画面の右側</b>でクライアントと年度を選んでください。申請が済むと、下の 02 に並びます。</p>
+          <p>ここから、年度予算シートの新規作成を申請できます。下のボタンを押すと申請用のスプレッドシート（申請入口）が開き、<b>画面の右側に申請フォーム</b>が表示されます。フォームで対象のクライアント名と年度を選んで申請してください。年度予算シートは自動で作成され、完成すると下の 02 の一覧に並びます。</p>
         </div>
       </div>
-      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">申請入口を開く（新規申請）</a>
+      <a id="portalButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">年度予算シートの作成を申請する</a>
     </article>
 
     <article class="choice">
@@ -198,7 +199,7 @@
         <div class="step">
           <span class="num">02</span>
           <p class="who">続ける</p>
-          <h2>作成済みの年度予算を開く</h2>
+          <h2>作成済みの年度予算シートを開いて、入力や確認を続けるとき</h2>
         </div>
       </header>
       <div class="cast">
@@ -210,7 +211,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>作成済みの年度予算はここから開きます。下で<b>年度</b>を選び、続けて<b>クライアント名</b>を押してください。開いた先の進め方は、その画面がそのまま案内します。</p>
+          <p>作成済みの年度予算シートの一覧です。まず下の<b>年度ボタン</b>で対象の年度を選び、続けて開きたい<b>クライアント名</b>を押すと、その年度予算シートが新しいタブで開きます。シートでの入力の進め方は、開いたシートの右側に表示される案内が説明します。</p>
         </div>
       </div>
       <div id="years" class="picks" role="group" aria-label="年度"></div>
@@ -222,7 +223,7 @@
         <div class="step">
           <span class="num">03</span>
           <p class="who">承認する</p>
-          <h2>提出された予算を確認する（管理担当者）</h2>
+          <h2>提出された年度予算を確認・承認するとき（管理担当者のみ）</h2>
         </div>
       </header>
       <div class="cast">
@@ -234,7 +235,7 @@
         </svg>
         </span>
         <div class="bubble">
-          <p>提出された予算の<b>承認</b>と、マスタの<b>整備</b>を行う管理担当者向けの入口です。ふだんの入力や新規申請には使いません。</p>
+          <p>ここは<b>管理担当者専用</b>の入口です。提出された年度予算の承認や、クライアント一覧などシステム全体の管理を行う「管理ハブ」（管理用スプレッドシート）を開きます。ふだんの入力や新規作成の申請には使いません。</p>
         </div>
       </div>
       <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
@@ -257,8 +258,9 @@
     }
     function userFacing(value) {
       return String(value == null ? '' : value)
-        .replace(/専用ブック/g, 'クライアント年度ブック')
-        .replace(/ブック/g, 'クライアント年度ブック');
+        .replace(/専用ブック/g, '年度予算シート')
+        .replace(/クライアント年度ブック/g, '年度予算シート')
+        .replace(/ブック/g, '年度予算シート');
     }
     function booksForYear(year) {
       return (entryModel.books || []).filter(function (book) {
@@ -306,12 +308,12 @@
       var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
       if (!(entryModel.books || []).length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">クライアント年度ブックが登録されると、この枠にクライアント名と次の操作、状態が表示されます。まだ無い場合は 01 の「申請入口を開く」から新規申請してください。</p>';
+          '<p class="empty">年度予算シートが作成されると、この枠にクライアント名と状態、次にすることが表示されます。まだ1件も無い場合は、上の 01 から作成を申請してください。</p>';
         return;
       }
       if (!rows.length) {
         box.innerHTML = previewBooksHtml() +
-          '<p class="empty">この年度のクライアント年度ブックはまだありません。01 から新規申請するか、別の年度ボタンを選んでください。</p>';
+          '<p class="empty">選んだ年度の年度予算シートはまだありません。上の 01 から作成を申請するか、別の年度ボタンを選んでください。</p>';
         return;
       }
       box.innerHTML = rows.map(function (book) {

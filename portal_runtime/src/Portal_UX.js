@@ -147,9 +147,9 @@ function vNextPortalOpenHelp() {
       'h2{font-size:18px;margin:0 0 12px}.step{padding:11px 12px;margin:9px 0;background:#f8f9fa;border-radius:8px}' +
       '.note{margin-top:16px;padding:12px;background:#e8f0fe;border-left:4px solid #1a73e8}' +
       '</style></head><body><h2>申請入口の使い方</h2>' +
-      '<div class="step"><b>1. 開く</b><br>Web入口の 02（続ける）で、年度とクライアント名を押して既存のクライアント年度ブックを開きます。</div>' +
-      '<div class="step"><b>2. なければ申請</b><br>Web入口の 01（はじめる）か、このシート右の案内から新しいクライアントの年度予算を申請します。</div>' +
-      '<div class="step"><b>3. 状況を見る</b><br>このホームには受付済み・作成中・完成・確認が必要、の状態だけが出ます。セルは書き換えません。</div>' +
+      '<div class="step"><b>1. 開く</b><br>Web入口ページの 02 で、年度とクライアント名を押すと、作成済みの年度予算シートが開きます。</div>' +
+      '<div class="step"><b>2. なければ申請</b><br>Web入口ページの 01 か、このシート右側の案内から、年度予算シートの新規作成を申請します。</div>' +
+      '<div class="step"><b>3. 状況を見る</b><br>ホームのシートには、作成申請の状態（受付済み・作成中・完成・確認が必要）が表示されます。セルは直接編集しません。</div>' +
       '<div class="note">案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」を使います。</div>' +
       '</body></html>'
     ).setTitle('使い方・困ったとき').setWidth(420);
@@ -182,7 +182,7 @@ function vNextPortalRenderHome_(sheet, data) {
   vNextPortalResetViewSheet_(sheet, Math.max(12, requests.length + 6), 6);
   sheet.getRange('A1').setValue(VNEXT_PORTAL_NAMING.PORTAL)
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('開く・申請は Web入口の 01（はじめる）・02（続ける）から。この表は申請の進み具合です。作業は右の案内から行い、セルは書き換えません。案内が出ないときだけ、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」。')
+  sheet.getRange('A2').setValue('このシートは、年度予算シート（クライアント1社×1年度ごとのスプレッドシート）の作成申請の状況一覧です。セルは直接編集しません。シートを開く・新しく作成を申請する操作は Web入口ページの 01・02 から。右側に案内が出ていないときは、上部メニュー「' + VNEXT_PORTAL_NAMING.MENU + '」→「案内を開く」で表示できます。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('A3').setValue('作成依頼の状況')
     .setFontSize(11).setFontWeight('bold').setFontColor('#202124');
@@ -228,9 +228,9 @@ function vNextPortalRenderHome_(sheet, data) {
 function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   var entries = vNextPortalFiscalYearEntries_(fiscalYear, data);
   vNextPortalResetViewSheet_(sheet, Math.max(12, entries.length + 6), 9);
-  sheet.getRange('A1').setValue('FY' + fiscalYear + ' クライアント年度ブック')
+  sheet.getRange('A1').setValue('FY' + fiscalYear + ' 年度予算シート一覧')
     .setFontSize(16).setFontWeight('bold').setFontColor('#202124');
-  sheet.getRange('A2').setValue('Web入口の 02（続ける）から開くのが簡単です。ここは年度ごとの一覧です。')
+  sheet.getRange('A2').setValue('このシートは、この年度の年度予算シートの一覧です。開くときは、Web入口ページの 02 のクライアント名ボタンから開くのが簡単です。')
     .setFontSize(10).setFontColor('#5f6368');
   sheet.getRange('H2').setValue('表示更新').setFontColor('#5f6368').setFontSize(9);
   sheet.getRange('I2').setValue(vNextPortalDisplayDateTime_(new Date()))
@@ -239,7 +239,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   sheet.getRange(4, 1, 1, headers.length).setValues([headers])
     .setFontWeight('bold').setFontColor('#3c4043').setBackground('#f1f3f4');
   if (!entries.length) {
-    sheet.getRange('A5').setValue('この年度のクライアント年度ブックはまだありません。右側の案内から申請できます。')
+    sheet.getRange('A5').setValue('この年度の年度予算シートはまだありません。右側の案内から作成を申請できます。')
       .setFontColor('#5f6368').setFontStyle('italic');
   } else {
     var rows = entries.map(function (entry) {
@@ -282,7 +282,7 @@ function vNextPortalRenderFiscalYear_(sheet, fiscalYear, data) {
   [106, 190, 104, 104, 104, 210, 260, 100, 68].forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
   sheet.setRowHeight(1, 30);
   sheet.setRowHeight(2, 24);
-  vNextPortalProtectWarningOnly_(sheet, '自動生成画面（入力は各クライアント年度ブックで行います）');
+  vNextPortalProtectWarningOnly_(sheet, '自動生成の一覧です（予算の入力は各年度予算シートで行います）');
 }
 
 function vNextPortalFiscalYearEntries_(fiscalYear, data) {
@@ -302,7 +302,7 @@ function vNextPortalFiscalYearEntries_(fiscalYear, data) {
       forecastOwnerEmail: item.forecastOwnerEmail,
       relatedMemberEmails: item.relatedMemberEmails,
       relatedMemberNames: item.relatedMemberNames || [],
-      nextAction: item.nextAction || 'クライアント年度ブックで次の対応を確認してください。',
+      nextAction: item.nextAction || '年度予算シートを開いて、次の対応を確認してください。',
       updatedAt: item.updatedAt,
       url: item.url
     });
