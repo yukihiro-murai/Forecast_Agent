@@ -336,6 +336,7 @@
       }).join('');
     }
     function render(model) {
+      lastModelAt = Date.now();
       entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
@@ -376,6 +377,18 @@
       el.textContent = message;
       el.classList.remove('hidden');
     }
+    var lastModelAt = Date.now();
+    // Keep a long-lived tab honest: when the user returns after 5+ minutes,
+    // silently refresh the list so completed sheets appear without a reload.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      if (Date.now() - lastModelAt < 5 * 60 * 1000) return;
+      lastModelAt = Date.now();
+      google.script.run
+        .withSuccessHandler(function (model) { if (model && model.ok) render(model); })
+        .withFailureHandler(function () {})
+        .vNextPortalGetEntryModel();
+    });
     var injectedEntryModel = <?!= entryModelJson ?>;
     if (injectedEntryModel && injectedEntryModel.ok) {
       render(injectedEntryModel);

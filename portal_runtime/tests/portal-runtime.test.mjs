@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.22');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.23');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }

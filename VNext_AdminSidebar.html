@@ -729,6 +729,10 @@
           lastQuickStatusAt = Date.now();
           try { refreshDevDeployQuick(); } catch (ignored) {}
         }
+        if (name === 'care' && !maintenanceRequested) {
+          maintenanceRequested = true;
+          try { loadMaintenance(); } catch (ignored) {}
+        }
       }
       function restoreTab() {
         var saved = '';
@@ -794,6 +798,9 @@
               $('statusTechnical').classList.remove('hidden');
             })
             .vNextAdminGetSidebarDetailModel();
+        if (maintenanceRequested) {
+          try { loadMaintenance(true); } catch (ignored) {}
+        }
         }).withFailureHandler(onFailure).vNextAdminGetSidebarModel();
       }
       function mergeSidebarDetails(detail) {
@@ -838,29 +845,11 @@
               : `受付済み ${operations.queued || 0}件 / 処理中 ${operations.running || 0}件\n` +
                 `最終自動更新：${operations.lastSweepSucceededAt || 'まだ実行されていません'}`;
           $('operationsStatus').classList.toggle('error', !!(operations.schedulerStale || operations.queueStale));
-          const pilot = model.pilot || {};
-          if (pilot.loading) {
-            $('pilotStatus').textContent = 'Pilot展開状況を確認中…';
-            $('pilotStatus').classList.remove('error');
-            $('pilotCanaryApproval').classList.add('hidden');
-          } else {
-            $('pilotStatus').textContent =
-              `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
-              (pilot.blockedReason || '現在の範囲で次の年度予算シートを生成できます。');
-            $('pilotStatus').classList.toggle('error', !!pilot.blocked);
-            $('pilotCanaryApproval').classList.toggle('hidden',
-              !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
-          }
           $('installAutomation').classList.toggle('hidden', !!model.automationInstalled);
           renderExceptions(model.topExceptions || []);
           renderApprovals(model.pendingApprovals || []);
           renderPortalRequests(model.portalRequests || {});
           renderRecentJobs(model.recentJobs || []);
-          const drafts = (model.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
-          const staged = (model.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
-          $('activeTemplateRelease').textContent =
-            `現行：${model.activeTemplateReleaseId || '未設定'}\n年度予算シート用 runtime：${model.templateRuntimeVersion || '未設定'}\n` +
-            `編集用Draft：${drafts || 'なし'}\nSTAGED：${staged || 'なし'}`;
           $('adminRuntimeStatus').textContent = model.adminRuntimeUpdatable
             ? `中央更新経路：有効\n現在SHA-256：${model.adminRuntimeSha256 || '未記録'}`
             : '中央更新経路が未登録です。clean bootstrapで生成したHubを使用してください。';
@@ -868,16 +857,8 @@
           $('portalRuntimeStatus').textContent = model.portalRuntimeUpdatable
             ? `現在：${model.portalRuntimeVersion || '未記録'}\nSHA-256：${model.portalRuntimeSha256 || '未記録'}`
             : '申請入口はまだ準備されていません。';
-          $('clientCatalogStatus').textContent =
-            `選択可能：${model.clientCatalogActiveCount || 0}社\n` +
-            `候補版：${model.clientCatalogVersion || '未取得'}\n` +
-            `最終更新：${model.clientCatalogRefreshedAt || '未取得'}` +
-            (model.clientCatalogStale ? '\n更新が必要です。' : '');
-          $('clientCatalogStatus').classList.toggle('error', !!model.clientCatalogStale);
           $('updatePortalRuntimeButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
           $('refreshClientCatalogButton').classList.toggle('hidden', !model.portalRuntimeUpdatable);
-          renderModelReleases(model);
-          renderEmptyPilotUpgradeCandidates(model.emptyPilotUpgradeCandidates || []);
           if (model.devDeployStatus) renderDevDeployStatus(model.devDeployStatus);
           if (model.learningDashboard) renderLearningDashboard(model.learningDashboard);
           renderClientBookList(model.clientBooks || []);
@@ -889,6 +870,46 @@
           }
         }
         if ($('status').textContent === '初期化中…') showStatus('最新状態を表示しています。');
+      }
+      var maintenanceRequested = false;
+      function loadMaintenance(silent) {
+        if (!silent) {
+          $('pilotStatus').textContent = 'Pilot展開状況を読み込んでいます…';
+          $('activeTemplateRelease').textContent = '版情報を読み込んでいます…';
+          $('clientCatalogStatus').textContent = 'クライアント候補の状態を読み込んでいます…';
+        }
+        google.script.run.withSuccessHandler(renderMaintenance)
+          .withFailureHandler(function(error) {
+            $('pilotStatus').textContent = '保守情報を取得できませんでした: ' +
+              String(error && error.message || error);
+          }).vNextAdminGetMaintenanceModel();
+      }
+      function renderMaintenance(maintenance) {
+        const m = maintenance || {};
+        const pilot = m.pilot || {};
+        if (!m.pilot) {
+          $('pilotStatus').textContent = 'Pilot展開状況を確認できませんでした。';
+        } else {
+          $('pilotStatus').textContent =
+            `${pilot.phase || 'INITIAL_PILOT'}：${pilot.clientCount || 0} / ${pilot.currentLimit || 3}冊\n` +
+            (pilot.blockedReason || '現在の範囲で次の年度予算シートを生成できます。');
+          $('pilotStatus').classList.toggle('error', !!pilot.blocked);
+          $('pilotCanaryApproval').classList.toggle('hidden',
+            !!pilot.canaryApproved || Number(pilot.clientCount || 0) < 3 || Number(pilot.clientCount || 0) >= 5);
+        }
+        const drafts = (m.templateDrafts || []).map(row => `${row.draftId} / ${row.spreadsheetId}`).join('\n');
+        const staged = (m.stagedTemplateReleases || []).map(row => row.releaseId).join('\n');
+        $('activeTemplateRelease').textContent =
+          `現行：${m.activeTemplateReleaseId || '未設定'}\n年度予算シート用 runtime：${m.templateRuntimeVersion || '未設定'}\n` +
+          `編集用Draft：${drafts || 'なし'}\nSTAGED：${staged || 'なし'}`;
+        $('clientCatalogStatus').textContent =
+          `選択可能：${m.clientCatalogActiveCount || 0}社\n` +
+          `候補版：${m.clientCatalogVersion || '未取得'}\n` +
+          `最終更新：${m.clientCatalogRefreshedAt || '未取得'}` +
+          (m.clientCatalogStale ? '\n更新が必要です。' : '');
+        $('clientCatalogStatus').classList.toggle('error', !!m.clientCatalogStale);
+        renderModelReleases(m);
+        renderEmptyPilotUpgradeCandidates(m.emptyPilotUpgradeCandidates || []);
       }
       function renderModelReleases(model) {
         const active = model.activeModelReleaseId || '未設定';
@@ -1381,7 +1402,7 @@
         if (ok) {
           headline.textContent = '✓ 反映済み（Web入口 ' + (shortVersion(portalTarget) || '最新') + '）';
           if (hint) {
-            hint.textContent = '問題なければ Web入口をハード再読み込み（Cmd+Shift+R）して文言を確認してください。';
+            hint.textContent = '「Web入口を開く」から開くと、常に最新版が表示されます。';
           }
           if (button) button.textContent = 'もう一度反映する';
         } else if (portalTarget && portalCurrent && portalCurrent !== portalTarget) {
@@ -1412,7 +1433,8 @@
         }
         if (link) {
           if (verification.webAppUrl) {
-            link.href = verification.webAppUrl;
+            link.href = verification.webAppUrl + '?v=' +
+              encodeURIComponent(shortVersion(verification.targetPortalVersion) || 'latest');
             link.classList.remove('hidden');
           } else {
             link.removeAttribute('href');
@@ -1647,7 +1669,7 @@
           });
         }
         if (link && /^https:\/\//.test(String(quick.webAppUrl || ''))) {
-          link.href = quick.webAppUrl;
+          link.href = quick.webAppUrl + '?v=' + encodeURIComponent(shortVersion(quick.portalTarget) || 'latest');
           link.classList.remove('hidden');
         }
       }
@@ -1673,7 +1695,7 @@
         showStatus(formatDevDeployResult(phaseA, phaseB), !ok);
         if (phaseB && phaseB.verification) renderDevDeployStatus({ lastDeploy: phaseB, verification: phaseB.verification });
         setDeployNote(ok
-          ? '✓ 完了しました。Web入口を Cmd+Shift+R で開き直し、右下の「版」表示を確認してください。'
+          ? '✓ 完了しました。「Web入口を開く」から開き直し、右下の「Ver.」表示を確認してください。'
           : '反映処理は終わりましたが、確認で不一致があります。上の内容を確認してください。',
           ok ? 'good' : 'amber');
         maybeOfferClientRelease(phaseB);

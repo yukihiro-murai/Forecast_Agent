@@ -92,15 +92,15 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.22';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.23';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-naming-unify';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-lazy-maintenance';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20', 'vnext-portal-1.7.21',
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12', 'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16', 'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20', 'vnext-portal-1.7.21', 'vnext-portal-1.7.22',
   'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
@@ -737,8 +737,37 @@ function vNextAdminGetSidebarDetailModel() {
     if (!String(hubConfig.book_id || '')) {
       hubConfig = Object.assign({}, hubConfig, vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET));
     }
-    const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
     const portalRequests = vNextAdminPortalRequestsForSidebar_(ss);
+    const model = {
+      portalRequests: portalRequests,
+      counts: { portalAttention: Number(portalRequests.counts.failed || 0) },
+      activeTemplateReleaseId: String(hubConfig.active_release_id || '')
+    };
+    vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
+    // Deploy verification (portal open + central marker fetch) and the learning
+    // dashboard are heavy; the sidebar fetches both lazily when their tab or
+    // section is opened (vNextAdminGetVerifiedEmployeeUxDeployStatus /
+    // vNextAdminGetLearningDashboard).
+    model.devDeployStatus = null;
+    model.learningDashboard = null;
+    return vNextAdminJsonSafe_(model);
+  });
+}
+
+/**
+ * Maintenance-tab data (catalog, releases, drafts, pilot, empty-pilot upgrade
+ * candidates). Costs ~6 table reads, so the sidebar fetches it lazily when the
+ * 保守 tab is first opened instead of on every sidebar start.
+ */
+function vNextAdminGetMaintenanceModel() {
+  return vNextAdminGuard_('vNextAdminGetMaintenanceModel', function () {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!vNextAdminLooksLikeHub_(ss)) return {};
+    let hubConfig = vNextAdminAssertHubAdminFast_(ss);
+    if (!String(hubConfig.book_id || '')) {
+      hubConfig = Object.assign({}, hubConfig, vNextAdminReadKeyValueSheet_(ss, VN_ADMIN_BOOK_CONFIG_SHEET));
+    }
+    const registryRows = vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.REGISTRY).rows;
     const activeTemplate = vNextAdminResolveRelease_(ss, hubConfig.active_release_id || '');
     const unfinishedEmptyUpgradesByBook = {};
     vNextAdminReadTable_(ss, VN_ADMIN_SHEETS.MIGRATIONS).rows.forEach(function (row) {
@@ -772,9 +801,7 @@ function vNextAdminGetSidebarDetailModel() {
     const catalogRefreshedAt = String(hubConfig.zac_client_catalog_refreshed_at || '');
     const catalogRefreshedMs = new Date(catalogRefreshedAt || 0).getTime();
     const activeModel = vNextAdminTryResolveActiveModelRelease_(ss);
-    const model = {
-      portalRequests: portalRequests,
-      counts: { portalAttention: Number(portalRequests.counts.failed || 0) },
+    return vNextAdminJsonSafe_({
       activeTemplateReleaseId: String(activeTemplate.release_id || ''),
       templateRuntimeVersion: String(activeTemplate.client_runtime_version || ''),
       emptyPilotUpgradeCandidates: emptyPilotUpgradeCandidates,
@@ -798,15 +825,7 @@ function vNextAdminGetSidebarDetailModel() {
           };
         }),
       pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss)
-    };
-    vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
-    // Deploy verification (portal open + central marker fetch) and the learning
-    // dashboard are heavy; the sidebar fetches both lazily when their tab or
-    // section is opened (vNextAdminGetVerifiedEmployeeUxDeployStatus /
-    // vNextAdminGetLearningDashboard).
-    model.devDeployStatus = null;
-    model.learningDashboard = null;
-    return vNextAdminJsonSafe_(model);
+    });
   });
 }
 

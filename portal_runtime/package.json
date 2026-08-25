@@ -1,7 +1,7 @@
 {
   "name": "forecast-vnext-portal-runtime",
   "private": true,
-  "version": "1.7.22",
+  "version": "1.7.23",
   "type": "module",
   "scripts": {
     "test": "node tests/portal-runtime.test.mjs",
