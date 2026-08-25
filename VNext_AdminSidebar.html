@@ -1532,6 +1532,11 @@
         });
         const checks = $('devDeployChecks');
         if (checks) { checks.classList.add('hidden'); checks.innerHTML = ''; }
+        // The version panel shows pre-deploy numbers; hide it during the run so
+        // the progress checklist is the only status source. refreshDevDeployQuick
+        // repaints it with fresh values when the run finishes.
+        const versions = $('deployVersions');
+        if (versions) versions.classList.add('hidden');
         const headline = $('devDeployHeadline');
         if (headline) { headline.className = 'overview processing'; headline.textContent = '反映を実行しています…'; }
         setDeployNote('');
