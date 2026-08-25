@@ -1693,13 +1693,13 @@
             });
             google.script.run.withSuccessHandler(finalizeHandlers.ok)
               .withFailureHandler(finalizeHandlers.fail)
-              .vNextAdminDeployVerifiedEmployeeUxFinalize_({
+              .vNextAdminRpcDeployFinalizeStep({
                 reason: reason, upgradeEmptyPilots: false, portal: portal
               });
           });
           google.script.run.withSuccessHandler(portalHandlers.ok)
             .withFailureHandler(portalHandlers.fail)
-            .vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason, fastDeploy: true });
+            .vNextAdminRpcDeployPortalStep({ reason: reason, fastDeploy: true });
         });
         google.script.run.withSuccessHandler(hubHandlers.ok)
           .withFailureHandler(hubHandlers.fail)
@@ -1725,13 +1725,13 @@
           });
           google.script.run.withSuccessHandler(finalizeHandlers.ok)
             .withFailureHandler(finalizeHandlers.fail)
-            .vNextAdminDeployVerifiedEmployeeUxFinalize_({
+            .vNextAdminRpcDeployFinalizeStep({
               reason: reason, upgradeEmptyPilots: false, release: release
             });
         });
         google.script.run.withSuccessHandler(clientHandlers.ok)
           .withFailureHandler(clientHandlers.fail)
-          .vNextAdminDeployVerifiedEmployeeUxClientRelease_({
+          .vNextAdminRpcDeployClientReleaseStep({
             reason: reason, allowHeavyRelease: true
           });
       }
@@ -1762,13 +1762,13 @@
           });
           google.script.run.withSuccessHandler(finalizeHandlers.ok)
             .withFailureHandler(finalizeHandlers.fail)
-            .vNextAdminDeployVerifiedEmployeeUxFinalize_({
+            .vNextAdminRpcDeployFinalizeStep({
               reason: reason, upgradeEmptyPilots: false, portal: portal
             });
         });
         google.script.run.withSuccessHandler(portalHandlers.ok)
           .withFailureHandler(portalHandlers.fail)
-          .vNextAdminDeployVerifiedEmployeeUxPortal_({ reason: reason, fastDeploy: true });
+          .vNextAdminRpcDeployPortalStep({ reason: reason, fastDeploy: true });
       }
       function renderLearningDashboard(dashboard) {
         const concept = $('learningConcept');

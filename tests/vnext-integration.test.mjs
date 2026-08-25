@@ -544,8 +544,9 @@ async function checkAdminRecoveryContracts() {
     sidebar.includes('vNextAdminGetVerifiedEmployeeUxDeployStatus') &&
     sidebar.includes('DEPLOY_TIMEOUTS') &&
     sidebar.includes('onDeployTimeout') &&
-    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxClientRelease_') &&
-    sidebar.includes('vNextAdminDeployVerifiedEmployeeUxPortal_') &&
+    sidebar.includes('vNextAdminRpcDeployClientReleaseStep') &&
+    sidebar.includes('vNextAdminRpcDeployPortalStep') &&
+    sidebar.includes('vNextAdminRpcDeployFinalizeStep') &&
     sidebar.includes('開発反映') &&
     sidebar.includes('反映する') &&
     sidebar.includes('年度予算策定 → Web入口を最新版にする') &&

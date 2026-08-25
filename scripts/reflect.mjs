@@ -80,11 +80,11 @@ async function main() {
     await sleep(2500);
     try {
       process.stdout.write('Portal 更新を試行…\n');
-      const portal = await runScript(token, HUB_SCRIPT, 'vNextAdminDeployVerifiedEmployeeUxPortal_', [
+      const portal = await runScript(token, HUB_SCRIPT, 'vNextAdminRpcDeployPortalStep', [
         { reason, fastDeploy: true }
       ]);
       process.stdout.write(`Portal OK: ${summarize(portal)}\n`);
-      const fin = await runScript(token, HUB_SCRIPT, 'vNextAdminDeployVerifiedEmployeeUxFinalize_', [
+      const fin = await runScript(token, HUB_SCRIPT, 'vNextAdminRpcDeployFinalizeStep', [
         { reason, upgradeEmptyPilots: false, portal }
       ]);
       process.stdout.write(`確認: ${summarize(fin)}\n`);

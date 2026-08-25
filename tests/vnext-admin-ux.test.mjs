@@ -120,4 +120,22 @@ assert.ok(sidebar.includes('dataset.recoveryRequired') &&
   sidebar.includes('中断した更新を復旧'),
   'an interrupted empty-Pilot upgrade must remain recoverable from the normal Admin UI');
 
+// google.script.run silently drops private (underscore-suffixed) server
+// functions: neither handler fires and the UI hangs forever. Ban them from
+// every HTML surface so this whole bug class cannot come back.
+const { readdir } = await import('node:fs/promises');
+const htmlSurfaces = [];
+for (const dir of ['.', 'portal_runtime/src', 'client_runtime/src']) {
+  for (const name of await readdir(path.join(root, dir))) {
+    if (name.endsWith('.html')) htmlSurfaces.push(path.join(dir, name));
+  }
+}
+assert.ok(htmlSurfaces.length >= 8, 'expected to scan the sidebar/entry HTML surfaces');
+for (const file of htmlSurfaces) {
+  const html = await readFile(path.join(root, file), 'utf8');
+  const privateCalls = [...html.matchAll(/\.\s*(vNext\w*_)\s*\(/g)].map(match => match[1]);
+  assert.deepEqual(privateCalls, [],
+    file + ' must not call private (underscore-suffixed) server functions from google.script.run');
+}
+
 process.stdout.write('PASS vNext Admin decision UX contracts\n');

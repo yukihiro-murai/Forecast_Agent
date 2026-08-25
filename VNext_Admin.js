@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.17';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-resilient-deploy';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-public-rpc-fix';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -1887,6 +1887,23 @@ function vNextAdminDeployVerifiedEmployeeUxPortal_(request) {
     });
     return portal;
   });
+}
+
+/**
+ * Public RPC endpoints for the Hub sidebar deploy chain.
+ * google.script.run SILENTLY DROPS calls to functions whose names end with "_"
+ * (Apps Script treats them as private; neither the success nor the failure
+ * handler ever fires). Every function the sidebar invokes must therefore have
+ * a public name. Do not rename these to underscore-suffixed forms.
+ */
+function vNextAdminRpcDeployPortalStep(request) {
+  return vNextAdminDeployVerifiedEmployeeUxPortal_(request);
+}
+function vNextAdminRpcDeployFinalizeStep(request) {
+  return vNextAdminDeployVerifiedEmployeeUxFinalize_(request);
+}
+function vNextAdminRpcDeployClientReleaseStep(request) {
+  return vNextAdminDeployVerifiedEmployeeUxClientRelease_(request);
 }
 
 /** Spreadsheet menu: update Web entry only (no Client release). */
