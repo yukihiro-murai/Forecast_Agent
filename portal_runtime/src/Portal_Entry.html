@@ -143,9 +143,9 @@
     }
     .hidden { display:none !important; }
     .ver {
-      margin:40px 0 0; text-align:center;
-      color:#A8B4C2; font-size:11px; font-variant-numeric:tabular-nums;
-      user-select:none;
+      margin:28px 0 0; text-align:right;
+      color:#B6C1CD; font-size:11px; line-height:1;
+      font-variant-numeric:tabular-nums; user-select:none;
     }
     @media (max-width:520px) {
       h1 { font-size:24px; }
@@ -331,7 +331,7 @@
       document.getElementById('app').classList.remove('hidden');
       var versionLabel = document.getElementById('entryVersion');
       if (versionLabel && model && model.runtimeVersion) {
-        versionLabel.textContent = '版 ' + String(model.runtimeVersion).replace('vnext-portal-', '');
+        versionLabel.textContent = 'Ver. ' + String(model.runtimeVersion).replace('vnext-portal-', '');
       }
       var portalButton = document.getElementById('portalButton');
       if (model.portalUrl) {
