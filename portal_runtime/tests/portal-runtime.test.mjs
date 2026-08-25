@@ -268,11 +268,11 @@ function testCreateModel() {
   });
   try {
     const model = sandbox.vNextPortalGetCreateModel();
-    assert.equal(model.fiscalYears.length, 11);
+    assert.equal(model.fiscalYears.length, 3);
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
-    assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
+    assert.equal(model.fiscalYears[2], model.fiscalYears[0] + 2);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.24');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.25');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }

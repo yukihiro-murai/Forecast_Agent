@@ -136,11 +136,11 @@
           <label for="memberName1">1人目</label>
           <input id="memberName1" maxlength="80" placeholder="氏名" required disabled>
         </div>
-        <div class="member-row hidden" id="memberRow2">
+        <div class="member-row" id="memberRow2">
           <label for="memberName2">2人目</label>
           <input id="memberName2" maxlength="80" placeholder="氏名" disabled>
         </div>
-        <div class="member-row hidden" id="memberRow3">
+        <div class="member-row" id="memberRow3">
           <label for="memberName3">3人目</label>
           <input id="memberName3" maxlength="80" placeholder="氏名" disabled>
         </div>
@@ -204,7 +204,7 @@
     var busy = false;
     var submitted = false;
     var modelLoaded = false;
-    var visibleMemberCount = 1;
+    var visibleMemberCount = 3;
     var catalogClients = [];
     var currentRequestId = '';
     var currentProgress = null;
@@ -314,6 +314,8 @@
       elements.fiscalYear.disabled = false;
       elements.clientKey.disabled = false;
       elements.memberName1.disabled = false;
+      elements.memberName2.disabled = false;
+      elements.memberName3.disabled = false;
       elements.addMemberButton.disabled = false;
       modelLoaded = true;
       renderClientOptions();

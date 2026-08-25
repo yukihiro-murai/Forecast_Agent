@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.24',
+  RUNTIME_VERSION: 'vnext-portal-1.7.25',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -104,7 +104,7 @@ function vNextPortalGetCreateModel() {
     if (!actor) throw new Error('ログイン中のGoogleアカウントを確認できません。社内アカウントで開き直してください。');
     var catalog = vNextPortalReadClientCatalog_(spreadsheet, true);
     var fiscalYears = [];
-    for (var year = fiscalYear; year <= fiscalYear + 10; year++) fiscalYears.push(year);
+    for (var year = fiscalYear; year <= fiscalYear + 2; year++) fiscalYears.push(year);
     return {
       ok: true,
       runtimeVersion: VNEXT_PORTAL.RUNTIME_VERSION,
