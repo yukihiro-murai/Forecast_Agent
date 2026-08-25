@@ -1426,9 +1426,10 @@
       // Server responses can be silently dropped by Apps Script; every RPC in the
       // deploy chain gets a hard client-side timeout that unlocks the UI so the
       // user can resume. All steps are safe to re-run (server skips finished work).
-      var DEPLOY_TIMEOUTS = { hub: 300, portal: 300, client: 360, finalize: 180 };
+      var DEPLOY_TIMEOUTS = { hub: 300, portal: 360, client: 360, finalize: 180 };
       var deployRunToken = 0;
-      function guardedHandlers(stepId, onOk) {
+      var deployRetryWaiting = false;
+      function guardedHandlers(stepId, onOk, onFail) {
         const token = deployRunToken;
         let settled = false;
         const timer = setTimeout(function() {
@@ -1445,9 +1446,28 @@
           fail: function(error) {
             if (settled || token !== deployRunToken) return;
             settled = true; clearTimeout(timer);
-            onFailure(error);
+            (onFail || onFailure)(error);
           }
         };
+      }
+      // The whole project shares one script lock with the five-minute automation
+      // worker. Contention is normal, so lock-busy failures wait and retry
+      // instead of surfacing an error to the user.
+      function retryIfLockBusy(stepId, error, attempt, retry) {
+        const message = String(error && error.message || error);
+        if (message.indexOf('Another vNext admin operation is running') >= 0 && attempt < 5) {
+          const token = deployRunToken;
+          deployRetryWaiting = true;
+          setDeployNote('ほかの自動処理が実行中のため待機しています。45秒後に自動で再試行します（' +
+            (attempt + 1) + '/5回目）。このまま置いておいて大丈夫です。');
+          setTimeout(function() {
+            if (token !== deployRunToken) return;
+            deployRetryWaiting = false;
+            retry();
+          }, 45000);
+          return;
+        }
+        onFailure(error);
       }
       function onDeployTimeout(stepId) {
         deployRunToken++;
@@ -1522,7 +1542,7 @@
         if (!row) return;
         const seconds = Math.floor((Date.now() - deployStepStartedAt) / 1000);
         row.querySelector('.tm').textContent = formatElapsed(seconds);
-        if (seconds >= 90) {
+        if (seconds >= 90 && !deployRetryWaiting) {
           setDeployNote('時間がかかっていますが、処理は裏で続いています。応答が途絶えた場合は自動でお知らせします。');
         }
       }
@@ -1659,11 +1679,15 @@
       function runSmartDeploy(isSecondPass) {
         const reason = value('devDeployReason') || '開発反映';
         deployRunToken++;
+        deployRetryWaiting = false;
         setBusy(true);
         if (isSecondPass !== true) beginDeployProgress();
         startDeployStep('hub', isSecondPass === true ? '管理ハブを同期（自動続行）' : null);
         showStatus(isSecondPass === true ? '続きを自動実行しています…' : '反映を開始しました。進み具合は上の一覧に出ます。');
-        const hubHandlers = guardedHandlers('hub', function(phaseA) {
+        runHubStep(reason, isSecondPass === true, 0);
+      }
+      function runHubStep(reason, isSecondPass, attempt) {
+        const handlers = guardedHandlers('hub', function(phaseA) {
           // After a real Hub content replace, later RPCs run the NEW server code
           // (each google.script.run call is a fresh execution), so we wait a few
           // seconds and rerun the same chain automatically. The reopen banner
@@ -1684,26 +1708,37 @@
           }
           endDeployStep('hub', 'done');
           startDeployStep('portal');
-          const portalHandlers = guardedHandlers('portal', function(portal) {
-            endDeployStep('portal', 'done',
-              portal && portal.reused ? 'Web入口は最新（変更なし）' : null);
-            startDeployStep('finalize');
-            const finalizeHandlers = guardedHandlers('finalize', function(phaseB) {
-              finishSmartDeploy(phaseA, phaseB);
-            });
-            google.script.run.withSuccessHandler(finalizeHandlers.ok)
-              .withFailureHandler(finalizeHandlers.fail)
-              .vNextAdminRpcDeployFinalizeStep({
-                reason: reason, upgradeEmptyPilots: false, portal: portal
-              });
+          runPortalStep(reason, phaseA, 0);
+        }, function(error) {
+          retryIfLockBusy('hub', error, attempt, function() {
+            runHubStep(reason, isSecondPass, attempt + 1);
           });
-          google.script.run.withSuccessHandler(portalHandlers.ok)
-            .withFailureHandler(portalHandlers.fail)
-            .vNextAdminRpcDeployPortalStep({ reason: reason, fastDeploy: true });
         });
-        google.script.run.withSuccessHandler(hubHandlers.ok)
-          .withFailureHandler(hubHandlers.fail)
+        google.script.run.withSuccessHandler(handlers.ok)
+          .withFailureHandler(handlers.fail)
           .vNextAdminUpdateHubRuntimeFromSource({ reason: reason });
+      }
+      function runPortalStep(reason, phaseA, attempt) {
+        const handlers = guardedHandlers('portal', function(portal) {
+          endDeployStep('portal', 'done',
+            portal && portal.reused ? 'Web入口は最新（変更なし）' : null);
+          startDeployStep('finalize');
+          const finalizeHandlers = guardedHandlers('finalize', function(phaseB) {
+            finishSmartDeploy(phaseA, phaseB);
+          });
+          google.script.run.withSuccessHandler(finalizeHandlers.ok)
+            .withFailureHandler(finalizeHandlers.fail)
+            .vNextAdminRpcDeployFinalizeStep({
+              reason: reason, upgradeEmptyPilots: false, portal: portal
+            });
+        }, function(error) {
+          retryIfLockBusy('portal', error, attempt, function() {
+            runPortalStep(reason, phaseA, attempt + 1);
+          });
+        });
+        google.script.run.withSuccessHandler(handlers.ok)
+          .withFailureHandler(handlers.fail)
+          .vNextAdminRpcDeployPortalStep({ reason: reason, fastDeploy: true });
       }
       // Client Template/Model release is heavy (minutes) and rarely needed, so it
       // never runs inside the main chain — a dedicated button appears only when
@@ -1749,26 +1784,13 @@
       function deployPortalOnly() {
         const reason = value('devDeployReason') || 'Web入口のみ反映';
         deployRunToken++;
+        deployRetryWaiting = false;
         setBusy(true);
         beginDeployProgress();
         endDeployStep('hub', 'skip', '管理ハブ同期（この操作では行いません）');
         startDeployStep('portal');
         showStatus('Web入口だけ更新しています…');
-        const portalHandlers = guardedHandlers('portal', function(portal) {
-          endDeployStep('portal', 'done');
-          startDeployStep('finalize');
-          const finalizeHandlers = guardedHandlers('finalize', function(phaseB) {
-            finishSmartDeploy(null, phaseB);
-          });
-          google.script.run.withSuccessHandler(finalizeHandlers.ok)
-            .withFailureHandler(finalizeHandlers.fail)
-            .vNextAdminRpcDeployFinalizeStep({
-              reason: reason, upgradeEmptyPilots: false, portal: portal
-            });
-        });
-        google.script.run.withSuccessHandler(portalHandlers.ok)
-          .withFailureHandler(portalHandlers.fail)
-          .vNextAdminRpcDeployPortalStep({ reason: reason, fastDeploy: true });
+        runPortalStep(reason, null, 0);
       }
       function renderLearningDashboard(dashboard) {
         const concept = $('learningConcept');

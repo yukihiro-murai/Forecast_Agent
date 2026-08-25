@@ -94,7 +94,7 @@ const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
 ]);
 const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.17';
 /** Bump whenever clasp-push changes must reach Hub/Portal via 開発反映. */
-const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-public-rpc-fix';
+const VN_ADMIN_RUNTIME_BUILD_STAMP = '20260825-lock-retry';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -6081,7 +6081,7 @@ function vNextAdminUpdateHubRuntimeInHub_(hub, request, options) {
         ? '管理ハブを最新化しました。案内パネルを一度閉じて「案内を開く」から開き直し、もう一度緑ボタンを押してください。'
         : '管理ハブは既に中央と一致しています。続けて Web入口を確認します。'
     };
-  });
+  }, 90000);
 }
 
 /**
@@ -6384,7 +6384,7 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       migrated.webAppVersion = webApp.versionNumber;
       migrated.message = '申請入口を最新版へ更新し、' + VNEXT_NAMING.WEB_ENTRY + 'も同じURLのまま公開しました。入口をハード再読み込みしてください。';
       return migrated;
-    });
+    }, 90000);
   });
 }
 
@@ -13880,9 +13880,13 @@ function vNextAdminGuard_(name, fn) {
   }
 }
 
-function vNextAdminWithScriptLock_(label, fn) {
+function vNextAdminWithScriptLock_(label, fn, waitMs) {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) throw new Error('Another vNext admin operation is running: ' + label);
+  // Deploy operations pass a longer wait so they ride out the five-minute
+  // automation worker instead of failing after 30 seconds of contention.
+  if (!lock.tryLock(Number(waitMs) > 0 ? Number(waitMs) : 30000)) {
+    throw new Error('Another vNext admin operation is running: ' + label);
+  }
   try { return fn(); } finally { lock.releaseLock(); }
 }
 
