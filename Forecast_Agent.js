@@ -2706,7 +2706,7 @@ function buildCONFIG_() {
     ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual'],
     ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', 'forecast-agent-498907'],
     ['VERTEX_LOCATION（リージョン。grounding は global 推奨）', 'global'],
-    ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.1-pro-preview または gemini-3.5-flash）', 'gemini-3.1-pro-preview'],
+    ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.8-flash）', 'gemini-3.8-flash'],
     ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。レポート更新時はここを切替）', 'fujikeizai-portfolio-2025'],
     ['VERTEX_SEARCH_LOCATION（データストアのロケーション。global / us / eu）', 'global'],
     ['VERTEX_SERVING_CONFIG（検索サービング構成ID。通常 default_search。アプリにより default_config）', 'default_search'],
@@ -8727,7 +8727,7 @@ function syncSalesFromSalesInput_(fy, client) {
 /**
  * HOW TO TEST (vertex-only)
  * 1) A-1 後、CONFIG に VERTEX_PROJECT_ID=forecast-agent-498907 / LOCATION=global /
- *    GEMINI_MODEL=gemini-3.1-pro-preview が入り、DATASTORE_ID/SEARCH_LOCATION は空、AI_RESEARCH_ENABLED=1。
+ *    GEMINI_MODEL=gemini-3.8-flash が入り、DATASTORE_ID/SEARCH_LOCATION は空、AI_RESEARCH_ENABLED=1。
  * 2) その状態で A-4 → web-only で Vertex が走り AI_RESEARCH_STRUCTURED が更新される（手動貼付トーストは出ない）。
  *    AI_RESEARCH_TASK_LOG の aspect=web 行は success、aspect=rag 行は status=skipped。
  * 3) VERTEX_GEMINI_MODEL を空にして A-4 → 「Vertex の必須設定が未入力」エラーで止まる（手動へ落ちない）。
