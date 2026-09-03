@@ -9902,3 +9902,37 @@ function openQuarterlyReviewLog() {
     SpreadsheetApp.getUi().alert('C-3 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
+
+
+/**
+ * CONFIG の VERTEX_GEMINI_MODEL を gemini-3.8-flash へ更新する (2026-09-03)。
+ * @return {{previous:string, next:string, updated:boolean}}
+ */
+function migrateVertexGeminiModelTo38() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) throw new Error('CONFIG シートがありません。');
+  const last = cfg.getLastRow();
+  if (last < 1) throw new Error('CONFIG が空です。');
+  const rows = cfg.getRange(1, 1, last, 2).getValues();
+  let previous = '';
+  let updated = false;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (configKeyOf_(rows[i][0]) !== 'VERTEX_GEMINI_MODEL') continue;
+    previous = String(rows[i][1] == null ? '' : rows[i][1]).trim();
+    if (previous === 'gemini-3.8-flash') break;
+    cfg.getRange(i + 1, 2).setValue('gemini-3.8-flash');
+    updated = true;
+    break;
+  }
+  const msg = updated
+    ? ('VERTEX_GEMINI_MODEL: ' + previous + ' → gemini-3.8-flash')
+    : ('変更なし（現行=' + (previous || '未検出') + '）');
+  Logger.log('migrateVertexGeminiModelTo38: ' + msg);
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {
+    Logger.log('(ダイアログ省略) ' + msg);
+  }
+  return { previous: previous, next: 'gemini-3.8-flash', updated: updated };
+}
