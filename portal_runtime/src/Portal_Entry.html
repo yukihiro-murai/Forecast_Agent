@@ -13,6 +13,7 @@
       --bubble-bg:#F3FAFF; --bubble-line:#CFE9FA;
       --radius:14px; --shadow:0 1px 2px rgba(15,42,71,.06), 0 8px 24px rgba(15,42,71,.06);
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
+      --card-pad:28px; --stack:16px; --guide-h:72px;
     }
     * { box-sizing:border-box; }
     body {
@@ -23,38 +24,54 @@
       background:linear-gradient(180deg,#E9F3FB 0%, var(--bg) 240px);
     }
     h1 {
-      font-size:28px; font-weight:600; margin:0 0 20px; color:var(--navy);
+      font-size:28px; font-weight:600; margin:0 0 24px; color:var(--navy);
       letter-spacing:.01em;
     }
-    h2 { font-size:20px; font-weight:600; margin:0; line-height:1.45; color:var(--navy); }
+    h2 { font-size:20px; font-weight:600; margin:0; line-height:1.4; color:var(--navy); }
+    #app {
+      display:grid; gap:20px;
+    }
     .card {
-      background:var(--card); border-radius:var(--radius); padding:24px 24px 26px;
-      margin:0 0 20px; border:1px solid var(--line); box-shadow:var(--shadow);
+      display:grid;
+      grid-template-columns:minmax(0, 1fr);
+      grid-template-rows:auto auto minmax(0, auto) auto;
+      align-content:start;
+      background:var(--card); border-radius:var(--radius);
+      padding:var(--card-pad);
+      margin:0; border:1px solid var(--line); box-shadow:var(--shadow);
     }
     .card.primary-card {
       border-color:#B9DFF5;
       box-shadow:0 1px 2px rgba(0,160,233,.08), 0 10px 28px rgba(15,42,71,.08);
     }
+    .card-head {
+      display:grid; gap:6px; align-content:start;
+      margin:0 0 var(--stack);
+      min-height:52px;
+    }
     .layer-label {
-      display:inline-block; margin:0 0 8px; padding:3px 10px;
+      display:inline-flex; align-items:center; width:fit-content;
+      margin:0; padding:3px 10px;
       border-radius:99px; font-size:13px; font-weight:600; letter-spacing:.02em;
-      background:var(--chip); color:var(--navy);
+      background:var(--chip); color:var(--navy); line-height:1.3;
     }
     .cast {
-      display:grid; grid-template-columns:72px minmax(0, 1fr); column-gap:14px;
-      align-items:center; margin:0 0 16px;
+      display:grid; grid-template-columns:var(--guide-h) minmax(0, 1fr);
+      column-gap:14px; align-items:center;
+      margin:0 0 var(--stack); min-height:var(--guide-h);
     }
     .bot-slot {
       display:flex; align-items:center; justify-content:center;
-      width:72px; height:64px;
+      width:var(--guide-h); height:var(--guide-h);
     }
     .bot { width:64px; height:64px; display:block; overflow:visible; }
     .bot svg { width:100%; height:100%; display:block; }
     .bubble {
-      position:relative; flex:1; min-width:0;
+      position:relative; min-width:0; min-height:56px;
+      display:flex; align-items:center;
       background:var(--bubble-bg); color:var(--text);
       border:1.5px solid var(--bubble-line); border-radius:16px;
-      padding:13px 16px; font-size:16px; font-weight:400; line-height:1.6;
+      padding:12px 16px; font-size:16px; font-weight:400; line-height:1.55;
     }
     .bubble::before {
       content:""; position:absolute; left:-7px; top:50%; width:12px; height:12px;
@@ -64,23 +81,40 @@
       transform:rotate(45deg);
     }
     .bubble p { margin:0; }
-    .card-head { margin:0 0 14px; }
-    .cta-row {
+    .card-body {
+      display:grid; gap:12px; align-content:start;
+      margin:0 0 var(--stack); min-height:0;
+    }
+    .card-body:empty { display:none; margin:0; }
+    .card-actions {
       display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end;
-      gap:12px; margin-top:4px;
+      gap:12px; margin:0; padding-top:16px;
+      border-top:1px solid var(--line);
+      min-height:64px;
+    }
+    .card-actions:empty {
+      display:none; padding:0; border:0; min-height:0;
     }
     a.btn, button, .pick {
       font-family:inherit; font-weight:600; cursor:pointer; border:none; text-decoration:none;
     }
-    a.btn-primary, button.btn-primary {
+    a.btn-primary, button.btn-primary,
+    a.btn-admin {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:48px; padding:12px 22px; font-size:17px;
+      min-height:48px; min-width:160px; padding:12px 22px; font-size:17px;
       border-radius:12px; line-height:1.35;
+    }
+    a.btn-primary, button.btn-primary {
       background:var(--primary); color:#fff;
       box-shadow:0 2px 10px rgba(0,160,233,.28);
     }
     a.btn-primary:hover, button.btn-primary:hover { background:#0090D6; }
     a.btn-primary[aria-disabled="true"] { opacity:.4; pointer-events:none; box-shadow:none; }
+    a.btn-admin {
+      background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
+      box-shadow:none;
+    }
+    a.btn-admin:hover { background:#F4F7FA; }
     a.btn-open {
       display:inline-flex; align-items:center; justify-content:center;
       min-height:40px; min-width:72px; padding:8px 16px; font-size:15px;
@@ -88,16 +122,9 @@
       background:var(--primary); color:#fff;
     }
     a.btn-open:hover { background:#0090D6; }
-    a.btn-admin {
-      display:inline-flex; align-items:center; justify-content:center;
-      min-height:44px; padding:10px 18px; font-size:16px;
-      border-radius:10px; line-height:1.35;
-      background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
-    }
-    a.btn-admin:hover { background:#F4F7FA; }
     :focus { outline:none; }
     :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
       min-height:40px; padding:8px 14px; border-radius:99px;
@@ -132,21 +159,19 @@
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
-    .empty { color:var(--muted); margin:4px 0 0; font-size:16px; line-height:1.55; }
+    .empty { color:var(--muted); margin:0; font-size:16px; line-height:1.55; }
     .loading { color:var(--muted); padding:8px 0; }
     .error {
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
     .hidden { display:none !important; }
     @media (max-width:520px) {
+      :root { --card-pad:20px; --guide-h:64px; }
       h1 { font-size:24px; }
       h2 { font-size:18px; }
-      .card { padding:20px 16px 22px; }
-      .cast { grid-template-columns:64px minmax(0, 1fr); }
-      .bot-slot { width:64px; height:56px; }
       .bot { width:56px; height:56px; }
-      .cta-row { justify-content:stretch; }
-      a.btn-primary, a.btn-admin { width:100%; }
+      .card-actions { justify-content:stretch; }
+      a.btn-primary, a.btn-admin { width:100%; min-width:0; }
       .book { flex-wrap:wrap; }
       .book-side { width:100%; justify-content:space-between; }
     }
@@ -165,48 +190,53 @@
 
   <div id="app" class="hidden">
     <section id="createCard" class="card primary-card" aria-labelledby="createTitle">
+      <header class="card-head">
+        <span class="layer-label">新規</span>
+        <h2 id="createTitle">新しい予測シート</h2>
+      </header>
       <div class="cast">
         <span class="bot-slot"><span id="createBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
           <p id="createBubble">新しく始めるなら、このボタンです。</p>
         </div>
       </div>
-      <div class="card-head">
-        <span class="layer-label">新規</span>
-        <h2 id="createTitle">新しい予測シート</h2>
-      </div>
-      <div class="cta-row">
+      <div class="card-body"></div>
+      <div class="card-actions">
         <a id="createButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい予測シートを作る</a>
       </div>
     </section>
 
     <section id="existingCard" class="card" aria-labelledby="existingTitle">
+      <header class="card-head">
+        <span class="layer-label">既存</span>
+        <h2 id="existingTitle">あなたの年度一覧</h2>
+      </header>
       <div class="cast">
         <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
           <p id="existingBubble">ここにあるものを開けば続きます。</p>
         </div>
       </div>
-      <div class="card-head">
-        <span class="layer-label">既存</span>
-        <h2 id="existingTitle">あなたの年度一覧</h2>
+      <div class="card-body">
+        <div id="years" class="picks" role="group" aria-label="年度"></div>
+        <div id="books" class="books" aria-live="polite"></div>
       </div>
-      <div id="years" class="picks" role="group" aria-label="年度"></div>
-      <div id="books" class="books" aria-live="polite"></div>
+      <div class="card-actions"></div>
     </section>
 
     <section id="adminCard" class="card hidden" aria-labelledby="adminTitle">
+      <header class="card-head">
+        <span class="layer-label">管理</span>
+        <h2 id="adminTitle">管理ハブ</h2>
+      </header>
       <div class="cast">
         <span class="bot-slot"><span id="adminBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
           <p id="adminBubble">整備はここから。</p>
         </div>
       </div>
-      <div class="card-head">
-        <span class="layer-label">管理</span>
-        <h2 id="adminTitle">管理ハブ</h2>
-      </div>
-      <div class="cta-row">
+      <div class="card-body"></div>
+      <div class="card-actions">
         <a id="adminButton" class="btn btn-admin" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
       </div>
     </section>

@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.30');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.31');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -422,6 +422,12 @@ async function testStaticUxContracts() {
   assert.match(entry, /id="adminCard"/);
   assert.match(entry, /管理ハブを開く/);
   assert.match(entry, /class="bubble"/);
+  assert.match(entry, /class="card-head"/);
+  assert.match(entry, /class="card-body"/);
+  assert.match(entry, /class="card-actions"/);
+  assert.match(entry, /layer-label">新規</);
+  assert.match(entry, /layer-label">既存</);
+  assert.match(entry, /layer-label">管理</);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
   assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
@@ -440,7 +446,9 @@ async function testStaticUxContracts() {
   assert.match(entry, /border-radius:99px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
-  assert.match(entry, /grid-template-columns:72px minmax\(0, 1fr\)/);
+  assert.match(entry, /grid-template-columns:var\(--guide-h\) minmax\(0, 1fr\)/);
+  assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\) auto/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?justify-content:flex-end/);
   assert.doesNotMatch(entry, /名前を入力/);
   assert.doesNotMatch(entry, /previewBooksHtml|book ghost/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
