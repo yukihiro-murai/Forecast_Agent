@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.35');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.36');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -468,13 +468,18 @@ async function testStaticUxContracts() {
   assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\)/);
   assert.match(entry, /\.card-actions \{[\s\S]*?justify-content:flex-end/);
   assert.doesNotMatch(entry, /\.card-actions \{[\s\S]*?border-top:1px solid/);
-  assert.match(entry, /--cta-w:220px/);
-  assert.match(entry, /--cta-h:48px/);
+  assert.match(entry, /--cta-w:320px/);
+  assert.match(entry, /--cta-h:52px/);
+  assert.match(entry, /--guide-h:92px/);
+  assert.match(entry, /--bot-size:84px/);
+  assert.match(entry, /ENTRY_YEARS = \[2026, 2027, 2028\]/);
+  assert.match(entry, /year-actions/);
+  assert.match(entry, /card-actions year-actions/);
   assert.match(core, /Do not filter by the signed-in actor/);
   assert.doesNotMatch(entry, /名前を入力/);
   assert.match(entry, /previewBooksHtml/);
   assert.match(entry, /book ghost/);
-  assert.match(entry, /pick ghost/);
+  assert.doesNotMatch(entry, /previewYearsHtml/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);

@@ -13,8 +13,8 @@
       --bubble-bg:#F3FAFF; --bubble-line:#CFE9FA;
       --radius:14px; --shadow:0 1px 2px rgba(15,42,71,.06), 0 8px 24px rgba(15,42,71,.06);
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
-      --card-pad:28px; --stack:16px; --guide-h:72px;
-      --cta-w:220px; --cta-h:48px;
+      --card-pad:28px; --stack:16px; --guide-h:92px;
+      --cta-w:320px; --cta-h:52px; --bot-size:84px;
     }
     * { box-sizing:border-box; }
     body {
@@ -39,7 +39,7 @@
     .brand-icon svg { width:22px; height:22px; display:block; }
     h2 {
       font-size:20px; font-weight:600; margin:0; line-height:1.35; color:var(--navy);
-      min-width:0; flex:1 1 auto;
+      min-width:0; flex:0 1 auto;
     }
     #app {
       display:grid; gap:20px;
@@ -64,21 +64,21 @@
     }
     .cast {
       display:grid; grid-template-columns:var(--guide-h) minmax(0, 1fr);
-      column-gap:14px; align-items:center;
+      column-gap:16px; align-items:center;
       margin:0 0 var(--stack); min-height:var(--guide-h);
     }
     .bot-slot {
       display:flex; align-items:center; justify-content:center;
       width:var(--guide-h); height:var(--guide-h);
     }
-    .bot { width:64px; height:64px; display:block; overflow:visible; }
+    .bot { width:var(--bot-size); height:var(--bot-size); display:block; overflow:visible; }
     .bot svg { width:100%; height:100%; display:block; }
     .bubble {
-      position:relative; min-width:0; min-height:56px;
+      position:relative; min-width:0; min-height:64px;
       display:flex; align-items:center;
       background:var(--bubble-bg); color:var(--text);
       border:1.5px solid var(--bubble-line); border-radius:16px;
-      padding:12px 16px; font-size:16px; font-weight:400; line-height:1.55;
+      padding:14px 18px; font-size:16px; font-weight:400; line-height:1.55;
     }
     .bubble::before {
       content:""; position:absolute; left:-7px; top:50%; width:12px; height:12px;
@@ -89,17 +89,28 @@
     }
     .bubble p { margin:0; }
     .card-head {
-      display:flex; flex-wrap:wrap; align-items:center; gap:12px;
+      display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px;
       margin:0; min-height:var(--cta-h);
     }
     .card-head.has-body { margin:0 0 var(--stack); }
     .card-actions {
       display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end;
-      gap:12px; margin:0; padding:0; flex:0 0 auto;
+      gap:10px; margin:0; padding:0;
+      flex:1 1 var(--cta-w);
+      min-width:min(100%, var(--cta-w));
       min-height:var(--cta-h);
     }
     .card-actions:empty {
       display:none; padding:0; min-height:0;
+    }
+    .card-actions.year-actions {
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .card-actions.year-actions .picks {
+      width:100%;
+      justify-content:flex-end;
+      gap:10px;
     }
     .card-body {
       display:grid; gap:12px; align-content:start;
@@ -112,10 +123,10 @@
     a.btn-primary, button.btn-primary,
     a.btn-admin {
       display:inline-flex; align-items:center; justify-content:center;
-      width:var(--cta-w); height:var(--cta-h);
-      min-width:var(--cta-w); max-width:var(--cta-w);
+      width:100%; height:var(--cta-h);
+      min-width:var(--cta-w); max-width:none;
       min-height:var(--cta-h); max-height:var(--cta-h);
-      padding:0 16px; font-size:17px;
+      padding:0 20px; font-size:18px;
       border-radius:12px; line-height:1.2;
     }
     a.btn-primary, button.btn-primary {
@@ -147,8 +158,8 @@
     .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; min-width:104px; padding:8px 14px; border-radius:10px;
-      border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:15px;
+      min-height:44px; min-width:96px; padding:8px 16px; border-radius:10px;
+      border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:16px;
     }
     .pick:hover { border-color:var(--primary); }
     .pick.selected, .pick[aria-pressed="true"] {
@@ -197,11 +208,12 @@
     }
     .hidden { display:none !important; }
     @media (max-width:520px) {
-      :root { --card-pad:20px; --guide-h:64px; --cta-w:100%; }
+      :root { --card-pad:20px; --guide-h:76px; --bot-size:68px; --cta-w:100%; }
       h1 { font-size:24px; }
       h2 { font-size:18px; flex:1 1 100%; }
-      .bot { width:56px; height:56px; }
-      .card-actions { justify-content:stretch; width:100%; }
+      .card-actions { justify-content:stretch; width:100%; flex:1 1 100%; min-width:0; }
+      .card-actions.year-actions .picks { justify-content:stretch; }
+      .card-actions.year-actions .pick { flex:1 1 0; min-width:0; }
       a.btn-primary, a.btn-admin {
         width:100%; max-width:none; min-width:0;
       }
@@ -258,9 +270,11 @@
       </div>
       <header class="card-head has-body">
         <h2 id="existingTitle">作成済みシート</h2>
+        <div class="card-actions year-actions">
+          <div id="years" class="picks" role="group" aria-label="年度"></div>
+        </div>
       </header>
       <div class="card-body">
-        <div id="years" class="picks" role="group" aria-label="年度"></div>
         <div id="books" class="books" aria-live="polite"></div>
       </div>
     </section>
@@ -291,6 +305,7 @@
     var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みは無いみたい。並び方はこの枠のとおり。新規から始めよう。';
     var EXISTING_EMPTY_YEAR_TALK = 'この年度はまだ無いよ。並びはこの枠のとおり。別の年度か新規を見てね。';
     var ADMIN_TALK = 'テンプレや権限など、管理作業の入口。整備はここから。';
+    var ENTRY_YEARS = [2026, 2027, 2028];
     var entryModel = null;
     var selectedYear = 0;
     var existingTalkOverride = '';
@@ -312,10 +327,6 @@
       return (entryModel.books || []).filter(function (book) {
         return Number(book.fiscalYear) === Number(year);
       });
-    }
-    function previewYearsHtml() {
-      return '<span class="pick ghost" aria-hidden="true">2027年度</span>' +
-        '<span class="pick ghost" aria-hidden="true">2028年度</span>';
     }
     function previewBooksHtml() {
       return '<div class="book ghost" aria-hidden="true">' +
@@ -343,13 +354,8 @@
       bubble.textContent = existingTalkOverride || EXISTING_DEFAULT_TALK;
     }
     function paintYears() {
-      var years = entryModel.years || [];
       var box = document.getElementById('years');
-      if (!years.length) {
-        box.innerHTML = previewYearsHtml();
-        return;
-      }
-      box.innerHTML = years.map(function (year) {
+      box.innerHTML = ENTRY_YEARS.map(function (year) {
         var pressed = Number(year) === Number(selectedYear) ? 'true' : 'false';
         var selected = pressed === 'true' ? ' selected' : '';
         return '<button type="button" class="pick' + selected + '" data-year="' + year +
@@ -426,6 +432,17 @@
         adminCard.classList.add('hidden');
       }
     }
+    function resolveSelectedYear() {
+      var remembered = 0;
+      try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}
+      if (ENTRY_YEARS.indexOf(remembered) >= 0) return remembered;
+      var modelYears = entryModel.years || [];
+      var i;
+      for (i = 0; i < ENTRY_YEARS.length; i++) {
+        if (modelYears.indexOf(ENTRY_YEARS[i]) >= 0) return ENTRY_YEARS[i];
+      }
+      return ENTRY_YEARS[0];
+    }
     function render(model) {
       entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
@@ -434,14 +451,7 @@
       paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, EXISTING_DEFAULT_TALK);
       paintCreateCta(entryModel);
       paintAdmin(entryModel);
-      var years = entryModel.years || [];
-      var remembered = 0;
-      try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}
-      selectedYear = 0;
-      years.forEach(function (year) {
-        if (!selectedYear && Number(year) === remembered) selectedYear = Number(year);
-      });
-      if (!selectedYear && years.length) selectedYear = Number(years[0]);
+      selectedYear = resolveSelectedYear();
       paintYears();
       paintBooks();
     }
