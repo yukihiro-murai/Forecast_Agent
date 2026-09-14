@@ -92,7 +92,7 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.31';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.32';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -103,7 +103,7 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20',
   'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23', 'vnext-portal-1.7.24',
   'vnext-portal-1.7.25', 'vnext-portal-1.7.26', 'vnext-portal-1.7.27', 'vnext-portal-1.7.28',
-  'vnext-portal-1.7.29', 'vnext-portal-1.7.30', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.29', 'vnext-portal-1.7.30', 'vnext-portal-1.7.31', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
@@ -5148,7 +5148,7 @@ function vNextAdminTryResolvePortal_(hub) {
 function vNextAdminUpdateSharedPortalRuntime(request) {
   return vNextAdminGuard_('vNextAdminUpdateSharedPortalRuntime', function () {
     const req = request && typeof request === 'object' ? request : {};
-    const hub = vNextAdminRequireHub_();
+    let hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
     return vNextAdminWithScriptLock_('update-portal-runtime', function () {
       const reason = vNextAdminText_(req.reason) || '共有ドライブ移設後の最新版';
@@ -5171,7 +5171,9 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       if (currentSha === targetSha &&
           portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION &&
           portal.runtimeSha256 === targetSha) {
-        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
+        // Stale-aware only: forcing a full ZAC extract here routinely trips Sheets
+        // disconnects on the Hub right after 「中央配備版へ更新」.
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, false, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
         vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
@@ -5195,8 +5197,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       const settingBefore = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
         return String(row.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
       });
-      const requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
-      const directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
+      let requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
+      let directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
       const needsV2HeaderExpansion = !vNextAdminPortalUsesV2Tables_(portal.runtimeVersion);
       let contentUpdateAttempted = false;
       let tablesExpanded = false;
@@ -5218,6 +5220,12 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
             vNextClientRuntimeFilesSha256_(writtenFiles) !== targetSha) {
           throw new Error('Written Portal runtime could not be verified.');
         }
+        // Long Apps Script API calls often drop the Spreadsheet service handle.
+        // Rebind Hub/Portal by ID before the next Sheets writes.
+        hub = vNextAdminRebindSpreadsheet_(hub);
+        portal.spreadsheet = vNextAdminRebindSpreadsheet_(portal.spreadsheet);
+        requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
+        directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
         // Mark the migration attempt before the first header write. The helper
         // performs several Sheets calls; any mid-call failure must still enter
         // the v1 header rollback path.
@@ -5238,8 +5246,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           portal_runtime_updated_by: vNextAdminActor_()
         });
         pinsUpdated = true;
-        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
-        vNextAdminRefreshPortalDirectory_(hub);
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, false, { lockHeld: true });
+        vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const settingValue = vNextAdminCanonicalJson_({
           portalId: portal.portalId, spreadsheetId: portal.spreadsheetId,
           scriptId: portal.scriptId, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
@@ -11467,12 +11475,46 @@ function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
 }
 
 /** Read-only Portal open for sidebar projections. Skips header repair and protection writes. */
+function vNextAdminIsSpreadsheetServiceDisconnect_(error) {
+  const message = String(error && error.message || error || '');
+  return /サービスに接続できなくなりました|failed while accessing document|Service Spreadsheets/i.test(message);
+}
+
+/** Retries openById for transient Spreadsheet service disconnects. */
+function vNextAdminOpenSpreadsheetById_(spreadsheetId) {
+  const id = String(spreadsheetId || '').trim();
+  if (!id) throw new Error('spreadsheetId is required.');
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) Utilities.sleep(750 * attempt);
+      return SpreadsheetApp.openById(id);
+    } catch (error) {
+      lastError = error;
+      if (!vNextAdminIsSpreadsheetServiceDisconnect_(error)) throw error;
+      Logger.log('Spreadsheet openById retry %s for %s: %s', String(attempt + 1), id,
+        String(error && error.message || error));
+    }
+  }
+  throw lastError;
+}
+
+function vNextAdminRebindSpreadsheet_(spreadsheet) {
+  if (!spreadsheet || typeof spreadsheet.getId !== 'function') {
+    throw new Error('spreadsheet handle is required to rebind.');
+  }
+  return vNextAdminOpenSpreadsheetById_(spreadsheet.getId());
+}
+
 function vNextAdminResolvePortalForRead_(hub) {
   const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   const spreadsheetId = String(config.portal_spreadsheet_id ||
     PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
   if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
-  return { spreadsheet: SpreadsheetApp.openById(spreadsheetId), spreadsheetId: spreadsheetId };
+  if (hub && typeof hub.getId === 'function' && spreadsheetId === String(hub.getId())) {
+    throw new Error('portal_spreadsheet_id が管理ハブ自身を指しています。VN_SYSTEM_CONFIG を確認してください。');
+  }
+  return { spreadsheet: vNextAdminOpenSpreadsheetById_(spreadsheetId), spreadsheetId: spreadsheetId };
 }
 
 function vNextAdminResolvePortal_(hub) {
@@ -11480,6 +11522,9 @@ function vNextAdminResolvePortal_(hub) {
   const spreadsheetId = String(config.portal_spreadsheet_id ||
     PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
   if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
+  if (spreadsheetId === String(hub.getId())) {
+    throw new Error('portal_spreadsheet_id が管理ハブ自身を指しています。VN_SYSTEM_CONFIG を確認してください。');
+  }
   const portalId = vNextAdminRequiredText_(config.portal_id, 'portal_id');
   const scriptId = vNextAdminRequiredText_(config.portal_script_id, 'portal_script_id');
   const runtimeVersion = vNextAdminRequiredText_(config.portal_runtime_version, 'portal_runtime_version');
@@ -11490,7 +11535,7 @@ function vNextAdminResolvePortal_(hub) {
   if (supportedRuntimeVersions.indexOf(runtimeVersion) < 0 || !/^[a-f0-9]{64}$/.test(runtimeSha256) || !employeeDomain) {
     throw new Error('Employee Portal runtime/domain identity is invalid.');
   }
-  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const spreadsheet = vNextAdminOpenSpreadsheetById_(spreadsheetId);
   const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
   if (String(portalConfig.mode || '').toUpperCase() !== 'PORTAL' ||
       String(portalConfig.portal_id || '') !== portalId ||
