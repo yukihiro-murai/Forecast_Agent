@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -162,5 +163,23 @@ assert.equal(sandbox.vNextAdminRuntimeUpdateJobIsPending_({
 assert.equal(sandbox.vNextAdminRuntimeUpdateJobIsPending_({
   jobId: 'J', phase: 'PORTAL_UPDATING', updatedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString()
 }), true, 'A stale claim must become retryable');
+
+// Admin identity projection for the Portal admin card (docs/portal-entry-ux-audit §4-1):
+// hashes only, lowercased, deduped, written by the directory refresh on every sweep.
+sandbox.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'Second@Example.com' }) };
+sandbox.Utilities = { computeDigest: (algorithm, text) => createHash('sha256').update(text, 'utf8').digest(),
+  DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' } };
+sandbox.vNextAdminReadKeyValueSheet_ = () => ({ admin_emails: 'First@Example.com, second@example.com' });
+const projection = sandbox.vNextAdminPortalAdminProjection_({});
+const projectedHashes = JSON.parse(projection.admin_email_hashes_json);
+assert.deepEqual(projectedHashes, [
+  createHash('sha256').update('first@example.com').digest('hex'),
+  createHash('sha256').update('second@example.com').digest('hex')
+].sort(), 'Portal receives sorted SHA-256 of lowercased, deduped admin emails, never clear text');
+assert.equal(projection.admin_email_hashes_json.includes('@'), false);
+const directoryStart = source.indexOf('function vNextAdminRefreshPortalDirectory_');
+const directoryEnd = source.indexOf('function vNextAdminPortalAdminProjection_', directoryStart);
+assert.ok(source.slice(directoryStart, directoryEnd).includes('vNextAdminPortalAdminProjection_(hub)'),
+  'Every Portal directory refresh (sweep / runtime update) must re-project the admin identity');
 
 process.stdout.write('PASS vNext Admin decision UX contracts\n');

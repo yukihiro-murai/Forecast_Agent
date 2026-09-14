@@ -12067,11 +12067,32 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     sheet.getRange(2, 1, values.length, directoryHeaders.length).setValues(values);
   }
   sheet.hideSheet();
-  vNextAdminWritePortalConfigValues_(spreadsheet, {
+  vNextAdminWritePortalConfigValues_(spreadsheet, Object.assign({
     admin_hub_url: hub.getUrl(),
     portal_spreadsheet_url: spreadsheet.getUrl()
-  });
+  }, vNextAdminPortalAdminProjection_(hub)));
   return { portalSpreadsheetId: spreadsheet.getId(), rows: rows.length };
+}
+
+/**
+ * Projects who may open the 管理ハブ into the Portal config so the employee
+ * entry can decide the admin card by identity instead of by URL presence.
+ * Only SHA-256 of lowercased emails is written: the Portal sheet is
+ * domain-readable and must not list the admin roster in clear text.
+ * Portal side compares sha256(Session.getActiveUser().getEmail().toLowerCase()).
+ * Refreshed on every scheduled sweep and every Portal runtime update.
+ */
+function vNextAdminPortalAdminProjection_(hub) {
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const admins = vNextAdminMergeEmails_(
+    hubConfig.admin_emails,
+    PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS')
+  );
+  return {
+    admin_email_hashes_json: vNextAdminCanonicalJson_(admins.map(vNextAdminSha256_).sort()),
+    admin_projection_schema: 'vnext-portal-admin-projection-1',
+    admin_projection_updated_at: new Date().toISOString()
+  };
 }
 
 function vNextAdminPortalNextAction_(state, healthCode) {
