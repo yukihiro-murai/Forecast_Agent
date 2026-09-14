@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（管理ハブ サイドバー簡素化: 日常＝承認・要確認・申請処理・版表示だけ。保守／初回・復旧はメニューへ。「最新版に更新」1操作で Hub runtime → Portal runtime + /exec ピンを順次更新、5分 sweep が自動追従。Portal runtime は 1.7.37 のまま（Portal source 変更なし）。/exec ピンの scriptId 必須は維持）  
-対象ブランチ: `cursor/admin-sidebar-simplify-0efd`（base: `cursor/portal-entry-detail-polish-deaf`）  
+最終更新: 2026-09-14 JST（Portal入口 細部磨き: 主CTAと「管理ハブを開く」を同一幅、見出し「管理ハブシート」、年度ボタン選択・未作成表現、640px 折返し。候補版 1.7.37。1.7.36 を legacy allowlist に追加。/exec ピンの scriptId 必須は維持）  
+対象ブランチ: `cursor/portal-entry-detail-polish-deaf`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
