@@ -92,7 +92,7 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.34';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.35';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -104,7 +104,7 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23', 'vnext-portal-1.7.24',
   'vnext-portal-1.7.25', 'vnext-portal-1.7.26', 'vnext-portal-1.7.27', 'vnext-portal-1.7.28',
   'vnext-portal-1.7.29', 'vnext-portal-1.7.30', 'vnext-portal-1.7.31', 'vnext-portal-1.7.32',
-  'vnext-portal-1.7.33', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.33', 'vnext-portal-1.7.34', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
@@ -5365,29 +5365,41 @@ function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
   if (requiredId && selectedId !== requiredId) {
     throw new Error('Refusing to republish a different employee Web App URL.');
   }
-  vNextClientRuntimeApiRequest_(
+  // Apps Script deployments.update requires scriptId inside deploymentConfig
+  // (same as clasp). Omitting it can return 200 while leaving the /exec pin
+  // on the previous versionNumber.
+  const updateBody = {
+    deploymentConfig: {
+      scriptId: id,
+      versionNumber: versionNumber,
+      manifestFileName: (selected.deploymentConfig &&
+        selected.deploymentConfig.manifestFileName) || 'appsscript',
+      description: VN_ADMIN_PORTAL_RUNTIME_VERSION
+    }
+  };
+  let verified = vNextClientRuntimeApiRequest_(
     '/projects/' + encodeURIComponent(id) + '/deployments/' +
       encodeURIComponent(selectedId),
     'put',
-    {
-      deploymentConfig: {
-        versionNumber: versionNumber,
-        manifestFileName: (selected.deploymentConfig &&
-          selected.deploymentConfig.manifestFileName) || 'appsscript',
-        description: VN_ADMIN_PORTAL_RUNTIME_VERSION
-      }
-    }
+    updateBody
   );
-  const verified = vNextClientRuntimeApiRequest_(
-    '/projects/' + encodeURIComponent(id) + '/deployments/' +
-      encodeURIComponent(selectedId),
-    'get'
-  );
-  const pinnedVersion = Number(verified && verified.deploymentConfig &&
+  let pinnedVersion = Number(verified && verified.deploymentConfig &&
     verified.deploymentConfig.versionNumber || 0);
+  for (let attempt = 1; attempt <= 3 && pinnedVersion !== versionNumber; attempt++) {
+    Utilities.sleep(500 * attempt);
+    verified = vNextClientRuntimeApiRequest_(
+      '/projects/' + encodeURIComponent(id) + '/deployments/' +
+        encodeURIComponent(selectedId),
+      'get'
+    );
+    pinnedVersion = Number(verified && verified.deploymentConfig &&
+      verified.deploymentConfig.versionNumber || 0);
+  }
   if (pinnedVersion !== versionNumber) {
     throw new Error('Portal /exec is still pinned to version ' + pinnedVersion +
-      '; expected ' + versionNumber + '.');
+      '; expected ' + versionNumber +
+      '. Hubで「最新版へ更新」を再実行してください。繰り返す場合は Apps Script エディタの Deploy → Manage deployments で当該 /exec を version ' +
+      versionNumber + ' に付け替えてください (deploymentId=' + selectedId + ').');
   }
   const webAppUrl = vNextAdminWebAppUrlFromDeployment_(verified) ||
     vNextAdminWebAppUrlFromDeployment_(selected);

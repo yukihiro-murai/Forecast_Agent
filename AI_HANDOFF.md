@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal入口レイヤー取り直し。キャラ最上段・タグ削除・見出し横CTA・空プレースホルダー復帰。候補版 1.7.34。1.7.33 を legacy allowlist に追加）  
-対象ブランチ: `codex/vnext-annual-planning`  
+最終更新: 2026-09-14 JST（Portal /exec ピン更新で deploymentConfig.scriptId を必須送信。候補版 1.7.35。1.7.34 を legacy allowlist に追加）  
+対象ブランチ: `cursor/portal-exec-pin-ec3b`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
@@ -21,10 +21,10 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.34` |
-| コード上のPortal bundle SHA-256 | `96734a89c87181c98a739ad073cafbd0019cd9493c0dc1727ee7f8c64ac73463` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.34 へ更新） |
-| 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え |
+| コード上のPortal runtime | `vnext-portal-1.7.35` |
+| コード上のPortal bundle SHA-256 | `24d44d67eceecd272b622ce4afac6d6e6ad071245a9b858caa134021e8dc6253` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.35 へ更新） |
+| 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え（deployments.update に scriptId 必須） |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
 | Admin Hub Spreadsheet ID | `1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8` |
