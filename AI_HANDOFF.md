@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal入口 細部磨き: 主CTAと「管理ハブを開く」を同一幅、見出し「管理ハブシート」、年度ボタン選択・未作成表現、640px 折返し。候補版 1.7.37。1.7.36 を legacy allowlist に追加。/exec ピンの scriptId 必須は維持）  
-対象ブランチ: `cursor/portal-entry-detail-polish-deaf`  
+最終更新: 2026-09-14 JST（Portal入口 UX監査: 作成タブから戻ると一覧を静かに再取得し新しい行の年度へ移動、既定年度はシートがある年度、空年度のセリフが作成済み年度を示す、失敗時「もう一度読み込む」、行の年度重複を削除、入口の呼称を「予測シート」に統一、管理セリフ「管理担当の人だけ」。候補版 1.7.38。1.7.37 を legacy allowlist に追加。構造（3層・見出し横CTA・年度行・キャラ最上段）は不変）  
+対象ブランチ: `cursor/portal-entry-ux-audit-2902`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.37` |
-| コード上のPortal bundle SHA-256 | `8d89712cc876b86e504e8b60db6cffe8cc12ac60a16579fa2c2f1ebf0542792d` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.37 へ更新） |
+| コード上のPortal runtime | `vnext-portal-1.7.38` |
+| コード上のPortal bundle SHA-256 | `4d8811aeb4ea43624af812f5c9f575d7b9604cdcb57934909a6819106debf34d` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.38 へ更新） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え（deployments.update に scriptId 必須） |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -40,7 +40,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.37 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない。未作成年度は破線表示だが押せる）→ **管理ハブシート**（ボタンは「管理ハブを開く」。権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に主CTA。「新しい予測シートを作る」と「管理ハブを開く」は同じ固定幅（`--cta-w:320px`、640px 以下で全幅）。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.38 は 1.7.37 の構造を維持し、動線だけを直した: 作成タブから入口へ戻ると（`visibilitychange` / `focus`、20秒以上経過時）一覧を静かに再取得し、増えた行が別年度なら年度を切り替えてセリフで知らせる。既定年度はシートが最も多い年度。空年度のセリフは作成済みがある年度を名指しする。読込失敗には「もう一度読み込む」。行メタから年度を外し（選択年度と重複）、行文言の「クライアント年度ブック／ブック」は入口だけ「予測シート」に置換する。Portal 1.7.37 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない。未作成年度は破線表示だが押せる）→ **管理ハブシート**（ボタンは「管理ハブを開く」。権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に主CTA。「新しい予測シートを作る」と「管理ハブを開く」は同じ固定幅（`--cta-w:320px`、640px 以下で全幅）。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

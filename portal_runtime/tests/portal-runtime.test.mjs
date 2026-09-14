@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.37');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.38');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -491,6 +491,25 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
+  // 1.7.38 UX audit: failure keeps a next step, returning from the creation tab refreshes in place,
+  // the empty year says where sheets exist, and rows do not repeat the selected year.
+  assert.match(entry, /id="retryButton"/);
+  assert.match(entry, /もう一度読み込む/);
+  assert.match(entry, /addEventListener\('click', load\)/);
+  assert.match(entry, /visibilitychange/);
+  assert.match(entry, /function applyRefresh/);
+  assert.match(entry, /function refreshIfStale/);
+  assert.match(entry, /REFRESH_AFTER_MS = 20000/);
+  assert.match(entry, /function emptyYearTalk/);
+  assert.match(entry, /作成済みは ' \+/);
+  assert.doesNotMatch(entry, /EXISTING_EMPTY_YEAR_TALK|並びはこの枠のとおり|並び方はこの枠のとおり/);
+  assert.match(entry, /管理担当の人だけ/);
+  assert.match(entry, /右側に出る案内で申請するよ/);
+  assert.doesNotMatch(entry, /'<div class="book-meta">' \+ yearLabel/);
+  assert.match(entry, /<div class="book-meta">次に行う操作<\/div>/);
+  assert.doesNotMatch(entry, /年度 · 次に行う操作/);
+  assert.match(entry, /replace\(\/クライアント年度ブック\|専用ブック\|ブック\/g, '予測シート'\)/);
+  assert.match(entry, /if \(count > bestCount\)/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
   const characters = await readFile(path.join(sourceDir, 'Characters.html'), 'utf8');
   assert.match(characters, /CHARACTER_LIBRARY/);
