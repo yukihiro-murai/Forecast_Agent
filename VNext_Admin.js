@@ -92,7 +92,7 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.35';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.36';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -104,7 +104,7 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23', 'vnext-portal-1.7.24',
   'vnext-portal-1.7.25', 'vnext-portal-1.7.26', 'vnext-portal-1.7.27', 'vnext-portal-1.7.28',
   'vnext-portal-1.7.29', 'vnext-portal-1.7.30', 'vnext-portal-1.7.31', 'vnext-portal-1.7.32',
-  'vnext-portal-1.7.33', 'vnext-portal-1.7.34', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.33', 'vnext-portal-1.7.34', 'vnext-portal-1.7.35', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
