@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.36');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.37');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -475,6 +475,14 @@ async function testStaticUxContracts() {
   assert.match(entry, /ENTRY_YEARS = \[2026, 2027, 2028\]/);
   assert.match(entry, /year-actions/);
   assert.match(entry, /card-actions year-actions/);
+  assert.match(entry, /<h2 id="adminTitle">管理ハブシート<\/h2>/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?width:var\(--cta-w\)/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?flex:0 0 auto/);
+  assert.match(entry, /\.pick\.empty \{/);
+  assert.doesNotMatch(entry, /\.pick\.empty \{[^}]*pointer-events:none/);
+  assert.match(entry, /ArrowRight|ArrowLeft/);
+  assert.match(entry, /\.loading::before/);
+  assert.match(entry, /@media \(max-width:640px\)/);
   assert.match(core, /Do not filter by the signed-in actor/);
   assert.doesNotMatch(entry, /名前を入力/);
   assert.match(entry, /previewBooksHtml/);

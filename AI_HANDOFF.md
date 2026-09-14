@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal入口: キャラ拡大・作成済み見出し右に2026/2027/2028・CTA横幅拡大。候補版 1.7.36。1.7.35 を legacy allowlist に追加。/exec ピンの scriptId 必須は維持）  
-対象ブランチ: `cursor/portal-entry-year-row-dc9c`  
+最終更新: 2026-09-14 JST（Portal入口 細部磨き: 主CTAと「管理ハブを開く」を同一幅、見出し「管理ハブシート」、年度ボタン選択・未作成表現、640px 折返し。候補版 1.7.37。1.7.36 を legacy allowlist に追加。/exec ピンの scriptId 必須は維持）  
+対象ブランチ: `cursor/portal-entry-detail-polish-deaf`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.36` |
-| コード上のPortal bundle SHA-256 | `f5e92240011b04c1ec7e82b969a46eff286b40c3c35b12d4e4ca24a7b4b24eee` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.36 へ更新） |
+| コード上のPortal runtime | `vnext-portal-1.7.37` |
+| コード上のPortal bundle SHA-256 | `8d89712cc876b86e504e8b60db6cffe8cc12ac60a16579fa2c2f1ebf0542792d` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.37 へ更新） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え（deployments.update に scriptId 必須） |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -40,7 +40,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.36 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない）→ **管理ハブ**（権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に広めの主CTA。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし、CTAは固定レイアウト基調で横幅を広げた寸法。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.37 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない。未作成年度は破線表示だが押せる）→ **管理ハブシート**（ボタンは「管理ハブを開く」。権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に主CTA。「新しい予測シートを作る」と「管理ハブを開く」は同じ固定幅（`--cta-w:320px`、640px 以下で全幅）。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
