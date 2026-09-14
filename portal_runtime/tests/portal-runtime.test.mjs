@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.11');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.12');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -405,11 +405,11 @@ async function testStaticUxContracts() {
   assert.match(ux, /vNextPortalDisplayPlanningValue_\(entry\.centerForecast, actualShortage \? '実績不足' : '未算出'\)/,
     'Empty and insufficient forecast values must be explained, not shown as zero');
   assert.match(ux, /function doGet\(/);
-  assert.match(ux, /createHtmlOutputFromFile\('Portal_Entry'\)/);
+  assert.match(ux, /createTemplateFromFile\('Portal_Entry'\)/);
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /申請入口を開く（新規申請）/);
+  assert.match(entry, /申請へ進む/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
@@ -419,24 +419,24 @@ async function testStaticUxContracts() {
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
   assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
-  assert.equal((entry.match(/class="bubble"/g) || []).length, 3);
-  assert.equal((entry.match(/class="who"/g) || []).length, 3);
+  assert.match(entry, /max-width:880px/);
+  assert.match(entry, /font-size:18px/);
+  assert.match(entry, /クライアントごとの年度予算を、始める・続ける入口です。/);
+  assert.match(entry, /すでにブックがある方はこちら/);
+  assert.match(entry, /ENTRY_CHAR_ID = 'yama'/);
+  assert.match(entry, /createHtmlOutputFromFile\('Characters'\)/);
   assert.match(entry, /第1層：申請入口/);
   assert.match(entry, /年度予算策定/);
   assert.match(entry, /第2層：クライアント年度ブック/);
   assert.match(entry, /第3層：管理ハブ/);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
-  assert.ok(entry.indexOf('class="choice-head"') < entry.indexOf('class="cast"'),
-    'Numbered section headers must appear above each bot and bubble');
+  assert.doesNotMatch(entry, /class="bot bot-cloud"|viewBox="0 0 92 56"/);
+  assert.match(entry, /roles/);
   assert.match(entry, /align-items:center/);
   assert.match(entry, /border-radius:99px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
-  assert.match(entry, /class="bot bot-cloud"/);
-  assert.match(entry, /viewBox="0 0 92 56"/);
-  assert.equal((entry.match(/class="bot-slot"/g) || []).length, 3);
   assert.match(entry, /grid-template-columns:72px minmax\(0, 1fr\)/);
-  assert.match(entry, /transform:scaleX\(-1\)/);
   assert.doesNotMatch(entry, /名前を入力/);
   assert.match(entry, /previewBooksHtml/);
   assert.match(entry, /book ghost/);
@@ -445,4 +445,7 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
+  const characters = await readFile(path.join(sourceDir, 'Characters.html'), 'utf8');
+  assert.match(characters, /CHARACTER_LIBRARY/);
+  assert.match(characters, /"yama"/);
 }

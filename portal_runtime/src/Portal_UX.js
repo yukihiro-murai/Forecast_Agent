@@ -5,7 +5,8 @@
 
 function doGet() {
   try {
-    return HtmlService.createHtmlOutputFromFile('Portal_Entry')
+    return HtmlService.createTemplateFromFile('Portal_Entry')
+      .evaluate()
       .setTitle(VNEXT_PORTAL_NAMING.SYSTEM)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (error) {

@@ -280,11 +280,11 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.11');
-  assert.equal(bundle.files.length, 5);
+  assert.equal(bundle.version, 'vnext-portal-1.7.12');
+  assert.equal(bundle.files.length, 6);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
-    ['Portal_Core', 'Portal_CreateSidebar', 'Portal_Entry', 'Portal_UX', 'appsscript'].sort()
+    ['Characters', 'Portal_Core', 'Portal_CreateSidebar', 'Portal_Entry', 'Portal_UX', 'appsscript'].sort()
   );
   const sourceDir = path.join(root, 'portal_runtime', 'src');
   const generated = [];

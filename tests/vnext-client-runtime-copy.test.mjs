@@ -56,8 +56,13 @@ process.stdout.write('PASS vNext client runtime copy tests (6 groups)\n');
 function testPortalLegacyExistingFiles() {
   const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();
   const current = sandbox.vNextPortalRuntimeValidateExistingFiles_(verified.files);
-  assert.equal(current.length, 5);
-  const legacy = verified.files.filter(file => file.name !== 'Portal_Entry');
+  assert.equal(current.length, 6);
+  const previous = verified.files.filter(file => file.name !== 'Characters');
+  assert.equal(previous.length, 5);
+  const acceptedPrevious = sandbox.vNextPortalRuntimeValidateExistingFiles_(previous);
+  assert.equal(acceptedPrevious.map(file => file.name).join(','),
+    'Portal_Core,Portal_CreateSidebar,Portal_Entry,Portal_UX,appsscript');
+  const legacy = verified.files.filter(file => file.name !== 'Portal_Entry' && file.name !== 'Characters');
   assert.equal(legacy.length, 4);
   const accepted = sandbox.vNextPortalRuntimeValidateExistingFiles_(legacy);
   assert.equal(accepted.map(file => file.name).join(','),
@@ -70,7 +75,7 @@ function testPortalLegacyExistingFiles() {
 
 function testPortalManifestContract() {
   const verified = sandbox.vNextPortalRuntimeVerifiedBundle_();
-  assert.equal(verified.files.length, 5);
+  assert.equal(verified.files.length, 6);
   assert.match(verified.version, /^vnext-portal-\d+\.\d+\.\d+$/);
 }
 

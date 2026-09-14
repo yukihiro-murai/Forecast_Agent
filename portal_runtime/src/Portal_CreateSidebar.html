@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
-      --blue:#1a73e8; --blue-soft:#e8f0fe; --dark:#202124; --muted:#5f6368;
+      --blue:#00A0E9; --blue-soft:#E8F5FC; --dark:#202124; --muted:#5f6368; --navy:#0F3557;
       --line:#dadce0; --soft:#f8f9fa; --warn:#fef7e0; --bad:#fce8e6; --good:#e6f4ea;
     }
     * { box-sizing:border-box; }
@@ -38,12 +38,12 @@
     .hint { color:var(--muted); font-size:12px; margin-top:4px; }
     .member-row { margin-top:8px; }
     .member-row label { margin:0 0 4px; color:var(--muted); font-size:12px; font-weight:normal; }
-    .link-button { margin-top:8px; padding:4px 0; border:0; background:transparent; color:#174ea6; font-weight:600; text-align:left; cursor:pointer; }
+    .link-button { margin-top:8px; padding:4px 0; border:0; background:transparent; color:var(--navy); font-weight:600; text-align:left; cursor:pointer; }
     .actions { display:flex; gap:8px; margin-top:16px; }
     button, .button-link { min-height:42px; border:0; border-radius:5px; padding:10px 13px; font:inherit; font-weight:600; cursor:pointer; text-align:center; text-decoration:none; }
     .button-link { display:block; margin-top:14px; }
     button.primary, .button-link.primary { background:var(--blue); color:#fff; flex:1; }
-    button.secondary, .button-link.secondary { background:var(--blue-soft); color:#174ea6; flex:1; }
+    button.secondary, .button-link.secondary { background:var(--blue-soft); color:var(--navy); flex:1; }
     button.tertiary { border:1px solid var(--line); background:#fff; color:#3c4043; flex:1; }
     button:disabled { opacity:.52; cursor:not-allowed; }
     .card { padding:11px 12px; border:1px solid var(--line); border-radius:6px; background:var(--soft); }

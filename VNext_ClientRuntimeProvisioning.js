@@ -42,6 +42,7 @@ var VNEXT_CLIENT_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
   'https://www.googleapis.com/auth/userinfo.email'
 ]);
 var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
+  Characters: 'HTML',
   Portal_Core: 'SERVER_JS',
   Portal_CreateSidebar: 'HTML',
   Portal_Entry: 'HTML',
@@ -53,6 +54,14 @@ var VNEXT_PORTAL_RUNTIME_FILE_TYPES_ = Object.freeze({
 var VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_ = Object.freeze({
   Portal_Core: 'SERVER_JS',
   Portal_CreateSidebar: 'HTML',
+  Portal_UX: 'SERVER_JS',
+  appsscript: 'JSON'
+});
+// Portal runtimes that already had Portal_Entry but not the character library.
+var VNEXT_PORTAL_RUNTIME_PREVIOUS_FILE_TYPES_ = Object.freeze({
+  Portal_Core: 'SERVER_JS',
+  Portal_CreateSidebar: 'HTML',
+  Portal_Entry: 'HTML',
   Portal_UX: 'SERVER_JS',
   appsscript: 'JSON'
 });
@@ -578,6 +587,9 @@ function vNextPortalRuntimeValidateFiles_(files) {
 function vNextPortalRuntimeValidateExistingFiles_(files) {
   if (vNextClientRuntimeHasExactFileNames_(files, VNEXT_PORTAL_RUNTIME_FILE_TYPES_)) {
     return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_FILE_TYPES_);
+  }
+  if (vNextClientRuntimeHasExactFileNames_(files, VNEXT_PORTAL_RUNTIME_PREVIOUS_FILE_TYPES_)) {
+    return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_PREVIOUS_FILE_TYPES_);
   }
   if (vNextClientRuntimeHasExactFileNames_(files, VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_)) {
     return vNextPortalRuntimeValidateFilesWithContract_(files, VNEXT_PORTAL_RUNTIME_LEGACY_FILE_TYPES_);

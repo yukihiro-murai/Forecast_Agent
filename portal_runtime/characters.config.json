@@ -1,0 +1,6 @@
+{
+  "out": "src/Characters.html",
+  "ids": ["yama"],
+  "moods": true,
+  "friends": false
+}

@@ -9,7 +9,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(scriptDir, '..');
 const targetArg = readArg('--dir') || 'src';
 const targetDir = path.resolve(runtimeRoot, targetArg);
-const expected = ['Portal_Core.js', 'Portal_CreateSidebar.html', 'Portal_Entry.html', 'Portal_UX.js', 'appsscript.json'];
+const expected = ['Characters.html', 'Portal_Core.js', 'Portal_CreateSidebar.html', 'Portal_Entry.html', 'Portal_UX.js', 'appsscript.json'];
 const actual = (await readdir(targetDir)).filter((name) => /\.(?:js|html|json)$/.test(name)).sort();
 
 if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -101,8 +101,14 @@ if (/isForecastOwner|isTeamMember|allowedEmails|emailAllowlist/i.test(serverSour
 if (!sources['Portal_Entry.html'].includes('vNextPortalGetEntryModel()')) {
   throw new Error('Employee entry must load vNextPortalGetEntryModel.');
 }
-if (!serverSource.includes('function doGet(') || !serverSource.includes("createHtmlOutputFromFile('Portal_Entry')")) {
+if (!serverSource.includes('function doGet(') || !serverSource.includes("createTemplateFromFile('Portal_Entry')")) {
   throw new Error('Portal Web App entry is missing.');
+}
+if (!sources['Portal_Entry.html'].includes("createHtmlOutputFromFile('Characters')")) {
+  throw new Error('Employee entry must include the synced Characters library.');
+}
+if (!sources['Characters.html'].includes('CHARACTER_LIBRARY') || !sources['Characters.html'].includes('"yama"')) {
+  throw new Error('Characters.html must include the entry guide character yama.');
 }
 
 process.stdout.write(`PASS portal runtime verification (${actual.length} files, 4 scopes, 1 menu item)\n`);
