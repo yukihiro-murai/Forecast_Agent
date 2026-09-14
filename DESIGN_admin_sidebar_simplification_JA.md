@@ -103,6 +103,19 @@ After: 状態 → 件数 → 承認待ち → 要確認 → 申請・自動処�
 - Portal runtime: 本ブランチでは Portal source を変更しない。並行ワーカーの Portal 1.7.38（`8e721fb`）を merge して中央へ push したため、中央は **1.7.38**（1.7.37 → 1.7.38、ダウングレードなし）。
 - `/exec` ピン: `deploymentConfig.scriptId` 必須送信を維持。
 
+## 4b. 管理カードの真の権限判定（Portal 監査 §4-1）— Admin 側の投影を実装
+
+Portal 入口の「管理ハブシート」カードは現状 `admin_hub_url` の有無だけで表示している（権限判定なし）。Admin 側で担当者の識別情報を Portal Config へ投影し、Portal が照合する契約を先に用意した。
+
+- 書き込み: `vNextAdminPortalAdminProjection_(hub)` を `vNextAdminRefreshPortalDirectory_` から呼ぶ → **5分 sweep ごと・Portal runtime 更新ごと**に `VN_PORTAL_CONFIG` を更新。
+- キー（Portal 側契約）:
+  - `admin_email_hashes_json`: `sha256(lowercase(email))` の hex を昇順ソートした JSON 配列。元は Hub `VN_SYSTEM_CONFIG.admin_emails` ＋ Script Property `VNEXT_ADMIN_EMAILS`（`vNextAdminAssertHubAdminFast_` と同じ集合）。
+  - `admin_projection_schema`: `vnext-portal-admin-projection-1`
+  - `admin_projection_updated_at`: ISO 時刻
+- 平文メールを書かない理由: Portal シートは社内ドメイン全員が閲覧可能（INTERNAL_OPEN）。ハッシュ照合なら担当者名簿を晒さない。
+- Portal 側（本ブランチでは未実装・Portal ワーカー担当）: `vNextPortalGetEntryModel` で `sha256(Session.getActiveUser().getEmail().trim().toLowerCase())` が配列に含まれるときだけ `adminHubUrl` を返す（または `canOpenAdminHub` フラグ）。**fail-closed**: キーが無い／空なら管理カード非表示。注意: 入口モデルのキャッシュ（`vNextPortalReadEntryCache_`）がユーザー横断なら、判定はキャッシュ外で行うか user cache に分ける。
+- 運用: 今回の中央 push 後、Hub を更新すると次の sweep で投影が書かれる。Portal 側実装（1.7.39 以降）はその後いつでも切替可能。
+
 ## 5. まだ人手が要る手順
 1. **今回1回だけ**: 本番 Hub はまだ旧コード。旧 UI「保守・高度な操作 → 中央配備版へ更新」（理由必須）→ 再読み込み。以後は新メニューが出る。申請入口は sweep が 5 分以内に 1.7.38 へ自動追従（待たない場合はメニュー「保守 → 最新版に更新」で即時）。
 2. 初回の OAuth 同意（deployment 更新スコープ）が出た場合の許可。

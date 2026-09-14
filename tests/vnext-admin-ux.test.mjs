@@ -167,7 +167,9 @@ assert.equal(sandbox.vNextAdminRuntimeUpdateJobIsPending_({
 // Admin identity projection for the Portal admin card (docs/portal-entry-ux-audit §4-1):
 // hashes only, lowercased, deduped, written by the directory refresh on every sweep.
 sandbox.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'Second@Example.com' }) };
-sandbox.Utilities = { computeDigest: (algorithm, text) => createHash('sha256').update(text, 'utf8').digest(),
+// GAS returns signed bytes (-128..127) as a plain array.
+sandbox.Utilities = { computeDigest: (algorithm, text) =>
+  Array.from(createHash('sha256').update(text, 'utf8').digest()).map(byte => byte > 127 ? byte - 256 : byte),
   DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' } };
 sandbox.vNextAdminReadKeyValueSheet_ = () => ({ admin_emails: 'First@Example.com, second@example.com' });
 const projection = sandbox.vNextAdminPortalAdminProjection_({});
