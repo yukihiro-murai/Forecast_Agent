@@ -14,6 +14,7 @@
       --radius:14px; --shadow:0 1px 2px rgba(15,42,71,.06), 0 8px 24px rgba(15,42,71,.06);
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
       --card-pad:28px; --stack:16px; --guide-h:72px;
+      --cta-w:220px; --cta-h:48px;
     }
     * { box-sizing:border-box; }
     body {
@@ -27,7 +28,10 @@
       font-size:28px; font-weight:600; margin:0 0 24px; color:var(--navy);
       letter-spacing:.01em;
     }
-    h2 { font-size:20px; font-weight:600; margin:0; line-height:1.4; color:var(--navy); }
+    h2 {
+      font-size:20px; font-weight:600; margin:0; line-height:1.35; color:var(--navy);
+      min-width:0;
+    }
     #app {
       display:grid; gap:20px;
     }
@@ -45,15 +49,16 @@
       box-shadow:0 1px 2px rgba(0,160,233,.08), 0 10px 28px rgba(15,42,71,.08);
     }
     .card-head {
-      display:grid; gap:6px; align-content:start;
+      display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px;
       margin:0 0 var(--stack);
-      min-height:52px;
+      min-height:32px;
     }
     .layer-label {
-      display:inline-flex; align-items:center; width:fit-content;
-      margin:0; padding:3px 10px;
-      border-radius:99px; font-size:13px; font-weight:600; letter-spacing:.02em;
-      background:var(--chip); color:var(--navy); line-height:1.3;
+      display:inline-flex; align-items:center; justify-content:center;
+      margin:0; padding:5px 11px; flex-shrink:0;
+      border:1.5px solid var(--line-strong); border-radius:6px;
+      background:var(--chip); color:var(--navy);
+      font-size:15px; font-weight:700; letter-spacing:.02em; line-height:1.2;
     }
     .cast {
       display:grid; grid-template-columns:var(--guide-h) minmax(0, 1fr);
@@ -88,12 +93,11 @@
     .card-body:empty { display:none; margin:0; }
     .card-actions {
       display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end;
-      gap:12px; margin:0; padding-top:16px;
-      border-top:1px solid var(--line);
-      min-height:64px;
+      gap:12px; margin:0; padding:0;
+      min-height:var(--cta-h);
     }
     .card-actions:empty {
-      display:none; padding:0; border:0; min-height:0;
+      display:none; padding:0; min-height:0;
     }
     a.btn, button, .pick {
       font-family:inherit; font-weight:600; cursor:pointer; border:none; text-decoration:none;
@@ -101,8 +105,11 @@
     a.btn-primary, button.btn-primary,
     a.btn-admin {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:48px; min-width:160px; padding:12px 22px; font-size:17px;
-      border-radius:12px; line-height:1.35;
+      width:var(--cta-w); height:var(--cta-h);
+      min-width:var(--cta-w); max-width:var(--cta-w);
+      min-height:var(--cta-h); max-height:var(--cta-h);
+      padding:0 16px; font-size:17px;
+      border-radius:12px; line-height:1.2;
     }
     a.btn-primary, button.btn-primary {
       background:var(--primary); color:#fff;
@@ -117,8 +124,11 @@
     a.btn-admin:hover { background:#F4F7FA; }
     a.btn-open {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; min-width:72px; padding:8px 16px; font-size:15px;
-      border-radius:10px; line-height:1.35; flex-shrink:0;
+      width:72px; height:40px;
+      min-width:72px; max-width:72px;
+      min-height:40px; max-height:40px;
+      padding:0 12px; font-size:15px;
+      border-radius:10px; line-height:1.2; flex-shrink:0;
       background:var(--primary); color:#fff;
     }
     a.btn-open:hover { background:#0090D6; }
@@ -127,7 +137,7 @@
     .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; border-radius:99px;
+      min-height:40px; min-width:104px; padding:8px 14px; border-radius:10px;
       border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:15px;
     }
     .pick:hover { border-color:var(--primary); }
@@ -154,24 +164,25 @@
       display:flex; align-items:center; gap:10px; flex-shrink:0;
     }
     .chip {
-      display:inline-block; border-radius:99px; padding:5px 12px;
+      display:inline-block; border-radius:8px; padding:5px 12px;
       font-size:14px; font-weight:600; background:var(--chip); color:var(--navy); white-space:nowrap;
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
-    .empty { color:var(--muted); margin:0; font-size:16px; line-height:1.55; }
     .loading { color:var(--muted); padding:8px 0; }
     .error {
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
     .hidden { display:none !important; }
     @media (max-width:520px) {
-      :root { --card-pad:20px; --guide-h:64px; }
+      :root { --card-pad:20px; --guide-h:64px; --cta-w:100%; }
       h1 { font-size:24px; }
       h2 { font-size:18px; }
       .bot { width:56px; height:56px; }
       .card-actions { justify-content:stretch; }
-      a.btn-primary, a.btn-admin { width:100%; min-width:0; }
+      a.btn-primary, a.btn-admin {
+        width:100%; max-width:none; min-width:0;
+      }
       .book { flex-wrap:wrap; }
       .book-side { width:100%; justify-content:space-between; }
     }
@@ -209,12 +220,12 @@
     <section id="existingCard" class="card" aria-labelledby="existingTitle">
       <header class="card-head">
         <span class="layer-label">既存</span>
-        <h2 id="existingTitle">あなたの年度一覧</h2>
+        <h2 id="existingTitle">作成済みシート</h2>
       </header>
       <div class="cast">
         <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
-          <p id="existingBubble">ここにあるものを開けば続きます。</p>
+          <p id="existingBubble">年度を選ぶと、用意済みのクライアントが並ぶよ。</p>
         </div>
       </div>
       <div class="card-body">
@@ -246,8 +257,12 @@
     var CREATE_CHAR_ID = 'yajirushi';
     var EXISTING_CHAR_ID = 'kurippu';
     var ADMIN_CHAR_ID = 'haguruma';
+    var EXISTING_DEFAULT_TALK = '年度を選ぶと、用意済みのクライアントが並ぶよ。';
+    var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みのシートはないみたい。新規から始めよう。';
+    var EXISTING_EMPTY_YEAR_TALK = 'この年度には、まだ用意済みのシートがないよ。';
     var entryModel = null;
     var selectedYear = 0;
+    var existingTalkOverride = '';
     function chipClass(tone) {
       if (tone === 'warn') return 'chip warn';
       if (tone === 'good') return 'chip good';
@@ -281,6 +296,21 @@
       }
       bubble.textContent = line || fallbackTalk;
     }
+    function paintExistingBubble() {
+      var bubble = document.getElementById('existingBubble');
+      if (!bubble) return;
+      if (existingTalkOverride) {
+        bubble.textContent = existingTalkOverride;
+        return;
+      }
+      var line = '';
+      if (typeof characterTalk === 'function') {
+        line = characterTalk(EXISTING_CHAR_ID, 'hello') || characterLine(EXISTING_CHAR_ID) || '';
+      } else if (typeof characterLine === 'function') {
+        line = characterLine(EXISTING_CHAR_ID) || '';
+      }
+      bubble.textContent = line || EXISTING_DEFAULT_TALK;
+    }
     function paintYears() {
       var years = entryModel.years || [];
       var box = document.getElementById('years');
@@ -306,15 +336,21 @@
     function paintBooks() {
       var box = document.getElementById('books');
       var allBooks = entryModel.books || [];
+      existingTalkOverride = '';
       if (!allBooks.length) {
-        box.innerHTML = '<p class="empty">まだ自分の対象シートはありません。</p>';
+        box.innerHTML = '';
+        existingTalkOverride = EXISTING_EMPTY_ALL_TALK;
+        paintExistingBubble();
         return;
       }
       var rows = selectedYear ? booksForYear(selectedYear) : allBooks;
       if (!rows.length) {
-        box.innerHTML = '<p class="empty">この年度のシートはまだありません。</p>';
+        box.innerHTML = '';
+        existingTalkOverride = EXISTING_EMPTY_YEAR_TALK;
+        paintExistingBubble();
         return;
       }
+      paintExistingBubble();
       box.innerHTML = rows.map(function (book) {
         var yearLabel = escapeHtml(book.fiscalYear) + '年度';
         var meta = book.nextAction
@@ -364,7 +400,7 @@
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       paintCharacter('createBot', 'createBubble', CREATE_CHAR_ID, '新しく始めるなら、このボタンです。');
-      paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, 'ここにあるものを開けば続きます。');
+      paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, EXISTING_DEFAULT_TALK);
       paintCreateCta(entryModel);
       paintAdmin(entryModel);
       var years = entryModel.years || [];

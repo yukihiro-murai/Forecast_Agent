@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.32',
+  RUNTIME_VERSION: 'vnext-portal-1.7.33',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -335,6 +335,11 @@ function vNextPortalGetEntryModel() {
   }
 }
 
+/**
+ * Employee entry list: every prepared/created client book for the fiscal year.
+ * Do not filter by the signed-in actor (owner / related member). Year chips prefer
+ * the local view years (current FY + next) and also include years present in books.
+ */
 function vNextPortalBuildEntryModel_(data, options) {
   var opt = options && typeof options === 'object' ? options : {};
   var directory = (data && data.directory) || [];
@@ -360,10 +365,12 @@ function vNextPortalBuildEntryModel_(data, options) {
     return String(a.clientName).localeCompare(String(b.clientName), 'ja');
   });
   var years = [];
-  books.forEach(function (book) {
-    var year = Number(book.fiscalYear || 0);
+  function pushYear_(value) {
+    var year = Number(value || 0);
     if (year && years.indexOf(year) < 0) years.push(year);
-  });
+  }
+  ((data && data.years) || []).forEach(pushYear_);
+  books.forEach(function (book) { pushYear_(book.fiscalYear); });
   years.sort(function (a, b) { return b - a; });
   return {
     ok: true,
