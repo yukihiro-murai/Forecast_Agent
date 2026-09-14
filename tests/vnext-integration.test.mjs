@@ -280,7 +280,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.34');
+  assert.equal(bundle.version, 'vnext-portal-1.7.35');
   assert.equal(bundle.files.length, 6);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -935,6 +935,9 @@ async function checkAdminCoverageContracts() {
     'Portal update must republish the existing employee web app after a verified runtime copy');
   assert.ok(portalMigration.includes("'/deployments/' +") && portalMigration.includes("'put'"),
     'Portal web entry must update the existing deployment instead of creating a new /exec URL');
+  assert.ok(portalMigration.includes('scriptId: id') &&
+    portalMigration.includes('versionNumber: versionNumber'),
+    'Portal /exec republish must send scriptId inside deploymentConfig (clasp-compatible)');
   assert.equal(portalMigration.includes("'/deployments', 'post'"), false,
     'Portal web entry republish must not create a second Web App URL');
   assert.ok(portalMigration.lastIndexOf('vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl)') >
