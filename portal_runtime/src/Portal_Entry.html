@@ -228,9 +228,18 @@
     }
     @keyframes spin { to { transform:rotate(360deg); } }
     .error {
+      display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
       border:1px solid #F5C6C2; border-left:4px solid #C0392B; font-size:16px;
     }
+    .error span { flex:1 1 240px; min-width:0; }
+    .btn-retry {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-height:40px; padding:0 16px; border-radius:10px; font-size:15px;
+      background:#fff; color:#C0392B; border:1.5px solid #C0392B;
+      margin-left:auto; flex-shrink:0;
+    }
+    .btn-retry:hover { background:#FFF3F2; }
     .hidden { display:none !important; }
     @media (max-width:640px) {
       :root { --cta-w:100%; }
@@ -273,7 +282,10 @@
     </h1>
   </header>
 
-  <div id="error" class="error hidden" role="alert"></div>
+  <div id="error" class="error hidden" role="alert">
+    <span id="errorText"></span>
+    <button type="button" id="retryButton" class="btn-retry">もう一度読み込む</button>
+  </div>
   <div id="loading" class="loading">画面を読み込んでいます…</div>
 
   <div id="app" class="hidden">
@@ -281,7 +293,7 @@
       <div class="cast">
         <span class="bot-slot"><span id="createBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
-          <p id="createBubble">まだシートが無いクライアント向け。ここから新しい予測シートを作るよ。</p>
+          <p id="createBubble">まだシートが無いクライアントはここから。開いた先の右側に出る案内で申請するよ。</p>
         </div>
       </div>
       <header class="card-head">
@@ -315,7 +327,7 @@
       <div class="cast">
         <span class="bot-slot"><span id="adminBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
-          <p id="adminBubble">テンプレや権限など、管理作業の入口。整備はここから。</p>
+          <p id="adminBubble">テンプレや権限の整備はここから。</p>
         </div>
       </div>
       <header class="card-head">
@@ -332,15 +344,18 @@
     var CREATE_CHAR_ID = 'yajirushi';
     var EXISTING_CHAR_ID = 'kurippu';
     var ADMIN_CHAR_ID = 'haguruma';
-    var CREATE_TALK = 'まだシートが無いクライアント向け。ここから新しい予測シートを作るよ。';
+    var CREATE_TALK = 'まだシートが無いクライアントはここから。開いた先の右側に出る案内で申請するよ。';
     var EXISTING_DEFAULT_TALK = '年度を選ぶと、用意済みのクライアントが並ぶよ。既存シートはここから開く。';
-    var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みは無いみたい。並び方はこの枠のとおり。新規から始めよう。';
-    var EXISTING_EMPTY_YEAR_TALK = 'この年度はまだ無いよ。並びはこの枠のとおり。別の年度か新規を見てね。';
-    var ADMIN_TALK = 'テンプレや権限など、管理作業の入口。整備はここから。';
+    var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みのシートは無いよ。上の「新しい予測シートを作る」から始めよう。';
+    var ADMIN_TALK = 'テンプレや権限の整備はここから。';
     var ENTRY_YEARS = [2026, 2027, 2028];
+    var REFRESH_AFTER_MS = 20000;
     var entryModel = null;
     var selectedYear = 0;
     var existingTalkOverride = '';
+    var freshNotice = '';
+    var loadedAt = 0;
+    var loading = false;
     function chipClass(tone) {
       if (tone === 'warn') return 'chip warn';
       if (tone === 'good') return 'chip good';
@@ -350,27 +365,35 @@
       return String(value == null ? '' : value)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    // The entry speaks of "シート" everywhere; server texts still say "ブック".
     function userFacing(value) {
       return String(value == null ? '' : value)
-        .replace(/専用ブック/g, 'クライアント年度ブック')
-        .replace(/ブック/g, 'クライアント年度ブック');
+        .replace(/クライアント年度ブック|専用ブック|ブック/g, '予測シート');
+    }
+    function bookKey(book) {
+      return String(book.clientName) + '|FY' + String(book.fiscalYear);
     }
     function booksForYear(year) {
       return (entryModel.books || []).filter(function (book) {
         return Number(book.fiscalYear) === Number(year);
       });
     }
+    function yearsWithBooks() {
+      return ENTRY_YEARS.filter(function (year) { return booksForYear(year).length > 0; });
+    }
+    function emptyYearTalk(year) {
+      var others = yearsWithBooks().filter(function (item) { return item !== Number(year); });
+      if (!others.length) return year + '年度はまだ無いよ。上の「新しい予測シートを作る」から始めよう。';
+      return year + '年度はまだ無いよ。作成済みは ' +
+        others.map(function (item) { return item + '年度'; }).join('・') + ' にあるよ。';
+    }
     function previewBooksHtml() {
-      return '<div class="book ghost" aria-hidden="true">' +
+      var row = '<div class="book ghost" aria-hidden="true">' +
         '<div class="book-main"><div class="book-name">クライアント名</div>' +
-        '<div class="book-meta">年度 · 次に行う操作</div></div>' +
-        '<div class="book-side"><span class="chip">状態</span>' +
-        '<span class="btn-open" aria-hidden="true">開く</span></div></div>' +
-        '<div class="book ghost" aria-hidden="true">' +
-        '<div class="book-main"><div class="book-name">クライアント名</div>' +
-        '<div class="book-meta">年度 · 次に行う操作</div></div>' +
+        '<div class="book-meta">次に行う操作</div></div>' +
         '<div class="book-side"><span class="chip">状態</span>' +
         '<span class="btn-open" aria-hidden="true">開く</span></div></div>';
+      return row + row;
     }
     function paintCharacter(botId, bubbleId, charId, talk) {
       var bot = document.getElementById(botId);
@@ -385,9 +408,12 @@
       if (!bubble) return;
       bubble.textContent = existingTalkOverride || EXISTING_DEFAULT_TALK;
     }
-    function selectYear(year, focus) {
+    function rememberYear(year) {
       selectedYear = Number(year);
       try { sessionStorage.setItem('vnext-entry-year', String(selectedYear)); } catch (ignored) {}
+    }
+    function selectYear(year, focus) {
+      rememberYear(year);
       paintYears();
       paintBooks();
       if (focus) {
@@ -434,19 +460,19 @@
       var rows = selectedYear ? booksForYear(selectedYear) : allBooks;
       if (!rows.length) {
         box.innerHTML = previewBooksHtml();
-        existingTalkOverride = EXISTING_EMPTY_YEAR_TALK;
+        existingTalkOverride = emptyYearTalk(selectedYear);
         paintExistingBubble();
         return;
       }
+      existingTalkOverride = freshNotice;
       paintExistingBubble();
       box.innerHTML = rows.map(function (book) {
-        var yearLabel = escapeHtml(book.fiscalYear) + '年度';
-        var meta = book.nextAction
-          ? escapeHtml(userFacing(book.nextAction))
-          : yearLabel;
+        // The selected year already frames every row, so the meta line carries only the next step.
+        var meta = book.nextAction ? escapeHtml(userFacing(book.nextAction)) : '';
+        if (!selectedYear) meta = escapeHtml(book.fiscalYear) + '年度' + (meta ? ' · ' + meta : '');
         var body =
           '<div class="book-main"><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
-          '<div class="book-meta">' + yearLabel + (book.nextAction ? ' · ' + meta : '') + '</div></div>' +
+          (meta ? '<div class="book-meta">' + meta + '</div>' : '') + '</div>' +
           '<div class="book-side"><span class="' + chipClass(book.tone) + '">' +
           escapeHtml(userFacing(book.stateLabel)) + '</span>';
         if (book.url) {
@@ -487,6 +513,14 @@
       var remembered = 0;
       try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}
       if (ENTRY_YEARS.indexOf(remembered) >= 0) return remembered;
+      // Land on the year that already has sheets, so the first view is a real list rather than a ghost preview.
+      var best = 0;
+      var bestCount = 0;
+      ENTRY_YEARS.forEach(function (year) {
+        var count = booksForYear(year).length;
+        if (count > bestCount) { best = year; bestCount = count; }
+      });
+      if (best) return best;
       var modelYears = entryModel.years || [];
       var i;
       for (i = 0; i < ENTRY_YEARS.length; i++) {
@@ -495,8 +529,11 @@
       return ENTRY_YEARS[0];
     }
     function render(model) {
+      loading = false;
+      loadedAt = Date.now();
       entryModel = model || { books: [], years: [] };
       document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       paintCharacter('createBot', 'createBubble', CREATE_CHAR_ID, CREATE_TALK);
       paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, EXISTING_DEFAULT_TALK);
@@ -506,18 +543,76 @@
       paintYears();
       paintBooks();
     }
-    function fail(message) {
-      document.getElementById('loading').classList.add('hidden');
-      var el = document.getElementById('error');
-      el.textContent = message;
-      el.classList.remove('hidden');
+    // Coming back from the creation tab: refresh in place and land on the year where the new row appeared.
+    function applyRefresh(model) {
+      loading = false;
+      loadedAt = Date.now();
+      if (!model || !Array.isArray(model.books)) return;
+      var before = {};
+      (entryModel.books || []).forEach(function (book) { before[bookKey(book)] = true; });
+      var added = model.books.filter(function (book) { return !before[bookKey(book)]; });
+      entryModel = model;
+      paintCreateCta(entryModel);
+      paintAdmin(entryModel);
+      freshNotice = '';
+      if (added.length) {
+        var inSelected = added.some(function (book) { return Number(book.fiscalYear) === selectedYear; });
+        if (!inSelected) {
+          var target = 0;
+          added.forEach(function (book) {
+            var year = Number(book.fiscalYear);
+            if (ENTRY_YEARS.indexOf(year) >= 0 && year > target) target = year;
+          });
+          if (target) rememberYear(target);
+        }
+        var shown = added.filter(function (book) { return Number(book.fiscalYear) === selectedYear; });
+        if (shown.length === 1) {
+          freshNotice = selectedYear + '年度に「' + shown[0].clientName + '」が増えたよ。';
+        } else if (shown.length > 1) {
+          freshNotice = selectedYear + '年度に ' + shown.length + ' 件増えたよ。';
+        }
+      }
+      paintYears();
+      paintBooks();
+      freshNotice = '';
     }
-    google.script.run
-      .withSuccessHandler(render)
-      .withFailureHandler(function (error) {
-        fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
-      })
-      .vNextPortalGetEntryModel();
+    function refreshIfStale() {
+      if (loading || !entryModel) return;
+      if (Date.now() - loadedAt < REFRESH_AFTER_MS) return;
+      loading = true;
+      google.script.run
+        .withSuccessHandler(applyRefresh)
+        .withFailureHandler(function () {
+          // Keep the current list; a quiet background refresh must never replace it with an error.
+          loading = false;
+          loadedAt = Date.now();
+        })
+        .vNextPortalGetEntryModel();
+    }
+    function fail(message) {
+      loading = false;
+      loadedAt = Date.now();
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('errorText').textContent = message;
+      document.getElementById('error').classList.remove('hidden');
+    }
+    function load() {
+      loading = true;
+      document.getElementById('error').classList.add('hidden');
+      document.getElementById('loading').classList.remove('hidden');
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function (error) {
+          fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
+        })
+        .vNextPortalGetEntryModel();
+    }
+    document.getElementById('retryButton').addEventListener('click', load);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshIfStale();
+    });
+    window.addEventListener('focus', refreshIfStale);
+    load();
   </script>
 </body>
 </html>

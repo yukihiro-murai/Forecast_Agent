@@ -280,7 +280,7 @@ async function checkPortalRuntimeBoundary() {
   vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(root, 'VNext_PortalRuntimeBundle.js'), 'utf8'), sandbox);
   const bundle = sandbox.VNEXT_PORTAL_RUNTIME_BUNDLE_;
-  assert.equal(bundle.version, 'vnext-portal-1.7.37');
+  assert.equal(bundle.version, 'vnext-portal-1.7.39');
   assert.equal(bundle.files.length, 6);
   assert.deepEqual(
     JSON.parse(JSON.stringify(bundle.files.map(file => file.name))).sort(),
@@ -349,9 +349,16 @@ async function checkPortalRuntimeBoundary() {
   const adminSidebar = await readFile(path.join(root, 'VNext_AdminSidebar.html'), 'utf8');
   assert.match(adminSidebar, /申請入口を準備する/);
   assert.match(adminSidebar, /vNextAdminProvisionSharedPortal/);
-  assert.match(adminSidebar, /vNextAdminRelocateLibraryToSharedDrive/);
-  assert.match(adminSidebar, /共有ドライブ「年度予算策定」へ移す/);
   const adminSource = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+  // One-time shared-drive relocation lives in the Hub menu (初回・復旧), behind a confirm dialog.
+  const relocateMenuStart = adminSource.indexOf('function vNextAdminMenuRelocateLibrary()');
+  const relocateMenuEnd = adminSource.indexOf('\nfunction ', relocateMenuStart + 1);
+  const relocateMenu = adminSource.slice(relocateMenuStart, relocateMenuEnd);
+  assert.ok(relocateMenuStart >= 0 && relocateMenu.includes('ui.ButtonSet.OK_CANCEL') &&
+    relocateMenu.indexOf('ui.alert(') < relocateMenu.indexOf('vNextAdminRelocateLibraryToSharedDrive('),
+    'Shared-drive relocation must be a confirmed menu action, not a permanent sidebar button');
+  assert.doesNotMatch(adminSidebar, /vNextAdminRelocateLibraryToSharedDrive/,
+    'One-time relocation must not stay in the daily Admin sidebar');
   assert.match(adminSource, /VN_ADMIN_PORTAL_REQUEST_SCHEMA\s*=\s*'vnext-portal-request-2'/);
   assert.match(adminSource, /function vNextAdminRefreshZacClientCatalog\(/);
   assert.match(adminSource, /function vNextAdminUpdateSharedPortalRuntime\(/);
@@ -403,6 +410,20 @@ async function checkPortalRuntimeBoundary() {
     adminMenu.includes('addSubMenu') &&
     !adminMenu.includes('vNextAdminMenuRunOperationalCycle'),
     'The Hub top menu is a recovery path plus nested irregular ops, not the daily run-now action');
+  assert.ok(adminMenu.includes('VN_ADMIN_MENU_MAINTENANCE') &&
+    adminMenu.includes("'vNextAdminMenuUpdateAllFromSource'") &&
+    adminMenu.includes("'vNextAdminMenuRefreshZacClientCatalog'") &&
+    adminMenu.includes("'vNextAdminMenuRefreshExceptions'") &&
+    adminMenu.includes("'vNextAdminOpenAdvancedSidebar'") &&
+    adminMenu.includes('VN_ADMIN_MENU_FIRST_TIME') &&
+    adminMenu.includes("'vNextAdminMenuRelocateLibrary'") &&
+    adminMenu.includes("'vNextAdminMenuFreshUatReset'"),
+    'Background-only maintenance and one-time recovery must live under the Hub menu, not the daily sidebar');
+  assert.ok(adminSource.includes("template.view = ['daily', 'advanced', 'updater']") &&
+    adminSidebar.includes('data-view="<?= view ?>"') &&
+    adminSidebar.includes('id="dailyView"') && adminSidebar.includes('id="advancedView"') &&
+    adminSidebar.includes('id="updaterPanel"'),
+    'One templated Admin HTML must serve the daily sidebar, the advanced forms, and the updater dialog (18-file runtime allowlist)');
   assert.ok(adminSource.includes('VN_ADMIN_MENU_NAME = VNEXT_NAMING.MENU') &&
     adminSource.includes("VN_ADMIN_MENU_OPEN_SIDEBAR = '案内を開く'") &&
     adminSource.includes("VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理'") &&
@@ -1076,11 +1097,17 @@ async function checkAdminCoverageContracts() {
     'Fresh UAT reset must clear ADMIN_AUDIT_LOG and trash Drive audit files');
   assert.equal(source.replace(reset, '').includes('.setTrashed('), false,
     'Drive trash must stay inside the confirmed fresh UAT reset path');
-  assert.ok(sidebar.includes('vNextAdminResetGeneratedClientsForFreshUat') &&
-    sidebar.includes('RESET_GENERATED_CLIENTS') &&
-    sidebar.includes('apply:true') &&
-    sidebar.includes('管理ハブ監査ログ'),
-    'Admin Sidebar must hide the reset behind the exact confirmation phrase');
+  const resetMenuStart = source.indexOf('function vNextAdminMenuFreshUatReset()');
+  const resetMenuEnd = source.indexOf('\n/**', resetMenuStart + 1);
+  const resetMenu = source.slice(resetMenuStart, resetMenuEnd);
+  assert.ok(resetMenuStart >= 0 &&
+    resetMenu.indexOf('{ apply: false }') < resetMenu.indexOf('ui.prompt(') &&
+    resetMenu.indexOf('ui.prompt(') < resetMenu.indexOf('apply: true, confirmation: confirmation') &&
+    resetMenu.includes('confirmation !== VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION') &&
+    resetMenu.includes('管理ハブ監査ログ'),
+    'The fresh UAT reset must be a menu action: preview first, then the exact confirmation phrase, then apply');
+  assert.equal(sidebar.includes('vNextAdminResetGeneratedClientsForFreshUat'), false,
+    'The destructive reset must not remain as a permanent sidebar control');
   assert.ok(sidebar.includes('現場の年度・クライアント指定は、申請入口（第1層）から行います') &&
     sidebar.includes('申請入口') &&
     sidebar.includes('申請を今すぐ処理'),
@@ -1147,10 +1174,32 @@ async function checkAdminCoverageContracts() {
   assert.equal(/trustedReuseSeedFromRunId\s*:/.test(rollbackApi), false,
     'Public rollback API must not persist a pre-trusted seed field in the job payload');
   assert.ok(sidebar.includes('vNextAdminRollbackAiEvidence') && sidebar.includes('vNextAdminActivateModelRelease') &&
-    sidebar.includes('vNextAdminRouteReturnedPlan') && sidebar.includes('vNextAdminUpdateHubRuntimeFromSource') &&
+    sidebar.includes('vNextAdminRouteReturnedPlan') && sidebar.includes('vNextAdminUpdateAllFromSource') &&
+    sidebar.includes('vNextAdminContinueRuntimeUpdate') &&
     sidebar.includes('vNextAdminCreateTemplateDraft') && sidebar.includes('vNextAdminActivateReleasePair') &&
     sidebar.includes('管理ハブ担当者 attestation'),
     'Admin Sidebar must expose the guarded coverage controls');
+  const updateAllStart = source.indexOf('function vNextAdminUpdateAllFromSource(');
+  const updateAllEnd = source.indexOf('function vNextAdminContinueRuntimeUpdate(', updateAllStart);
+  const updateAll = source.slice(updateAllStart, updateAllEnd);
+  assert.ok(updateAllStart >= 0 &&
+    updateAll.includes('vNextAdminUpdateHubRuntimeFromSource({ reason: reason, skipIfCurrent: true })') &&
+    updateAll.includes('targetPortalSha !== portalDeployedSha') &&
+    updateAll.includes("'UPDATE_ALL_RUNTIMES'"),
+    'The one-shot update must reuse the verified Hub copy path and decide the Portal step from the source bundle hash');
+  const continueStart = source.indexOf('function vNextAdminContinueRuntimeUpdateInHub_(');
+  const continueEnd = source.indexOf('function vNextAdminAutoFollowRuntimeUpdate_(', continueStart);
+  const continueUpdate = source.slice(continueStart, continueEnd);
+  assert.ok(continueStart >= 0 &&
+    continueUpdate.includes("'WAITING_FOR_NEW_CODE'") &&
+    continueUpdate.indexOf("runningSha !== String(job.targetPortalSha256") < continueUpdate.indexOf('vNextAdminUpdateSharedPortalRuntime(') &&
+    continueUpdate.indexOf("vNextAdminWithScriptLock_('runtime-update-claim'") < continueUpdate.indexOf('vNextAdminUpdateSharedPortalRuntime(') &&
+    continueUpdate.includes("exception_type: 'RUNTIME_UPDATE_FAILED'"),
+    'The Portal step must wait for the new Hub code, claim the job under the lock, then reuse the rollback-safe Portal update');
+  const sweepStart = source.indexOf('function vNextAdminScheduledSweep()');
+  const sweepEnd = source.indexOf('/** Submit an immutable candidate snapshot', sweepStart);
+  assert.ok(source.slice(sweepStart, sweepEnd).includes('vNextAdminAutoFollowRuntimeUpdate_(hub)'),
+    'The scheduled sweep must finish a pending one-shot update when the dialog was closed');
 
   const pairStart = source.indexOf('function vNextAdminActivateReleasePairInternal_');
   const pairEnd = source.indexOf('function vNextAdminAppendTemplateJournal_', pairStart);
@@ -1224,9 +1273,8 @@ async function checkAdminCoverageContracts() {
     source.includes('function vNextAdminRelocateLibraryToSharedDrive(') &&
     source.includes('vNextAdminPrepareLibraryDestinationFolder_'),
     'Client provisioning must stay inside the recorded library root, with a shared-drive relocate path');
-  assert.ok(sidebar.includes('vNextAdminRelocateLibraryToSharedDrive') &&
-    !sidebar.includes('処理を完了できませんでした。要確認事項と詳細を確認してください。'),
-    'Admin Sidebar must show the actual relocate error instead of a generic placeholder');
+  assert.ok(!sidebar.includes('処理を完了できませんでした。要確認事項と詳細を確認してください。'),
+    'Admin Sidebar must show the actual error instead of a generic placeholder');
   const relocateStart = source.indexOf('function vNextAdminMoveRegisteredFilesIntoLibrary_');
   const relocateEnd = source.indexOf('function vNextAdminFolderWithinRoot_', relocateStart);
   const relocate = source.slice(relocateStart, relocateEnd);

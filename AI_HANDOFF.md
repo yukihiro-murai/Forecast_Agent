@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal入口 細部磨き: 主CTAと「管理ハブを開く」を同一幅、見出し「管理ハブシート」、年度ボタン選択・未作成表現、640px 折返し。候補版 1.7.37。1.7.36 を legacy allowlist に追加。/exec ピンの scriptId 必須は維持）  
-対象ブランチ: `cursor/portal-entry-detail-polish-deaf`  
+最終更新: 2026-09-14 JST（管理ハブ サイドバー簡素化: 日常＝承認・要確認・申請処理・版表示だけ。保守／初回・復旧はメニューへ。「最新版に更新」1操作で Hub runtime → Portal runtime + /exec ピンを順次更新し、5分 sweep が自動追従。Portal 1.7.38（入口UX監査: 戻り時の一覧再取得・既定年度・空年度セリフ・再読込ボタン・行の年度重複削除）を取込済み。**Portal 1.7.39**: 管理カードを Admin 投影 `admin_email_hashes_json` と `sha256(lowercase(email))` の照合で権限者だけに表示（fail-closed。投影なし／schema 不一致で非表示）。判定は共有 entry cache の外で行い cache には adminHubUrl を書かない。/exec ピンの scriptId 必須は維持）  
+対象ブランチ: `cursor/portal-entry-ux-audit-2902`（`origin/cursor/admin-sidebar-simplify-0efd` `b1e83e9` を fast-forward で取込済み。Admin 投影 + Portal 1.7.39 の統合状態）  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.37` |
-| コード上のPortal bundle SHA-256 | `8d89712cc876b86e504e8b60db6cffe8cc12ac60a16579fa2c2f1ebf0542792d` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.37 へ更新） |
+| コード上のPortal runtime | `vnext-portal-1.7.39` |
+| コード上のPortal bundle SHA-256 | `42b775ca677959a3005f5b37fe0b751b209317b6ed34ac77aebed5c43449dba2` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub「最新版に更新」で 1.7.39 へ） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え（deployments.update に scriptId 必須） |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -34,13 +34,13 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 ## 操作面（2026-08-17）
 
-日常作業は右側の案内だけを辿る。上部メニュー「年度計画」は復旧用の「案内を開く」と、管理者の入れ子「その他」だけ。誰向け・いつ使うかの接頭辞は付けない。
+日常作業は右側の案内だけを辿る（承認待ち・要確認・申請と自動処理・版の状態表示のみ。2026-09-14 に簡素化）。上部メニュー「年度計画」は「案内を開く」＋入れ子「保守」（最新版に更新／ZAC候補更新／状態点検／要確認一覧更新／登録一覧／高度な操作を開く）＋入れ子「初回・復旧」（共有ドライブへ整理／受入試験リセット）。1回きりの操作を案内に常設しない。入力フォーム類（個別作成・Release・モデル版・ブック個別操作・Vertex・申請入口の準備）は同じ HTML の `advanced` ビューで「高度な操作を開く」から出す（`VNext_AdminSidebar.html` は `daily` / `advanced` / `updater` の3ビューをテンプレート変数 `view` で切替。18ファイル allowlist のため HTML は増やさない）。
 
 簡易onOpenからは案内を出せない。案内が一度開いたあと、そのブックのproject onOpen triggerで以後は自動表示する。Hub はシート名だけでメニューを出し、案内の承認・例外カードを先に描画してからポータル／catalog／model詳細を後読みする。Apps Script の冷起動そのものは残る。
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.37 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない。未作成年度は破線表示だが押せる）→ **管理ハブシート**（ボタンは「管理ハブを開く」。権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に主CTA。「新しい予測シートを作る」と「管理ハブを開く」は同じ固定幅（`--cta-w:320px`、640px 以下で全幅）。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.38 は 1.7.37 の構造を維持し、動線だけを直した: 作成タブから入口へ戻ると（`visibilitychange` / `focus`、20秒以上経過時）一覧を静かに再取得し、増えた行が別年度なら年度を切り替えてセリフで知らせる。既定年度はシートが最も多い年度。空年度のセリフは作成済みがある年度を名指しする。読込失敗には「もう一度読み込む」。行メタから年度を外し（選択年度と重複）、行文言の「クライアント年度ブック／ブック」は入口だけ「予測シート」に置換する。Portal 1.7.37 は入口を3つのカードに区分する: **新しい予測シート**（作成／申請）→ **作成済みシート**（見出し右に 2026/2027/2028 年度ボタン。選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない。未作成年度は破線表示だが押せる）→ **管理ハブシート**（ボタンは「管理ハブを開く」。権限者のみ・画面下寄せだが視認性維持）。各カードは **キャラ＋吹き出しが最上段**、見出しの横に主CTA。「新しい予測シートを作る」と「管理ハブを開く」は同じ固定幅（`--cta-w:320px`、640px 以下で全幅）。新規／既存／管理タグは廃止。空状態はゴースト行で並びを示し、説明はセリフ側。セパレーター線なし。図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）は `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 
@@ -122,7 +122,7 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 1. 対象ファイルだけ`git add`する。
 2. commit後、`git pull --ff-only`、`git push origin codex/vnext-annual-planning`。
 3. `clasp status`で中央projectの対象を確認して`clasp push`。
-4. AdminコードをHubへ反映する場合は、Hubの管理画面「中央配備版へ更新」を使うか、緊急bridgeとしてHub bound Script IDへ同一18ファイルを直接pushする。対象Script IDとparent Spreadsheetを再確認する。
+4. AdminコードをHubへ反映する場合は、Hubのメニュー「保守 → 最新版に更新（管理ハブ＋申請入口）」を使う（1操作で Hub runtime → 新コード起動待ち → Portal runtime + `/exec` ピン。`vNextAdminUpdateAllFromSource` → `vNextAdminContinueRuntimeUpdate`。ダイアログを閉じても `vNextAdminScheduledSweep` の `vNextAdminAutoFollowRuntimeUpdate_` が引き継ぐ）。緊急bridgeとしてHub bound Script IDへ同一18ファイルを直接pushする場合も、対象Script IDとparent Spreadsheetを再確認する。
 5. Client/Engine/UI変更は中央/Hubへpushしただけでは既存Clientへ反映されない。新しいimmutable Template＋Model pairを発行・有効化し、既存bookは状態別の専用same-URL upgradeを使う。
 
 `clasp push`だけで「ライブ反映完了」と判断しない。中央source、Hub bound project、ACTIVE pair、対象Client pinの4層を確認する。
@@ -147,28 +147,26 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 実行手順（Admin Hubを再読み込みしてから）:
 
-1. メニュー「年度計画」で案内を開く。
-2. 「保守・高度な操作」の最下部「社員テストをゼロからやり直す」。
-3. 「対象を確認（変更なし）」で Client 冊数を見る。
-4. 確認語 `RESET_GENERATED_CLIENTS` を入力し、「生成済み年度計画を削除して初期状態へ戻す」。
+1. メニュー「年度計画」→「初回・復旧」→「受入試験をゼロからやり直す（削除）」。
+2. 最初のダイアログに削除対象の Client 一覧が出る（変更なし）。OK で次へ。
+3. 確認語 `RESET_GENERATED_CLIENTS` を入力して OK。不一致なら何も削除しない。
 
 ## ユーザーが今やる設定順
 
 リセットを先に行い、検証ブックを共有ドライブへコピーしない。
 
 1. [Admin Hub](https://docs.google.com/spreadsheets/d/1baEZe6xYQ9KWyMMBk7kzH50v4dTtBPk9kWHK3qT7ID8/edit) を開く。案内が出なければメニュー「年度計画 → 案内を開く」。
-2. 「保守・高度な操作」→「中央配備版へ更新」（理由必須）→ 再読み込み。
-3. 「社員テストをゼロからやり直す」。確認語 `RESET_GENERATED_CLIENTS`。
-4. 「共有ドライブ『年度計画』へ移す」（理由必須）→ 再読み込み。
-5. 「社員ポータルの設定・更新」→「既存ポータルを最新版へ更新」（理由必須）。
-6. ポータル bound script から Web アプリを1回公開（実行者=アクセスしているユーザー、アクセス=ドメイン）。そのURLが社員入口。
+2. **今回1回だけ**（旧コードにはまだ新メニューが無い）: 案内の「保守・高度な操作」→「中央配備版へ更新」（理由必須）→ 再読み込み。以後は新コードなので、申請入口は自動運用（5分ごと）が自動追従する。次回以降はメニュー「保守 → 最新版に更新」の1操作。
+3. メニュー「初回・復旧 → 受入試験をゼロからやり直す」。確認語 `RESET_GENERATED_CLIENTS`。
+4. メニュー「初回・復旧 → 共有ドライブへ整理」（確認のみ）。
+5. ポータル bound script から Web アプリを1回公開（実行者=アクセスしているユーザー、アクセス=ドメイン）。そのURLが社員入口。以後の版更新は同じURLのまま「最新版に更新」が差し替える。
 
 Apps Script の実行履歴は Google 側の記録のため、このリセットでは消えない。HubシートとDrive上の検証ファイルは手順3で消える。
 
 ## 次の安全な作業候補
 
-1. Hub で「中央配備版へ更新」（理由必須）→ 再読み込み。初回は deployment 用 OAuth の許可が出ることがある。
-2. 「社員ポータルを最新版へ更新」を押し、完了メッセージに「同じURLのまま公開」と出ることを確認する。
+1. Hub のメニュー「保守 → 最新版に更新（管理ハブ＋申請入口）」→ ダイアログで「更新を開始」。初回は deployment 用 OAuth の許可が出ることがある。
+2. 同じダイアログで 2 段目「申請入口 runtime と Web入口ピンを更新」が ✓ になり、「同じURLのまま」と出ることを確認する。閉じた場合は案内の「版・更新」カードで確認。
 3. ブックマーク済み `/exec` をハード再読み込みし、3つの吹き出し左端が揃い、しっぽが各キャラの中央を指すことを確認する。
 4. Client 1.8.0 の新しい Template/Model pair を発行・有効化してから、ポータルでゼロから年度×クライアントを作る。
 

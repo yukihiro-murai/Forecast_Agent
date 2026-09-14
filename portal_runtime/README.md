@@ -7,7 +7,7 @@
 - `ホーム`: 作成依頼の受付・作成中・完成・要確認を一覧表示
 - `FYyyyy`: 1行を「1クライアント × 1年度」とする年度別一覧
 - メニュー: `案内を開く` のみ。日常作業は右側の案内
-- Web入口: `doGet` / `Portal_Entry.html`。ファーストビューは製品名・1メッセージ・主CTA・図鑑キャラ1体。01〜03の役割説明は折りたたみ、管理ハブはフッタ級。
+- Web入口: `doGet` / `Portal_Entry.html`。3カード（新しい予測シート／作成済みシート／管理ハブシート）。管理カードは `VN_PORTAL_CONFIG` の `admin_email_hashes_json`（Admin が投影する `sha256(lowercase(email))` の配列、`admin_projection_schema = vnext-portal-admin-projection-1`）にログインユーザーのハッシュが含まれるときだけ表示する。投影が無い・schema が違う場合は非表示（fail-closed）。判定はユーザー横断の entry cache の外で行う。
 
 専用ブックが完成すると、`PORTAL_DIRECTORY`または完了イベントのURLから「開く」リンクを表示します。社員のGoogleアカウントをクライアント別allowlistでは制限しません。作成担当（Forecast Owner）は入力させず、送信時のログインユーザーを自動設定します。
 
