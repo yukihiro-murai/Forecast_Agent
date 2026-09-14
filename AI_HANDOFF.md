@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal更新時のHub Spreadsheet切断対策。候補版 1.7.32。1.7.31 を legacy allowlist に追加）  
+最終更新: 2026-09-14 JST（Portal入口コンパクト化＋作成済み一覧を年度×全クライアントに明示。候補版 1.7.33。1.7.32 を legacy allowlist に追加）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.32` |
-| コード上のPortal bundle SHA-256 | `582f587fa0bb276ab9d2b97871196535b3ff19abdc71b904307c3e9687dca787` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.32 へ更新） |
+| コード上のPortal runtime | `vnext-portal-1.7.33` |
+| コード上のPortal bundle SHA-256 | `0661dae68ba2c9fe5056dacf895fb1168faf920653c5cee06e2058f54189ad08` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.33 へ更新） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -40,7 +40,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.32 は入口を3つのカードに区分する: **新規**（作成／申請）→ **既存**（年度一覧から開く）→ **管理**（権限者のみ表示）。各カードはラベル→見出し→キャラ→本文→右下CTAの同一グリッド。長文の役割説明と「すでにブックがある方はこちら」系の副導線は置かない。カードごとに図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.33 は入口を3つのカードに区分する: **新規**（作成／申請）→ **既存＝作成済みシート**（選んだ年度の用意済みクライアント一覧。ログインユーザー関与に絞らない）→ **管理**（権限者のみ表示）。タグは見出しと同行走、セパレーター線なし、CTAは固定寸法。空状態は本文を増やさずキャラセリフへ寄せる。カードごとに図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

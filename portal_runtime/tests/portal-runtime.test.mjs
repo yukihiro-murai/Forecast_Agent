@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.32');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.33');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -331,27 +331,44 @@ function testRequestProgress() {
 
 function testEntryModel() {
   const model = sandbox.vNextPortalBuildEntryModel_({
+    years: [2027, 2028],
     directory: [{
       directoryKey: '2027|az', clientName: 'アストラゼネカ', fiscalYear: 2027,
+      forecastOwnerEmail: 'owner-a@example.com',
+      relatedMemberEmails: ['member-a@example.com'],
       state: 'SUBMITTED', nextAction: '管理者の承認待ちです。',
       url: 'https://docs.google.com/spreadsheets/d/1234567890123456789012/edit'
+    }, {
+      directoryKey: '2027|other', clientName: '他社クライアント', fiscalYear: 2027,
+      forecastOwnerEmail: 'owner-b@example.com',
+      relatedMemberEmails: ['member-b@example.com'],
+      state: 'IN_PROGRESS', nextAction: '入力を続ける',
+      url: 'https://docs.google.com/spreadsheets/d/2234567890123456789012/edit'
     }],
     requests: [{
       clientName: '新規株式会社', fiscalYear: 2027, status: 'CREATING',
+      forecastOwnerEmail: 'owner-c@example.com',
       detailMessage: '', url: ''
     }]
   }, {
     portalUrl: 'https://docs.google.com/spreadsheets/d/portalportalportalportalpo/edit',
     adminHubUrl: 'https://docs.google.com/spreadsheets/d/hubhubhubhubhubhubhubhubhu/edit'
   });
-  assert.equal(model.books.length, 2);
-  assert.equal(model.years.join(','), '2027');
+  assert.equal(model.books.length, 3);
+  assert.equal(model.years.join(','), '2028,2027');
   assert.equal(model.books[0].clientName, 'アストラゼネカ');
   assert.equal(model.books[0].tone, 'warn');
+  assert.equal(model.books[1].clientName, '新規株式会社');
   assert.equal(model.books[1].stateLabel, 'クライアント年度ブック作成中');
+  assert.equal(model.books[2].clientName, '他社クライアント');
   assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
   assert.equal('actorEmail' in model, false);
   assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
+  const emptyYears = sandbox.vNextPortalBuildEntryModel_({
+    years: [2027, 2028], directory: [], requests: []
+  }, { portalUrl: '', adminHubUrl: '' });
+  assert.equal(emptyYears.books.length, 0);
+  assert.equal(emptyYears.years.join(','), '2028,2027');
 }
 
 async function testStaticUxContracts() {
@@ -410,12 +427,13 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
   assert.match(entry, /新しい予測シートを作る/);
-  assert.match(entry, /あなたの年度一覧/);
+  assert.match(entry, /作成済みシート/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
   assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層：|第2層：|第3層：/);
+  assert.doesNotMatch(entry, /あなたの年度一覧|まだ自分の対象シートはありません/);
   assert.doesNotMatch(entry, /roles|secondaryLink|ENTRY_CHAR_ID/);
   assert.match(entry, /id="createCard"/);
   assert.match(entry, /id="existingCard"/);
@@ -443,12 +461,16 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.doesNotMatch(entry, /class="bot bot-cloud"|viewBox="0 0 92 56"/);
   assert.match(entry, /align-items:center/);
-  assert.match(entry, /border-radius:99px/);
+  assert.match(entry, /border-radius:6px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
   assert.match(entry, /grid-template-columns:var\(--guide-h\) minmax\(0, 1fr\)/);
   assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\) auto/);
   assert.match(entry, /\.card-actions \{[\s\S]*?justify-content:flex-end/);
+  assert.doesNotMatch(entry, /\.card-actions \{[\s\S]*?border-top:1px solid/);
+  assert.match(entry, /--cta-w:220px/);
+  assert.match(entry, /--cta-h:48px/);
+  assert.match(core, /Do not filter by the signed-in actor/);
   assert.doesNotMatch(entry, /名前を入力/);
   assert.doesNotMatch(entry, /previewBooksHtml|book ghost/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
