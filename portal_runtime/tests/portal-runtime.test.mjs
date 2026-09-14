@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.29');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.30');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -415,8 +415,11 @@ async function testStaticUxContracts() {
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
-  assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層|第2層|第3層/);
+  assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層：|第2層：|第3層：/);
   assert.doesNotMatch(entry, /roles|secondaryLink|ENTRY_CHAR_ID/);
+  assert.match(entry, /id="createCard"/);
+  assert.match(entry, /id="existingCard"/);
+  assert.match(entry, /id="adminCard"/);
   assert.match(entry, /管理ハブを開く/);
   assert.match(entry, /class="bubble"/);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
@@ -426,6 +429,7 @@ async function testStaticUxContracts() {
   assert.match(entry, /font-size:18px/);
   assert.match(entry, /CREATE_CHAR_ID = 'yajirushi'/);
   assert.match(entry, /EXISTING_CHAR_ID = 'kurippu'/);
+  assert.match(entry, /ADMIN_CHAR_ID = 'haguruma'/);
   assert.match(entry, /createHtmlOutputFromFile\('Characters'\)/);
   assert.match(entry, /年度予算策定/);
   assert.match(entry, /btn-open/);
@@ -447,4 +451,5 @@ async function testStaticUxContracts() {
   assert.match(characters, /CHARACTER_LIBRARY/);
   assert.match(characters, /"yajirushi"/);
   assert.match(characters, /"kurippu"/);
+  assert.match(characters, /"haguruma"/);
 }

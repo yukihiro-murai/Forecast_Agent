@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal 入口を2パス化し候補版 1.7.29。1.7.28 を legacy allowlist に追加）  
+最終更新: 2026-09-14 JST（Portal 入口を新規／既存／管理の3層カードに訂正。候補版 1.7.30。1.7.29 を legacy allowlist に追加）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.29` |
-| コード上のPortal bundle SHA-256 | `467caf4d0a2bedfff786a105a1f864c21b362247831dfd4c6f5c65cb26ac35b2` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.29 へ更新） |
+| コード上のPortal runtime | `vnext-portal-1.7.30` |
+| コード上のPortal bundle SHA-256 | `03b0359e98480eb75b6ccc33a8cf2185302ddfaf50897c86a8c390aad94faa64` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.30 へ更新） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -40,7 +40,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.29 は「あなたの年度一覧（既存→開く）」と「新しい予測シートを作る」の2パスのみ。役割カードと「すでにブックがある方はこちら」系副ボタンは廃止。カードごとに図鑑キャラ（`kurippu` / `yajirushi`）。管理ハブはフッタ級。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.30 は入口を3つのカードに区分する: **新規**（作成／申請）→ **既存**（年度一覧から開く）→ **管理**（権限者のみ表示）。長文の役割説明と「すでにブックがある方はこちら」系の副導線は置かない。カードごとに図鑑キャラ（`yajirushi` / `kurippu` / `haguruma`）。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

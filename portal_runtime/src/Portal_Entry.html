@@ -35,6 +35,11 @@
       border-color:#B9DFF5;
       box-shadow:0 1px 2px rgba(0,160,233,.08), 0 10px 28px rgba(15,42,71,.08);
     }
+    .layer-label {
+      display:inline-block; margin:0 0 8px; padding:3px 10px;
+      border-radius:99px; font-size:13px; font-weight:600; letter-spacing:.02em;
+      background:var(--chip); color:var(--navy);
+    }
     .cast {
       display:grid; grid-template-columns:72px minmax(0, 1fr); column-gap:14px;
       align-items:center; margin:0 0 16px;
@@ -85,7 +90,7 @@
     a.btn-open:hover { background:#0090D6; }
     a.btn-admin {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; font-size:15px;
+      min-height:44px; padding:10px 18px; font-size:16px;
       border-radius:10px; line-height:1.35;
       background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
     }
@@ -132,11 +137,6 @@
     .error {
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
     }
-    .foot {
-      margin-top:28px; padding-top:16px; border-top:1px solid var(--line);
-      display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
-      gap:10px; color:var(--muted); font-size:15px;
-    }
     .hidden { display:none !important; }
     @media (max-width:520px) {
       h1 { font-size:24px; }
@@ -146,7 +146,7 @@
       .bot-slot { width:64px; height:56px; }
       .bot { width:56px; height:56px; }
       .cta-row { justify-content:stretch; }
-      a.btn-primary { width:100%; }
+      a.btn-primary, a.btn-admin { width:100%; }
       .book { flex-wrap:wrap; }
       .book-side { width:100%; justify-content:space-between; }
     }
@@ -164,21 +164,7 @@
   <div id="loading" class="loading">画面を読み込んでいます…</div>
 
   <div id="app" class="hidden">
-    <section id="existingCard" class="card hidden" aria-labelledby="existingTitle">
-      <div class="cast">
-        <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
-        <div class="bubble">
-          <p id="existingBubble">ここにあるものを開けば続きます。</p>
-        </div>
-      </div>
-      <div class="card-head">
-        <h2 id="existingTitle">あなたの年度一覧</h2>
-      </div>
-      <div id="years" class="picks" role="group" aria-label="年度"></div>
-      <div id="books" class="books" aria-live="polite"></div>
-    </section>
-
-    <section id="createCard" class="card" aria-labelledby="createTitle">
+    <section id="createCard" class="card primary-card" aria-labelledby="createTitle">
       <div class="cast">
         <span class="bot-slot"><span id="createBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
@@ -186,6 +172,7 @@
         </div>
       </div>
       <div class="card-head">
+        <span class="layer-label">新規</span>
         <h2 id="createTitle">新しい予測シート</h2>
       </div>
       <div class="cta-row">
@@ -193,15 +180,42 @@
       </div>
     </section>
 
-    <footer class="foot">
-      <span>管理担当の方</span>
-      <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
-    </footer>
+    <section id="existingCard" class="card" aria-labelledby="existingTitle">
+      <div class="cast">
+        <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
+        <div class="bubble">
+          <p id="existingBubble">ここにあるものを開けば続きます。</p>
+        </div>
+      </div>
+      <div class="card-head">
+        <span class="layer-label">既存</span>
+        <h2 id="existingTitle">あなたの年度一覧</h2>
+      </div>
+      <div id="years" class="picks" role="group" aria-label="年度"></div>
+      <div id="books" class="books" aria-live="polite"></div>
+    </section>
+
+    <section id="adminCard" class="card hidden" aria-labelledby="adminTitle">
+      <div class="cast">
+        <span class="bot-slot"><span id="adminBot" class="bot" aria-hidden="true"></span></span>
+        <div class="bubble">
+          <p id="adminBubble">整備はここから。</p>
+        </div>
+      </div>
+      <div class="card-head">
+        <span class="layer-label">管理</span>
+        <h2 id="adminTitle">管理ハブ</h2>
+      </div>
+      <div class="cta-row">
+        <a id="adminButton" class="btn btn-admin" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
+      </div>
+    </section>
   </div>
 
   <script>
     var CREATE_CHAR_ID = 'yajirushi';
     var EXISTING_CHAR_ID = 'kurippu';
+    var ADMIN_CHAR_ID = 'haguruma';
     var entryModel = null;
     var selectedYear = 0;
     function chipClass(tone) {
@@ -261,7 +275,12 @@
     }
     function paintBooks() {
       var box = document.getElementById('books');
-      var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
+      var allBooks = entryModel.books || [];
+      if (!allBooks.length) {
+        box.innerHTML = '<p class="empty">まだ自分の対象シートはありません。</p>';
+        return;
+      }
+      var rows = selectedYear ? booksForYear(selectedYear) : allBooks;
       if (!rows.length) {
         box.innerHTML = '<p class="empty">この年度のシートはまだありません。</p>';
         return;
@@ -286,9 +305,6 @@
     }
     function paintCreateCta(model) {
       var createButton = document.getElementById('createButton');
-      var createCard = document.getElementById('createCard');
-      var hasBooks = (model.books || []).length > 0;
-      createCard.classList.toggle('primary-card', !hasBooks);
       if (model.portalUrl) {
         createButton.href = model.portalUrl;
         createButton.setAttribute('target', '_blank');
@@ -301,11 +317,17 @@
         createButton.setAttribute('aria-disabled', 'true');
       }
     }
-    function paintLayout(model) {
-      var existingCard = document.getElementById('existingCard');
-      var hasBooks = (model.books || []).length > 0;
-      if (hasBooks) existingCard.classList.remove('hidden');
-      else existingCard.classList.add('hidden');
+    function paintAdmin(model) {
+      var adminCard = document.getElementById('adminCard');
+      var adminButton = document.getElementById('adminButton');
+      if (model.adminHubUrl) {
+        adminButton.href = model.adminHubUrl;
+        adminCard.classList.remove('hidden');
+        paintCharacter('adminBot', 'adminBubble', ADMIN_CHAR_ID, '整備はここから。');
+      } else {
+        adminButton.href = '#';
+        adminCard.classList.add('hidden');
+      }
     }
     function render(model) {
       entryModel = model || { books: [], years: [] };
@@ -314,15 +336,7 @@
       paintCharacter('createBot', 'createBubble', CREATE_CHAR_ID, '新しく始めるなら、このボタンです。');
       paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, 'ここにあるものを開けば続きます。');
       paintCreateCta(entryModel);
-      paintLayout(entryModel);
-      var adminButton = document.getElementById('adminButton');
-      if (model.adminHubUrl) {
-        adminButton.href = model.adminHubUrl;
-        adminButton.classList.remove('hidden');
-      } else {
-        adminButton.href = '#';
-        adminButton.classList.add('hidden');
-      }
+      paintAdmin(entryModel);
       var years = entryModel.years || [];
       var remembered = 0;
       try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}

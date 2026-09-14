@@ -1,7 +1,7 @@
 <script>
 /* 共通キャラクター図鑑からの抜粋 (自動生成: shared/character-library/sync.mjs)。手で編集しない。
    正本: ~/Documents/GAS/shared/character-library/gen.py。増やす・直すときはそちらを編集して再同期する。
-   収録: yajirushi, kurippu */
+   収録: yajirushi, kurippu, haguruma */
 var CHARACTER_LIBRARY = {
  "yajirushi": {
   "name": "やじるし",
@@ -132,6 +132,71 @@ var CHARACTER_LIBRARY = {
    "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M40 49q5 -4.2 10 0\" stroke=\"#1f2a44\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
    "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 32l7 5-7 5M56.5 32l-7 5 7 5\" stroke=\"#1f2a44\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M38.5 45q6.5 7.2 13 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
    "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M47.1 37h6.7\" stroke=\"#1f2a44\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "haguruma": {
+  "name": "はぐるま",
+  "shape": "歯車",
+  "color": "#8a94a6",
+  "ink": "#1f2530",
+  "status": "新案",
+  "family": "管理・運用",
+  "screen": "管理",
+  "place": "Dashboard・ExecLog・トリガー (管理者向け)",
+  "face": "目2点 + 一文字の口",
+  "persona": "職人の整備士。ネジ1本の緩みも見逃さない。無口だが仕事は確か",
+  "quirk": "「定刻」「異常なし」を報告するのが生きがい。NG を見ると黙って直しに行く",
+  "catch": "一本も欠かさず、回ってる",
+  "tone": {
+   "first": "俺",
+   "second": "君",
+   "ending": "〜だ / 〜ってやつだ / 少しだけ待て",
+   "style": "整備士の口。短く言い切り、余計な説明をしない。歯車・噛み合わせ・油差し・段取りの語で話す。感嘆符は使わない"
+  },
+  "likes": "使い込んだ油差し",
+  "weak": "歯が合わないファスナー",
+  "birthday": "11-08",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "neji",
+    "rel": "緩みを直しに行く仲。無言で通じる"
+   },
+   {
+    "id": "kougaku",
+    "rel": "工具を貸し借りする同業"
+   },
+   {
+    "id": "tokei",
+    "rel": "定刻を教えてくれる相棒"
+   }
+  ],
+  "lines": [
+   "日次ジョブ、今朝も定刻。ingest 3 / organize 2 / research 4 行。異常なし。",
+   "ネジ 1 本の緩みも見逃さない。ExecLog の NG、1 件。見に行く。",
+   "締切 (5 分 30 秒) は守った。残りは明日に回す。それが段取りだ。"
+  ],
+  "talk": {
+   "hello": "はぐるまだ。整備を担当する。今日も回る。それだけだ。",
+   "morning": "朝の点検は済んだ。ジョブは定刻、異常なし。いい歯の音だ。",
+   "monday": "月曜は回転数が多い。俺の歯車、一本も欠かさず回ってる。",
+   "friday": "金曜は締めの点検。油差しを忘れない。それが段取りってやつだ。",
+   "empty": "回すものが無い。静かだが、整備士は休んでも整備士だ。",
+   "loading": "回転中だ。あと少し。噛み合わせを見ててくれ。",
+   "done": "定刻どおり、全歯が噛み合った。悪くない回りだった。",
+   "error": "一箇所、噛み合ってない。黙って直しに行く。少しだけ待て。",
+   "praise": "回りを見ててくれたのか。整備士は、それだけで報われるんだ。",
+   "nudge": "まだ回ってない一箇所がある。俺が回してもいいが…開けるのは君だ。",
+   "secret": "休憩時間は自分の軸を磨いてる。回る者は、自分自身も磨くんだ。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M36 45h8\" stroke=\"#1f2530\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M31 39q3 -3.6 6 0M43 39q3 -3.6 6 0\" stroke=\"#1f2530\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M36 45q4 2.7 8 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.5\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.5\" fill=\"#1f2530\"/><circle cx=\"40\" cy=\"45\" r=\"2.2\" fill=\"none\" stroke=\"#1f2530\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M30.9 38h6.2M42.9 38h6.2\" stroke=\"#1f2530\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M37 45h6\" stroke=\"#1f2530\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M36 48q4 -3.3 8 0\" stroke=\"#1f2530\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M28 33l7 5-7 5M52 33l-7 5 7 5\" stroke=\"#1f2530\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M34.8 44q5.2 5.8 10.4 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M42.9 38h6.2\" stroke=\"#1f2530\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M36 45q4 2.7 8 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
   }
  }
 };
