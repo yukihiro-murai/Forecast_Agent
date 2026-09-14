@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.33');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.34');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -443,9 +443,10 @@ async function testStaticUxContracts() {
   assert.match(entry, /class="card-head"/);
   assert.match(entry, /class="card-body"/);
   assert.match(entry, /class="card-actions"/);
-  assert.match(entry, /layer-label">新規</);
-  assert.match(entry, /layer-label">既存</);
-  assert.match(entry, /layer-label">管理</);
+  assert.doesNotMatch(entry, /layer-label|">新規<\/|">既存<\/|">管理<\//);
+  assert.match(entry, /brand-icon/);
+  assert.match(entry, /CREATE_TALK/);
+  assert.match(entry, /ADMIN_TALK/);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
   assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
@@ -461,18 +462,19 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.doesNotMatch(entry, /class="bot bot-cloud"|viewBox="0 0 92 56"/);
   assert.match(entry, /align-items:center/);
-  assert.match(entry, /border-radius:6px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
   assert.match(entry, /grid-template-columns:var\(--guide-h\) minmax\(0, 1fr\)/);
-  assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\) auto/);
+  assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\)/);
   assert.match(entry, /\.card-actions \{[\s\S]*?justify-content:flex-end/);
   assert.doesNotMatch(entry, /\.card-actions \{[\s\S]*?border-top:1px solid/);
   assert.match(entry, /--cta-w:220px/);
   assert.match(entry, /--cta-h:48px/);
   assert.match(core, /Do not filter by the signed-in actor/);
   assert.doesNotMatch(entry, /名前を入力/);
-  assert.doesNotMatch(entry, /previewBooksHtml|book ghost/);
+  assert.match(entry, /previewBooksHtml/);
+  assert.match(entry, /book ghost/);
+  assert.match(entry, /pick ghost/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
