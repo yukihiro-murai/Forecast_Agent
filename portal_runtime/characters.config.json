@@ -1,6 +1,6 @@
 {
   "out": "src/Characters.html",
-  "ids": ["yajirushi", "kurippu"],
+  "ids": ["yajirushi", "kurippu", "haguruma"],
   "moods": true,
   "friends": false
 }
