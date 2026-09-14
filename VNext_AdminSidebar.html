@@ -605,7 +605,11 @@
           $('updateAdminRuntimeButton').classList.toggle('hidden', !model.adminRuntimeUpdatable);
           $('portalRuntimeStatus').textContent = model.portalRuntimeUpdatable
             ? `現在：${model.portalRuntimeVersion || '未記録'}\nSHA-256：${model.portalRuntimeSha256 || '未記録'}`
-            : '申請入口はまだ準備されていません。';
+            : model.portalRuntimeBlockedReason === 'unsupported_version'
+              ? `申請入口の版（${model.portalRuntimeVersion}）が、この管理ハブではまだ未対応です。`
+              : model.portalRuntimeBlockedReason === 'missing_version'
+                ? '申請入口の版情報がありません。'
+                : '申請入口はまだ準備されていません。';
           $('clientCatalogStatus').textContent =
             `選択可能：${model.clientCatalogActiveCount || 0}社\n` +
             `候補版：${model.clientCatalogVersion || '未取得'}\n` +

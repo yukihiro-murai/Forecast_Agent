@@ -92,13 +92,17 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.12';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.28';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
   'vnext-portal-1.7.1', 'vnext-portal-1.7.2', 'vnext-portal-1.7.3', 'vnext-portal-1.7.4',
   'vnext-portal-1.7.5', 'vnext-portal-1.7.6', 'vnext-portal-1.7.7', 'vnext-portal-1.7.8',
-  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.8.0'
+  'vnext-portal-1.7.9', 'vnext-portal-1.7.10', 'vnext-portal-1.7.11', 'vnext-portal-1.7.12',
+  'vnext-portal-1.7.13', 'vnext-portal-1.7.14', 'vnext-portal-1.7.15', 'vnext-portal-1.7.16',
+  'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20',
+  'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23', 'vnext-portal-1.7.24',
+  'vnext-portal-1.7.25', 'vnext-portal-1.7.26', 'vnext-portal-1.7.27', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
@@ -595,6 +599,7 @@ function vNextAdminGetSidebarModel() {
       portalRuntimeVersion: '',
       portalRuntimeSha256: '',
       portalRuntimeUpdatable: false,
+      portalRuntimeBlockedReason: '',
       clientCatalogActiveCount: 0,
       clientCatalogVersion: '',
       clientCatalogRefreshedAt: '',
@@ -756,11 +761,20 @@ function vNextAdminApplyHubRuntimeFlags_(model, hubConfig) {
   );
   model.portalRuntimeVersion = String(config.portal_runtime_version || '');
   model.portalRuntimeSha256 = String(config.portal_runtime_sha256 || '');
-  model.portalRuntimeUpdatable = Boolean(
-    String(config.portal_spreadsheet_id || '') && String(config.portal_script_id || '') &&
-    [VN_ADMIN_PORTAL_RUNTIME_VERSION].concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
-      .indexOf(model.portalRuntimeVersion) >= 0
+  const hasPortalIds = Boolean(
+    String(config.portal_spreadsheet_id || '') && String(config.portal_script_id || '')
   );
+  const portalVersionSupported = [VN_ADMIN_PORTAL_RUNTIME_VERSION]
+    .concat(VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS)
+    .indexOf(model.portalRuntimeVersion) >= 0;
+  model.portalRuntimeUpdatable = hasPortalIds && portalVersionSupported;
+  model.portalRuntimeBlockedReason = model.portalRuntimeUpdatable
+    ? ''
+    : !hasPortalIds
+      ? 'missing_ids'
+      : model.portalRuntimeVersion
+        ? 'unsupported_version'
+        : 'missing_version';
   if (!model.clientCatalogVersion) {
     model.clientCatalogVersion = String(config.zac_client_catalog_version || '');
     model.clientCatalogRefreshedAt = String(config.zac_client_catalog_refreshed_at || '');
