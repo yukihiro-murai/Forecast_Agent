@@ -1,6 +1,6 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（Portal 候補版を 1.7.28 に上げ、本番 1.7.27 を allowlist に追加）  
+最終更新: 2026-09-14 JST（Portal 入口を2パス化し候補版 1.7.29。1.7.28 を legacy allowlist に追加）  
 対象ブランチ: `codex/vnext-annual-planning`  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.28` |
-| コード上のPortal bundle SHA-256 | `45e139e54d6a96977463ee9d96bf12e90139213fdf94437b93bb46400113b882` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27`（allowlist 内。Hub案内から 1.7.28 へ更新可能） |
+| コード上のPortal runtime | `vnext-portal-1.7.29` |
+| コード上のPortal bundle SHA-256 | `467caf4d0a2bedfff786a105a1f864c21b362247831dfd4c6f5c65cb26ac35b2` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub案内から 1.7.29 へ更新） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
@@ -40,7 +40,7 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 
 Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作成フォームも同じ案内の中（最初は次の一歩、ボタンで作成へ）。
 
-社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.28 はファーストビューを製品名＋1メッセージ＋主CTA＋図鑑キャラ（`yama`）に絞り、01〜03は折りたたみ、管理ハブはフッタ級。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
+社員の共通入口はポータル runtime の Web アプリ（`doGet` / `Portal_Entry.html`）。Portal 1.7.29 は「あなたの年度一覧（既存→開く）」と「新しい予測シートを作る」の2パスのみ。役割カードと「すでにブックがある方はこちら」系副ボタンは廃止。カードごとに図鑑キャラ（`kurippu` / `yajirushi`）。管理ハブはフッタ級。キャラは `portal_runtime/characters.config.json` から sync。社内ドメイン向け `/exec` は同じURLのまま差し替える。共有ドライブ名は AutoAnalysis と同じ並びの「年度計画」。
 
 ## ライブUAT対象: アストラゼネカ FY2027
 

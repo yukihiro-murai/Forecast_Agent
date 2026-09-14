@@ -272,7 +272,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.28');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.29');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -409,11 +409,14 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalGetEntryModel\(/);
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
-  assert.match(entry, /申請へ進む/);
+  assert.match(entry, /新しい予測シートを作る/);
+  assert.match(entry, /あなたの年度一覧/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
+  assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層|第2層|第3層/);
+  assert.doesNotMatch(entry, /roles|secondaryLink|ENTRY_CHAR_ID/);
   assert.match(entry, /管理ハブを開く/);
   assert.match(entry, /class="bubble"/);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
@@ -421,31 +424,27 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /font-weight:800/);
   assert.match(entry, /max-width:880px/);
   assert.match(entry, /font-size:18px/);
-  assert.match(entry, /クライアントごとの年度予算を、始める・続ける入口です。/);
-  assert.match(entry, /すでにブックがある方はこちら/);
-  assert.match(entry, /ENTRY_CHAR_ID = 'yama'/);
+  assert.match(entry, /CREATE_CHAR_ID = 'yajirushi'/);
+  assert.match(entry, /EXISTING_CHAR_ID = 'kurippu'/);
   assert.match(entry, /createHtmlOutputFromFile\('Characters'\)/);
-  assert.match(entry, /第1層：申請入口/);
   assert.match(entry, /年度予算策定/);
-  assert.match(entry, /第2層：クライアント年度ブック/);
-  assert.match(entry, /第3層：管理ハブ/);
+  assert.match(entry, /btn-open/);
+  assert.match(entry, />開く</);
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.doesNotMatch(entry, /class="bot bot-cloud"|viewBox="0 0 92 56"/);
-  assert.match(entry, /roles/);
   assert.match(entry, /align-items:center/);
   assert.match(entry, /border-radius:99px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
   assert.match(entry, /grid-template-columns:72px minmax\(0, 1fr\)/);
   assert.doesNotMatch(entry, /名前を入力/);
-  assert.match(entry, /previewBooksHtml/);
-  assert.match(entry, /book ghost/);
-  assert.match(entry, /この枠にクライアント名/);
+  assert.doesNotMatch(entry, /previewBooksHtml|book ghost/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
   const characters = await readFile(path.join(sourceDir, 'Characters.html'), 'utf8');
   assert.match(characters, /CHARACTER_LIBRARY/);
-  assert.match(characters, /"yama"/);
+  assert.match(characters, /"yajirushi"/);
+  assert.match(characters, /"kurippu"/);
 }

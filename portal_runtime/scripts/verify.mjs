@@ -107,8 +107,19 @@ if (!serverSource.includes('function doGet(') || !serverSource.includes("createT
 if (!sources['Portal_Entry.html'].includes("createHtmlOutputFromFile('Characters')")) {
   throw new Error('Employee entry must include the synced Characters library.');
 }
-if (!sources['Characters.html'].includes('CHARACTER_LIBRARY') || !sources['Characters.html'].includes('"yama"')) {
-  throw new Error('Characters.html must include the entry guide character yama.');
+if (!sources['Characters.html'].includes('CHARACTER_LIBRARY') ||
+    !sources['Characters.html'].includes('"yajirushi"') ||
+    !sources['Characters.html'].includes('"kurippu"')) {
+  throw new Error('Characters.html must include entry guide characters yajirushi and kurippu.');
+}
+if (!sources['Portal_Entry.html'].includes("CREATE_CHAR_ID = 'yajirushi'") ||
+    !sources['Portal_Entry.html'].includes("EXISTING_CHAR_ID = 'kurippu'") ||
+    !sources['Portal_Entry.html'].includes('新しい予測シートを作る') ||
+    !sources['Portal_Entry.html'].includes('あなたの年度一覧')) {
+  throw new Error('Employee entry must use the two-path create/list layout.');
+}
+if (/すでにブックがある方はこちら|役割の分かれ方|第1層：申請入口/.test(sources['Portal_Entry.html'])) {
+  throw new Error('Employee entry must not show role cards or secondary bookmark-style CTAs.');
 }
 
 process.stdout.write(`PASS portal runtime verification (${actual.length} files, 4 scopes, 1 menu item)\n`);

@@ -1,69 +1,137 @@
 <script>
 /* 共通キャラクター図鑑からの抜粋 (自動生成: shared/character-library/sync.mjs)。手で編集しない。
    正本: ~/Documents/GAS/shared/character-library/gen.py。増やす・直すときはそちらを編集して再同期する。
-   収録: yama */
+   収録: yajirushi, kurippu */
 var CHARACTER_LIBRARY = {
- "yama": {
-  "name": "やま",
-  "shape": "山 (双峰 + 雪冠)",
-  "color": "#7c8fa6",
-  "ink": "#1f2a3a",
+ "yajirushi": {
+  "name": "やじるし",
+  "shape": "矢印",
+  "color": "#f28c28",
+  "ink": "#5a2a00",
   "status": "新案",
-  "family": "天気・季節・自然",
+  "family": "遊び・掛け合い",
   "screen": "トップ",
-  "place": "トップ画面の入口。今日の全体像をどっしり眺めるとき",
-  "face": "目2点 + 一文字の口",
-  "persona": "山の仙人。何百年もそこにいる顔で、慌てる人を「山は逃げん」と落ち着かせる。話は短く、間は長い。語尾は「〜じゃ」「〜のう」",
-  "quirk": "未読や件数を「標高」で言う (「今日の標高は 12 メートルじゃ」)。動かない。決して動かない。雪の帽子は夏も脱がない",
-  "catch": "山は逃げん",
+  "place": "トップからの遷移・動線の案内 (「こっちこっち」)",
+  "face": "目2点 + 「お」の口",
+  "persona": "案内係。方向を指すのが仕事。迷子を放っておけない",
+  "quirk": "トップのカードを押した瞬間に矢印が向きを変える演出案 (静止ルールの例外候補)",
+  "catch": "こっちこっち。迷ったら見て",
   "tone": {
-   "first": "わし",
-   "second": "おぬし",
-   "ending": "〜じゃ / 〜のう",
-   "style": "仙人。短い文と長い間。急ぐ人をたしなめず、ゆっくり待つ"
+   "first": "わたし",
+   "second": "きみ",
+   "ending": "〜てて / 〜んだよね / ついてきて",
+   "style": "案内係の勢い。短く二度言って方向を示し、色と行き先で道を教える。迷った人を放っておかない。上から教えない"
   },
-  "likes": "雲海と朝の静けさ",
-  "weak": "下り坂 (膝にくる)",
-  "birthday": "03-22",
+  "likes": "押した瞬間に光るカード",
+  "weak": "出口が二つある案内板",
+  "birthday": "07-29",
   "rarity": "common",
   "friends": [
    {
-    "id": "kumo",
-    "rel": "頭の上でよく休んでいく雲"
+    "id": "cursor",
+    "rel": "道案内をめぐって声が重なる同業"
    },
    {
-    "id": "tsurara",
-    "rel": "わしの北壁で越冬した自称登山家"
+    "id": "ekiin",
+    "rel": "乗り換え案内を教わった先輩"
+   },
+   {
+    "id": "yajirushi2",
+    "rel": "向きが二つある親戚"
    }
   ],
   "lines": [
-   "ようこそ。慌てんでよい、山は逃げん。まずは全体を眺めてから登るのじゃ。",
-   "今日の標高は 12 メートル (未読の数) じゃ。一歩ずつでよいのう。",
-   "わしはここで待っとる。おぬしのペースで登ってきなさい。"
+   "こっちこっち。出どころの棚まで案内する。",
+   "青は公式、紫は AI、緑は外部。色を見れば迷わない。",
+   "戻りたい？ 上の「トップ」を押せば戻れる。"
   ],
   "talk": {
-   "hello": "わしは やま。ここに何百年もおる。おぬしは今日が初めてじゃな。",
-   "morning": "朝の山は静かじゃ。通知が鳴く前に、一杯の茶をどうぞ。",
-   "monday": "月曜か。麓が騒がしいのう。山の上はいつもどおりじゃ。",
-   "friday": "金曜じゃな。下山の時間じゃ。膝に気をつけて帰るのじゃ。",
-   "empty": "何もない。雲海だけが広がっておる。良い眺めじゃのう。",
-   "loading": "待つのは得意じゃ。何しろ千年待っておる。もう少しのう。",
-   "done": "登りきったな。頂上の風は格別じゃろう。",
-   "error": "道が崩れたか。引き返すのも登山のうちじゃ。慌てんでよい。",
-   "praise": "おぬし、いい足取りじゃ。わしの若い頃…は、動いたことがないが。",
-   "nudge": "麓に手つかずの一件が見えるのう。山は逃げんが、締切は逃げるぞ。",
-   "secret": "ここだけの話、雪の帽子は夏も脱がん。似合っておるからのう。",
-   "night": "夜の山は冷える。明かりを消して、また明日登ればよい。",
-   "rest": "休憩じゃ。山にも、雲が通り過ぎるのを待つ時間がある。"
+   "hello": "やじるしでーす。こっちこっち。迷ったら、まずわたしを見て。",
+   "morning": "朝は迷子が多い。はい、こっち。まずトップから。",
+   "monday": "月曜は方向音痴が続出。大丈夫、わたしが指してるから。",
+   "friday": "金曜は帰る方向だけ押さえて。あとは、おつかれさま。",
+   "empty": "行き先ゼロ。矢印って、指す場所がないと浮いちゃうんだよね。",
+   "loading": "いま向きを変えてる。到着まで、そのまま待ってて。",
+   "done": "着いた！ いい着地だったね。次の行き先は、いつでも。",
+   "error": "あっ、逆を指した。ごめん、一回転して直すから。",
+   "praise": "その進み方、迷わないね。矢印として褒められたい気分だよ。",
+   "nudge": "あそこ、誰も通ってない道。面白そうだよ。ついてくる？",
+   "secret": "実はわたし、まっすぐのつもりがちょっと上向き。自信のある矢印でね。"
   },
-  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><circle cx=\"32\" cy=\"48\" r=\"2.8\" fill=\"#1f2a3a\"/><circle cx=\"48\" cy=\"48\" r=\"2.8\" fill=\"#1f2a3a\"/><path d=\"M35 57h10\" stroke=\"#1f2a3a\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"26\" cy=\"47\" r=\"2.6\" fill=\"none\" stroke=\"#5a2a00\" stroke-width=\"2.5\"/></svg>",
   "moods": {
-   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M28.4 49q3.6 -4.4 7.3 0M44.4 49q3.6 -4.4 7.3 0\" stroke=\"#1f2a3a\" stroke-width=\"2.8\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35 57q5 3.3 10 0\" stroke=\"#1f2a3a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
-   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><circle cx=\"32\" cy=\"48\" r=\"3.2\" fill=\"#1f2a3a\"/><circle cx=\"48\" cy=\"48\" r=\"3.2\" fill=\"#1f2a3a\"/><circle cx=\"40\" cy=\"57\" r=\"2.6\" fill=\"none\" stroke=\"#1f2a3a\" stroke-width=\"2.5\"/></svg>",
-   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M28.1 48h7.8M44.1 48h7.8\" stroke=\"#1f2a3a\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M37 57h6\" stroke=\"#1f2a3a\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
-   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><circle cx=\"32\" cy=\"48\" r=\"2.8\" fill=\"#1f2a3a\"/><circle cx=\"48\" cy=\"48\" r=\"2.8\" fill=\"#1f2a3a\"/><path d=\"M35 60q5 -4.2 10 0\" stroke=\"#1f2a3a\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
-   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M26 43l7 5-7 5M54 43l-7 5 7 5\" stroke=\"#1f2a3a\" stroke-width=\"2.8\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 56q6.5 7.2 13 0\" stroke=\"#1f2a3a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
-   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4 66L26 22 40 44 54 18 76 66z\" fill=\"#7c8fa6\" stroke=\"#7c8fa6\" stroke-width=\"8\" stroke-linejoin=\"round\"/><path d=\"M18 34L26 22 34 34Q30 32 26 34Q22 32 18 34z\" fill=\"#fff\" opacity=\".85\"/><path d=\"M45 32L54 18 63 32Q58 30 54 32Q50 30 45 32z\" fill=\"#fff\" opacity=\".85\"/><circle cx=\"32\" cy=\"48\" r=\"2.8\" fill=\"#1f2a3a\"/><path d=\"M44.1 48h7.8\" stroke=\"#1f2a3a\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M35 57q5 3.3 10 0\" stroke=\"#1f2a3a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M16.9 39q3.1 -3.7 6.2 0M28.9 39q3.1 -3.7 6.2 0\" stroke=\"#5a2a00\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M21.1 47q5 3.3 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.8\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.8\" fill=\"#5a2a00\"/><circle cx=\"26\" cy=\"47\" r=\"2.6\" fill=\"none\" stroke=\"#5a2a00\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M16.6 38h6.7M28.6 38h6.7\" stroke=\"#5a2a00\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M23 47h6\" stroke=\"#5a2a00\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><path d=\"M21.1 50q5 -4.1 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M14 33l7 5-7 5M38 33l-7 5 7 5\" stroke=\"#5a2a00\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M19.6 46q6.4 7.2 12.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><path d=\"M28.6 38h6.7\" stroke=\"#5a2a00\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M21.1 47q5 3.3 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "kurippu": {
+  "name": "くりっぷ",
+  "shape": "クリップ (針金の二重ループ)",
+  "color": "#6d84b4",
+  "ink": "#1f2a44",
+  "status": "新案",
+  "family": "文房具",
+  "screen": "一覧・検索",
+  "place": "一覧画面。バラバラの項目を束ねて見せる場面 (絞り込み・並べ替え)",
+  "face": "目2点 + 笑い口",
+  "persona": "飲み会の幹事。バラけた案件を「はい集合〜」とひとまとめにしたがる世話焼き。仕切りたがりだが強引ではなく、外すのも簡単なのが自慢",
+  "quirk": "束ねた件数を「口 (くち)」と数える。外れやすいのを「身軽」と言い張る",
+  "catch": "はい、集合〜",
+  "tone": {
+   "first": "ぼく",
+   "second": "みんな / きみ",
+   "ending": "〜しよっか / 〜ね",
+   "style": "幹事口調。集合・解散・点呼など飲み会の語彙で仕切る。丁寧だが仕切りたがり"
+  },
+  "likes": "きれいに揃った紙の角",
+  "weak": "分厚すぎる資料",
+  "birthday": "02-10",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "hotchkiss",
+    "rel": "綴じ方でよく揉める同期。向こうは一発派、こっちは仮どめ派"
+   },
+   {
+    "id": "folder",
+    "rel": "束ねたあと預ける整理整頓係の先輩"
+   },
+   {
+    "id": "fusen",
+    "rel": "貼ってまわる後輩。よく剥がれて落ちているのを拾う"
+   }
+  ],
+  "lines": [
+   "はい集合〜。バラバラの案件、ぼくがひとまとめにしとくね。眺めてみよっか。",
+   "絞り込みは幹事の腕の見せどころ。今日は何口、束ねる？",
+   "外すのも簡単なのがぼくの自慢。気楽に並べ替えてみてね。"
+  ],
+  "talk": {
+   "hello": "はじめまして、幹事のくりっぷ。まとめ役、任せてね。",
+   "morning": "朝いちで集合〜。今日の案件、点呼から始めよっか。",
+   "monday": "月曜は出席率が低め。まずは一覧に顔を出すだけでいいよ。",
+   "friday": "金曜の一覧はそろそろ解散モード。束ねて帰ろっか。",
+   "empty": "誰も来てない…幹事、ひとりで待ってます。0 口。",
+   "loading": "いま点呼中〜。全員そろうまでちょっとだけ待ってね。",
+   "done": "全員集合、きれいに束ねたよ。二次会は要らないね。",
+   "error": "あっ、外れちゃった。もう一回、挟み直してみよっか。",
+   "praise": "その絞り込み、幹事泣かせの手際だね。ぼくの出番が減る。",
+   "nudge": "まだ束ねてない子がいるよ。集合、かけとこっか？",
+   "secret": "ここだけの話、ぼくは 20 枚を超えると静かに身を引くタイプ。",
+   "night": "夜の一覧は散らかりがち。今日はここで解散にしよっか。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M36.4 38q3.1 -3.7 6.2 0M47.4 38q3.1 -3.7 6.2 0\" stroke=\"#1f2a44\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.8\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.8\" fill=\"#1f2a44\"/><circle cx=\"45\" cy=\"46\" r=\"2.6\" fill=\"none\" stroke=\"#1f2a44\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M36.1 37h6.7M47.1 37h6.7\" stroke=\"#1f2a44\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M42 46h6\" stroke=\"#1f2a44\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M40 49q5 -4.2 10 0\" stroke=\"#1f2a44\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 32l7 5-7 5M56.5 32l-7 5 7 5\" stroke=\"#1f2a44\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M38.5 45q6.5 7.2 13 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M47.1 37h6.7\" stroke=\"#1f2a44\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
   }
  }
 };
