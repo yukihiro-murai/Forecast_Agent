@@ -412,6 +412,7 @@ async function checkPortalRuntimeBoundary() {
     'The Hub top menu is a recovery path plus nested irregular ops, not the daily run-now action');
   assert.ok(adminMenu.includes('VN_ADMIN_MENU_MAINTENANCE') &&
     adminMenu.includes("'vNextAdminMenuUpdateAllFromSource'") &&
+    adminMenu.includes("'vNextAdminMenuAbortRuntimeAutoFollow'") &&
     adminMenu.includes("'vNextAdminMenuRefreshZacClientCatalog'") &&
     adminMenu.includes("'vNextAdminMenuRefreshExceptions'") &&
     adminMenu.includes("'vNextAdminOpenAdvancedSidebar'") &&

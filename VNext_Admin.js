@@ -12,6 +12,7 @@ const VN_ADMIN_MENU_OPEN_REGISTRY = '登録一覧を開く';
 const VN_ADMIN_MENU_OTHER = 'その他';
 const VN_ADMIN_MENU_MAINTENANCE = '保守';
 const VN_ADMIN_MENU_UPDATE_ALL = '最新版に更新（管理ハブ＋申請入口）';
+const VN_ADMIN_MENU_ABORT_RUNTIME_FOLLOW = '申請入口の自動追従を止める';
 const VN_ADMIN_MENU_REFRESH_CATALOG = 'ZACクライアント候補を更新';
 const VN_ADMIN_MENU_REFRESH_EXCEPTIONS = '要確認一覧を更新';
 const VN_ADMIN_MENU_OPEN_ADVANCED = '高度な操作を開く';
@@ -387,6 +388,7 @@ function vNextBuildAdminMenu_() {
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
       .addSubMenu(ui.createMenu(VN_ADMIN_MENU_MAINTENANCE)
         .addItem(VN_ADMIN_MENU_UPDATE_ALL, 'vNextAdminMenuUpdateAllFromSource')
+        .addItem(VN_ADMIN_MENU_ABORT_RUNTIME_FOLLOW, 'vNextAdminMenuAbortRuntimeAutoFollow')
         .addItem(VN_ADMIN_MENU_REFRESH_CATALOG, 'vNextAdminMenuRefreshZacClientCatalog')
         .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
         .addItem(VN_ADMIN_MENU_REFRESH_EXCEPTIONS, 'vNextAdminMenuRefreshExceptions')
@@ -6506,6 +6508,67 @@ function vNextAdminMenuUpdateAllFromSource() {
       vNextAdminSidebarOutput_('updater').setWidth(520).setHeight(460), VN_ADMIN_MENU_UPDATE_ALL);
     return { ok: true };
   });
+}
+
+/**
+ * Stops scheduled Portal auto-follow without needing ScriptLock.
+ * LockService cannot be force-cleared; this only prevents the 5-minute sweep
+ * from re-entering update-portal-runtime after the in-flight holder finishes.
+ */
+function vNextAdminAbortRuntimeAutoFollow(request) {
+  return vNextAdminGuard_('vNextAdminAbortRuntimeAutoFollow', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    vNextAdminAssertHubAdmin_(hub, false);
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const existing = vNextAdminParseJson_(config[VN_ADMIN_RUNTIME_UPDATE_JOB_KEY], null);
+    const patch = { runtime_auto_follow: 'OFF' };
+    let job = null;
+    if (existing && typeof existing === 'object' && String(existing.jobId || '')) {
+      const phase = String(existing.phase || '').toUpperCase();
+      if (phase !== 'DONE' && phase !== 'FAILED') {
+        job = Object.assign({}, existing, {
+          phase: 'FAILED',
+          finishedAt: new Date().toISOString(),
+          error: String(req.reason || 'manual abort: runtime_auto_follow OFF'),
+          abortedBy: vNextAdminActor_(),
+          updatedAt: new Date().toISOString()
+        });
+        patch[VN_ADMIN_RUNTIME_UPDATE_JOB_KEY] = vNextAdminCanonicalJson_(job);
+      } else {
+        job = existing;
+      }
+    }
+    // Intentionally no ScriptLock: the whole point is to write while another
+    // admin op may still hold LockService during a long Portal PUT / publish.
+    vNextAdminWriteSystemConfig_(hub, patch);
+    vNextAdminWriteAudit_(hub, 'ABORT_RUNTIME_AUTO_FOLLOW', 'ADMIN_RUNTIME',
+      job && job.jobId ? job.jobId : 'none', 'SUCCESS', {
+        runtime_auto_follow: 'OFF',
+        previousPhase: existing && existing.phase ? String(existing.phase) : '',
+        jobAborted: Boolean(job && String(job.phase || '').toUpperCase() === 'FAILED')
+      });
+    return {
+      ok: true,
+      runtime_auto_follow: 'OFF',
+      job: job,
+      message: '申請入口の自動追従を OFF にしました。実行中の更新があれば最大約6分待ってから「最新版へ更新」を再実行してください。成功後に runtime_auto_follow を ON に戻せます。'
+    };
+  });
+}
+
+function vNextAdminMenuAbortRuntimeAutoFollow() {
+  const ui = SpreadsheetApp.getUi();
+  const choice = ui.alert(
+    VN_ADMIN_MENU_ABORT_RUNTIME_FOLLOW,
+    'VN_SYSTEM_CONFIG の runtime_auto_follow を OFF にし、進行中の runtime_update_job を FAILED にします。' +
+    'LockService 自体は消えませんが、5分ごとの自動追従が再掴みしなくなります。続行しますか？',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (choice !== ui.Button.OK) return { cancelled: true };
+  const result = vNextAdminAbortRuntimeAutoFollow({ reason: '保守メニューから自動追従を停止' });
+  ui.alert('完了', String(result.message || '自動追従を停止しました。'), ui.ButtonSet.OK);
+  return result;
 }
 
 /** 初回・復旧メニュー: 共有ドライブ「年度計画」へ整理。確認ダイアログの後に実行。 */
@@ -13264,7 +13327,15 @@ function vNextAdminGuard_(name, fn) {
 
 function vNextAdminWithScriptLock_(label, fn) {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) throw new Error('Another vNext admin operation is running: ' + label);
+  if (!lock.tryLock(30000)) {
+    throw new Error(
+      'Another vNext admin operation is running: ' + label +
+      '。最大6分待つか、VN_SYSTEM_CONFIG で runtime_auto_follow=OFF と ' +
+      VN_ADMIN_RUNTIME_UPDATE_JOB_KEY + ' の phase=FAILED にしてから再実行。' +
+      'メニュー「保守 → ' + VN_ADMIN_MENU_ABORT_RUNTIME_FOLLOW + '」でも止められます。' +
+      '（LockService 自体にシート上の削除キーはありません）'
+    );
+  }
   try { return fn(); } finally { lock.releaseLock(); }
 }
 

@@ -85,10 +85,16 @@ assert.equal(sandbox.vNextAdminAttentionSummary_({
 const menuStart = source.indexOf('function vNextBuildAdminMenu_()');
 const menuEnd = source.indexOf('function vNextBuildLegacySetupMenu_()', menuStart);
 const menuSource = source.slice(menuStart, menuEnd);
-// 案内を開く + 保守(6) + 初回・復旧(2)。日常操作（申請を今すぐ処理・承認）はメニューに置かない。
-assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 9,
+// 案内を開く + 保守(7) + 初回・復旧(2)。日常操作（申請を今すぐ処理・承認）はメニューに置かない。
+assert.equal((menuSource.match(/\.addItem\(/g) || []).length, 10,
   'The normal Admin menu is the sidebar entry plus nested 保守 / 初回・復旧 groups');
 assert.equal((menuSource.match(/\.addSubMenu\(/g) || []).length, 2);
+assert.match(menuSource, /vNextAdminMenuAbortRuntimeAutoFollow/);
+assert.ok(source.includes('function vNextAdminAbortRuntimeAutoFollow(') &&
+  source.includes("runtime_auto_follow: 'OFF'") &&
+  source.includes('ABORT_RUNTIME_AUTO_FOLLOW'),
+  'Abort helper must turn off auto-follow and audit without requiring ScriptLock');
+assert.match(source, /LockService 自体にシート上の削除キーはありません/);
 assert.doesNotMatch(menuSource, /vNextAdminMenuRunOperationalCycle|vNextAdminDecideApproval/);
 assert.doesNotMatch(menuSource, /vNextDetectBookMode_|vNextAdminIsRegisteredHub_|vNextAdminHydrateLocalRuntime_/,
   'Hub menu construction must not wait on config, registry, or property hydration');
