@@ -10,6 +10,17 @@ const VN_ADMIN_MENU_RUN_NOW = '申請を今すぐ処理';
 const VN_ADMIN_MENU_HEALTH_SCAN = '全クライアントの状態点検';
 const VN_ADMIN_MENU_OPEN_REGISTRY = '登録一覧を開く';
 const VN_ADMIN_MENU_OTHER = 'その他';
+const VN_ADMIN_MENU_MAINTENANCE = '保守';
+const VN_ADMIN_MENU_UPDATE_ALL = '最新版に更新（管理ハブ＋申請入口）';
+const VN_ADMIN_MENU_REFRESH_CATALOG = 'ZACクライアント候補を更新';
+const VN_ADMIN_MENU_REFRESH_EXCEPTIONS = '要確認一覧を更新';
+const VN_ADMIN_MENU_OPEN_ADVANCED = '高度な操作を開く';
+const VN_ADMIN_MENU_FIRST_TIME = '初回・復旧';
+const VN_ADMIN_MENU_RELOCATE_LIBRARY = '共有ドライブへ整理（初回のみ）';
+const VN_ADMIN_MENU_FRESH_UAT_RESET = '受入試験をゼロからやり直す（削除）';
+const VN_ADMIN_RUNTIME_UPDATE_JOB_KEY = 'runtime_update_job_json';
+const VN_ADMIN_RUNTIME_UPDATE_STALE_MS = 15 * 60 * 1000;
+const VN_ADMIN_RUNTIME_UPDATE_DEFAULT_REASON = '保守メニュー「最新版に更新」';
 const VN_ADMIN_META_SHEET = 'BOOK_META';
 const VN_ADMIN_BOOK_CONFIG_SHEET = 'VN_BOOK_CONFIG';
 const VN_ADMIN_SYSTEM_CONFIG_SHEET = 'VN_SYSTEM_CONFIG';
@@ -92,7 +103,7 @@ const VN_ADMIN_ZAC_CLIENT_CATALOG_HEADERS = Object.freeze([
 const VN_ADMIN_PORTAL_CLIENT_CATALOG_HEADERS = Object.freeze([
   'catalog_key', 'client_name', 'is_active', 'catalog_version', 'synced_at'
 ]);
-const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.29';
+const VN_ADMIN_PORTAL_RUNTIME_VERSION = 'vnext-portal-1.7.40';
 const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.0.0', 'vnext-portal-1.1.0', 'vnext-portal-1.2.0', 'vnext-portal-1.3.0',
   'vnext-portal-1.4.0', 'vnext-portal-1.5.0', 'vnext-portal-1.6.0', 'vnext-portal-1.7.0',
@@ -103,7 +114,9 @@ const VN_ADMIN_PORTAL_LEGACY_RUNTIME_VERSIONS = Object.freeze([
   'vnext-portal-1.7.17', 'vnext-portal-1.7.18', 'vnext-portal-1.7.19', 'vnext-portal-1.7.20',
   'vnext-portal-1.7.21', 'vnext-portal-1.7.22', 'vnext-portal-1.7.23', 'vnext-portal-1.7.24',
   'vnext-portal-1.7.25', 'vnext-portal-1.7.26', 'vnext-portal-1.7.27', 'vnext-portal-1.7.28',
-  'vnext-portal-1.8.0'
+  'vnext-portal-1.7.29', 'vnext-portal-1.7.30', 'vnext-portal-1.7.31', 'vnext-portal-1.7.32',
+  'vnext-portal-1.7.33', 'vnext-portal-1.7.34', 'vnext-portal-1.7.35', 'vnext-portal-1.7.36', 'vnext-portal-1.7.37',
+  'vnext-portal-1.7.38', 'vnext-portal-1.7.39', 'vnext-portal-1.8.0'
 ]);
 const VN_ADMIN_EMPLOYEE_PORTAL_WEBAPP_DEPLOYMENT_ID =
   'AKfycbxVtnFiXMB6FwKRdMj_PJVmq4zlpYMoBLS3zXy_1ruTGqyTSPxyepkJegcL9rGiUbwH';
@@ -369,11 +382,20 @@ function vNextBuildAdminMenu_() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!vNextAdminLooksLikeHub_(ss)) return false;
     const ui = SpreadsheetApp.getUi();
+    // 日常操作は案内（サイドバー）に置く。ここは裏側で完結する保守と、1回きり・復旧の操作だけ。
     ui.createMenu(VN_ADMIN_MENU_NAME)
       .addItem(VN_ADMIN_MENU_OPEN_SIDEBAR, 'vNextAdminOpenSidebar')
-      .addSubMenu(ui.createMenu(VN_ADMIN_MENU_OTHER)
+      .addSubMenu(ui.createMenu(VN_ADMIN_MENU_MAINTENANCE)
+        .addItem(VN_ADMIN_MENU_UPDATE_ALL, 'vNextAdminMenuUpdateAllFromSource')
+        .addItem(VN_ADMIN_MENU_REFRESH_CATALOG, 'vNextAdminMenuRefreshZacClientCatalog')
         .addItem(VN_ADMIN_MENU_HEALTH_SCAN, 'vNextAdminMenuRunHealthScan')
-        .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry'))
+        .addItem(VN_ADMIN_MENU_REFRESH_EXCEPTIONS, 'vNextAdminMenuRefreshExceptions')
+        .addItem(VN_ADMIN_MENU_OPEN_REGISTRY, 'vNextAdminMenuOpenRegistry')
+        .addSeparator()
+        .addItem(VN_ADMIN_MENU_OPEN_ADVANCED, 'vNextAdminOpenAdvancedSidebar'))
+      .addSubMenu(ui.createMenu(VN_ADMIN_MENU_FIRST_TIME)
+        .addItem(VN_ADMIN_MENU_RELOCATE_LIBRARY, 'vNextAdminMenuRelocateLibrary')
+        .addItem(VN_ADMIN_MENU_FRESH_UAT_RESET, 'vNextAdminMenuFreshUatReset'))
       .addToUi();
     return true;
   } catch (err) {
@@ -504,16 +526,12 @@ function vNextAdminInstalledGuidanceOnOpen(e) {
   try {
     const active = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextAdminLooksLikeHub_(active)) {
-      SpreadsheetApp.getUi().showSidebar(
-        HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar').setTitle(VN_ADMIN_MENU_NAME)
-      );
+      SpreadsheetApp.getUi().showSidebar(vNextAdminSidebarOutput_('daily'));
       return true;
     }
     const mode = vNextDetectBookMode_(active);
     if (mode !== 'TEMPLATE' && mode !== 'LEGACY') return false;
-    SpreadsheetApp.getUi().showSidebar(
-      HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar').setTitle(VN_ADMIN_MENU_NAME)
-    );
+    SpreadsheetApp.getUi().showSidebar(vNextAdminSidebarOutput_('daily'));
     return true;
   } catch (err) {
     Logger.log('vNextAdminInstalledGuidanceOnOpen skipped: %s', String(err && err.message || err));
@@ -541,19 +559,37 @@ function vNextAdminEnsureGuidanceOnOpenTrigger_() {
   return true;
 }
 
+/**
+ * One HTML file serves three views: 'daily' (承認・要確認・申請処理だけ),
+ * 'advanced' (保守メニューから開く入力フォーム群), 'updater' (最新版更新ダイアログ).
+ * The 管理ハブ runtime allowlist is fixed at 18 files, so no new HTML file is added.
+ */
+function vNextAdminSidebarOutput_(view) {
+  const template = HtmlService.createTemplateFromFile('VNext_AdminSidebar');
+  template.view = ['daily', 'advanced', 'updater'].indexOf(String(view || '')) >= 0 ? String(view) : 'daily';
+  return template.evaluate().setTitle(VN_ADMIN_MENU_NAME);
+}
+
 function vNextAdminOpenSidebar() {
-  return vNextAdminGuard_('vNextAdminOpenSidebar', function () {
+  return vNextAdminOpenSidebarView_('vNextAdminOpenSidebar', 'daily');
+}
+
+/** 保守メニュー「高度な操作を開く」: 個別作成・Release・モデル版・ブック個別操作などの入力フォーム。 */
+function vNextAdminOpenAdvancedSidebar() {
+  return vNextAdminOpenSidebarView_('vNextAdminOpenAdvancedSidebar', 'advanced');
+}
+
+function vNextAdminOpenSidebarView_(name, view) {
+  return vNextAdminGuard_(name, function () {
     const active = SpreadsheetApp.getActiveSpreadsheet();
     if (vNextDetectBookMode_(active) === 'ADMIN') {
       if (!vNextAdminIsRegisteredHub_(active)) throw new Error('Admin 管理ハブの登録情報を確認できません。');
       vNextAdminAssertHubAdmin_(active, false);
     }
-    const html = HtmlService.createHtmlOutputFromFile('VNext_AdminSidebar')
-      .setTitle(VN_ADMIN_MENU_NAME);
-    SpreadsheetApp.getUi().showSidebar(html);
+    SpreadsheetApp.getUi().showSidebar(vNextAdminSidebarOutput_(view));
     try { vNextAdminEnsureGuidanceOnOpenTrigger_(); }
     catch (triggerError) {
-      Logger.log('vNextAdminOpenSidebar trigger skipped: %s',
+      Logger.log('%s trigger skipped: %s', name,
         String(triggerError && triggerError.message || triggerError));
     }
     return true;
@@ -746,11 +782,35 @@ function vNextAdminGetSidebarDetailModel() {
             templateContentSha256: String(row.template_content_sha256 || ''), createdAt: row.created_at || ''
           };
         }),
-      pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss)
+      pilot: vNextAdminPilotStatusFromRegistry_(registryRows, ss),
+      runtimeUpdate: vNextAdminRuntimeUpdateStatus_(hubConfig)
     };
     vNextAdminApplyHubRuntimeFlags_(model, hubConfig);
     return vNextAdminJsonSafe_(model);
   });
+}
+
+/** Sidebar status only: which runtime is live, and whether a one-shot update is mid-flight or failed. */
+function vNextAdminRuntimeUpdateStatus_(hubConfig) {
+  const config = hubConfig || {};
+  const job = vNextAdminParseJson_(config[VN_ADMIN_RUNTIME_UPDATE_JOB_KEY], null);
+  const bundleSha = typeof VNEXT_PORTAL_RUNTIME_BUNDLE_ !== 'undefined'
+    ? String(VNEXT_PORTAL_RUNTIME_BUNDLE_.sha256 || '') : '';
+  const portalSha = String(config.portal_runtime_sha256 || '');
+  return {
+    adminRuntimeSha256: String(config.admin_runtime_sha256 || ''),
+    adminRuntimeUpdatedAt: String(config.admin_runtime_updated_at || ''),
+    portalRuntimeVersion: String(config.portal_runtime_version || ''),
+    portalRuntimeUpdatedAt: String(config.portal_runtime_updated_at || ''),
+    portalFollowsHub: !portalSha || !bundleSha || portalSha === bundleSha,
+    autoFollow: String(config.runtime_auto_follow || 'ON').toUpperCase() !== 'OFF',
+    autoPull: String(config.admin_auto_pull || 'OFF').toUpperCase() === 'ON',
+    job: job && typeof job === 'object' ? {
+      jobId: String(job.jobId || ''), phase: String(job.phase || ''),
+      startedAt: String(job.startedAt || ''), updatedAt: String(job.updatedAt || ''),
+      error: String(job.error || ''), targetPortalVersion: String(job.targetPortalVersion || '')
+    } : null
+  };
 }
 
 function vNextAdminApplyHubRuntimeFlags_(model, hubConfig) {
@@ -2733,6 +2793,14 @@ function vNextAdminScheduledSweep() {
         scan: vNextAdminScanRegistryBatch_(hub, 10)
       };
     });
+    // Runtime follow-up runs before jobs so a pending Portal update is never
+    // starved by the job deadline; the job deadline stays absolute.
+    let runtimeUpdate = null;
+    try { runtimeUpdate = vNextAdminAutoFollowRuntimeUpdate_(hub); }
+    catch (runtimeError) {
+      runtimeUpdate = { error: String(runtimeError && runtimeError.message || runtimeError) };
+      Logger.log('Runtime auto-follow skipped: %s', runtimeUpdate.error);
+    }
     const jobs = vNextAdminProcessJobsForHub_(hub, 4, startedAt + 270000);
     try { vNextAdminRefreshPortalDirectory_(hub); }
     catch (portalRefreshError) { Logger.log('Portal refresh skipped: %s', String(portalRefreshError)); }
@@ -2743,7 +2811,8 @@ function vNextAdminScheduledSweep() {
     }, false);
     vNextAdminRefreshTodayExceptions_(hub);
     vNextAdminRefreshHome_(hub);
-    return { catalog: catalog, maintenance: maintenance, jobs: jobs, elapsedMs: finishedAt - startedAt };
+    return { catalog: catalog, maintenance: maintenance, runtimeUpdate: runtimeUpdate, jobs: jobs,
+      elapsedMs: finishedAt - startedAt };
   });
 }
 
@@ -5015,11 +5084,22 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
       if (typeof vNextAdminRuntimeCopyScriptContent_ !== 'function') {
         throw new Error('Verified 管理ハブ runtime copy helper is not installed.');
       }
-      const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId());
+      const copied = vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, hub.getId(),
+        req.skipIfCurrent === true ? { skipIfSha256: String(config.admin_runtime_sha256 || '') } : null);
+      const sourceUpdateTime = vNextAdminSourceProjectUpdateTime_(sourceScriptId);
+      if (copied.skipped) {
+        vNextAdminWriteSystemConfig_(hub, { admin_runtime_source_update_time: sourceUpdateTime });
+        return {
+          ok: true, skipped: true, adminRuntimeSha256: copied.adminRuntimeSha256,
+          fileCount: copied.fileCount, sourcePortalBundle: copied.portalBundle || null,
+          message: '管理ハブ runtimeは中央配備版と同じです。'
+        };
+      }
       vNextAdminWriteSystemConfig_(hub, {
         admin_runtime_sha256: copied.adminRuntimeSha256,
         admin_runtime_updated_at: new Date().toISOString(),
-        admin_runtime_updated_by: vNextAdminActor_()
+        admin_runtime_updated_by: vNextAdminActor_(),
+        admin_runtime_source_update_time: sourceUpdateTime
       });
       const hubRegistry = vNextAdminFindRegistryRow_(hub, function (row) {
         return String(row.mode || '') === 'ADMIN' && String(row.spreadsheet_id || '') === String(hub.getId());
@@ -5035,11 +5115,251 @@ function vNextAdminUpdateHubRuntimeFromSource(request) {
         adminRuntimeSha256: copied.adminRuntimeSha256, fileCount: copied.fileCount, reason: reason
       });
       return {
-        ok: true, adminRuntimeSha256: copied.adminRuntimeSha256,
-        fileCount: copied.fileCount, message: '管理ハブ runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
+        ok: true, skipped: false, adminRuntimeSha256: copied.adminRuntimeSha256,
+        fileCount: copied.fileCount, sourcePortalBundle: copied.portalBundle || null,
+        message: '管理ハブ runtimeを中央配備版へ更新しました。画面を再読み込みしてください。'
       };
     });
   });
+}
+
+/** Central project metadata only (no content). Used to detect a newer clasp push cheaply. */
+function vNextAdminSourceProjectUpdateTime_(sourceScriptId) {
+  try {
+    const project = vNextClientRuntimeApiRequest_('/projects/' + encodeURIComponent(sourceScriptId), 'get');
+    return String(project && project.updateTime || '');
+  } catch (error) {
+    Logger.log('Source project metadata unavailable: %s', String(error && error.message || error));
+    return '';
+  }
+}
+
+// ---------------------------- One-shot runtime update ----------------------------
+//
+// 「最新版に更新」は 1 操作で (1) 管理ハブ runtime を中央配備版へコピーし、
+// (2) 新しいコードが動き出したら申請入口 runtime と /exec ピンを更新する。
+// (1) を実行している最中のコードは旧版なので、(2) は別実行で行う。
+// 新旧の判定は「中央から読んだ Portal bundle の SHA-256 == いま動いているコードの bundle SHA」。
+// ダイアログが閉じられても 5 分ごとの自動運用 (vNextAdminScheduledSweep) が (2) を引き継ぐ。
+
+function vNextAdminReadRuntimeUpdateJob_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const job = vNextAdminParseJson_(config[VN_ADMIN_RUNTIME_UPDATE_JOB_KEY], null);
+  return job && typeof job === 'object' && String(job.jobId || '') ? job : null;
+}
+
+function vNextAdminWriteRuntimeUpdateJob_(hub, job) {
+  const record = Object.assign({}, job, { updatedAt: new Date().toISOString() });
+  const values = {};
+  values[VN_ADMIN_RUNTIME_UPDATE_JOB_KEY] = vNextAdminCanonicalJson_(record);
+  vNextAdminWriteSystemConfig_(hub, values);
+  return record;
+}
+
+function vNextAdminRuntimeUpdateJobIsPending_(job) {
+  if (!job) return false;
+  const phase = String(job.phase || '').toUpperCase();
+  if (phase === 'ADMIN_UPDATED') return true;
+  if (phase === 'PORTAL_UPDATING') {
+    const leaseMs = new Date(job.updatedAt || job.startedAt || 0).getTime();
+    return !isFinite(leaseMs) || Date.now() - leaseMs >= VN_ADMIN_RUNTIME_UPDATE_STALE_MS;
+  }
+  return false;
+}
+
+/** Step 1 of 「最新版に更新」. Runs in the currently deployed (possibly old) Hub code. */
+function vNextAdminUpdateAllFromSource(request) {
+  return vNextAdminGuard_('vNextAdminUpdateAllFromSource', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    const reason = vNextAdminText_(req.reason) || VN_ADMIN_RUNTIME_UPDATE_DEFAULT_REASON;
+    const existing = vNextAdminReadRuntimeUpdateJob_(hub);
+    if (existing && String(existing.phase || '').toUpperCase() === 'PORTAL_UPDATING' &&
+        !vNextAdminRuntimeUpdateJobIsPending_(existing)) {
+      throw new Error('別の「最新版に更新」が申請入口を更新中です。数分待ってから再実行してください。');
+    }
+    const admin = vNextAdminUpdateHubRuntimeFromSource({ reason: reason, skipIfCurrent: true });
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    const target = admin.sourcePortalBundle || {};
+    const targetPortalSha = String(target.sha256 || '');
+    const portalDeployedSha = String(config.portal_runtime_sha256 || '');
+    const portalIds = Boolean(String(config.portal_spreadsheet_id || '') && String(config.portal_script_id || ''));
+    if (portalIds && !targetPortalSha) {
+      throw new Error('管理ハブは' + (admin.skipped ? '最新のまま' : '更新済み') +
+        'ですが、中央配備版の申請入口 bundle 版を判定できませんでした。申請入口は自動運用が5分以内に追従します。');
+    }
+    const portalUpdateNeeded = portalIds && targetPortalSha !== portalDeployedSha;
+    const job = vNextAdminWriteRuntimeUpdateJob_(hub, {
+      jobId: 'RTU-' + Utilities.getUuid(),
+      phase: portalUpdateNeeded ? 'ADMIN_UPDATED' : 'DONE',
+      reason: reason, requestedBy: vNextAdminActor_(), startedAt: new Date().toISOString(),
+      adminRuntimeSha256: String(admin.adminRuntimeSha256 || ''), adminSkipped: admin.skipped === true,
+      targetPortalVersion: String(target.version || ''), targetPortalSha256: targetPortalSha,
+      portalUpdateNeeded: portalUpdateNeeded, portalSkipped: !portalUpdateNeeded,
+      portalReason: portalIds ? '' : 'missing_ids'
+    });
+    vNextAdminWriteAudit_(hub, 'UPDATE_ALL_RUNTIMES', 'ADMIN_RUNTIME', job.jobId, 'STARTED', {
+      reason: reason, adminSkipped: admin.skipped === true, adminRuntimeSha256: admin.adminRuntimeSha256,
+      targetPortalVersion: job.targetPortalVersion, targetPortalSha256: targetPortalSha,
+      portalUpdateNeeded: portalUpdateNeeded
+    });
+    return vNextAdminJsonSafe_({
+      ok: true, jobId: job.jobId, phase: job.phase,
+      adminSkipped: admin.skipped === true, adminRuntimeSha256: admin.adminRuntimeSha256,
+      fileCount: admin.fileCount,
+      portalUpdateNeeded: portalUpdateNeeded, portalReason: job.portalReason,
+      targetPortalVersion: job.targetPortalVersion, currentPortalVersion: String(config.portal_runtime_version || ''),
+      message: portalUpdateNeeded
+        ? (admin.skipped ? '管理ハブは最新のままです。続けて申請入口を更新します。'
+          : '管理ハブを中央配備版へ更新しました。新しいコードの起動を待って申請入口を更新します。')
+        : (admin.skipped ? '管理ハブ・申請入口とも最新版です。更新は不要でした。'
+          : '管理ハブを中央配備版へ更新しました。申請入口は変更がないため、そのままです。')
+    });
+  });
+}
+
+/**
+ * Step 2 of 「最新版に更新」. Idempotent; safe to call from the dialog poll and
+ * from the scheduled sweep. Waits (returns WAITING_FOR_NEW_CODE) until this
+ * execution runs the code that carries the target Portal bundle.
+ */
+function vNextAdminContinueRuntimeUpdate(request) {
+  return vNextAdminGuard_('vNextAdminContinueRuntimeUpdate', function () {
+    const req = request && typeof request === 'object' ? request : {};
+    const hub = vNextAdminRequireHub_();
+    return vNextAdminContinueRuntimeUpdateInHub_(hub, { jobId: req.jobId, via: 'DIALOG' });
+  });
+}
+
+function vNextAdminContinueRuntimeUpdateInHub_(hub, req) {
+  const job = vNextAdminReadRuntimeUpdateJob_(hub);
+  if (!job) return { ok: true, phase: 'NONE', message: '進行中の更新はありません。' };
+  if (req.jobId && String(req.jobId) !== String(job.jobId)) {
+    return vNextAdminJsonSafe_({ ok: true, phase: 'SUPERSEDED', job: job,
+      message: '別の更新が開始されています。最新の状態を確認してください。' });
+  }
+  const phase = String(job.phase || '').toUpperCase();
+  if (phase === 'DONE' || phase === 'FAILED') {
+    return vNextAdminJsonSafe_(Object.assign({ ok: phase === 'DONE', phase: phase }, job));
+  }
+  if (!vNextAdminRuntimeUpdateJobIsPending_(job)) {
+    return vNextAdminJsonSafe_({ ok: true, phase: 'PORTAL_UPDATING', jobId: job.jobId,
+      message: '申請入口を更新中です。' });
+  }
+  const runningSha = typeof VNEXT_PORTAL_RUNTIME_BUNDLE_ !== 'undefined'
+    ? String(VNEXT_PORTAL_RUNTIME_BUNDLE_.sha256 || '') : '';
+  if (String(job.targetPortalSha256 || '') && runningSha !== String(job.targetPortalSha256 || '')) {
+    return vNextAdminJsonSafe_({ ok: true, phase: 'WAITING_FOR_NEW_CODE', jobId: job.jobId,
+      runningPortalSha256: runningSha, targetPortalSha256: job.targetPortalSha256,
+      message: '新しい管理ハブ コードの起動を待っています…' });
+  }
+  // Claim briefly under the script lock; the Portal update takes its own lock afterwards.
+  const claimed = vNextAdminWithScriptLock_('runtime-update-claim', function () {
+    const latest = vNextAdminReadRuntimeUpdateJob_(hub);
+    if (!latest || String(latest.jobId) !== String(job.jobId) || !vNextAdminRuntimeUpdateJobIsPending_(latest)) {
+      return null;
+    }
+    return vNextAdminWriteRuntimeUpdateJob_(hub, Object.assign({}, latest, {
+      phase: 'PORTAL_UPDATING', continuedBy: vNextAdminActor_(), continuedVia: String(req.via || 'DIALOG')
+    }));
+  });
+  if (!claimed) {
+    return vNextAdminJsonSafe_({ ok: true, phase: 'PORTAL_UPDATING', jobId: job.jobId,
+      message: '申請入口を更新中です。' });
+  }
+  try {
+    const portal = vNextAdminUpdateSharedPortalRuntime({ reason: String(job.reason || VN_ADMIN_RUNTIME_UPDATE_DEFAULT_REASON) });
+    const done = vNextAdminWriteRuntimeUpdateJob_(hub, Object.assign({}, claimed, {
+      phase: 'DONE', finishedAt: new Date().toISOString(),
+      portalRuntimeVersion: String(portal.runtimeVersion || ''), portalReused: portal.reused === true,
+      webAppUrl: String(portal.webAppUrl || ''), webAppVersion: Number(portal.webAppVersion || 0)
+    }));
+    vNextAdminWriteAudit_(hub, 'UPDATE_ALL_RUNTIMES', 'ADMIN_RUNTIME', job.jobId, 'SUCCESS', {
+      adminRuntimeSha256: job.adminRuntimeSha256, portalRuntimeVersion: portal.runtimeVersion,
+      portalReused: portal.reused === true, webAppVersion: portal.webAppVersion, via: String(req.via || 'DIALOG')
+    });
+    return vNextAdminJsonSafe_(Object.assign({ ok: true, portal: portal,
+      message: '管理ハブと申請入口を最新版へ更新しました。' + VNEXT_NAMING.WEB_ENTRY + 'は同じURLのままです。' }, done));
+  } catch (error) {
+    const detail = String(error && error.message || error);
+    const failed = vNextAdminWriteRuntimeUpdateJob_(hub, Object.assign({}, claimed, {
+      phase: 'FAILED', finishedAt: new Date().toISOString(), error: detail
+    }));
+    vNextAdminWriteAudit_(hub, 'UPDATE_ALL_RUNTIMES', 'ADMIN_RUNTIME', job.jobId, 'FAILED', {
+      error: detail, via: String(req.via || 'DIALOG')
+    });
+    try {
+      vNextAdminAppendException_(hub, {
+        severity: 'ERROR', exception_type: 'RUNTIME_UPDATE_FAILED', book_id: '',
+        title: '申請入口の最新版更新に失敗しました', detail: detail.slice(0, 1200),
+        recommended_action: '保守メニュー「' + VN_ADMIN_MENU_UPDATE_ALL + '」を再実行。続く場合は監査ログ UPDATE_ALL_RUNTIMES を確認。',
+        source_ref: job.jobId
+      });
+    } catch (exceptionError) { Logger.log('Runtime update exception skipped: %s', String(exceptionError)); }
+    return vNextAdminJsonSafe_(Object.assign({ ok: false, message: '申請入口の更新に失敗しました: ' + detail }, failed));
+  }
+}
+
+/**
+ * Scheduled safety net. (a) finishes a pending one-shot job once the new code
+ * is live; (b) when no job exists but the Portal lags behind this Hub's
+ * bundle (e.g. after the older two-step「中央配備版へ更新」), follows it;
+ * (c) optional: pulls a newer central clasp push into the Hub when
+ * VN_SYSTEM_CONFIG.admin_auto_pull = ON.
+ */
+function vNextAdminAutoFollowRuntimeUpdate_(hub) {
+  const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const out = { autoPull: null, followed: null };
+  if (String(config.admin_auto_pull || 'OFF').toUpperCase() === 'ON') {
+    try { out.autoPull = vNextAdminAutoPullAdminRuntime_(hub, config); }
+    catch (pullError) {
+      out.autoPull = { error: String(pullError && pullError.message || pullError) };
+      Logger.log('Admin runtime auto-pull skipped: %s', out.autoPull.error);
+    }
+  }
+  if (String(config.runtime_auto_follow || 'ON').toUpperCase() === 'OFF') return out;
+  const job = vNextAdminReadRuntimeUpdateJob_(hub);
+  if (job && vNextAdminRuntimeUpdateJobIsPending_(job)) {
+    out.followed = vNextAdminContinueRuntimeUpdateInHub_(hub, { jobId: job.jobId, via: 'SCHEDULED_SWEEP' });
+    return out;
+  }
+  const bundleSha = typeof VNEXT_PORTAL_RUNTIME_BUNDLE_ !== 'undefined'
+    ? String(VNEXT_PORTAL_RUNTIME_BUNDLE_.sha256 || '') : '';
+  const portalSha = String(config.portal_runtime_sha256 || '');
+  const portalIds = Boolean(String(config.portal_spreadsheet_id || '') && String(config.portal_script_id || ''));
+  const lastFailedTarget = job && String(job.phase || '').toUpperCase() === 'FAILED'
+    ? String(job.targetPortalSha256 || '') : '';
+  if (!portalIds || !bundleSha || !portalSha || portalSha === bundleSha || lastFailedTarget === bundleSha) return out;
+  const followJob = vNextAdminWriteRuntimeUpdateJob_(hub, {
+    jobId: 'RTU-' + Utilities.getUuid(), phase: 'ADMIN_UPDATED',
+    reason: '自動追従（管理ハブ更新後の申請入口更新）', requestedBy: vNextAdminActor_(),
+    startedAt: new Date().toISOString(), adminRuntimeSha256: String(config.admin_runtime_sha256 || ''),
+    adminSkipped: true, targetPortalVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION, targetPortalSha256: bundleSha,
+    portalUpdateNeeded: true, portalSkipped: false, portalReason: ''
+  });
+  out.followed = vNextAdminContinueRuntimeUpdateInHub_(hub, { jobId: followJob.jobId, via: 'SCHEDULED_SWEEP' });
+  return out;
+}
+
+function vNextAdminAutoPullAdminRuntime_(hub, config) {
+  const sourceScriptId = String(config.admin_source_script_id || '');
+  const targetScriptId = String(config.admin_hub_script_id || '');
+  if (!sourceScriptId || !targetScriptId || String(ScriptApp.getScriptId()) !== targetScriptId) {
+    return { skipped: true, reason: 'not_a_generated_hub' };
+  }
+  const job = vNextAdminReadRuntimeUpdateJob_(hub);
+  if (job && vNextAdminRuntimeUpdateJobIsPending_(job)) return { skipped: true, reason: 'update_in_progress' };
+  const sourceUpdateTime = vNextAdminSourceProjectUpdateTime_(sourceScriptId);
+  const known = String(config.admin_runtime_source_update_time || '');
+  if (!sourceUpdateTime || sourceUpdateTime === known) return { skipped: true, reason: 'source_unchanged' };
+  if (job && String(job.phase || '').toUpperCase() === 'FAILED' &&
+      String(job.sourceUpdateTime || '') === sourceUpdateTime) {
+    return { skipped: true, reason: 'same_source_failed_before' };
+  }
+  const started = vNextAdminUpdateAllFromSource({ reason: '自動取込（中央 clasp push 検知 ' + sourceUpdateTime + '）' });
+  const current = vNextAdminReadRuntimeUpdateJob_(hub);
+  if (current) vNextAdminWriteRuntimeUpdateJob_(hub, Object.assign({}, current, { sourceUpdateTime: sourceUpdateTime }));
+  return { pulled: true, jobId: started.jobId, adminSkipped: started.adminSkipped, portalUpdateNeeded: started.portalUpdateNeeded };
 }
 
 /**
@@ -5148,7 +5468,7 @@ function vNextAdminTryResolvePortal_(hub) {
 function vNextAdminUpdateSharedPortalRuntime(request) {
   return vNextAdminGuard_('vNextAdminUpdateSharedPortalRuntime', function () {
     const req = request && typeof request === 'object' ? request : {};
-    const hub = vNextAdminRequireHub_();
+    let hub = vNextAdminRequireHub_();
     vNextAdminAssertHubAdmin_(hub, false);
     return vNextAdminWithScriptLock_('update-portal-runtime', function () {
       const reason = vNextAdminText_(req.reason) || '共有ドライブ移設後の最新版';
@@ -5171,7 +5491,9 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       if (currentSha === targetSha &&
           portal.runtimeVersion === VN_ADMIN_PORTAL_RUNTIME_VERSION &&
           portal.runtimeSha256 === targetSha) {
-        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
+        // Stale-aware only: forcing a full ZAC extract here routinely trips Sheets
+        // disconnects on the Hub right after 「中央配備版へ更新」.
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, false, { lockHeld: true });
         vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const webApp = vNextAdminPublishPortalWebApp_(portal.scriptId, expectedWebAppUrl);
         vNextAdminRememberPortalWebAppUrl_(hub, portal, webApp.webAppUrl);
@@ -5195,8 +5517,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
       const settingBefore = vNextAdminReadTable_(hub, VN_ADMIN_SHEETS.SETTINGS).rows.find(function (row) {
         return String(row.setting_key || '') === 'EMPLOYEE_PORTAL_JSON';
       });
-      const requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
-      const directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
+      let requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
+      let directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
       const needsV2HeaderExpansion = !vNextAdminPortalUsesV2Tables_(portal.runtimeVersion);
       let contentUpdateAttempted = false;
       let tablesExpanded = false;
@@ -5218,6 +5540,12 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
             vNextClientRuntimeFilesSha256_(writtenFiles) !== targetSha) {
           throw new Error('Written Portal runtime could not be verified.');
         }
+        // Long Apps Script API calls often drop the Spreadsheet service handle.
+        // Rebind Hub/Portal by ID before the next Sheets writes.
+        hub = vNextAdminRebindSpreadsheet_(hub);
+        portal.spreadsheet = vNextAdminRebindSpreadsheet_(portal.spreadsheet);
+        requestSheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_REQUEST_SHEET);
+        directorySheet = portal.spreadsheet.getSheetByName(VN_ADMIN_PORTAL_DIRECTORY_SHEET);
         // Mark the migration attempt before the first header write. The helper
         // performs several Sheets calls; any mid-call failure must still enter
         // the v1 header rollback path.
@@ -5238,8 +5566,8 @@ function vNextAdminUpdateSharedPortalRuntime(request) {
           portal_runtime_updated_by: vNextAdminActor_()
         });
         pinsUpdated = true;
-        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, true, { lockHeld: true });
-        vNextAdminRefreshPortalDirectory_(hub);
+        const catalog = vNextAdminRefreshZacClientCatalogIfStale_(hub, false, { lockHeld: true });
+        vNextAdminRefreshPortalDirectory_(hub, portal.spreadsheet);
         const settingValue = vNextAdminCanonicalJson_({
           portalId: portal.portalId, spreadsheetId: portal.spreadsheetId,
           scriptId: portal.scriptId, runtimeVersion: VN_ADMIN_PORTAL_RUNTIME_VERSION,
@@ -5356,29 +5684,41 @@ function vNextAdminPublishPortalWebApp_(scriptId, expectedUrl) {
   if (requiredId && selectedId !== requiredId) {
     throw new Error('Refusing to republish a different employee Web App URL.');
   }
-  vNextClientRuntimeApiRequest_(
+  // Apps Script deployments.update requires scriptId inside deploymentConfig
+  // (same as clasp). Omitting it can return 200 while leaving the /exec pin
+  // on the previous versionNumber.
+  const updateBody = {
+    deploymentConfig: {
+      scriptId: id,
+      versionNumber: versionNumber,
+      manifestFileName: (selected.deploymentConfig &&
+        selected.deploymentConfig.manifestFileName) || 'appsscript',
+      description: VN_ADMIN_PORTAL_RUNTIME_VERSION
+    }
+  };
+  let verified = vNextClientRuntimeApiRequest_(
     '/projects/' + encodeURIComponent(id) + '/deployments/' +
       encodeURIComponent(selectedId),
     'put',
-    {
-      deploymentConfig: {
-        versionNumber: versionNumber,
-        manifestFileName: (selected.deploymentConfig &&
-          selected.deploymentConfig.manifestFileName) || 'appsscript',
-        description: VN_ADMIN_PORTAL_RUNTIME_VERSION
-      }
-    }
+    updateBody
   );
-  const verified = vNextClientRuntimeApiRequest_(
-    '/projects/' + encodeURIComponent(id) + '/deployments/' +
-      encodeURIComponent(selectedId),
-    'get'
-  );
-  const pinnedVersion = Number(verified && verified.deploymentConfig &&
+  let pinnedVersion = Number(verified && verified.deploymentConfig &&
     verified.deploymentConfig.versionNumber || 0);
+  for (let attempt = 1; attempt <= 3 && pinnedVersion !== versionNumber; attempt++) {
+    Utilities.sleep(500 * attempt);
+    verified = vNextClientRuntimeApiRequest_(
+      '/projects/' + encodeURIComponent(id) + '/deployments/' +
+        encodeURIComponent(selectedId),
+      'get'
+    );
+    pinnedVersion = Number(verified && verified.deploymentConfig &&
+      verified.deploymentConfig.versionNumber || 0);
+  }
   if (pinnedVersion !== versionNumber) {
     throw new Error('Portal /exec is still pinned to version ' + pinnedVersion +
-      '; expected ' + versionNumber + '.');
+      '; expected ' + versionNumber +
+      '. Hubで「最新版へ更新」を再実行してください。繰り返す場合は Apps Script エディタの Deploy → Manage deployments で当該 /exec を version ' +
+      versionNumber + ' に付け替えてください (deploymentId=' + selectedId + ').');
   }
   const webAppUrl = vNextAdminWebAppUrlFromDeployment_(verified) ||
     vNextAdminWebAppUrlFromDeployment_(selected);
@@ -6147,6 +6487,65 @@ function vNextAdminMenuUpdatePortalRuntime() {
   if (choice !== ui.Button.OK) return { cancelled: true };
   const result = vNextAdminUpdateSharedPortalRuntime({ reason: 'Admin menu approved portal runtime update' });
   ui.alert('完了', result.message || '申請入口を更新しました。', ui.ButtonSet.OK);
+  return result;
+}
+
+/** 保守メニュー「最新版に更新」: 進行・結果を1画面で見せる更新ダイアログを開く。 */
+function vNextAdminMenuUpdateAllFromSource() {
+  return vNextAdminGuard_('vNextAdminMenuUpdateAllFromSource', function () {
+    const hub = vNextAdminRequireHub_();
+    const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+    if (!String(config.admin_source_script_id || '') ||
+        String(config.admin_hub_script_id || '') !== String(ScriptApp.getScriptId())) {
+      SpreadsheetApp.getUi().alert(VN_ADMIN_MENU_UPDATE_ALL,
+        'この管理ハブには中央更新経路が登録されていません。clean bootstrap で生成した管理ハブでのみ使えます。',
+        SpreadsheetApp.getUi().ButtonSet.OK);
+      return { ok: false, reason: 'not_updatable' };
+    }
+    SpreadsheetApp.getUi().showModalDialog(
+      vNextAdminSidebarOutput_('updater').setWidth(520).setHeight(460), VN_ADMIN_MENU_UPDATE_ALL);
+    return { ok: true };
+  });
+}
+
+/** 初回・復旧メニュー: 共有ドライブ「年度計画」へ整理。確認ダイアログの後に実行。 */
+function vNextAdminMenuRelocateLibrary() {
+  const ui = SpreadsheetApp.getUi();
+  const choice = ui.alert(VN_ADMIN_MENU_RELOCATE_LIBRARY,
+    '共有ドライブ「' + VN_ADMIN_LIBRARY.DRIVE_NAME + '」を用意し、管理ハブ・申請入口・Template・クライアント年度ブックを ' +
+    '01〜04 フォルダへ移します。通常は初回に1回だけ実行します。続行しますか？',
+    ui.ButtonSet.OK_CANCEL);
+  if (choice !== ui.Button.OK) return { cancelled: true };
+  const result = vNextAdminRelocateLibraryToSharedDrive({ reason: '初回・復旧メニューから共有ドライブへ整理' });
+  ui.alert('完了', String(result.message || '共有ドライブへ整理しました。') + '\n' + String(result.folderUrl || ''),
+    ui.ButtonSet.OK);
+  return result;
+}
+
+/** 初回・復旧メニュー: 受入試験のリセット。対象一覧 → 確認語入力 → 削除の3段階。 */
+function vNextAdminMenuFreshUatReset() {
+  const ui = SpreadsheetApp.getUi();
+  const preview = vNextAdminResetGeneratedClientsForFreshUat({ apply: false });
+  const lines = (preview.clients || []).slice(0, 15).map(function (item) {
+    return '・' + (item.clientName || item.bookId) + ' / FY' + item.fiscalYear + ' / ' + (item.state || item.status);
+  });
+  const more = (preview.clients || []).length > 15 ? '\n…ほか ' + ((preview.clients || []).length - 15) + '冊' : '';
+  const proceed = ui.alert(VN_ADMIN_MENU_FRESH_UAT_RESET,
+    String(preview.message || '') + '\n\n' + (lines.length ? lines.join('\n') + more : '削除対象のクライアント年度ブックはありません。') +
+    '\n\n管理ハブ・申請入口・Template は残ります。管理ハブ監査ログと試験記録は消えます。次の画面で確認語を入力します。',
+    ui.ButtonSet.OK_CANCEL);
+  if (proceed !== ui.Button.OK) return { cancelled: true, preview: preview };
+  const typed = ui.prompt(VN_ADMIN_MENU_FRESH_UAT_RESET,
+    '確認語 ' + VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION + ' を入力してください。',
+    ui.ButtonSet.OK_CANCEL);
+  if (typed.getSelectedButton() !== ui.Button.OK) return { cancelled: true, preview: preview };
+  const confirmation = String(typed.getResponseText() || '').trim();
+  if (confirmation !== VN_ADMIN_FRESH_UAT_RESET_CONFIRMATION) {
+    ui.alert('中止', '確認語が一致しないため、何も削除していません。', ui.ButtonSet.OK);
+    return { cancelled: true, reason: 'confirmation_mismatch' };
+  }
+  const result = vNextAdminResetGeneratedClientsForFreshUat({ apply: true, confirmation: confirmation });
+  ui.alert('完了', String(result.message || '初期状態へ戻しました。'), ui.ButtonSet.OK);
   return result;
 }
 
@@ -11467,12 +11866,46 @@ function vNextAdminPortalUsesV2Tables_(runtimeVersion) {
 }
 
 /** Read-only Portal open for sidebar projections. Skips header repair and protection writes. */
+function vNextAdminIsSpreadsheetServiceDisconnect_(error) {
+  const message = String(error && error.message || error || '');
+  return /サービスに接続できなくなりました|failed while accessing document|Service Spreadsheets/i.test(message);
+}
+
+/** Retries openById for transient Spreadsheet service disconnects. */
+function vNextAdminOpenSpreadsheetById_(spreadsheetId) {
+  const id = String(spreadsheetId || '').trim();
+  if (!id) throw new Error('spreadsheetId is required.');
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) Utilities.sleep(750 * attempt);
+      return SpreadsheetApp.openById(id);
+    } catch (error) {
+      lastError = error;
+      if (!vNextAdminIsSpreadsheetServiceDisconnect_(error)) throw error;
+      Logger.log('Spreadsheet openById retry %s for %s: %s', String(attempt + 1), id,
+        String(error && error.message || error));
+    }
+  }
+  throw lastError;
+}
+
+function vNextAdminRebindSpreadsheet_(spreadsheet) {
+  if (!spreadsheet || typeof spreadsheet.getId !== 'function') {
+    throw new Error('spreadsheet handle is required to rebind.');
+  }
+  return vNextAdminOpenSpreadsheetById_(spreadsheet.getId());
+}
+
 function vNextAdminResolvePortalForRead_(hub) {
   const config = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
   const spreadsheetId = String(config.portal_spreadsheet_id ||
     PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
   if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
-  return { spreadsheet: SpreadsheetApp.openById(spreadsheetId), spreadsheetId: spreadsheetId };
+  if (hub && typeof hub.getId === 'function' && spreadsheetId === String(hub.getId())) {
+    throw new Error('portal_spreadsheet_id が管理ハブ自身を指しています。VN_SYSTEM_CONFIG を確認してください。');
+  }
+  return { spreadsheet: vNextAdminOpenSpreadsheetById_(spreadsheetId), spreadsheetId: spreadsheetId };
 }
 
 function vNextAdminResolvePortal_(hub) {
@@ -11480,6 +11913,9 @@ function vNextAdminResolvePortal_(hub) {
   const spreadsheetId = String(config.portal_spreadsheet_id ||
     PropertiesService.getScriptProperties().getProperty('VNEXT_PORTAL_SPREADSHEET_ID') || '').trim();
   if (!spreadsheetId) throw new Error('Employee Portal is not configured.');
+  if (spreadsheetId === String(hub.getId())) {
+    throw new Error('portal_spreadsheet_id が管理ハブ自身を指しています。VN_SYSTEM_CONFIG を確認してください。');
+  }
   const portalId = vNextAdminRequiredText_(config.portal_id, 'portal_id');
   const scriptId = vNextAdminRequiredText_(config.portal_script_id, 'portal_script_id');
   const runtimeVersion = vNextAdminRequiredText_(config.portal_runtime_version, 'portal_runtime_version');
@@ -11490,7 +11926,7 @@ function vNextAdminResolvePortal_(hub) {
   if (supportedRuntimeVersions.indexOf(runtimeVersion) < 0 || !/^[a-f0-9]{64}$/.test(runtimeSha256) || !employeeDomain) {
     throw new Error('Employee Portal runtime/domain identity is invalid.');
   }
-  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const spreadsheet = vNextAdminOpenSpreadsheetById_(spreadsheetId);
   const portalConfig = vNextAdminReadKeyValueSheet_(spreadsheet, VN_ADMIN_PORTAL_CONFIG_SHEET);
   if (String(portalConfig.mode || '').toUpperCase() !== 'PORTAL' ||
       String(portalConfig.portal_id || '') !== portalId ||
@@ -11631,11 +12067,32 @@ function vNextAdminRefreshPortalDirectory_(hub, optionalPortal) {
     sheet.getRange(2, 1, values.length, directoryHeaders.length).setValues(values);
   }
   sheet.hideSheet();
-  vNextAdminWritePortalConfigValues_(spreadsheet, {
+  vNextAdminWritePortalConfigValues_(spreadsheet, Object.assign({
     admin_hub_url: hub.getUrl(),
     portal_spreadsheet_url: spreadsheet.getUrl()
-  });
+  }, vNextAdminPortalAdminProjection_(hub)));
   return { portalSpreadsheetId: spreadsheet.getId(), rows: rows.length };
+}
+
+/**
+ * Projects who may open the 管理ハブ into the Portal config so the employee
+ * entry can decide the admin card by identity instead of by URL presence.
+ * Only SHA-256 of lowercased emails is written: the Portal sheet is
+ * domain-readable and must not list the admin roster in clear text.
+ * Portal side compares sha256(Session.getActiveUser().getEmail().toLowerCase()).
+ * Refreshed on every scheduled sweep and every Portal runtime update.
+ */
+function vNextAdminPortalAdminProjection_(hub) {
+  const hubConfig = vNextAdminReadKeyValueSheet_(hub, VN_ADMIN_SYSTEM_CONFIG_SHEET);
+  const admins = vNextAdminMergeEmails_(
+    hubConfig.admin_emails,
+    PropertiesService.getScriptProperties().getProperty('VNEXT_ADMIN_EMAILS')
+  );
+  return {
+    admin_email_hashes_json: vNextAdminCanonicalJson_(admins.map(vNextAdminSha256_).sort()),
+    admin_projection_schema: 'vnext-portal-admin-projection-1',
+    admin_projection_updated_at: new Date().toISOString()
+  };
 }
 
 function vNextAdminPortalNextAction_(state, healthCode) {

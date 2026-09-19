@@ -21,6 +21,11 @@ const sandbox = {
       get: key => cacheValues.get(key) || null,
       put: (key, value) => cacheValues.set(key, value),
       remove: key => cacheValues.delete(key)
+    }),
+    getUserCache: () => ({
+      get: key => cacheValues.get('user:' + key) || null,
+      put: (key, value) => cacheValues.set('user:' + key, value),
+      remove: key => cacheValues.delete('user:' + key)
     })
   },
   Utilities: {
@@ -45,8 +50,9 @@ testAppendRequestContract();
 testCreateModel();
 testRequestProgress();
 testEntryModel();
+testAdminHubGate();
 await testStaticUxContracts();
-process.stdout.write('PASS portal runtime behavior tests (12)\n');
+process.stdout.write('PASS portal runtime behavior tests (13)\n');
 
 function v2Payload(overrides = {}) {
   return {
@@ -272,7 +278,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.29');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.40');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -331,27 +337,79 @@ function testRequestProgress() {
 
 function testEntryModel() {
   const model = sandbox.vNextPortalBuildEntryModel_({
+    years: [2027, 2028],
     directory: [{
       directoryKey: '2027|az', clientName: 'アストラゼネカ', fiscalYear: 2027,
+      forecastOwnerEmail: 'owner-a@example.com',
+      relatedMemberEmails: ['member-a@example.com'],
       state: 'SUBMITTED', nextAction: '管理者の承認待ちです。',
       url: 'https://docs.google.com/spreadsheets/d/1234567890123456789012/edit'
+    }, {
+      directoryKey: '2027|other', clientName: '他社クライアント', fiscalYear: 2027,
+      forecastOwnerEmail: 'owner-b@example.com',
+      relatedMemberEmails: ['member-b@example.com'],
+      state: 'IN_PROGRESS', nextAction: '入力を続ける',
+      url: 'https://docs.google.com/spreadsheets/d/2234567890123456789012/edit'
     }],
     requests: [{
       clientName: '新規株式会社', fiscalYear: 2027, status: 'CREATING',
+      forecastOwnerEmail: 'owner-c@example.com',
       detailMessage: '', url: ''
     }]
   }, {
     portalUrl: 'https://docs.google.com/spreadsheets/d/portalportalportalportalpo/edit',
     adminHubUrl: 'https://docs.google.com/spreadsheets/d/hubhubhubhubhubhubhubhubhu/edit'
   });
-  assert.equal(model.books.length, 2);
-  assert.equal(model.years.join(','), '2027');
+  assert.equal(model.books.length, 3);
+  assert.equal(model.years.join(','), '2028,2027');
   assert.equal(model.books[0].clientName, 'アストラゼネカ');
   assert.equal(model.books[0].tone, 'warn');
+  assert.equal(model.books[1].clientName, '新規株式会社');
   assert.equal(model.books[1].stateLabel, 'クライアント年度ブック作成中');
+  assert.equal(model.books[2].clientName, '他社クライアント');
   assert.equal(model.adminHubUrl.startsWith('https://docs.google.com/spreadsheets/d/'), true);
   assert.equal('actorEmail' in model, false);
   assert.equal(sandbox.vNextPortalSafeSpreadsheetUrl_('https://example.com/x'), '');
+  const emptyYears = sandbox.vNextPortalBuildEntryModel_({
+    years: [2027, 2028], directory: [], requests: []
+  }, { portalUrl: '', adminHubUrl: '' });
+  assert.equal(emptyYears.books.length, 0);
+  assert.equal(emptyYears.years.join(','), '2028,2027');
+}
+
+// docs/portal-entry-ux-audit §4-1: admin card only for identities projected by Admin, fail-closed otherwise.
+function testAdminHubGate() {
+  const hubUrl = 'https://docs.google.com/spreadsheets/d/hubhubhubhubhubhubhubhubhu/edit';
+  const sha = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+  const admins = ['Admin.One@Example.com ', 'admin.two@example.com'];
+  const projection = {
+    admin_hub_url: hubUrl,
+    admin_email_hashes_json: JSON.stringify(admins.map(e => sha(e.trim().toLowerCase())).sort()),
+    admin_projection_schema: 'vnext-portal-admin-projection-1',
+    admin_projection_updated_at: '2026-09-14T09:00:00.000Z'
+  };
+  // Allowed: case/whitespace-insensitive match against the projected hash.
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_(projection, 'admin.one@example.com'), hubUrl);
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_(projection, '  ADMIN.TWO@example.com'), hubUrl);
+  // Denied: signed-in user is not in the projection.
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_(projection, 'employee@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_(projection, ''), '');
+  // Fail-closed: no projection at all (pre-1.7.39 Admin), even though the URL is configured.
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ admin_hub_url: hubUrl }, 'admin.one@example.com'), '');
+  // Fail-closed: schema mismatch, empty list, malformed JSON, non-array, unsafe URL.
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ ...projection, admin_projection_schema: 'vnext-portal-admin-projection-2' }, 'admin.one@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ ...projection, admin_email_hashes_json: '[]' }, 'admin.one@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ ...projection, admin_email_hashes_json: '{not json' }, 'admin.one@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ ...projection, admin_email_hashes_json: '{"a":1}' }, 'admin.one@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_({ ...projection, admin_hub_url: 'https://example.com/hub' }, 'admin.one@example.com'), '');
+  assert.equal(sandbox.vNextPortalAdminHubUrlFor_(null, 'admin.one@example.com'), '');
+  // The shared document cache must never carry one user's admin decision to another.
+  cacheValues.clear();
+  sandbox.vNextPortalWriteEntryCache_({ ok: true, runtimeVersion: 'x', portalUrl: 'p', adminHubUrl: hubUrl, years: [2027], books: [] });
+  const cached = sandbox.vNextPortalReadEntryCache_();
+  assert.equal(cached.adminHubUrl, '');
+  assert.equal(cached.years[0], 2027);
+  cacheValues.clear();
 }
 
 async function testStaticUxContracts() {
@@ -410,15 +468,26 @@ async function testStaticUxContracts() {
   assert.match(core, /function vNextPortalBuildEntryModel_/);
   const entry = await readFile(path.join(sourceDir, 'Portal_Entry.html'), 'utf8');
   assert.match(entry, /新しい予測シートを作る/);
-  assert.match(entry, /あなたの年度一覧/);
+  assert.match(entry, /作成済みシート/);
   assert.match(entry, /vNextPortalGetEntryModel\(\)/);
   assert.match(core, /vNextPortalPrepareOpenExperience\(\)/);
   assert.match(entry, /data-year/);
   assert.doesNotMatch(entry, /クライアント名で探す|クライアントレイヤー|運用担当|ログイン中|管理者用ハブ/);
-  assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層|第2層|第3層/);
+  assert.doesNotMatch(entry, /すでにブックがある方はこちら|新規申請はこちら|役割の分かれ方|第1層：|第2層：|第3層：/);
+  assert.doesNotMatch(entry, /あなたの年度一覧|まだ自分の対象シートはありません/);
   assert.doesNotMatch(entry, /roles|secondaryLink|ENTRY_CHAR_ID/);
+  assert.match(entry, /id="createCard"/);
+  assert.match(entry, /id="existingCard"/);
+  assert.match(entry, /id="adminCard"/);
   assert.match(entry, /管理ハブを開く/);
   assert.match(entry, /class="bubble"/);
+  assert.match(entry, /class="card-head"/);
+  assert.match(entry, /class="card-body"/);
+  assert.match(entry, /class="card-actions"/);
+  assert.doesNotMatch(entry, /layer-label|">新規<\/|">既存<\/|">管理<\//);
+  assert.match(entry, /brand-icon/);
+  assert.match(entry, /CREATE_TALK/);
+  assert.match(entry, /ADMIN_TALK/);
   assert.match(entry, /\.bubble \{[\s\S]*?border:1\.5px solid/);
   assert.match(entry, /--bubble-bg:#F3FAFF/);
   assert.doesNotMatch(entry, /font-weight:800/);
@@ -426,6 +495,7 @@ async function testStaticUxContracts() {
   assert.match(entry, /font-size:18px/);
   assert.match(entry, /CREATE_CHAR_ID = 'yajirushi'/);
   assert.match(entry, /EXISTING_CHAR_ID = 'kurippu'/);
+  assert.match(entry, /ADMIN_CHAR_ID = 'haguruma'/);
   assert.match(entry, /createHtmlOutputFromFile\('Characters'\)/);
   assert.match(entry, /年度予算策定/);
   assert.match(entry, /btn-open/);
@@ -433,18 +503,79 @@ async function testStaticUxContracts() {
   assert.doesNotMatch(entry, /管理者専用|opacity="\.28"|ellipse cx="30"/);
   assert.doesNotMatch(entry, /class="bot bot-cloud"|viewBox="0 0 92 56"/);
   assert.match(entry, /align-items:center/);
-  assert.match(entry, /border-radius:99px/);
   assert.match(entry, /box-shadow:inset 0 0 0 1px var\(--primary\)/);
   assert.doesNotMatch(entry, /class="stepper"|aria-label="手順"/);
-  assert.match(entry, /grid-template-columns:72px minmax\(0, 1fr\)/);
+  assert.match(entry, /grid-template-columns:var\(--guide-h\) minmax\(0, 1fr\)/);
+  assert.match(entry, /grid-template-rows:auto auto minmax\(0, auto\)/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?justify-content:flex-end/);
+  assert.doesNotMatch(entry, /\.card-actions \{[\s\S]*?border-top:1px solid/);
+  assert.match(entry, /--cta-w:320px/);
+  assert.match(entry, /--cta-h:52px/);
+  assert.match(entry, /--guide-h:92px/);
+  assert.match(entry, /--bot-size:84px/);
+  assert.match(entry, /ENTRY_YEARS = \[2026, 2027, 2028\]/);
+  assert.match(entry, /year-actions/);
+  assert.match(entry, /card-actions year-actions/);
+  assert.match(entry, /<h2 id="adminTitle">管理ハブシート<\/h2>/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?width:var\(--cta-w\)/);
+  assert.match(entry, /\.card-actions \{[\s\S]*?flex:0 0 auto/);
+  assert.match(entry, /\.pick\.empty \{/);
+  assert.doesNotMatch(entry, /\.pick\.empty \{[^}]*pointer-events:none/);
+  assert.match(entry, /ArrowRight|ArrowLeft/);
+  assert.match(entry, /\.loading::before/);
+  assert.match(entry, /@media \(max-width:640px\)/);
+  assert.match(core, /Do not filter by the signed-in actor/);
   assert.doesNotMatch(entry, /名前を入力/);
-  assert.doesNotMatch(entry, /previewBooksHtml|book ghost/);
+  assert.match(entry, /previewBooksHtml/);
+  assert.match(entry, /book ghost/);
+  assert.doesNotMatch(entry, /previewYearsHtml/);
   assert.doesNotMatch(entry, /表示できる計画はまだありません/);
   assert.doesNotMatch(entry, /data-speech|guideSpeech|mouseenter|word-break:keep-all/);
   assert.doesNotMatch(entry, /<br\s*\/?>/);
+  // 1.7.38 UX audit: failure keeps a next step, returning from the creation tab refreshes in place,
+  // the empty year says where sheets exist, and rows do not repeat the selected year.
+  assert.match(entry, /id="retryButton"/);
+  assert.match(entry, /もう一度読み込む/);
+  assert.match(entry, /addEventListener\('click', load\)/);
+  assert.match(entry, /visibilitychange/);
+  assert.match(entry, /function applyRefresh/);
+  assert.match(entry, /function refreshIfStale/);
+  assert.match(entry, /REFRESH_AFTER_MS = 20000/);
+  assert.match(entry, /function emptyYearTalk/);
+  assert.match(entry, /作成済みは ' \+/);
+  assert.doesNotMatch(entry, /EXISTING_EMPTY_YEAR_TALK|並びはこの枠のとおり|並び方はこの枠のとおり/);
+  assert.match(entry, /テンプレや権限の整備はここから/);
+  assert.doesNotMatch(entry, /管理担当の人だけ/, 'Only admins see the card now, so the bubble need not address non-admins');
+  // §4-1: the admin card must be decided per user, outside the shared entry cache.
+  assert.match(core, /function vNextPortalAdminHubUrlFor_/);
+  assert.match(core, /ADMIN_PROJECTION_SCHEMA: 'vnext-portal-admin-projection-1'/);
+  assert.match(core, /adminHubUrl: '',/, 'Cached entry model must not carry adminHubUrl');
+  const getEntryBody = core.slice(core.indexOf('function vNextPortalGetEntryModel'), core.indexOf('function vNextPortalAdminHubUrlFor_'));
+  assert.match(getEntryBody, /vNextPortalAdminHubUrlFor_\(config, vNextPortalActiveUserEmail_\(\)\)/);
+  assert.doesNotMatch(getEntryBody, /vNextPortalSafeSpreadsheetUrl_\(config\.admin_hub_url\)/,
+    'admin_hub_url presence alone must never show the admin card');
+  assert.match(entry, /右側に申請フォームが出るよ/);
+  assert.match(entry, /function openCreateLanding/);
+  assert.match(entry, /vNextPortalMarkCreateLanding\(\)/);
+  assert.match(entry, /open=create/);
+  assert.match(entry, /vnext-open-intent/);
+  assert.match(ux, /function vNextPortalMarkCreateLanding\(/);
+  assert.match(ux, /function vNextPortalConsumeCreateLanding_/);
+  assert.match(ux, /getUserCache\(\)/);
+  assert.match(ux, /template\.initialPanel/);
+  assert.match(ux, /e\.parameter\.open/);
+  assert.match(html, /data-initial-panel/);
+  assert.match(html, /initialPanel === 'create'/);
+  assert.doesNotMatch(entry, /右側に出る案内で申請するよ/);
+  assert.doesNotMatch(entry, /'<div class="book-meta">' \+ yearLabel/);
+  assert.match(entry, /<div class="book-meta">次に行う操作<\/div>/);
+  assert.doesNotMatch(entry, /年度 · 次に行う操作/);
+  assert.match(entry, /replace\(\/クライアント年度ブック\|専用ブック\|ブック\/g, '予測シート'\)/);
+  assert.match(entry, /if \(count > bestCount\)/);
   assert.doesNotMatch(core, /cached\.actorEmail/);
   const characters = await readFile(path.join(sourceDir, 'Characters.html'), 'utf8');
   assert.match(characters, /CHARACTER_LIBRARY/);
   assert.match(characters, /"yajirushi"/);
   assert.match(characters, /"kurippu"/);
+  assert.match(characters, /"haguruma"/);
 }

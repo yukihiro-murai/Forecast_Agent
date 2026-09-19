@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="vnext-open-intent" content="<?!= openIntent || '' ?>">
   <title>年度予算策定</title>
   <?!= HtmlService.createHtmlOutputFromFile('Characters').getContent() ?>
   <style>
@@ -13,43 +14,76 @@
       --bubble-bg:#F3FAFF; --bubble-line:#CFE9FA;
       --radius:14px; --shadow:0 1px 2px rgba(15,42,71,.06), 0 8px 24px rgba(15,42,71,.06);
       --warn-bg:#FFF6E8; --warn-fg:#A65C00; --good-bg:#E8F7EF; --good-fg:#0F7B3A;
+      --card-pad:28px; --stack:16px; --guide-h:92px;
+      --cta-w:320px; --cta-h:52px; --bot-size:84px;
     }
     * { box-sizing:border-box; }
+    html {
+      min-height:100%;
+      background:linear-gradient(180deg,#E9F3FB 0%, var(--bg) 240px) no-repeat var(--bg);
+    }
     body {
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;
       max-width:880px; margin:0 auto; padding:36px 16px 72px;
       color:var(--text); font-size:18px; line-height:1.7; font-weight:400;
       overflow-wrap:break-word; -webkit-font-smoothing:antialiased;
-      background:linear-gradient(180deg,#E9F3FB 0%, var(--bg) 240px);
+      background:transparent;
     }
+    .appHead { margin:0 0 24px; }
     h1 {
-      font-size:28px; font-weight:600; margin:0 0 20px; color:var(--navy);
+      display:flex; align-items:center; gap:12px;
+      font-size:28px; font-weight:600; margin:0; color:var(--navy);
       letter-spacing:.01em;
     }
-    h2 { font-size:20px; font-weight:600; margin:0; line-height:1.45; color:var(--navy); }
+    .brand-icon {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:36px; height:36px; flex-shrink:0;
+      border-radius:10px; background:#E8F4FC; border:1.5px solid #B9DFF5;
+      color:var(--primary);
+    }
+    .brand-icon svg { width:22px; height:22px; display:block; }
+    h2 {
+      font-size:20px; font-weight:600; margin:0; line-height:1.35; color:var(--navy);
+      min-width:0; flex:1 1 auto;
+    }
+    #app {
+      display:grid; gap:20px;
+    }
     .card {
-      background:var(--card); border-radius:var(--radius); padding:24px 24px 26px;
-      margin:0 0 20px; border:1px solid var(--line); box-shadow:var(--shadow);
+      display:grid;
+      grid-template-columns:minmax(0, 1fr);
+      grid-template-rows:auto auto minmax(0, auto);
+      align-content:start;
+      background:var(--card); border-radius:var(--radius);
+      padding:var(--card-pad);
+      margin:0; border:1px solid var(--line); box-shadow:var(--shadow);
     }
     .card.primary-card {
       border-color:#B9DFF5;
       box-shadow:0 1px 2px rgba(0,160,233,.08), 0 10px 28px rgba(15,42,71,.08);
     }
+    #adminCard:not(.hidden) {
+      margin-top:28px;
+      border-color:#C5D3E2;
+      box-shadow:0 1px 2px rgba(15,42,71,.07), 0 10px 26px rgba(15,42,71,.08);
+    }
     .cast {
-      display:grid; grid-template-columns:72px minmax(0, 1fr); column-gap:14px;
-      align-items:center; margin:0 0 16px;
+      display:grid; grid-template-columns:var(--guide-h) minmax(0, 1fr);
+      column-gap:16px; align-items:center;
+      margin:0 0 var(--stack); min-height:var(--guide-h);
     }
     .bot-slot {
       display:flex; align-items:center; justify-content:center;
-      width:72px; height:64px;
+      width:var(--guide-h); height:var(--guide-h);
     }
-    .bot { width:64px; height:64px; display:block; overflow:visible; }
+    .bot { width:var(--bot-size); height:var(--bot-size); display:block; overflow:visible; }
     .bot svg { width:100%; height:100%; display:block; }
     .bubble {
-      position:relative; flex:1; min-width:0;
+      position:relative; min-width:0; min-height:64px;
+      display:flex; align-items:center;
       background:var(--bubble-bg); color:var(--text);
-      border:1.5px solid var(--bubble-line); border-radius:16px;
-      padding:13px 16px; font-size:16px; font-weight:400; line-height:1.6;
+      border:1.5px solid var(--bubble-line); border-radius:var(--radius);
+      padding:14px 18px; font-size:16px; font-weight:400; line-height:1.55;
     }
     .bubble::before {
       content:""; position:absolute; left:-7px; top:50%; width:12px; height:12px;
@@ -59,49 +93,98 @@
       transform:rotate(45deg);
     }
     .bubble p { margin:0; }
-    .card-head { margin:0 0 14px; }
-    .cta-row {
-      display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end;
-      gap:12px; margin-top:4px;
+    .card-head {
+      display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+      gap:12px 16px; margin:0; min-height:var(--cta-h);
     }
+    .card-head.has-body { margin:0 0 var(--stack); }
+    .card-actions {
+      display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end;
+      gap:10px; margin:0 0 0 auto; padding:0;
+      flex:0 0 auto;
+      width:var(--cta-w); max-width:100%;
+      min-height:var(--cta-h);
+    }
+    .card-actions:empty {
+      display:none; padding:0; min-height:0;
+    }
+    .card-actions.year-actions {
+      flex:0 1 auto;
+      width:auto; min-width:0;
+    }
+    .card-actions.year-actions .picks {
+      width:100%;
+      justify-content:flex-end;
+      gap:10px;
+    }
+    .card-body {
+      display:grid; gap:12px; align-content:start;
+      margin:0; min-height:0;
+    }
+    .card-body:empty { display:none; margin:0; }
     a.btn, button, .pick {
       font-family:inherit; font-weight:600; cursor:pointer; border:none; text-decoration:none;
+      transition:background .12s ease, border-color .12s ease, box-shadow .12s ease, color .12s ease;
+    }
+    a.btn-primary, button.btn-primary,
+    a.btn-admin {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:100%; height:var(--cta-h);
+      min-width:0; max-width:none;
+      min-height:var(--cta-h); max-height:var(--cta-h);
+      padding:0 20px; font-size:18px;
+      border-radius:12px; line-height:1.2; white-space:nowrap;
     }
     a.btn-primary, button.btn-primary {
-      display:inline-flex; align-items:center; justify-content:center;
-      min-height:48px; padding:12px 22px; font-size:17px;
-      border-radius:12px; line-height:1.35;
       background:var(--primary); color:#fff;
       box-shadow:0 2px 10px rgba(0,160,233,.28);
     }
     a.btn-primary:hover, button.btn-primary:hover { background:#0090D6; }
+    a.btn-primary:active, button.btn-primary:active { background:#0082C2; box-shadow:none; }
     a.btn-primary[aria-disabled="true"] { opacity:.4; pointer-events:none; box-shadow:none; }
-    a.btn-open {
+    a.btn-admin {
+      background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
+      box-shadow:none;
+    }
+    a.btn-admin:hover { background:#F4F7FA; border-color:var(--primary); }
+    a.btn-admin:active { background:#EAF0F6; }
+    .btn-open {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; min-width:72px; padding:8px 16px; font-size:15px;
-      border-radius:10px; line-height:1.35; flex-shrink:0;
-      background:var(--primary); color:#fff;
+      width:72px; height:40px;
+      min-width:72px; max-width:72px;
+      min-height:40px; max-height:40px;
+      padding:0 12px; font-size:15px;
+      border-radius:10px; line-height:1.2; flex-shrink:0;
+      background:var(--primary); color:#fff; font-weight:600;
     }
     a.btn-open:hover { background:#0090D6; }
-    a.btn-admin {
-      display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; font-size:15px;
-      border-radius:10px; line-height:1.35;
-      background:#fff; color:var(--navy); border:1.5px solid var(--line-strong);
+    a.btn-open:active { background:#0082C2; }
+    .book.ghost .btn-open {
+      opacity:.45; pointer-events:none; cursor:default;
     }
-    a.btn-admin:hover { background:#F4F7FA; }
     :focus { outline:none; }
     :focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
-    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; }
+    .picks { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
     .pick {
       display:inline-flex; align-items:center; justify-content:center;
-      min-height:40px; padding:8px 14px; border-radius:99px;
-      border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:15px;
+      min-height:44px; min-width:96px; padding:8px 16px; border-radius:10px;
+      border:1.5px solid var(--line-strong); background:#fff; color:var(--navy); font-size:16px;
     }
-    .pick:hover { border-color:var(--primary); }
+    .pick:hover { border-color:var(--primary); background:#F5FBFF; }
+    .pick.empty {
+      border-style:dashed; color:var(--muted); background:#FAFCFE;
+    }
+    .pick.empty:hover { color:var(--navy); }
     .pick.selected, .pick[aria-pressed="true"] {
-      background:#F5FBFF; color:var(--navy); border-color:var(--primary);
+      background:var(--navy); color:#fff; border-color:var(--navy); border-style:solid;
       box-shadow:inset 0 0 0 1px var(--primary);
+    }
+    .pick.selected:hover, .pick[aria-pressed="true"]:hover {
+      background:#173F66; border-color:#173F66; color:#fff;
+    }
+    .pick.ghost {
+      border-style:dashed; color:#8A99A8; background:#FAFCFE; pointer-events:none;
+      box-shadow:none;
     }
     .books { display:grid; gap:8px; }
     .book {
@@ -115,95 +198,165 @@
       border-color:var(--primary); background:#F5FBFF;
       box-shadow:0 1px 4px rgba(15,42,71,.08);
     }
+    .book.ghost {
+      border-style:dashed; border-color:var(--line-strong); background:#FAFCFE;
+      pointer-events:none; box-shadow:none;
+    }
     .book-main { min-width:0; flex:1; }
     .book-name { font-size:16px; font-weight:600; color:var(--navy); line-height:1.4; }
     .book-meta { font-size:14px; color:var(--muted); margin-top:2px; line-height:1.4; }
+    .book.ghost .book-name, .book.ghost .book-meta { color:#8A99A8; }
     .book-side {
       display:flex; align-items:center; gap:10px; flex-shrink:0;
     }
     .chip {
-      display:inline-block; border-radius:99px; padding:5px 12px;
+      display:inline-block; border-radius:8px; padding:5px 12px;
       font-size:14px; font-weight:600; background:var(--chip); color:var(--navy); white-space:nowrap;
     }
     .chip.warn { background:var(--warn-bg); color:var(--warn-fg); }
     .chip.good { background:var(--good-bg); color:var(--good-fg); }
-    .empty { color:var(--muted); margin:4px 0 0; font-size:16px; line-height:1.55; }
-    .loading { color:var(--muted); padding:8px 0; }
+    .book.ghost .chip {
+      background:#fff; border:1.5px dashed var(--line-strong); color:#8A99A8; font-weight:500;
+    }
+    .loading {
+      display:flex; align-items:center; gap:10px;
+      color:var(--muted); font-size:16px; padding:12px 0;
+    }
+    .loading::before {
+      content:""; flex-shrink:0; width:18px; height:18px; border-radius:50%;
+      border:2px solid var(--line-strong); border-top-color:var(--primary);
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
     .error {
+      display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
       color:#C0392B; background:#FDECEC; border-radius:10px; padding:12px 14px;
+      border:1px solid #F5C6C2; border-left:4px solid #C0392B; font-size:16px;
     }
-    .foot {
-      margin-top:28px; padding-top:16px; border-top:1px solid var(--line);
-      display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
-      gap:10px; color:var(--muted); font-size:15px;
+    .error span { flex:1 1 240px; min-width:0; }
+    .btn-retry {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-height:40px; padding:0 16px; border-radius:10px; font-size:15px;
+      background:#fff; color:#C0392B; border:1.5px solid #C0392B;
+      margin-left:auto; flex-shrink:0;
     }
+    .btn-retry:hover { background:#FFF3F2; }
     .hidden { display:none !important; }
+    @media (max-width:640px) {
+      :root { --cta-w:100%; }
+      h2 { flex:1 1 100%; }
+      .card-actions { width:100%; flex:1 1 100%; margin-left:0; }
+      .card-actions.year-actions { width:100%; }
+      .card-actions.year-actions .picks { justify-content:stretch; }
+      .card-actions.year-actions .pick { flex:1 1 0; min-width:0; padding:8px 10px; }
+    }
     @media (max-width:520px) {
+      :root { --card-pad:20px; --guide-h:76px; --bot-size:68px; }
+      body { padding:24px 12px 56px; }
       h1 { font-size:24px; }
       h2 { font-size:18px; }
-      .card { padding:20px 16px 22px; }
-      .cast { grid-template-columns:64px minmax(0, 1fr); }
-      .bot-slot { width:64px; height:56px; }
-      .bot { width:56px; height:56px; }
-      .cta-row { justify-content:stretch; }
-      a.btn-primary { width:100%; }
+      .cast { column-gap:12px; }
+      .bubble { padding:12px 14px; font-size:15px; }
+      .bubble::before { left:-6px; }
       .book { flex-wrap:wrap; }
       .book-side { width:100%; justify-content:space-between; }
+      #adminCard:not(.hidden) { margin-top:16px; }
     }
     @media (prefers-reduced-motion:reduce) {
-      .book, .pick { transition:none; }
+      .book, .pick, a.btn, button { transition:none; }
+      .loading::before { animation:none; }
     }
   </style>
 </head>
 <body>
   <header class="appHead">
-    <h1>年度予算策定</h1>
+    <h1>
+      <span class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3.5" y="5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="1.75"/>
+          <path d="M3.5 9.5h17" stroke="currentColor" stroke-width="1.75"/>
+          <path d="M8 3.5v3M16 3.5v3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+          <path d="M8 14v3.5M12 12v5.5M16 13.5V17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+        </svg>
+      </span>
+      年度予算策定
+    </h1>
   </header>
 
-  <div id="error" class="error hidden" role="alert"></div>
+  <div id="error" class="error hidden" role="alert">
+    <span id="errorText"></span>
+    <button type="button" id="retryButton" class="btn-retry">もう一度読み込む</button>
+  </div>
   <div id="loading" class="loading">画面を読み込んでいます…</div>
 
   <div id="app" class="hidden">
-    <section id="existingCard" class="card hidden" aria-labelledby="existingTitle">
-      <div class="cast">
-        <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
-        <div class="bubble">
-          <p id="existingBubble">ここにあるものを開けば続きます。</p>
-        </div>
-      </div>
-      <div class="card-head">
-        <h2 id="existingTitle">あなたの年度一覧</h2>
-      </div>
-      <div id="years" class="picks" role="group" aria-label="年度"></div>
-      <div id="books" class="books" aria-live="polite"></div>
-    </section>
-
-    <section id="createCard" class="card" aria-labelledby="createTitle">
+    <section id="createCard" class="card primary-card" aria-labelledby="createTitle">
       <div class="cast">
         <span class="bot-slot"><span id="createBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
-          <p id="createBubble">新しく始めるなら、このボタンです。</p>
+          <p id="createBubble">まだシートが無いクライアントはここから。開いた先の右側に申請フォームが出るよ。</p>
         </div>
       </div>
-      <div class="card-head">
+      <header class="card-head">
         <h2 id="createTitle">新しい予測シート</h2>
+        <div class="card-actions">
+          <a id="createButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい予測シートを作る</a>
+        </div>
+      </header>
+      <div class="card-body"></div>
+    </section>
+
+    <section id="existingCard" class="card" aria-labelledby="existingTitle">
+      <div class="cast">
+        <span class="bot-slot"><span id="existingBot" class="bot" aria-hidden="true"></span></span>
+        <div class="bubble">
+          <p id="existingBubble">年度を選ぶと、用意済みのクライアントが並ぶよ。既存シートはここから開く。</p>
+        </div>
       </div>
-      <div class="cta-row">
-        <a id="createButton" class="btn btn-primary" href="#" target="_blank" rel="noopener">新しい予測シートを作る</a>
+      <header class="card-head has-body">
+        <h2 id="existingTitle">作成済みシート</h2>
+        <div class="card-actions year-actions">
+          <div id="years" class="picks" role="group" aria-label="年度"></div>
+        </div>
+      </header>
+      <div class="card-body">
+        <div id="books" class="books" aria-live="polite"></div>
       </div>
     </section>
 
-    <footer class="foot">
-      <span>管理担当の方</span>
-      <a id="adminButton" class="btn btn-admin hidden" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
-    </footer>
+    <section id="adminCard" class="card hidden" aria-labelledby="adminTitle">
+      <div class="cast">
+        <span class="bot-slot"><span id="adminBot" class="bot" aria-hidden="true"></span></span>
+        <div class="bubble">
+          <p id="adminBubble">テンプレや権限の整備はここから。</p>
+        </div>
+      </div>
+      <header class="card-head">
+        <h2 id="adminTitle">管理ハブシート</h2>
+        <div class="card-actions">
+          <a id="adminButton" class="btn btn-admin" href="#" target="_blank" rel="noopener">管理ハブを開く</a>
+        </div>
+      </header>
+      <div class="card-body"></div>
+    </section>
   </div>
 
   <script>
     var CREATE_CHAR_ID = 'yajirushi';
     var EXISTING_CHAR_ID = 'kurippu';
+    var ADMIN_CHAR_ID = 'haguruma';
+    var CREATE_TALK = 'まだシートが無いクライアントはここから。開いた先の右側に申請フォームが出るよ。';
+    var EXISTING_DEFAULT_TALK = '年度を選ぶと、用意済みのクライアントが並ぶよ。既存シートはここから開く。';
+    var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みのシートは無いよ。上の「新しい予測シートを作る」から始めよう。';
+    var ADMIN_TALK = 'テンプレや権限の整備はここから。';
+    var ENTRY_YEARS = [2026, 2027, 2028];
+    var REFRESH_AFTER_MS = 20000;
     var entryModel = null;
     var selectedYear = 0;
+    var existingTalkOverride = '';
+    var freshNotice = '';
+    var loadedAt = 0;
+    var loading = false;
     function chipClass(tone) {
       if (tone === 'warn') return 'chip warn';
       if (tone === 'good') return 'chip good';
@@ -213,67 +366,114 @@
       return String(value == null ? '' : value)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    // The entry speaks of "シート" everywhere; server texts still say "ブック".
     function userFacing(value) {
       return String(value == null ? '' : value)
-        .replace(/専用ブック/g, 'クライアント年度ブック')
-        .replace(/ブック/g, 'クライアント年度ブック');
+        .replace(/クライアント年度ブック|専用ブック|ブック/g, '予測シート');
+    }
+    function bookKey(book) {
+      return String(book.clientName) + '|FY' + String(book.fiscalYear);
     }
     function booksForYear(year) {
       return (entryModel.books || []).filter(function (book) {
         return Number(book.fiscalYear) === Number(year);
       });
     }
-    function paintCharacter(botId, bubbleId, charId, fallbackTalk) {
+    function yearsWithBooks() {
+      return ENTRY_YEARS.filter(function (year) { return booksForYear(year).length > 0; });
+    }
+    function emptyYearTalk(year) {
+      var others = yearsWithBooks().filter(function (item) { return item !== Number(year); });
+      if (!others.length) return year + '年度はまだ無いよ。上の「新しい予測シートを作る」から始めよう。';
+      return year + '年度はまだ無いよ。作成済みは ' +
+        others.map(function (item) { return item + '年度'; }).join('・') + ' にあるよ。';
+    }
+    function previewBooksHtml() {
+      var row = '<div class="book ghost" aria-hidden="true">' +
+        '<div class="book-main"><div class="book-name">クライアント名</div>' +
+        '<div class="book-meta">次に行う操作</div></div>' +
+        '<div class="book-side"><span class="chip">状態</span>' +
+        '<span class="btn-open" aria-hidden="true">開く</span></div></div>';
+      return row + row;
+    }
+    function paintCharacter(botId, bubbleId, charId, talk) {
       var bot = document.getElementById(botId);
       var bubble = document.getElementById(bubbleId);
       if (typeof characterSvg === 'function') {
         bot.innerHTML = characterSvg(charId, 'happy') || characterSvg(charId) || '';
       }
-      var line = '';
-      if (typeof characterTalk === 'function') {
-        line = characterTalk(charId, 'hello') || characterLine(charId) || '';
-      } else if (typeof characterLine === 'function') {
-        line = characterLine(charId) || '';
+      bubble.textContent = talk;
+    }
+    function paintExistingBubble() {
+      var bubble = document.getElementById('existingBubble');
+      if (!bubble) return;
+      bubble.textContent = existingTalkOverride || EXISTING_DEFAULT_TALK;
+    }
+    function rememberYear(year) {
+      selectedYear = Number(year);
+      try { sessionStorage.setItem('vnext-entry-year', String(selectedYear)); } catch (ignored) {}
+    }
+    function selectYear(year, focus) {
+      rememberYear(year);
+      paintYears();
+      paintBooks();
+      if (focus) {
+        var target = document.querySelector('#years [data-year="' + selectedYear + '"]');
+        if (target) target.focus();
       }
-      bubble.textContent = line || fallbackTalk;
     }
     function paintYears() {
-      var years = entryModel.years || [];
       var box = document.getElementById('years');
-      if (!years.length) {
-        box.innerHTML = '';
-        return;
-      }
-      box.innerHTML = years.map(function (year) {
+      box.innerHTML = ENTRY_YEARS.map(function (year) {
         var pressed = Number(year) === Number(selectedYear) ? 'true' : 'false';
-        var selected = pressed === 'true' ? ' selected' : '';
-        return '<button type="button" class="pick' + selected + '" data-year="' + year +
+        var classes = 'pick';
+        if (pressed === 'true') classes += ' selected';
+        // Years without a prepared sheet stay clickable; the dashed look only hints at it.
+        if (!booksForYear(year).length) classes += ' empty';
+        return '<button type="button" class="' + classes + '" data-year="' + year +
           '" aria-pressed="' + pressed + '">' + year + '年度</button>';
       }).join('');
-      Array.prototype.forEach.call(box.querySelectorAll('[data-year]'), function (button) {
+      Array.prototype.forEach.call(box.querySelectorAll('[data-year]'), function (button, index, list) {
         button.addEventListener('click', function () {
-          selectedYear = Number(button.getAttribute('data-year'));
-          try { sessionStorage.setItem('vnext-entry-year', String(selectedYear)); } catch (ignored) {}
-          paintYears();
-          paintBooks();
+          selectYear(button.getAttribute('data-year'), false);
+        });
+        button.addEventListener('keydown', function (event) {
+          var step = 0;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') step = 1;
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') step = -1;
+          if (!step) return;
+          event.preventDefault();
+          var next = list[(index + step + list.length) % list.length];
+          selectYear(next.getAttribute('data-year'), true);
         });
       });
     }
     function paintBooks() {
       var box = document.getElementById('books');
-      var rows = selectedYear ? booksForYear(selectedYear) : (entryModel.books || []);
-      if (!rows.length) {
-        box.innerHTML = '<p class="empty">この年度のシートはまだありません。</p>';
+      var allBooks = entryModel.books || [];
+      existingTalkOverride = '';
+      if (!allBooks.length) {
+        box.innerHTML = previewBooksHtml();
+        existingTalkOverride = EXISTING_EMPTY_ALL_TALK;
+        paintExistingBubble();
         return;
       }
+      var rows = selectedYear ? booksForYear(selectedYear) : allBooks;
+      if (!rows.length) {
+        box.innerHTML = previewBooksHtml();
+        existingTalkOverride = emptyYearTalk(selectedYear);
+        paintExistingBubble();
+        return;
+      }
+      existingTalkOverride = freshNotice;
+      paintExistingBubble();
       box.innerHTML = rows.map(function (book) {
-        var yearLabel = escapeHtml(book.fiscalYear) + '年度';
-        var meta = book.nextAction
-          ? escapeHtml(userFacing(book.nextAction))
-          : yearLabel;
+        // The selected year already frames every row, so the meta line carries only the next step.
+        var meta = book.nextAction ? escapeHtml(userFacing(book.nextAction)) : '';
+        if (!selectedYear) meta = escapeHtml(book.fiscalYear) + '年度' + (meta ? ' · ' + meta : '');
         var body =
           '<div class="book-main"><div class="book-name">' + escapeHtml(book.clientName) + '</div>' +
-          '<div class="book-meta">' + yearLabel + (book.nextAction ? ' · ' + meta : '') + '</div></div>' +
+          (meta ? '<div class="book-meta">' + meta + '</div>' : '') + '</div>' +
           '<div class="book-side"><span class="' + chipClass(book.tone) + '">' +
           escapeHtml(userFacing(book.stateLabel)) + '</span>';
         if (book.url) {
@@ -284,13 +484,31 @@
         return '<div class="book">' + body + '</div>';
       }).join('');
     }
+    function createLandingUrl(portalUrl) {
+      if (!portalUrl) return '#';
+      return portalUrl + (portalUrl.indexOf('?') >= 0 ? '&' : '?') + 'open=create';
+    }
+    function openCreateLanding(portalUrl) {
+      if (!portalUrl) return;
+      var url = createLandingUrl(portalUrl);
+      var opened = false;
+      function go() {
+        if (opened) return;
+        opened = true;
+        var win = window.open(url, '_blank');
+        if (win) try { win.opener = null; } catch (ignored) {}
+      }
+      // Prefer waiting for the UserCache mark, but do not leave the user stuck if it fails.
+      var timer = setTimeout(go, 900);
+      google.script.run
+        .withSuccessHandler(function () { clearTimeout(timer); go(); })
+        .withFailureHandler(function () { clearTimeout(timer); go(); })
+        .vNextPortalMarkCreateLanding();
+    }
     function paintCreateCta(model) {
       var createButton = document.getElementById('createButton');
-      var createCard = document.getElementById('createCard');
-      var hasBooks = (model.books || []).length > 0;
-      createCard.classList.toggle('primary-card', !hasBooks);
       if (model.portalUrl) {
-        createButton.href = model.portalUrl;
+        createButton.href = createLandingUrl(model.portalUrl);
         createButton.setAttribute('target', '_blank');
         createButton.setAttribute('rel', 'noopener');
         createButton.removeAttribute('aria-disabled');
@@ -301,51 +519,135 @@
         createButton.setAttribute('aria-disabled', 'true');
       }
     }
-    function paintLayout(model) {
-      var existingCard = document.getElementById('existingCard');
-      var hasBooks = (model.books || []).length > 0;
-      if (hasBooks) existingCard.classList.remove('hidden');
-      else existingCard.classList.add('hidden');
-    }
-    function render(model) {
-      entryModel = model || { books: [], years: [] };
-      document.getElementById('loading').classList.add('hidden');
-      document.getElementById('app').classList.remove('hidden');
-      paintCharacter('createBot', 'createBubble', CREATE_CHAR_ID, '新しく始めるなら、このボタンです。');
-      paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, 'ここにあるものを開けば続きます。');
-      paintCreateCta(entryModel);
-      paintLayout(entryModel);
+    function paintAdmin(model) {
+      var adminCard = document.getElementById('adminCard');
       var adminButton = document.getElementById('adminButton');
       if (model.adminHubUrl) {
         adminButton.href = model.adminHubUrl;
-        adminButton.classList.remove('hidden');
+        adminCard.classList.remove('hidden');
+        paintCharacter('adminBot', 'adminBubble', ADMIN_CHAR_ID, ADMIN_TALK);
       } else {
         adminButton.href = '#';
-        adminButton.classList.add('hidden');
+        adminCard.classList.add('hidden');
       }
-      var years = entryModel.years || [];
+    }
+    function resolveSelectedYear() {
       var remembered = 0;
       try { remembered = Number(sessionStorage.getItem('vnext-entry-year') || 0); } catch (ignored) {}
-      selectedYear = 0;
-      years.forEach(function (year) {
-        if (!selectedYear && Number(year) === remembered) selectedYear = Number(year);
+      if (ENTRY_YEARS.indexOf(remembered) >= 0) return remembered;
+      // Land on the year that already has sheets, so the first view is a real list rather than a ghost preview.
+      var best = 0;
+      var bestCount = 0;
+      ENTRY_YEARS.forEach(function (year) {
+        var count = booksForYear(year).length;
+        if (count > bestCount) { best = year; bestCount = count; }
       });
-      if (!selectedYear && years.length) selectedYear = Number(years[0]);
+      if (best) return best;
+      var modelYears = entryModel.years || [];
+      var i;
+      for (i = 0; i < ENTRY_YEARS.length; i++) {
+        if (modelYears.indexOf(ENTRY_YEARS[i]) >= 0) return ENTRY_YEARS[i];
+      }
+      return ENTRY_YEARS[0];
+    }
+    function render(model) {
+      loading = false;
+      loadedAt = Date.now();
+      entryModel = model || { books: [], years: [] };
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      paintCharacter('createBot', 'createBubble', CREATE_CHAR_ID, CREATE_TALK);
+      paintCharacter('existingBot', 'existingBubble', EXISTING_CHAR_ID, EXISTING_DEFAULT_TALK);
+      paintCreateCta(entryModel);
+      paintAdmin(entryModel);
+      selectedYear = resolveSelectedYear();
       paintYears();
       paintBooks();
+      maybeAutoOpenCreate();
+    }
+    function maybeAutoOpenCreate() {
+      var meta = document.querySelector('meta[name="vnext-open-intent"]');
+      var intent = meta ? String(meta.getAttribute('content') || '') : '';
+      if (intent !== 'create' || !entryModel || !entryModel.portalUrl) return;
+      if (meta) meta.setAttribute('content', '');
+      openCreateLanding(entryModel.portalUrl);
+    }
+    // Coming back from the creation tab: refresh in place and land on the year where the new row appeared.
+    function applyRefresh(model) {
+      loading = false;
+      loadedAt = Date.now();
+      if (!model || !Array.isArray(model.books)) return;
+      var before = {};
+      (entryModel.books || []).forEach(function (book) { before[bookKey(book)] = true; });
+      var added = model.books.filter(function (book) { return !before[bookKey(book)]; });
+      entryModel = model;
+      paintCreateCta(entryModel);
+      paintAdmin(entryModel);
+      freshNotice = '';
+      if (added.length) {
+        var inSelected = added.some(function (book) { return Number(book.fiscalYear) === selectedYear; });
+        if (!inSelected) {
+          var target = 0;
+          added.forEach(function (book) {
+            var year = Number(book.fiscalYear);
+            if (ENTRY_YEARS.indexOf(year) >= 0 && year > target) target = year;
+          });
+          if (target) rememberYear(target);
+        }
+        var shown = added.filter(function (book) { return Number(book.fiscalYear) === selectedYear; });
+        if (shown.length === 1) {
+          freshNotice = selectedYear + '年度に「' + shown[0].clientName + '」が増えたよ。';
+        } else if (shown.length > 1) {
+          freshNotice = selectedYear + '年度に ' + shown.length + ' 件増えたよ。';
+        }
+      }
+      paintYears();
+      paintBooks();
+      freshNotice = '';
+    }
+    function refreshIfStale() {
+      if (loading || !entryModel) return;
+      if (Date.now() - loadedAt < REFRESH_AFTER_MS) return;
+      loading = true;
+      google.script.run
+        .withSuccessHandler(applyRefresh)
+        .withFailureHandler(function () {
+          // Keep the current list; a quiet background refresh must never replace it with an error.
+          loading = false;
+          loadedAt = Date.now();
+        })
+        .vNextPortalGetEntryModel();
     }
     function fail(message) {
+      loading = false;
+      loadedAt = Date.now();
       document.getElementById('loading').classList.add('hidden');
-      var el = document.getElementById('error');
-      el.textContent = message;
-      el.classList.remove('hidden');
+      document.getElementById('errorText').textContent = message;
+      document.getElementById('error').classList.remove('hidden');
     }
-    google.script.run
-      .withSuccessHandler(render)
-      .withFailureHandler(function (error) {
-        fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
-      })
-      .vNextPortalGetEntryModel();
+    function load() {
+      loading = true;
+      document.getElementById('error').classList.add('hidden');
+      document.getElementById('loading').classList.remove('hidden');
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function (error) {
+          fail(error && error.message ? error.message : '入口を表示できませんでした。社内アカウントで開き直してください。');
+        })
+        .vNextPortalGetEntryModel();
+    }
+    document.getElementById('retryButton').addEventListener('click', load);
+    document.getElementById('createButton').addEventListener('click', function (event) {
+      if (!entryModel || !entryModel.portalUrl) return;
+      event.preventDefault();
+      openCreateLanding(entryModel.portalUrl);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshIfStale();
+    });
+    window.addEventListener('focus', refreshIfStale);
+    load();
   </script>
 </body>
 </html>

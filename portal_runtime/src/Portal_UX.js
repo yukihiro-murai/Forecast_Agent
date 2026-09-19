@@ -3,9 +3,12 @@
  * Daily work stays in one guidance sidebar. The top menu is only a recovery path.
  */
 
-function doGet() {
+function doGet(e) {
   try {
-    return HtmlService.createTemplateFromFile('Portal_Entry')
+    var template = HtmlService.createTemplateFromFile('Portal_Entry');
+    // ?open=create on /exec marks create intent and opens the portal sheet to the form.
+    template.openIntent = String((e && e.parameter && e.parameter.open) || '');
+    return template
       .evaluate()
       .setTitle(VNEXT_PORTAL_NAMING.SYSTEM)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -17,6 +20,9 @@ function doGet() {
   }
 }
 
+var VNEXT_PORTAL_CREATE_LANDING_CACHE_KEY_ = 'vnext_portal_landing_create';
+var VNEXT_PORTAL_CREATE_LANDING_TTL_SEC_ = 300;
+
 function vNextPortalPrepareOpenExperience() {
   try {
     var installed = vNextPortalEnsureGuidanceOnOpenTrigger_();
@@ -25,6 +31,43 @@ function vNextPortalPrepareOpenExperience() {
     vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', error);
     return { ok: false };
   }
+}
+
+/**
+ * Entry CTA / ?open=create: remember that this user wants the create form, then open the
+ * portal spreadsheet. onOpen (or menu「案内を開く」) consumes the flag and opens the form.
+ */
+function vNextPortalMarkCreateLanding() {
+  try {
+    vNextPortalPrepareOpenExperience();
+    if (typeof CacheService !== 'undefined') {
+      CacheService.getUserCache().put(
+        VNEXT_PORTAL_CREATE_LANDING_CACHE_KEY_,
+        'create',
+        VNEXT_PORTAL_CREATE_LANDING_TTL_SEC_
+      );
+    }
+    return { ok: true, landing: 'create' };
+  } catch (error) {
+    vNextPortalLog_('vNextPortalMarkCreateLanding failed', error);
+    return { ok: false };
+  }
+}
+
+function vNextPortalConsumeCreateLanding_() {
+  try {
+    if (typeof CacheService === 'undefined') return 'home';
+    var cache = CacheService.getUserCache();
+    var value = String(cache.get(VNEXT_PORTAL_CREATE_LANDING_CACHE_KEY_) || '');
+    if (value === 'create') {
+      try { cache.remove(VNEXT_PORTAL_CREATE_LANDING_CACHE_KEY_); }
+      catch (removeError) { vNextPortalLog_('create landing cache remove skipped', removeError); }
+      return 'create';
+    }
+  } catch (error) {
+    vNextPortalLog_('vNextPortalConsumeCreateLanding_ skipped', error);
+  }
+  return 'home';
 }
 
 function onOpen(event) {
@@ -76,9 +119,15 @@ function vNextPortalEnsureGuidanceOnOpenTrigger_() {
   return true;
 }
 
-function vNextPortalOpenGuidanceSidebarQuietly_() {
+function vNextPortalOpenGuidanceSidebarQuietly_(opt) {
   try {
-    var html = HtmlService.createTemplateFromFile('Portal_CreateSidebar').evaluate()
+    var initialPanel = opt && opt.initialPanel
+      ? String(opt.initialPanel)
+      : vNextPortalConsumeCreateLanding_();
+    if (initialPanel !== 'create') initialPanel = 'home';
+    var template = HtmlService.createTemplateFromFile('Portal_CreateSidebar');
+    template.initialPanel = initialPanel;
+    var html = template.evaluate()
       .setTitle('次にすること')
       .setWidth(430);
     SpreadsheetApp.getUi().showSidebar(html);

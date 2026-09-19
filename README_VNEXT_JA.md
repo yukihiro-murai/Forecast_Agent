@@ -21,15 +21,14 @@ Forecast vNext は、未来の売上を一点で「当てる」ものではな�
 
 ## 今すぐやること（初期設定）
 
-管理ハブ を開き、案内の「最初にやること」を上から1つずつ実行します。各操作のあと画面を再読み込みしてください。
+管理ハブ を開き、上部メニュー「年度予算策定」から実行します。案内（右側サイドバー）は日常の承認・要確認・申請処理と状態表示だけです。
 
-1. **中央配備版へ更新**（理由必須）
-2. **受入試験をゼロからやり直す**（確認語 `RESET_GENERATED_CLIENTS`）。検証用ブックと試験ログを消します
-3. **共有ドライブ「年度予算策定」へ移す**（理由必須）
-4. **既存ポータルを最新版へ更新**（理由必須）
-5. 申請入口 Spreadsheet のスクリプトから **Web アプリを社内向けに公開**。その URL が **年度予算策定 Web入口** です
+1. **保守 → 最新版に更新（管理ハブ＋申請入口）**: 1回の操作で管理ハブ runtime を中央配備版へ更新し、新しいコードの起動を待って申請入口 runtime と Web入口ピンも更新します（結果は同じダイアログに表示）
+2. **初回・復旧 → 受入試験をゼロからやり直す**（対象一覧 → 確認語 `RESET_GENERATED_CLIENTS`）。検証用ブックと試験ログを消します
+3. **初回・復旧 → 共有ドライブへ整理**（確認ダイアログのみ）
+4. 申請入口 Spreadsheet のスクリプトから **Web アプリを社内向けに公開**（初回のみ）。その URL が **年度予算策定 Web入口** です
 
-案内が出ないときは、上部メニュー「年度予算策定 → 案内を開く」を使います。
+案内が出ないときは、上部メニュー「年度予算策定 → 案内を開く」を使います。個別作成・Release・モデル版・ブック個別操作などの入力フォームは「保守 → 高度な操作を開く」です。
 
 ## 物理構成（3層・フォルダ番号順）
 
@@ -114,7 +113,7 @@ Vertex/providerが一時的に失敗した場合や、引用URLを検証でき�
 - 承認時はHubにあるSUCCESS runとSUBMITTED planからsnapshotを再構築し、組合せを検証してから公式vintageを凍結します。
 - 正式予算の訂正は、現在の公式vintageを参照するamendmentとしてだけ発行します。
 - 実績評価は、対象FYの確定実績と現在の公式vintageを検証してから生成します。
-- 管理ハブ runtime改修は中央clasp projectへpush後、管理ハブの「中央配備版へ更新」で反映します。source/targetの同一ID、target parent、18ファイルallowlist、V8 manifest、書込後SHA-256を検証します。
+- 管理ハブ runtime改修は中央clasp projectへpush後、管理ハブのメニュー「保守 → 最新版に更新」で反映します。source/targetの同一ID、target parent、18ファイルallowlist、V8 manifest、書込後SHA-256を検証します。同じ操作が続けて申請入口 runtime と `/exec` ピンも更新します（新コード起動の判定は中央から読んだ Portal bundle SHA-256 と実行中コードの bundle SHA の一致）。ダイアログを閉じても5分ごとの自動運用が引き継ぎ、申請入口が管理ハブより古い版のときも自動で追従します（`VN_SYSTEM_CONFIG.runtime_auto_follow = OFF` で停止）。`admin_auto_pull = ON` にすると中央 clasp push（project updateTime の変化）を検知して管理ハブ側も自動取込します（既定 OFF）。
 - Client runtime/UI改修は現行Templateを上書きしません。管理ハブ担当者限定Draft（code-only更新は現ACTIVE UI）から新しいprivate `STAGED` Templateを作り、そのrelease IDへ厳密に結び付いたPASS済みModel candidateとの組だけを有効化します。canonical pair pointerをCASで切り替え、property cache更新後にだけ旧TemplateをRETIREDへ移します。各phaseは追記型journalへ残るため、中断後も同じoperation IDから再開できます。
 - クライアント年度ブックは管理ハブ管理のprivate root配下へだけ生成します。任意の共有folderや、共有境界を証明できない保存先はfail-closedで拒否します。
 

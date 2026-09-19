@@ -276,9 +276,10 @@ function vNextAdminRuntimeCreateBoundSpreadsheet_(request) {
 }
 
 /** Copies the exact full 管理ハブ runtime into a known Spreadsheet-bound project. */
-function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, expectedTargetSpreadsheetId) {
+function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, expectedTargetSpreadsheetId, options) {
   try {
     vNextClientRuntimeRequireConfigurator_();
+    var opt = options && typeof options === 'object' ? options : {};
     var sourceId = vNextClientRuntimeValidateScriptId_(sourceScriptId, 'sourceScriptId');
     var targetId = vNextClientRuntimeValidateScriptId_(targetScriptId, 'targetScriptId');
     if (sourceId === targetId) throw new Error('sourceScriptId and targetScriptId must be different.');
@@ -286,6 +287,16 @@ function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, exp
     var targetProject = vNextAdminRuntimeAssertBoundParent_(targetId, spreadsheetId);
     var sourceContent = vNextClientRuntimeGetContent_(sourceId);
     var verifiedSource = vNextAdminRuntimeVerifyScriptContent_(sourceContent, sourceId);
+    var portalBundle = vNextAdminRuntimePortalBundleIdentity_(verifiedSource.files);
+    if (opt.skipIfSha256 && String(opt.skipIfSha256) === verifiedSource.sha256) {
+      Logger.log('[vNext Admin Runtime] source already deployed bundle=%s; copy skipped', verifiedSource.sha256);
+      return {
+        ok: true, skipped: true, sourceScriptId: sourceId, targetScriptId: targetId,
+        targetSpreadsheetId: spreadsheetId, targetProject: targetProject,
+        adminRuntimeSha256: verifiedSource.sha256, fileCount: verifiedSource.files.length,
+        portalBundle: portalBundle, updateResult: null
+      };
+    }
     var updateResult = vNextClientRuntimePutContent_(targetId, verifiedSource);
     if (updateResult && updateResult.scriptId && String(updateResult.scriptId) !== targetId) {
       throw new Error('Apps Script update response scriptId does not match targetScriptId.');
@@ -300,12 +311,14 @@ function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, exp
       sourceId, targetId, spreadsheetId, verifiedTarget.sha256, verifiedTarget.files.length);
     return {
       ok: true,
+      skipped: false,
       sourceScriptId: sourceId,
       targetScriptId: targetId,
       targetSpreadsheetId: spreadsheetId,
       targetProject: targetProject,
       adminRuntimeSha256: verifiedTarget.sha256,
       fileCount: verifiedTarget.files.length,
+      portalBundle: portalBundle,
       updateResult: {
         scriptId: String(updateResult && updateResult.scriptId || targetId),
         fileCount: updateResult && Array.isArray(updateResult.files) ? updateResult.files.length : 0,
@@ -316,6 +329,21 @@ function vNextAdminRuntimeCopyScriptContent_(sourceScriptId, targetScriptId, exp
     Logger.log('[vNext Admin Runtime] copy failed: ' + vNextClientRuntimeErrorText_(error));
     throw error;
   }
+}
+
+/**
+ * Reads version/sha256 of the Portal bundle carried by a 管理ハブ runtime file set,
+ * without evaluating it. The one-shot update uses this to know which Portal
+ * bundle the *new* Hub code will carry before that code is running.
+ */
+function vNextAdminRuntimePortalBundleIdentity_(files) {
+  var bundleFile = (files || []).filter(function (file) {
+    return file && String(file.name || '') === 'VNext_PortalRuntimeBundle';
+  })[0];
+  if (!bundleFile) return null;
+  var match = /"version"\s*:\s*"([^"]+)"\s*,\s*"sha256"\s*:\s*"([0-9a-f]{64})"/.exec(String(bundleFile.source || ''));
+  if (!match) return null;
+  return { version: match[1], sha256: match[2] };
 }
 
 function vNextAdminRuntimeValidateSpreadsheetId_(value, fieldName) {

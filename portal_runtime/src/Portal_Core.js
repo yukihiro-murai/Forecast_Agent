@@ -21,7 +21,7 @@ var VNEXT_PORTAL_NAMING = Object.freeze({
 
 var VNEXT_PORTAL = Object.freeze({
   MENU_NAME: VNEXT_PORTAL_NAMING.MENU,
-  RUNTIME_VERSION: 'vnext-portal-1.7.29',
+  RUNTIME_VERSION: 'vnext-portal-1.7.40',
   REQUEST_SCHEMA_VERSION: 'vnext-portal-request-2',
   LEGACY_REQUEST_SCHEMA_VERSION: 'vnext-portal-request-1',
   REQUEST_TYPE: 'CREATE_CLIENT_FY_BOOK',
@@ -31,8 +31,9 @@ var VNEXT_PORTAL = Object.freeze({
   CLIENT_CATALOG_SHEET: 'VN_PORTAL_CLIENT_CATALOG',
   CLIENT_CATALOG_CACHE_KEY: 'vnext-portal-client-catalog-v1',
   CLIENT_CATALOG_CACHE_SECONDS: 300,
-  ENTRY_CACHE_KEY: 'vnext-portal-entry-model-v1',
+  ENTRY_CACHE_KEY: 'vnext-portal-entry-model-v2',
   ENTRY_CACHE_SECONDS: 45,
+  ADMIN_PROJECTION_SCHEMA: 'vnext-portal-admin-projection-1',
   PAYLOAD_KEYS: Object.freeze([
     'catalogKey', 'clientName', 'fiscalYear', 'relatedMemberNames',
     'requestId', 'requestType', 'requestedAt', 'requestedBy', 'schemaVersion'
@@ -319,13 +320,18 @@ function vNextPortalGetEntryModel() {
       vNextPortalLog_('vNextPortalPrepareOpenExperience skipped', prepareError);
     }
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    var cached = vNextPortalReadEntryCache_();
-    if (cached) return cached;
-    var data = vNextPortalGetLocalViewData_(spreadsheet);
     var config = vNextPortalReadConfig_(spreadsheet);
+    // The admin card is decided per signed-in user, so it lives outside the document-wide cache.
+    var adminHubUrl = vNextPortalAdminHubUrlFor_(config, vNextPortalActiveUserEmail_());
+    var cached = vNextPortalReadEntryCache_();
+    if (cached) {
+      cached.adminHubUrl = adminHubUrl;
+      return cached;
+    }
+    var data = vNextPortalGetLocalViewData_(spreadsheet);
     var model = vNextPortalBuildEntryModel_(data, {
       portalUrl: spreadsheet.getUrl(),
-      adminHubUrl: vNextPortalSafeSpreadsheetUrl_(config.admin_hub_url)
+      adminHubUrl: adminHubUrl
     });
     vNextPortalWriteEntryCache_(model);
     return model;
@@ -335,6 +341,34 @@ function vNextPortalGetEntryModel() {
   }
 }
 
+/**
+ * Admin card gate (docs/portal-entry-ux-audit §4-1). Admin projects
+ * sha256(lowercase(trim(email))) hex values into VN_PORTAL_CONFIG; the URL is
+ * returned only when the signed-in user's hash is listed. Fail-closed: a missing
+ * URL, missing or mismatched schema, or an empty/invalid hash list hides the card.
+ */
+function vNextPortalAdminHubUrlFor_(config, email) {
+  var conf = config && typeof config === 'object' ? config : {};
+  var url = vNextPortalSafeSpreadsheetUrl_(conf.admin_hub_url);
+  var actor = String(email || '').trim().toLowerCase();
+  if (!url || !actor) return '';
+  if (String(conf.admin_projection_schema || '').trim() !== VNEXT_PORTAL.ADMIN_PROJECTION_SCHEMA) return '';
+  var hashes;
+  try { hashes = JSON.parse(String(conf.admin_email_hashes_json || '')); }
+  catch (parseError) { return ''; }
+  if (!Array.isArray(hashes) || !hashes.length) return '';
+  var mine = vNextPortalSha256Hex_(actor);
+  var allowed = hashes.some(function (item) {
+    return String(item || '').trim().toLowerCase() === mine;
+  });
+  return allowed ? url : '';
+}
+
+/**
+ * Employee entry list: every prepared/created client book for the fiscal year.
+ * Do not filter by the signed-in actor (owner / related member). Year chips prefer
+ * the local view years (current FY + next) and also include years present in books.
+ */
 function vNextPortalBuildEntryModel_(data, options) {
   var opt = options && typeof options === 'object' ? options : {};
   var directory = (data && data.directory) || [];
@@ -360,10 +394,12 @@ function vNextPortalBuildEntryModel_(data, options) {
     return String(a.clientName).localeCompare(String(b.clientName), 'ja');
   });
   var years = [];
-  books.forEach(function (book) {
-    var year = Number(book.fiscalYear || 0);
+  function pushYear_(value) {
+    var year = Number(value || 0);
     if (year && years.indexOf(year) < 0) years.push(year);
-  });
+  }
+  ((data && data.years) || []).forEach(pushYear_);
+  books.forEach(function (book) { pushYear_(book.fiscalYear); });
   years.sort(function (a, b) { return b - a; });
   return {
     ok: true,
@@ -394,11 +430,12 @@ function vNextPortalWriteEntryCache_(model) {
     if (typeof CacheService === 'undefined' || !model) return;
     var cache = CacheService.getDocumentCache();
     if (!cache) return;
+    // Never cache adminHubUrl: the document cache is shared by every employee.
     cache.put(VNEXT_PORTAL.ENTRY_CACHE_KEY, JSON.stringify({
       ok: true,
       runtimeVersion: model.runtimeVersion,
       portalUrl: model.portalUrl,
-      adminHubUrl: model.adminHubUrl,
+      adminHubUrl: '',
       years: model.years || [],
       books: model.books || []
     }), VNEXT_PORTAL.ENTRY_CACHE_SECONDS);

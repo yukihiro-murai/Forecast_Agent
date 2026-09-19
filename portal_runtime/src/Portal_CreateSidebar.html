@@ -87,7 +87,7 @@
   </style>
 </head>
 <body>
-  <main>
+  <main data-initial-panel="<?!= initialPanel || 'home' ?>">
     <section id="homePanel">
       <h1>次にすること</h1>
       <p class="lead">既存のクライアント年度ブックは年度予算策定 Web入口から開きます。まだ無いときは、下のボタンから申請します。</p>
@@ -659,6 +659,11 @@
         year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
       });
     }
+
+    // Entry CTA / ?open=create lands here via UserCache + template.initialPanel.
+    var initialPanel = (document.querySelector('main') &&
+      document.querySelector('main').getAttribute('data-initial-panel')) || 'home';
+    if (initialPanel === 'create') showCreate();
   </script>
 </body>
 </html>
