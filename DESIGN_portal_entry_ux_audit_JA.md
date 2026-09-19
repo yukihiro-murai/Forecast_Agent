@@ -1,8 +1,8 @@
-# Portal 入口 UX監査と改良一覧（1.7.37 → 1.7.38 → 1.7.39）
+# Portal 入口 UX監査と改良一覧（1.7.37 → 1.7.38 → 1.7.39 → 1.7.40）
 
 対象: Forecast_Agent `portal_runtime/src/Portal_Entry.html`（年度予算策定 Web入口 `/exec`）  
 基準: 1.7.37（`361b2cd`）。構造（3層カード・キャラ最上段・見出し横CTA・年度行）は不変。  
-実装版: **vnext-portal-1.7.38**（`8e721fb`）→ **1.7.39**（`1798d34`、§4-1 管理カード権限判定。Admin 投影 `b1e83e9` と統合して中央 clasp push 済 2026-09-14 18:07 JST）。証跡: Store `internal/portal-entry-ux-ship.md`  
+実装版: **vnext-portal-1.7.38**（`8e721fb`）→ **1.7.39**（`1798d34`、§4-1）→ **1.7.40**（§4-2 作成CTA着地）。証跡: Store `internal/continue-2026-09-19.md`  
 方法: ソース読解 ＋ `google.script.run` をモックした headless Chrome で 5 状態（一覧あり／全空／年度空／読込失敗／作成タブから戻る）を 1000px・480px で確認。ライブ `/exec` は未閲覧。
 
 ---
@@ -59,8 +59,8 @@
 | # | 優先度 | 内容 | 理由・案 |
 |---|---|---|---|
 | 4-1 | 高 | 管理カードを**本当に権限者だけ**に出す | **実装済（1.7.39）**。Admin が `VN_PORTAL_CONFIG` に `admin_email_hashes_json`（`sha256(lowercase(trim(email)))` hex 昇順）＋ `admin_projection_schema = vnext-portal-admin-projection-1` を 5 分 sweep／runtime 更新ごとに投影（Admin 側 `24e36de`〜`b1e83e9`）。Portal は `vNextPortalAdminHubUrlFor_(config, Session.getActiveUser())` で照合し、一致時だけ `adminHubUrl` を返す。**fail-closed**: URL なし／投影なし／schema 不一致／空・不正 JSON はすべて非表示。判定は共有 entry cache の外（cache key `-v2`、cache に adminHubUrl を書かない）。非権限者には DOM ごと非表示（`#adminCard.hidden`）。管理セリフは「テンプレや権限の整備はここから。」に簡素化。テスト: 権限あり／なし／投影なし／schema 不一致／空・不正 JSON／cache 非混入 |
-| 4-2 | 中 | 作成 CTA の着地をフォーム直行に | CTA はポータル Spreadsheet を開き、右サイドバーは onOpen トリガー（ユーザーごとに初回インストール）で出る。初回・トリガー失敗時はメニュー「年度予算策定→案内を開く」を探すことになる。案: Web入口内でフォームを持つ／`?open=create` のような着地パラメータ。サイドバー・サーバー変更を伴う |
-| 4-3 | 中 | 呼称の全体統一（シート／ブック） | 入口は「予測シート」、サイドバー・Home・Hub は「クライアント年度ブック」。`VNEXT_PORTAL_NAMING.CLIENT_BOOK` を軸に決めるべき命名判断。ユーザー判断待ち |
+| 4-2 | 中 | 作成 CTA の着地をフォーム直行に | **実装済（1.7.40）**。入口 CTA（および `/exec?open=create`）が `vNextPortalMarkCreateLanding` で UserCache に意図を残し、ポータルシート URL に `?open=create` を付けて開く。onOpen／メニュー「案内を開く」が CreateSidebar を `initialPanel=create` で開き申請フォーム直行。失敗時は従来どおりホーム案内。サイドバー全体の呼称は変更なし |
+| 4-3 | 中 | 呼称の全体統一（シート／ブック） | 入口は「予測シート」維持。サイドバー・Home・Hub の「クライアント年度ブック」は**ユーザー判断待ち**（全体リネームしない） |
 | 4-4 | 低 | 行数が増えたときの絞り込み | 1 年度 15 行超で縦に長くなる。Home シートのフィルタ相当をクライアント名の部分一致で入口に置く余地。現時点の件数では不要 |
 | 4-5 | 低 | 読込が長いときの一言 | 10 秒超で「初回は少し時間がかかるよ」等。文言追加になるため見送り |
 | 4-6 | 低 | 既定年度のルール確認 | 「最多行の年度」は初見に有利だが、期初に来年度計画を始める時期は「最新年度」が望ましい場合もある。運用開始後に選び直し |

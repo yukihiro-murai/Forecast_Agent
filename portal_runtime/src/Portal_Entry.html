@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="vnext-open-intent" content="<?!= openIntent || '' ?>">
   <title>年度予算策定</title>
   <?!= HtmlService.createHtmlOutputFromFile('Characters').getContent() ?>
   <style>
@@ -293,7 +294,7 @@
       <div class="cast">
         <span class="bot-slot"><span id="createBot" class="bot" aria-hidden="true"></span></span>
         <div class="bubble">
-          <p id="createBubble">まだシートが無いクライアントはここから。開いた先の右側に出る案内で申請するよ。</p>
+          <p id="createBubble">まだシートが無いクライアントはここから。開いた先の右側に申請フォームが出るよ。</p>
         </div>
       </div>
       <header class="card-head">
@@ -344,7 +345,7 @@
     var CREATE_CHAR_ID = 'yajirushi';
     var EXISTING_CHAR_ID = 'kurippu';
     var ADMIN_CHAR_ID = 'haguruma';
-    var CREATE_TALK = 'まだシートが無いクライアントはここから。開いた先の右側に出る案内で申請するよ。';
+    var CREATE_TALK = 'まだシートが無いクライアントはここから。開いた先の右側に申請フォームが出るよ。';
     var EXISTING_DEFAULT_TALK = '年度を選ぶと、用意済みのクライアントが並ぶよ。既存シートはここから開く。';
     var EXISTING_EMPTY_ALL_TALK = 'まだ作成済みのシートは無いよ。上の「新しい予測シートを作る」から始めよう。';
     var ADMIN_TALK = 'テンプレや権限の整備はここから。';
@@ -483,10 +484,31 @@
         return '<div class="book">' + body + '</div>';
       }).join('');
     }
+    function createLandingUrl(portalUrl) {
+      if (!portalUrl) return '#';
+      return portalUrl + (portalUrl.indexOf('?') >= 0 ? '&' : '?') + 'open=create';
+    }
+    function openCreateLanding(portalUrl) {
+      if (!portalUrl) return;
+      var url = createLandingUrl(portalUrl);
+      var opened = false;
+      function go() {
+        if (opened) return;
+        opened = true;
+        var win = window.open(url, '_blank');
+        if (win) try { win.opener = null; } catch (ignored) {}
+      }
+      // Prefer waiting for the UserCache mark, but do not leave the user stuck if it fails.
+      var timer = setTimeout(go, 900);
+      google.script.run
+        .withSuccessHandler(function () { clearTimeout(timer); go(); })
+        .withFailureHandler(function () { clearTimeout(timer); go(); })
+        .vNextPortalMarkCreateLanding();
+    }
     function paintCreateCta(model) {
       var createButton = document.getElementById('createButton');
       if (model.portalUrl) {
-        createButton.href = model.portalUrl;
+        createButton.href = createLandingUrl(model.portalUrl);
         createButton.setAttribute('target', '_blank');
         createButton.setAttribute('rel', 'noopener');
         createButton.removeAttribute('aria-disabled');
@@ -542,6 +564,14 @@
       selectedYear = resolveSelectedYear();
       paintYears();
       paintBooks();
+      maybeAutoOpenCreate();
+    }
+    function maybeAutoOpenCreate() {
+      var meta = document.querySelector('meta[name="vnext-open-intent"]');
+      var intent = meta ? String(meta.getAttribute('content') || '') : '';
+      if (intent !== 'create' || !entryModel || !entryModel.portalUrl) return;
+      if (meta) meta.setAttribute('content', '');
+      openCreateLanding(entryModel.portalUrl);
     }
     // Coming back from the creation tab: refresh in place and land on the year where the new row appeared.
     function applyRefresh(model) {
@@ -608,6 +638,11 @@
         .vNextPortalGetEntryModel();
     }
     document.getElementById('retryButton').addEventListener('click', load);
+    document.getElementById('createButton').addEventListener('click', function (event) {
+      if (!entryModel || !entryModel.portalUrl) return;
+      event.preventDefault();
+      openCreateLanding(entryModel.portalUrl);
+    });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') refreshIfStale();
     });

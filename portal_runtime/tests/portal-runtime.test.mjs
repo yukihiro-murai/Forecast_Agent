@@ -21,6 +21,11 @@ const sandbox = {
       get: key => cacheValues.get(key) || null,
       put: (key, value) => cacheValues.set(key, value),
       remove: key => cacheValues.delete(key)
+    }),
+    getUserCache: () => ({
+      get: key => cacheValues.get('user:' + key) || null,
+      put: (key, value) => cacheValues.set('user:' + key, value),
+      remove: key => cacheValues.delete('user:' + key)
     })
   },
   Utilities: {
@@ -273,7 +278,7 @@ function testCreateModel() {
     assert.equal(model.defaultFiscalYear, model.fiscalYears[0] + 1);
     assert.equal(model.fiscalYears[10], model.fiscalYears[0] + 10);
     assert.equal(model.requesterEmail, 'creator@example.com');
-    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.39');
+    assert.equal(model.runtimeVersion, 'vnext-portal-1.7.40');
   } finally {
     sandbox.vNextPortalReadClientCatalog_ = originalCatalog;
   }
@@ -549,7 +554,19 @@ async function testStaticUxContracts() {
   assert.match(getEntryBody, /vNextPortalAdminHubUrlFor_\(config, vNextPortalActiveUserEmail_\(\)\)/);
   assert.doesNotMatch(getEntryBody, /vNextPortalSafeSpreadsheetUrl_\(config\.admin_hub_url\)/,
     'admin_hub_url presence alone must never show the admin card');
-  assert.match(entry, /右側に出る案内で申請するよ/);
+  assert.match(entry, /右側に申請フォームが出るよ/);
+  assert.match(entry, /function openCreateLanding/);
+  assert.match(entry, /vNextPortalMarkCreateLanding\(\)/);
+  assert.match(entry, /open=create/);
+  assert.match(entry, /vnext-open-intent/);
+  assert.match(ux, /function vNextPortalMarkCreateLanding\(/);
+  assert.match(ux, /function vNextPortalConsumeCreateLanding_/);
+  assert.match(ux, /getUserCache\(\)/);
+  assert.match(ux, /template\.initialPanel/);
+  assert.match(ux, /e\.parameter\.open/);
+  assert.match(html, /data-initial-panel/);
+  assert.match(html, /initialPanel === 'create'/);
+  assert.doesNotMatch(entry, /右側に出る案内で申請するよ/);
   assert.doesNotMatch(entry, /'<div class="book-meta">' \+ yearLabel/);
   assert.match(entry, /<div class="book-meta">次に行う操作<\/div>/);
   assert.doesNotMatch(entry, /年度 · 次に行う操作/);

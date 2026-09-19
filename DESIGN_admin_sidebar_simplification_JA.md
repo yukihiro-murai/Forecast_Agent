@@ -87,7 +87,7 @@ After: 状態 → 件数 → 承認待ち → 要確認 → 申請・自動処�
 - ダイアログを閉じても **`vNextAdminScheduledSweep`（5分ごと）の `vNextAdminAutoFollowRuntimeUpdate_`** が引き継ぐ:
   - (a) pending ジョブがあれば (2) を実行。
   - (b) ジョブが無くても `portal_runtime_sha256 != 実行中 bundle sha`（例: 旧 UI の「中央配備版へ更新」だけ実行した後）なら自動でジョブを作って申請入口を更新。同じ目標 SHA で失敗済みなら再試行しない。`VN_SYSTEM_CONFIG.runtime_auto_follow = OFF` で停止。
-  - (c) 任意 `admin_auto_pull = ON`: 中央 project の `projects.get().updateTime` が記録値と変わっていれば (1) を自動実行（= clasp push を検知して Hub 取込）。既定 OFF。理由: WIP の clasp push も 5 分以内に本番 Hub へ入るため、運用判断が必要。
+  - (c) 任意 `admin_auto_pull = ON`: 中央 project の `projects.get().updateTime` が記録値と変わっていれば (1) を自動実行（= clasp push を検知して Hub 取込）。既定 OFF。理由: WIP の clasp push も 5 分以内に本番 Hub へ入るため、運用判断が必要。**推奨: 当面は OFF のまま**（本番取込は「最新版に更新」または sweep の Portal 追従で足りる）。
 
 ### 「中央 clasp push 後に自動で走らせる」手段の比較
 | 手段 | 実現性 | 採用 |

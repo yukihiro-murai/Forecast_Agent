@@ -1,7 +1,7 @@
 # Forecast vNext — AIエージェント引継ぎ
 
-最終更新: 2026-09-14 JST（管理ハブ サイドバー簡素化: 日常＝承認・要確認・申請処理・版表示だけ。保守／初回・復旧はメニューへ。「最新版に更新」1操作で Hub runtime → Portal runtime + /exec ピンを順次更新し、5分 sweep が自動追従。Portal 1.7.38（入口UX監査: 戻り時の一覧再取得・既定年度・空年度セリフ・再読込ボタン・行の年度重複削除）を取込済み。**Portal 1.7.39**: 管理カードを Admin 投影 `admin_email_hashes_json` と `sha256(lowercase(email))` の照合で権限者だけに表示（fail-closed。投影なし／schema 不一致で非表示）。判定は共有 entry cache の外で行い cache には adminHubUrl を書かない。/exec ピンの scriptId 必須は維持）  
-対象ブランチ: `cursor/portal-entry-ux-audit-2902`（`origin/cursor/admin-sidebar-simplify-0efd` `b1e83e9` を fast-forward で取込済み。Admin 投影 + Portal 1.7.39 の統合状態）  
+最終更新: 2026-09-19 JST（**Portal 1.7.40**: 作成CTA着地 — UserCache 意図 + CreateSidebar `initialPanel=create` + `/exec?open=create`。入口呼称「予測シート」維持、サイドバー全体リネームは判断待ち。`admin_auto_pull` 既定 OFF 推奨を設計メモに追記。正本取り込み用まとめブランチ `cursor/portal-create-cta-landing-9c79`）  
+対象ブランチ: `cursor/portal-create-cta-landing-9c79`（先端 `cursor/portal-entry-ux-audit-2902` = Admin 簡素化 + Portal 1.7.39 の上に 1.7.40）  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
 ## 最初に行うこと
@@ -21,9 +21,9 @@ IDは認証情報ではないが、公開資料へ転載しない。Git上のrun
 | Git remote | `git@github.com:yukihiro-murai/Forecast_Agent.git` |
 | コード上のClient runtime | `vnext-client-1.8.0` |
 | コード上のClient bundle SHA-256 | `bc4e6f38e6bfedcd21a1e4d289a56123780887ca530f3b7a2678a04a9f5aa4f3` |
-| コード上のPortal runtime | `vnext-portal-1.7.39` |
-| コード上のPortal bundle SHA-256 | `42b775ca677959a3005f5b37fe0b751b209317b6ed34ac77aebed5c43449dba2` |
-| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub「最新版に更新」で 1.7.39 へ） |
+| コード上のPortal runtime | `vnext-portal-1.7.40` |
+| コード上のPortal bundle SHA-256 | `1bc9b8733b2cfc7f2ba0137d38f5cc21600961d00c6c245dfd30f67fe00cf05c` |
+| 本番 Config の Portal runtime | `vnext-portal-1.7.27` または更新途中版（allowlist 内。Hub「最新版に更新」で 1.7.40 へ） |
 | 社員 `/exec` | 同一URLのまま。Hub「最新版へ更新」後に差し替え（deployments.update に scriptId 必須） |
 | Forecast Engine | `vnext-engine-0.5.0`（変更なし） |
 | 中央clasp source Script ID | `1CkHthmMuU5r66ZpWJLw4bXrhNhDzcHCjBb2o1sFdIR1I0p1wNAao_erV` |
