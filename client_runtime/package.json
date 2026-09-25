@@ -1,0 +1,13 @@
+{
+  "name": "forecast-vnext-client-runtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor-ui.mjs --update",
+    "build": "node scripts/build.mjs --emit-gas-bundle ../VNext_ClientRuntimeBundle.js",
+    "verify": "node scripts/verify.mjs",
+    "test": "node tests/client-runtime.test.mjs",
+    "deploy:template": "node scripts/deploy-template.mjs",
+    "verify:remote": "node scripts/verify-remote.mjs"
+  }
+}

@@ -115,8 +115,11 @@ const COLOR_REG = '#5f6368'; // 回帰グレー
 
 const TZ = Session.getScriptTimeZone();
 
-// 外部「実績」集計元スプレッドシート
-const EXTERNAL_SS_ID = '1qIAb_y3EhM6uiQrtT5hKCjUDHs3ARYBKdr-aCx0OY0c';
+// 外部「実績」集計元スプレッドシートはScript Propertiesで管理する。
+// vNextのbootstrap完了までは既存運用を止めないため移行用fallbackを使用し、
+// runtime property設定後にfallbackを削除する。
+const EXTERNAL_SS_ID_PROPERTY = 'FORECAST_SOURCE_SPREADSHEET_ID';
+const LEGACY_EXTERNAL_SS_ID_FALLBACK = '1qIAb_y3EhM6uiQrtT5hKCjUDHs3ARYBKdr-aCx0OY0c';
 const EXTERNAL_SHEET_PREFIX = '*';
 const EXTERNAL_SHEET_SUFFIX = '_actual_value';
 
@@ -125,7 +128,7 @@ const EXT_COL_CLIENT = 41;        // AO
 const EXT_COL_CATEGORY = 50;      // AX（製品名）
 const EXT_COL_SERVICE_CATEGORY = 46; // AT（サービスカテゴリ）
 const EXT_COL_DATE_PRIMARY = 57;  // BE
-const EXT_COL_DATE_SECONDARY = 56;// BD
+const EXT_COL_DATE_SECONDARY = 56;// BD（legacy互換のみ。vNextは使用禁止）
 const EXT_COL_AMOUNT = 66;        // BN
 
 // Monte Carlo
@@ -247,6 +250,13 @@ const SUBJECTIVE_OVERLAY_TARGET_HIGH = 0.12;
  */
 /** ====== メニュー ====== */
 function onOpen() {
+  // vNextで初期化済みのbookは、役割と状態に応じた最小メニューだけを表示する。
+  // legacy bookは従来メニューへフォールバックし、既存運用を勝手に変更しない。
+  try {
+    if (typeof vNextHandleOnOpen_ === 'function' && vNextHandleOnOpen_()) return;
+  } catch (err) {
+    Logger.log(`vNext onOpen fallback: ${err && err.stack ? err.stack : err}`);
+  }
   const ui = SpreadsheetApp.getUi();
   ui.createMenu(MENU_NAME)
     .addItem('A-1 初期セットアップ', 'setupForecastBook')
@@ -270,6 +280,13 @@ function onOpen() {
     .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
     .addItem('C-3 過去の提案履歴を開く', 'openQuarterlyReviewLog')
     .addToUi();
+  // vNext移行前のlegacy bookでは、所有者/管理者だけが実行できる
+  // 非破壊bootstrapへの入口を別menuとして提示する。
+  try {
+    if (typeof vNextBuildLegacySetupMenu_ === 'function') vNextBuildLegacySetupMenu_();
+  } catch (err) {
+    Logger.log(`vNext legacy setup menu skipped: ${err && err.stack ? err.stack : err}`);
+  }
 }
 
 /**
@@ -1053,9 +1070,22 @@ function getForecastFYEnd_(fy) {
   return new Date(Number(fy) + 1, 3, 0);
 }
 
+/** 外部実績ソースIDをScript Propertiesから取得する。 */
+function getExternalSpreadsheetId_() {
+  const configured = String(
+    PropertiesService.getScriptProperties().getProperty(EXTERNAL_SS_ID_PROPERTY) || ''
+  ).trim();
+  if (configured) return configured;
+  if (LEGACY_EXTERNAL_SS_ID_FALLBACK) {
+    Logger.log(`WARN: ${EXTERNAL_SS_ID_PROPERTY} is not configured; using legacy migration fallback.`);
+    return LEGACY_EXTERNAL_SS_ID_FALLBACK;
+  }
+  throw new Error(`管理者設定 ${EXTERNAL_SS_ID_PROPERTY} がありません。Admin Hubで実績ソースを設定してください。`);
+}
+
 /** 外部SSからメーカー候補（最新2年のAO列）を取得 */
 function getClientCandidatesForSetup_() {
-  const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
+  const ext = SpreadsheetApp.openById(getExternalSpreadsheetId_());
   const sheets = ext.getSheets().map(s => s.getName());
 
   const yearTabs = [];
@@ -2676,7 +2706,7 @@ function buildCONFIG_() {
     ['FORECAST_CLOSED_MONTH_MODE（actual=実績で上書き表示 / forecast=予測のまま=通年予測）', 'actual'],
     ['VERTEX_PROJECT_ID（Google CloudプロジェクトID）', 'forecast-agent-498907'],
     ['VERTEX_LOCATION（リージョン。grounding は global 推奨）', 'global'],
-    ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.1-pro-preview または gemini-3.5-flash）', 'gemini-3.1-pro-preview'],
+    ['VERTEX_GEMINI_MODEL（grounding/構造化に使うモデル。例: gemini-3.8-flash）', 'gemini-3.8-flash'],
     ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。レポート更新時はここを切替）', 'fujikeizai-portfolio-2025'],
     ['VERTEX_SEARCH_LOCATION（データストアのロケーション。global / us / eu）', 'global'],
     ['VERTEX_SERVING_CONFIG（検索サービング構成ID。通常 default_search。アプリにより default_config）', 'default_search'],
@@ -6784,7 +6814,7 @@ function fetchClientMonthlyRecords_(client, opt) {
 
   const startMonth = opt && opt.startMonth;
   const endMonth = opt && opt.endMonth;
-  const ext = SpreadsheetApp.openById(EXTERNAL_SS_ID);
+  const ext = SpreadsheetApp.openById(getExternalSpreadsheetId_());
   const sheets = ext.getSheets().filter(s => s.getName().startsWith(EXTERNAL_SHEET_PREFIX) && s.getName().endsWith(EXTERNAL_SHEET_SUFFIX));
   const records = [];
 
@@ -6802,6 +6832,8 @@ function fetchClientMonthlyRecords_(client, opt) {
       const serviceType = classifyServiceType_(serviceCategory);
       if (serviceType === 'OTHER') continue;
 
+      // legacyの並行比較を壊さないため、この旧経路だけは従来挙動を維持する。
+      // vNextの公式runはVNext_Engine.jsの厳格bridgeだけを使い、BE欠損時のBD fallbackを拒否する。
       let d = r[EXT_COL_DATE_PRIMARY - 1];
       let dt = toDate_(d);
       if (!dt) {
@@ -7206,10 +7238,18 @@ function callVertexGeminiGrounded_(prompt, opt) {
   const runWithTool = toolKey => {
     const tool = {};
     tool[toolKey] = {};
+    const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
+    // Gemini 3 Pro can spend most of a request on internal thinking. For this
+    // bounded evidence-retrieval task, LOW is enough and prevents a
+    // MAX_TOKENS finish before groundingChunks are attached to the response.
+    // Older models don't accept thinkingLevel, so only send it to Gemini 3.
+    if (/^gemini-3(?:\.|-|$)/i.test(String(cfg.geminiModel || ''))) {
+      generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+    }
     const payload = {
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
       tools: [tool],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+      generationConfig
     };
     const res = vertexPostJson_(endpoint, payload);
     if (!res.ok) {
@@ -7268,14 +7308,18 @@ function callVertexGeminiStructured_(systemInstruction, userContent, opt) {
   const cfg = (opt && opt.config) || readVertexConfig_();
   const endpoint = `${vertexHost_(cfg.location)}/v1/projects/${encodeURIComponent(cfg.projectId)}/locations/${encodeURIComponent(cfg.location)}/publishers/google/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
   const attempt = (temperature) => {
+    const generationConfig = {
+      temperature: temperature,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json'
+    };
+    if (/^gemini-3(?:\.|-|$)/i.test(String(cfg.geminiModel || ''))) {
+      generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+    }
     const payload = {
       systemInstruction: { parts: [{ text: String(systemInstruction || '') }] },
       contents: [{ role: 'user', parts: [{ text: String(userContent || '') }] }],
-      generationConfig: {
-        temperature: temperature,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
-      }
+      generationConfig
     };
     const res = vertexPostJson_(endpoint, payload);
     if (!res.ok) {
@@ -7555,6 +7599,7 @@ function extractGeminiUsage_(json) {
   return {
     promptTokens: Number(u.promptTokenCount || 0),
     candidatesTokens: Number(u.candidatesTokenCount || 0),
+    thoughtsTokens: Number(u.thoughtsTokenCount || 0),
     totalTokens: Number(u.totalTokenCount || 0)
   };
 }
@@ -8682,7 +8727,7 @@ function syncSalesFromSalesInput_(fy, client) {
 /**
  * HOW TO TEST (vertex-only)
  * 1) A-1 後、CONFIG に VERTEX_PROJECT_ID=forecast-agent-498907 / LOCATION=global /
- *    GEMINI_MODEL=gemini-3.1-pro-preview が入り、DATASTORE_ID/SEARCH_LOCATION は空、AI_RESEARCH_ENABLED=1。
+ *    GEMINI_MODEL=gemini-3.8-flash が入り、DATASTORE_ID/SEARCH_LOCATION は空、AI_RESEARCH_ENABLED=1。
  * 2) その状態で A-4 → web-only で Vertex が走り AI_RESEARCH_STRUCTURED が更新される（手動貼付トーストは出ない）。
  *    AI_RESEARCH_TASK_LOG の aspect=web 行は success、aspect=rag 行は status=skipped。
  * 3) VERTEX_GEMINI_MODEL を空にして A-4 → 「Vertex の必須設定が未入力」エラーで止まる（手動へ落ちない）。
@@ -9856,4 +9901,38 @@ function openQuarterlyReviewLog() {
     logRun_('openQuarterlyReviewLog', '', 'error', 0, started, String(err.message || err));
     SpreadsheetApp.getUi().alert('C-3 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
+
+
+/**
+ * CONFIG の VERTEX_GEMINI_MODEL を gemini-3.8-flash へ更新する (2026-09-03)。
+ * @return {{previous:string, next:string, updated:boolean}}
+ */
+function migrateVertexGeminiModelTo38() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = ss.getSheetByName(SHEETS.CONFIG);
+  if (!cfg) throw new Error('CONFIG シートがありません。');
+  const last = cfg.getLastRow();
+  if (last < 1) throw new Error('CONFIG が空です。');
+  const rows = cfg.getRange(1, 1, last, 2).getValues();
+  let previous = '';
+  let updated = false;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (configKeyOf_(rows[i][0]) !== 'VERTEX_GEMINI_MODEL') continue;
+    previous = String(rows[i][1] == null ? '' : rows[i][1]).trim();
+    if (previous === 'gemini-3.8-flash') break;
+    cfg.getRange(i + 1, 2).setValue('gemini-3.8-flash');
+    updated = true;
+    break;
+  }
+  const msg = updated
+    ? ('VERTEX_GEMINI_MODEL: ' + previous + ' → gemini-3.8-flash')
+    : ('変更なし（現行=' + (previous || '未検出') + '）');
+  Logger.log('migrateVertexGeminiModelTo38: ' + msg);
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {
+    Logger.log('(ダイアログ省略) ' + msg);
+  }
+  return { previous: previous, next: 'gemini-3.8-flash', updated: updated };
 }

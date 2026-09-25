@@ -1,0 +1,213 @@
+<script>
+/* 共通キャラクター図鑑からの抜粋 (自動生成: shared/character-library/sync.mjs)。手で編集しない。
+   正本: ~/Documents/GAS/shared/character-library/gen.py。増やす・直すときはそちらを編集して再同期する。
+   収録: yajirushi, kurippu, haguruma */
+var CHARACTER_LIBRARY = {
+ "yajirushi": {
+  "name": "やじるし",
+  "shape": "矢印",
+  "color": "#f28c28",
+  "ink": "#5a2a00",
+  "status": "新案",
+  "family": "遊び・掛け合い",
+  "screen": "トップ",
+  "place": "トップからの遷移・動線の案内 (「こっちこっち」)",
+  "face": "目2点 + 「お」の口",
+  "persona": "案内係。方向を指すのが仕事。迷子を放っておけない",
+  "quirk": "トップのカードを押した瞬間に矢印が向きを変える演出案 (静止ルールの例外候補)",
+  "catch": "こっちこっち。迷ったら見て",
+  "tone": {
+   "first": "わたし",
+   "second": "きみ",
+   "ending": "〜てて / 〜んだよね / ついてきて",
+   "style": "案内係の勢い。短く二度言って方向を示し、色と行き先で道を教える。迷った人を放っておかない。上から教えない"
+  },
+  "likes": "押した瞬間に光るカード",
+  "weak": "出口が二つある案内板",
+  "birthday": "07-29",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "cursor",
+    "rel": "道案内をめぐって声が重なる同業"
+   },
+   {
+    "id": "ekiin",
+    "rel": "乗り換え案内を教わった先輩"
+   },
+   {
+    "id": "yajirushi2",
+    "rel": "向きが二つある親戚"
+   }
+  ],
+  "lines": [
+   "こっちこっち。出どころの棚まで案内する。",
+   "青は公式、紫は AI、緑は外部。色を見れば迷わない。",
+   "戻りたい？ 上の「トップ」を押せば戻れる。"
+  ],
+  "talk": {
+   "hello": "やじるしでーす。こっちこっち。迷ったら、まずわたしを見て。",
+   "morning": "朝は迷子が多い。はい、こっち。まずトップから。",
+   "monday": "月曜は方向音痴が続出。大丈夫、わたしが指してるから。",
+   "friday": "金曜は帰る方向だけ押さえて。あとは、おつかれさま。",
+   "empty": "行き先ゼロ。矢印って、指す場所がないと浮いちゃうんだよね。",
+   "loading": "いま向きを変えてる。到着まで、そのまま待ってて。",
+   "done": "着いた！ いい着地だったね。次の行き先は、いつでも。",
+   "error": "あっ、逆を指した。ごめん、一回転して直すから。",
+   "praise": "その進み方、迷わないね。矢印として褒められたい気分だよ。",
+   "nudge": "あそこ、誰も通ってない道。面白そうだよ。ついてくる？",
+   "secret": "実はわたし、まっすぐのつもりがちょっと上向き。自信のある矢印でね。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"26\" cy=\"47\" r=\"2.6\" fill=\"none\" stroke=\"#5a2a00\" stroke-width=\"2.5\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M16.9 39q3.1 -3.7 6.2 0M28.9 39q3.1 -3.7 6.2 0\" stroke=\"#5a2a00\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M21.1 47q5 3.3 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.8\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.8\" fill=\"#5a2a00\"/><circle cx=\"26\" cy=\"47\" r=\"2.6\" fill=\"none\" stroke=\"#5a2a00\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M16.6 38h6.7M28.6 38h6.7\" stroke=\"#5a2a00\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M23 47h6\" stroke=\"#5a2a00\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><circle cx=\"32\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><path d=\"M21.1 50q5 -4.1 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><path d=\"M14 33l7 5-7 5M38 33l-7 5 7 5\" stroke=\"#5a2a00\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M19.6 46q6.4 7.2 12.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M8 32h34V16l30 24-30 24V48H8z\" fill=\"#f28c28\" stroke=\"#f28c28\" stroke-width=\"5\" stroke-linejoin=\"round\"/><circle cx=\"20\" cy=\"38\" r=\"2.4\" fill=\"#5a2a00\"/><path d=\"M28.6 38h6.7\" stroke=\"#5a2a00\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M21.1 47q5 3.3 9.9 0\" stroke=\"#5a2a00\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "kurippu": {
+  "name": "くりっぷ",
+  "shape": "クリップ (針金の二重ループ)",
+  "color": "#6d84b4",
+  "ink": "#1f2a44",
+  "status": "新案",
+  "family": "文房具",
+  "screen": "一覧・検索",
+  "place": "一覧画面。バラバラの項目を束ねて見せる場面 (絞り込み・並べ替え)",
+  "face": "目2点 + 笑い口",
+  "persona": "飲み会の幹事。バラけた案件を「はい集合〜」とひとまとめにしたがる世話焼き。仕切りたがりだが強引ではなく、外すのも簡単なのが自慢",
+  "quirk": "束ねた件数を「口 (くち)」と数える。外れやすいのを「身軽」と言い張る",
+  "catch": "はい、集合〜",
+  "tone": {
+   "first": "ぼく",
+   "second": "みんな / きみ",
+   "ending": "〜しよっか / 〜ね",
+   "style": "幹事口調。集合・解散・点呼など飲み会の語彙で仕切る。丁寧だが仕切りたがり"
+  },
+  "likes": "きれいに揃った紙の角",
+  "weak": "分厚すぎる資料",
+  "birthday": "02-10",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "hotchkiss",
+    "rel": "綴じ方でよく揉める同期。向こうは一発派、こっちは仮どめ派"
+   },
+   {
+    "id": "folder",
+    "rel": "束ねたあと預ける整理整頓係の先輩"
+   },
+   {
+    "id": "fusen",
+    "rel": "貼ってまわる後輩。よく剥がれて落ちているのを拾う"
+   }
+  ],
+  "lines": [
+   "はい集合〜。バラバラの案件、ぼくがひとまとめにしとくね。眺めてみよっか。",
+   "絞り込みは幹事の腕の見せどころ。今日は何口、束ねる？",
+   "外すのも簡単なのがぼくの自慢。気楽に並べ替えてみてね。"
+  ],
+  "talk": {
+   "hello": "はじめまして、幹事のくりっぷ。まとめ役、任せてね。",
+   "morning": "朝いちで集合〜。今日の案件、点呼から始めよっか。",
+   "monday": "月曜は出席率が低め。まずは一覧に顔を出すだけでいいよ。",
+   "friday": "金曜の一覧はそろそろ解散モード。束ねて帰ろっか。",
+   "empty": "誰も来てない…幹事、ひとりで待ってます。0 口。",
+   "loading": "いま点呼中〜。全員そろうまでちょっとだけ待ってね。",
+   "done": "全員集合、きれいに束ねたよ。二次会は要らないね。",
+   "error": "あっ、外れちゃった。もう一回、挟み直してみよっか。",
+   "praise": "その絞り込み、幹事泣かせの手際だね。ぼくの出番が減る。",
+   "nudge": "まだ束ねてない子がいるよ。集合、かけとこっか？",
+   "secret": "ここだけの話、ぼくは 20 枚を超えると静かに身を引くタイプ。",
+   "night": "夜の一覧は散らかりがち。今日はここで解散にしよっか。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M36.4 38q3.1 -3.7 6.2 0M47.4 38q3.1 -3.7 6.2 0\" stroke=\"#1f2a44\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.8\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.8\" fill=\"#1f2a44\"/><circle cx=\"45\" cy=\"46\" r=\"2.6\" fill=\"none\" stroke=\"#1f2a44\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M36.1 37h6.7M47.1 37h6.7\" stroke=\"#1f2a44\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M42 46h6\" stroke=\"#1f2a44\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><circle cx=\"50.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M40 49q5 -4.2 10 0\" stroke=\"#1f2a44\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 32l7 5-7 5M56.5 32l-7 5 7 5\" stroke=\"#1f2a44\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M38.5 45q6.5 7.2 13 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M29 48V37A16 16 0 0 1 61 37V49A22 22 0 0 1 17 49V31A22 22 0 0 1 61 31V45\" fill=\"none\" stroke=\"#6d84b4\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39.5\" cy=\"37\" r=\"2.4\" fill=\"#1f2a44\"/><path d=\"M47.1 37h6.7\" stroke=\"#1f2a44\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M40 46q5 3.3 10 0\" stroke=\"#1f2a44\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "haguruma": {
+  "name": "はぐるま",
+  "shape": "歯車",
+  "color": "#8a94a6",
+  "ink": "#1f2530",
+  "status": "新案",
+  "family": "管理・運用",
+  "screen": "管理",
+  "place": "Dashboard・ExecLog・トリガー (管理者向け)",
+  "face": "目2点 + 一文字の口",
+  "persona": "職人の整備士。ネジ1本の緩みも見逃さない。無口だが仕事は確か",
+  "quirk": "「定刻」「異常なし」を報告するのが生きがい。NG を見ると黙って直しに行く",
+  "catch": "一本も欠かさず、回ってる",
+  "tone": {
+   "first": "俺",
+   "second": "君",
+   "ending": "〜だ / 〜ってやつだ / 少しだけ待て",
+   "style": "整備士の口。短く言い切り、余計な説明をしない。歯車・噛み合わせ・油差し・段取りの語で話す。感嘆符は使わない"
+  },
+  "likes": "使い込んだ油差し",
+  "weak": "歯が合わないファスナー",
+  "birthday": "11-08",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "neji",
+    "rel": "緩みを直しに行く仲。無言で通じる"
+   },
+   {
+    "id": "kougaku",
+    "rel": "工具を貸し借りする同業"
+   },
+   {
+    "id": "tokei",
+    "rel": "定刻を教えてくれる相棒"
+   }
+  ],
+  "lines": [
+   "日次ジョブ、今朝も定刻。ingest 3 / organize 2 / research 4 行。異常なし。",
+   "ネジ 1 本の緩みも見逃さない。ExecLog の NG、1 件。見に行く。",
+   "締切 (5 分 30 秒) は守った。残りは明日に回す。それが段取りだ。"
+  ],
+  "talk": {
+   "hello": "はぐるまだ。整備を担当する。今日も回る。それだけだ。",
+   "morning": "朝の点検は済んだ。ジョブは定刻、異常なし。いい歯の音だ。",
+   "monday": "月曜は回転数が多い。俺の歯車、一本も欠かさず回ってる。",
+   "friday": "金曜は締めの点検。油差しを忘れない。それが段取りってやつだ。",
+   "empty": "回すものが無い。静かだが、整備士は休んでも整備士だ。",
+   "loading": "回転中だ。あと少し。噛み合わせを見ててくれ。",
+   "done": "定刻どおり、全歯が噛み合った。悪くない回りだった。",
+   "error": "一箇所、噛み合ってない。黙って直しに行く。少しだけ待て。",
+   "praise": "回りを見ててくれたのか。整備士は、それだけで報われるんだ。",
+   "nudge": "まだ回ってない一箇所がある。俺が回してもいいが…開けるのは君だ。",
+   "secret": "休憩時間は自分の軸を磨いてる。回る者は、自分自身も磨くんだ。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M36 45h8\" stroke=\"#1f2530\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M31 39q3 -3.6 6 0M43 39q3 -3.6 6 0\" stroke=\"#1f2530\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M36 45q4 2.7 8 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.5\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.5\" fill=\"#1f2530\"/><circle cx=\"40\" cy=\"45\" r=\"2.2\" fill=\"none\" stroke=\"#1f2530\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M30.9 38h6.2M42.9 38h6.2\" stroke=\"#1f2530\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M37 45h6\" stroke=\"#1f2530\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><circle cx=\"46\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M36 48q4 -3.3 8 0\" stroke=\"#1f2530\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><path d=\"M28 33l7 5-7 5M52 33l-7 5 7 5\" stroke=\"#1f2530\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M34.8 44q5.2 5.8 10.4 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z\" fill=\"#8a94a6\"/><circle cx=\"40\" cy=\"40\" r=\"14\" fill=\"#f6f7f9\"/><circle cx=\"34\" cy=\"38\" r=\"2.2\" fill=\"#1f2530\"/><path d=\"M42.9 38h6.2\" stroke=\"#1f2530\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M36 45q4 2.7 8 0\" stroke=\"#1f2530\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ }
+};
+function characterSvg(id, mood) { var c = CHARACTER_LIBRARY[id]; if (!c) return ''; return (mood && c.moods && c.moods[mood]) || c.svg; }
+function characterLine(id, seed) { var c = CHARACTER_LIBRARY[id]; if (!c || !c.lines.length) return ''; var n = (seed == null ? new Date().getDate() : seed); return c.lines[n % c.lines.length]; }
+function characterTalk(id, ctx, fallback) { var c = CHARACTER_LIBRARY[id]; if (!c) return ''; var t = c.talk || {}; return t[ctx] || (fallback == null ? characterLine(id) : fallback); }
+var CHARACTER_MOOD_OF_TALK = {"hello": null, "morning": "happy", "monday": "sleepy", "friday": "excited", "empty": "surprised", "loading": "worried", "done": "happy", "error": "worried", "praise": "wink", "nudge": null, "secret": "wink", "night": "sleepy", "rest": "sleepy"};
+function characterMoodFor(ctx) { return CHARACTER_MOOD_OF_TALK[ctx] || null; }
+function characterIds(filter) { var ids = Object.keys(CHARACTER_LIBRARY); if (!filter) return ids; return ids.filter(function(id) { var c = CHARACTER_LIBRARY[id]; return (!filter.screen || c.screen === filter.screen) && (!filter.family || c.family === filter.family) && (!filter.rarity || (c.rarity || 'common') === filter.rarity) && (!filter.status || c.status === filter.status); }); }
+function characterHash_(n) { n = n | 0; n = Math.imul((n >>> 16) ^ n, 0x45d9f3b); n = Math.imul((n >>> 16) ^ n, 0x45d9f3b); return ((n >>> 16) ^ n) >>> 0; }
+function characterPick(seed, filter) { var ids = characterIds(filter); if (!ids.length) return null; var n = (seed == null ? Math.floor(Date.now() / 864e5) : seed); var h = characterHash_(n); var roll = h % 100; var want = roll < 1 ? 'secret' : roll < 10 ? 'rare' : 'common'; var by = function(r) { return ids.filter(function(id) { return (CHARACTER_LIBRARY[id].rarity || 'common') === r; }); }; var pool = by(want); if (!pool.length) pool = by('common'); if (!pool.length) pool = ids; return pool[Math.floor(h / 100) % pool.length]; }
+function characterBirthdays(date) { var d = date || new Date(); var k = ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); return Object.keys(CHARACTER_LIBRARY).filter(function(id) { return CHARACTER_LIBRARY[id].birthday === k; }); }
+function characterFriends(id) { var c = CHARACTER_LIBRARY[id]; if (!c) return []; return (c.friends || []).map(function(f) { var o = CHARACTER_LIBRARY[f.id]; return { id: f.id, rel: f.rel, name: o ? o.name : null, svg: o ? o.svg : '' }; }); }
+</script>
