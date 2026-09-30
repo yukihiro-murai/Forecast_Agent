@@ -79,6 +79,8 @@ var VNEXT_PORTAL_RUNTIME_PREVIOUS_OAUTH_SCOPES_ = Object.freeze([
 var VNEXT_ADMIN_RUNTIME_FILE_TYPES_ = Object.freeze({
   '0_VNext_Naming': 'SERVER_JS',
   Forecast_Agent: 'SERVER_JS',
+  Forecast_WebApp: 'SERVER_JS',
+  Forecast_WebAppUI: 'HTML',
   VNext_AI: 'SERVER_JS',
   VNext_Admin: 'SERVER_JS',
   VNext_AdminSidebar: 'HTML',

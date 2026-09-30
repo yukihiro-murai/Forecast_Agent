@@ -31,8 +31,16 @@ Admin 所有 trigger は Hub へ取り込む前に、次をサーバー側で再
 3. 生成した Admin Hub を開き、「自動運用を有効化」を1回実行します。
 4. 社員ポータルでFY、ZACクライアント、関与メンバー氏名を指定して年度 book の作成を依頼します。Forecast Ownerは依頼した社内ユーザーへ自動設定されます。
 
-Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み18ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは原則固定されます。汎用migration APPLYは停止したままです。従業員テスト前で回答・依頼・予測・計画等が完全に0件、source pinsとruntime SHAが一致する空のPilot Clientだけは、read-only事前判定後に同じURLのままcanonical ACTIVE pairへ更新でき、途中停止時は専用journalから復旧します。
+Adminコードを改修した後は、中央projectへclasp反映してからAdmin Hubの「中央配備版へ更新」を実行します。更新対象は検証済み21ファイルだけで、Hubの履歴・設定・正式計画は置換しません。Client UI/MEMOの改修は管理者限定Template Draftから新しいimmutable Template Releaseとして公開され、既存年度bookは原則固定されます。汎用migration APPLYは停止したままです。従業員テスト前で回答・依頼・予測・計画等が完全に0件、source pinsとruntime SHAが一致する空のPilot Clientだけは、read-only事前判定後に同じURLのままcanonical ACTIVE pairへ更新でき、途中停止時は専用journalから復旧します。
 
 初回展開は2～3 Client、明示承認後のcanaryでも最大5 Clientです。6冊目は30冊負荷試験とrelease承認が完了するまでserver-sideで拒否します。Client fileはAdmin管理のprivate root配下にだけ生成し、共有境界を確認できないfolderは使用しません。
 
 クライアント年度 book の通常表示は `1_ホーム` と `2_予測と計画` の2シートです。内部処理、承認履歴、raw AI metadata は従業員向け画面には表示しません。
+
+## 売上予測 Webアプリ（Legacy book の doGet）
+
+「クライアント別売上予測」スプレッドシートの bound script を `executeAs=USER_DEPLOYING` / `access=DOMAIN` の Webアプリとして公開しています。Legacy メニュー（A-2 取り込み → A-3 加工 → A-4 AI調査 → A-5〜A-8 主観入力 → A-9 予測 → A-10 予算入力 → B-1〜B-4 検証 → C-1〜C-3 四半期レビュー）を、スプレッドシートを開かずにブラウザだけで一巡できる SPA です。
+
+- 実装: [`Forecast_WebApp.js`](./Forecast_WebApp.js)（`doGet` + `webGetBootstrap` + `webRun*/webSave*` RPC）と [`Forecast_WebAppUI.html`](./Forecast_WebAppUI.html)（SPA）
+- 反映: `clasp push` 後に `clasp deploy --deploymentId <id>` で exec URL の版を上げる（`/dev` は Google ログイン必須のため運用には使わない）
+- 運用上の注意と検証手順は [`AI_HANDOFF.md`](./AI_HANDOFF.md) の「Webアプリ」を参照

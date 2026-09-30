@@ -115,6 +115,35 @@ const COLOR_REG = '#5f6368'; // 回帰グレー
 
 const TZ = Session.getScriptTimeZone();
 
+// ===== Webアプリ連携用のUIコンテキスト安全化 =====
+// コンテナ（スプレッドシートUI）では従来通り alert/OK_CANCEL を使い、
+// doGet/google.script.run など getUi() が使えない実行コンテキストでは例外へ変換する。
+// Web側が事前確認済みのキーは WEB_UI_CONFIRMS_ に立ててスキップする。
+const WEB_UI_CONFIRMS_ = Object.create(null);
+
+function safeSpreadsheetUi_() {
+  try { return SpreadsheetApp.getUi(); } catch (e) { return null; }
+}
+
+function alertOrThrow_(title, message) {
+  const ui = safeSpreadsheetUi_();
+  if (ui) { ui.alert(title, message, ui.ButtonSet.OK); return; }
+  throw new Error(title + ': ' + message);
+}
+
+function forecastConfirmOrAbort_(title, message, key) {
+  if (WEB_UI_CONFIRMS_[key]) return;
+  const ui = safeSpreadsheetUi_();
+  if (ui) {
+    const res = ui.alert(title, message, ui.ButtonSet.OK_CANCEL);
+    if (res !== ui.Button.OK) throw new Error('ユーザーが中断しました。');
+    return;
+  }
+  const err = new Error(title + '\n' + message);
+  err.webConfirm = { key: key, title: title, message: message };
+  throw err;
+}
+
 // 外部「実績」集計元スプレッドシートはScript Propertiesで管理する。
 // vNextのbootstrap完了までは既存運用を止めないため移行用fallbackを使用し、
 // runtime property設定後にfallbackを削除する。
@@ -3265,11 +3294,13 @@ function runHierarchicalA9AlertsOrThrow_(fy) {
 
   if (!issue) return;
 
-  const ui = SpreadsheetApp.getUi();
   const title = issue.level === 'high' ? '注意（影響がかなり大きい入力）' : '注意（影響が大きい入力）';
-  const buttons = ui.ButtonSet.OK_CANCEL;
-  const res = ui.alert(title, issue.message, buttons);
-  if (res !== ui.Button.OK) throw new Error('ユーザーがA-9実行を中断しました（入力内容を見直してください）。');
+  try {
+    forecastConfirmOrAbort_(title, issue.message, 'extreme');
+  } catch (e) {
+    if (e && e.webConfirm) throw e;
+    throw new Error('ユーザーがA-9実行を中断しました（入力内容を見直してください）。');
+  }
 }
 
 function findFirstExtremeStepIssue_(fy) {
@@ -6938,7 +6969,7 @@ function runVertexAIResearch() {
 
     const vertex = readVertexConfig_();
     if (!vertex.enabled) {
-      SpreadsheetApp.getUi().alert('AI調査は無効です', 'CONFIG の AI_RESEARCH_ENABLED を 1 にしてから A-4 を実行してください。', SpreadsheetApp.getUi().ButtonSet.OK);
+      alertOrThrow_('AI調査は無効です', 'CONFIG の AI_RESEARCH_ENABLED を 1 にしてから A-4 を実行してください。');
       return;
     }
     if (!vertex.geminiReady) {
@@ -7094,7 +7125,7 @@ function runVertexAIResearch() {
       const msg = `Vertex調査に失敗しました。既存のAI_RESEARCH_STRUCTUREDは保持しています。CONFIGとAI_RESEARCH_TASK_LOGを確認してください。`;
       updateProcessStatus_('step3a_status', 'error', targetClient, 0, msg);
       safeLogRun_('runVertexAIResearch', targetClient, 'error', 0, started, msg);
-      SpreadsheetApp.getUi().alert('Vertex調査エラー', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+      alertOrThrow_('Vertex調査エラー', msg);
       return;
     }
 
@@ -7127,7 +7158,7 @@ function runVertexAIResearch() {
     } catch (logErr) {
       // エラー通知を優先する
     }
-    SpreadsheetApp.getUi().alert('AI調査エラー', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+    alertOrThrow_('AI調査エラー', msg);
   }
 }
 
@@ -7809,7 +7840,8 @@ function runPhase1Forecast() {
     ss.toast('予測を更新しました。', MENU_NAME, 5);
   } catch (e) {
     updateProcessStatus_('step4_status','error','',0,String(e.message || e));
-    SpreadsheetApp.getUi().alert('予測実行エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
+    if (e && e.webConfirm) throw e;
+    alertOrThrow_('予測実行エラー', e.message || e);
   }
 }
 
@@ -9425,8 +9457,8 @@ function runQuarterlyReview() {
     const data = collectQuarterlyReviewData_(client);
     if (!data.ready) {
       writeQuarterlyReviewInsufficient_(data);
-      SpreadsheetApp.getUi().alert(`実績が${data.missingMonths}月分不足しています。3か月分の実績確定後に再実行してください`);
       logRun_('runQuarterlyReview', client, 'success', 0, started, 'insufficient_months');
+      alertOrThrow_('実績不足', `実績が${data.missingMonths}月分不足しています。3か月分の実績確定後に再実行してください`);
       return;
     }
     const reviewId = Utilities.getUuid();
@@ -9445,7 +9477,7 @@ function runQuarterlyReview() {
     ss.setActiveSheet(ss.getSheetByName(SHEETS.QUARTERLY_REVIEW));
   } catch (err) {
     logRun_('runQuarterlyReview', '', 'error', 0, started, String(err.message || err));
-    SpreadsheetApp.getUi().alert('C-1 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
+    alertOrThrow_('C-1 エラー', err.message || err);
   }
 }
 
@@ -9816,7 +9848,7 @@ function applyQuarterlyProposals() {
     const logRows = all.slice(1).filter(r => String(r[idx.review_id] || '') === reviewId);
     if (!logRows.length) throw new Error('対象レビューが見つかりません。C-1を再実行してください。');
     if (logRows.some(r => Number(r[idx.applied] || 0) === 1)) {
-      SpreadsheetApp.getUi().alert('このレビューは適用済みです。C-1 を再実行して新しい review_id を作ってください');
+      alertOrThrow_('適用済み', 'このレビューは適用済みです。C-1 を再実行して新しい review_id を作ってください');
       return;
     }
     const reviewVals = sh.getDataRange().getValues();
@@ -9871,10 +9903,12 @@ function applyQuarterlyProposals() {
     logSh.getRange(1, 1, logData.length, logData[0].length).setValues(logData);
     updateProcessStatus_('quarterly_review_status', 'success', client, a, '');
     logRun_('applyQuarterlyProposals', client, 'success', a, started, `rejected=${d};hold=${p}`);
-    SpreadsheetApp.getUi().alert(`四半期レビューを適用しました。\n- 承認・適用: ${a} 件\n- 却下: ${d} 件\n- 保留: ${p} 件` + (autoUpdate ? '' : '\nauto_update_enabled=0 のため CALIBRATION_STATE は変更されませんでした'));
+    const ui = safeSpreadsheetUi_();
+    if (ui) ui.alert(`四半期レビューを適用しました。\n- 承認・適用: ${a} 件\n- 却下: ${d} 件\n- 保留: ${p} 件` + (autoUpdate ? '' : '\nauto_update_enabled=0 のため CALIBRATION_STATE は変更されませんでした'));
+    return { applied: a, rejected: d, hold: p, autoUpdate: autoUpdate };
   } catch (err) {
     logRun_('applyQuarterlyProposals', '', 'error', 0, started, String(err.message || err));
-    SpreadsheetApp.getUi().alert('C-2 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
+    alertOrThrow_('C-2 エラー', err.message || err);
   }
 }
 

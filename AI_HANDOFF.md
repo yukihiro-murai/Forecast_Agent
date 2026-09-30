@@ -86,6 +86,8 @@ Hubの日常「申請を今すぐ処理」は案内の中。ポータルの作�
 | [`client_runtime/`](./client_runtime/) | Client専用最小runtimeの正本・build・tests |
 | [`portal_runtime/`](./portal_runtime/) | 社員ポータル専用runtimeの正本・build・tests |
 | [`VNext_ClientRuntimeProvisioning.js`](./VNext_ClientRuntimeProvisioning.js) | known-bound project作成・runtime copy/verify |
+| [`Forecast_WebApp.js`](./Forecast_WebApp.js) | Legacy book の Webアプリ本体（doGet + bootstrap/RPC）。下記「Webアプリ」参照 |
+| [`Forecast_WebAppUI.html`](./Forecast_WebAppUI.html) | Webアプリの SPA UI（AutoAnalysis/ポータル系のデザイントークン準拠） |
 | [`tests/`](./tests/) | Node/V8契約・runtime copy・UAT回帰テスト |
 
 `Forecast_Agent.js`はlegacy資産であり、vNextの新規employee flowを追加する場所ではない。vNext公開関数は原則`vNext` prefixを維持する。
@@ -122,10 +124,20 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 1. 対象ファイルだけ`git add`する。
 2. commit後、`git pull --ff-only`、`git push origin codex/vnext-annual-planning`。
 3. `clasp status`で中央projectの対象を確認して`clasp push`。
-4. AdminコードをHubへ反映する場合は、Hubのメニュー「保守 → 最新版に更新（管理ハブ＋申請入口）」を使う（1操作で Hub runtime → 新コード起動待ち → Portal runtime + `/exec` ピン。`vNextAdminUpdateAllFromSource` → `vNextAdminContinueRuntimeUpdate`。ダイアログを閉じても `vNextAdminScheduledSweep` の `vNextAdminAutoFollowRuntimeUpdate_` が引き継ぐ）。緊急bridgeとしてHub bound Script IDへ同一18ファイルを直接pushする場合も、対象Script IDとparent Spreadsheetを再確認する。
+4. AdminコードをHubへ反映する場合は、Hubのメニュー「保守 → 最新版に更新（管理ハブ＋申請入口）」を使う（1操作で Hub runtime → 新コード起動待ち → Portal runtime + `/exec` ピン。`vNextAdminUpdateAllFromSource` → `vNextAdminContinueRuntimeUpdate`。ダイアログを閉じても `vNextAdminScheduledSweep` の `vNextAdminAutoFollowRuntimeUpdate_` が引き継ぐ）。緊急bridgeとしてHub bound Script IDへ同一21ファイルを直接pushする場合も、対象Script IDとparent Spreadsheetを再確認する。
 5. Client/Engine/UI変更は中央/Hubへpushしただけでは既存Clientへ反映されない。新しいimmutable Template＋Model pairを発行・有効化し、既存bookは状態別の専用same-URL upgradeを使う。
 
 `clasp push`だけで「ライブ反映完了」と判断しない。中央source、Hub bound project、ACTIVE pair、対象Client pinの4層を確認する。
+
+## Webアプリ（Legacy book doGet）
+
+「クライアント別売上予測」book の bound script を Webアプリとして公開済み（`executeAs=USER_DEPLOYING` / `access=DOMAIN`、deployment `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`）。Legacy メニュー全般をブラウザ上で一巡できる。
+
+- 反映: `clasp push` だけでは exec URL の版は上がらない。`clasp deploy --deploymentId <上記ID> --description "クライアント別売上予測 Webアプリ"` で版を上げること。
+- Webアプリ context の落とし穴: `SpreadsheetApp.getUi()` は例外になる（toast / setActiveSheet は例外にならない）。UIアラートを出す既存経路は `safeSpreadsheetUi_()` / `alertOrThrow_()` でラップ済み。確認ダイアログ（A-9 の48ヶ月未満・極端入力）は `forecastConfirmOrAbort_()` が `err.webConfirm` を投げ、`webRunForecast` が `{needConfirm}` 戻り値に変換して SPA のモーダルに繋ぐ。新しい alert/confirm を足す場合は必ずこの2関数を使う。
+- `VNEXT_ADMIN_RUNTIME_FILE_TYPES_`（runtime copyの allowlist）は 21ファイル。Forecast_WebApp 系の追加/削除時は件数と中身を一致させること（不一致だと `vNextAdminVerifyScriptContent_` が失敗する）。
+- 出力パースは OUTPUT のラベルアンカー走査（「年度合計（予測）」「Scenario Split」「（参考）内訳とメモ」「Diagnostics」）。行位置は出力レイアウトに依存するため固定行番号で読まない。
+- 検証: `~/.clasprc.json` の access_token を `Authorization: Bearer` で exec URL に付ければ、ブラウザに Google セッションがなくても Playwright 等で実描画を確認できる。内側 iframe（googleusercontent）内で `location.hash` / `B`（bootstrap）/ `google.script.run` を直接操作する。
 
 ## 変更してはいけない境界
 

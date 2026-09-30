@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230F3557'/><path d='M6 22l6-8 5 5 8-11' stroke='%2300A0E9' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<style>
+:root{
+  --bg:#F4F7FB; --card:#FFFFFF;
+  --primary:#00A0E9; --primary-dark:#0084C5; --primary-soft:#E5F4FD;
+  --navy:#0F3557; --navy-deep:#0B2A47;
+  --text:#24303E; --muted:#5A6B7E; --line:#DCE4EC; --line-soft:#EAF0F6;
+  --warn-bg:#FFF6E8; --warn-fg:#A65C00; --warn-line:#F0D9B5;
+  --error:#C0392B; --error-bg:#FDEDEC;
+  --radius:14px; --radius-s:10px;
+  --h-btn:44px; --h-nav:52px; --h-input:40px;
+  --shadow:0 1px 2px rgba(15,53,87,.05), 0 6px 18px rgba(15,53,87,.06);
+  --fontnum:"SF Mono","Consolas","Roboto Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","YuGothic",Meiryo,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font-family:inherit;font-size:15px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#C6D3E0;border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ===== header ===== */
+.topbar{position:fixed;top:0;left:0;right:0;height:60px;background:var(--navy);display:flex;align-items:center;padding:0 24px;z-index:60;color:#fff}
+.topbar .logo{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;margin-right:12px}
+.topbar .ttl{font-size:17px;font-weight:700;letter-spacing:.02em}
+.topbar .book{margin-left:16px;font-size:13px;color:#B8CFE3;text-decoration:none;padding:6px 10px;border-radius:8px}
+.topbar .book:hover{background:rgba(255,255,255,.12);color:#fff}
+.topbar .spacer{flex:1}
+.topbar .meta{font-size:13px;color:#B8CFE3;margin-left:14px}
+.topbar .meta b{color:#fff;font-weight:600}
+.progressbar{position:fixed;top:60px;left:0;right:0;height:3px;background:rgba(0,160,233,.15);z-index:70;opacity:0;transition:opacity .2s}
+.progressbar.on{opacity:1}
+.progressbar i{display:block;height:100%;width:40%;background:var(--primary);border-radius:2px;animation:slidebar 1.1s ease-in-out infinite}
+@keyframes slidebar{0%{margin-left:-40%}100%{margin-left:100%}}
+
+/* ===== layout ===== */
+.layout{display:flex;padding-top:60px;min-height:100vh}
+.sidenav{width:210px;flex:0 0 210px;position:sticky;top:60px;height:calc(100vh - 60px);padding:18px 12px;border-right:1px solid var(--line);background:#fff}
+.navbtn{display:flex;align-items:center;gap:10px;width:186px;height:var(--h-nav);padding:0 16px;margin-bottom:6px;border-radius:var(--radius-s);font-size:15px;font-weight:600;color:var(--muted);transition:background .15s,color .15s}
+.navbtn svg{width:20px;height:20px;flex:0 0 20px}
+.navbtn:hover{background:var(--primary-soft);color:var(--navy)}
+.navbtn.on{background:var(--navy);color:#fff}
+.navbtn .dot{margin-left:auto;width:8px;height:8px;border-radius:4px;background:var(--primary);display:none}
+.navbtn .dot.err{background:var(--error)}
+.main{flex:1;min-width:0;padding:24px 28px 60px;max-width:calc(100vw - 210px)}
+
+/* ===== generic components ===== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:20px}
+.card h2{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.card .sub{font-size:13px;color:var(--muted);margin-bottom:14px}
+.card .sub:empty{display:none}
+.rowcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:20px}
+.actcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;height:176px}
+.actcard .ttl{font-size:15px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px}
+.actcard .desc{font-size:13px;color:var(--muted);margin:8px 0 10px;flex:1}
+.actcard .foot{display:flex;align-items:center;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-btn);padding:0 22px;border-radius:var(--radius-s);font-size:15px;font-weight:700;transition:background .15s,transform .05s;white-space:nowrap}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--primary-dark)}
+.btn-navy{background:var(--navy);color:#fff}
+.btn-navy:hover:not(:disabled){background:var(--navy-deep)}
+.btn-ghost{background:#fff;color:var(--navy);border:1.5px solid var(--line)}
+.btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary-dark)}
+.btn-sm{height:36px;padding:0 16px;font-size:14px}
+.btn-danger-ghost{background:#fff;color:var(--error);border:1.5px solid var(--line)}
+.btn-danger-ghost:hover:not(:disabled){border-color:var(--error)}
+.chip{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:14px;font-size:12.5px;font-weight:700}
+.chip-ok{background:var(--primary-soft);color:var(--primary-dark)}
+.chip-todo{background:#EDF1F5;color:var(--muted)}
+.chip-err{background:var(--error-bg);color:var(--error)}
+.chip-warn{background:var(--warn-bg);color:var(--warn-fg)}
+.chip-navy{background:var(--navy);color:#fff}
+.errstrip{display:none;margin:0 0 16px;padding:12px 16px;background:var(--error-bg);border:1px solid #F0C4BE;border-radius:var(--radius-s);color:var(--error);font-size:14px;font-weight:600}
+.errstrip.on{display:block}
+.warnbox{padding:12px 16px;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:var(--radius-s);color:var(--warn-fg);font-size:13.5px}
+.note{font-size:12.5px;color:var(--muted)}
+.kv{display:flex;gap:8px;align-items:baseline}
+
+/* ===== tables ===== */
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-s)}
+table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
+.tbl th{background:#F0F5FA;color:var(--navy);font-size:13.5px;font-weight:700;padding:10px 12px;text-align:left;border-bottom:2px solid var(--line);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#F8FBFE}
+.tbl td.num,.tbl th.num{text-align:right;font-family:var(--fontnum);font-variant-numeric:tabular-nums}
+.tbl tr.sum td{background:#F0F5FA;font-weight:700;border-top:2px solid var(--line)}
+.tbl input,.tbl select{width:100%;height:34px;padding:0 8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;background:#fff}
+.tbl input:focus,.tbl select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
+.tbl input.num{text-align:right;font-family:var(--fontnum)}
+.tbl td.locked{color:var(--muted)}
+.cell-del{width:30px;height:30px;border-radius:7px;color:var(--muted);font-size:16px;line-height:1}
+.cell-del:hover{background:var(--error-bg);color:var(--error)}
+
+/* custom select */
+.sel{position:relative;display:inline-block;width:100%}
+.sel select{appearance:none;-webkit-appearance:none;width:100%;height:var(--h-input);padding:0 36px 0 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;font-size:14px;color:var(--text);cursor:pointer}
+.sel::after{content:"";position:absolute;right:13px;top:50%;width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.sel select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
+.inp{width:100%;height:var(--h-input);padding:0 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px}
+.inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
+.flabel{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:6px;display:block}
+.frow{display:grid;grid-template-columns:280px 160px 300px auto;gap:16px;align-items:end}
+
+/* ===== home ===== */
+.kpirow{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);height:96px;padding:14px 18px;display:flex;flex-direction:column;justify-content:center}
+.kpi .lbl{font-size:13px;color:var(--muted);font-weight:600}
+.kpi .val{font-size:24px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .val small{font-size:14px;font-weight:600;color:var(--muted)}
+.guide{display:flex;gap:16px;align-items:flex-start}
+.charbox{width:72px;height:72px;flex:0 0 72px;cursor:pointer;animation:charfloat 3s ease-in-out infinite}
+.charbox:hover{animation-play-state:paused}
+@keyframes charfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.charbox.replay{animation:none}
+.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:14px 18px;flex:1;font-size:14px;color:var(--navy)}
+.bubble::before{content:"";position:absolute;left:-8px;top:20px;border:8px solid transparent;border-right-color:var(--primary-soft);border-left:none}
+.bubble .act{margin-top:10px}
+
+/* ===== forecast ===== */
+.chartcard{padding:18px 22px}
+#chart{width:100%;height:360px;display:block;cursor:pointer}
+.legend{display:flex;gap:22px;font-size:12.5px;color:var(--muted);margin-top:8px;padding-left:6px}
+.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.meter{display:flex;height:14px;border-radius:7px;overflow:hidden;background:#EDF1F5;margin:6px 0 12px}
+.meter i{display:block;height:100%}
+.meterrow{display:grid;grid-template-columns:120px 1fr 90px;gap:10px;align-items:center;font-size:13px;margin-bottom:8px}
+.meterrow .v{text-align:right;font-family:var(--fontnum);color:var(--navy);font-weight:700}
+.aiscores{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.aiscore{border:1px solid var(--line);border-radius:var(--radius-s);padding:10px 14px}
+.aiscore .n{font-size:13px;font-weight:700;color:var(--muted)}
+.aiscore .s{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.aiscore .bar{height:6px;border-radius:3px;background:#EDF1F5;margin-top:6px;overflow:hidden}
+.aiscore .bar i{display:block;height:100%;background:var(--primary)}
+details.fold{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);margin-bottom:20px}
+details.fold summary{cursor:pointer;list-style:none;padding:14px 20px;font-weight:700;color:var(--navy);font-size:15px;display:flex;align-items:center;gap:8px}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary::before{content:"▶";font-size:11px;color:var(--muted);transition:transform .15s}
+details.fold[open] summary::before{transform:rotate(90deg)}
+details.fold .inner{padding:0 20px 18px}
+.insight{white-space:pre-wrap;font-size:13.5px;color:var(--text);background:#F8FBFE;border-radius:var(--radius-s);padding:14px 16px;max-height:220px;overflow-y:auto}
+
+/* ===== input ===== */
+.pilltabs{display:flex;gap:8px;margin-bottom:16px}
+.pill{height:40px;padding:0 20px;border-radius:20px;font-size:14px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line)}
+.pill.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.pill .cnt{margin-left:6px;font-size:12px;opacity:.8}
+.inputfoot{display:flex;gap:10px;align-items:center;margin-top:14px}
+.dirtydot{color:var(--warn-fg);font-size:13px;font-weight:700}
+
+/* ===== modal ===== */
+.modalback{position:fixed;inset:0;background:rgba(15,42,71,.45);display:none;align-items:center;justify-content:center;z-index:90}
+.modalback.on{display:flex}
+.modal{width:480px;background:#fff;border-radius:var(--radius);padding:26px 28px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal h3{font-size:16px;color:var(--navy);margin-bottom:10px}
+.modal p{font-size:14px;white-space:pre-wrap;margin-bottom:20px;color:var(--text)}
+.modal .btns{display:flex;justify-content:flex-end;gap:10px}
+
+/* empty state */
+.empty{text-align:center;padding:44px 20px;color:var(--muted)}
+.empty .charbox{margin:0 auto 10px}
+.empty .t{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.empty .d{font-size:13px;margin-bottom:14px}
+
+.viewtitle{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.viewtitle h1{font-size:22px;color:var(--navy);font-weight:800}
+.viewtitle .vsub{font-size:13px;color:var(--muted)}
+.secgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:1100px){.secgrid{grid-template-columns:1fr}.kpirow{grid-template-columns:repeat(2,1fr)}.aiscores{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M3 19l6-9 4 4 8-11" stroke="#00A0E9" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <div class="ttl">クライアント別売上予測</div>
+  <a class="book" id="bookLink" target="_blank" rel="noopener">スプレッドシートで開く</a>
+  <div class="spacer"></div>
+  <div class="meta" id="hdrClient"></div>
+  <div class="meta" id="hdrUser"></div>
+</div>
+<div class="progressbar" id="progressbar"><i></i></div>
+
+<div class="layout">
+  <nav class="sidenav" id="sidenav"></nav>
+  <main class="main" id="main"></main>
+</div>
+
+<div class="modalback" id="modalBack">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <p id="modalMsg"></p>
+    <div class="btns">
+      <button class="btn btn-ghost" id="modalCancel">キャンセル</button>
+      <button class="btn btn-primary" id="modalOk">続行する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+window.__BOOT__ = <?!= bootJson ?>;
+
+/* ================= helpers ================= */
+var B = window.__BOOT__;
+var CHAR_GEAR = '<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z" fill="#8a94a6"/><circle cx="40" cy="40" r="14" fill="#f6f7f9"/><circle cx="34" cy="38" r="2.2" fill="#1f2530"/><circle cx="46" cy="38" r="2.2" fill="#1f2530"/><path d="M36 45h8" stroke="#1f2530" stroke-width="3" stroke-linecap="round"/></svg>';
+var CHAR_ARROW = '<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M8 32h34V16l30 24-30 24V48H8z" fill="#f28c28" stroke="#f28c28" stroke-width="5" stroke-linejoin="round"/><circle cx="20" cy="38" r="2.4" fill="#5a2a00"/><circle cx="32" cy="38" r="2.4" fill="#5a2a00"/><circle cx="26" cy="47" r="2.6" fill="none" stroke="#5a2a00" stroke-width="2.5"/></svg>';
+
+var state = { view: 'home', inputTab: 'product', busy: false, confirms: [],
+  inputDraft: null, inputDirty: {}, budgetDirty: {}, candidates: null, candidatesLoading: false,
+  decisionDirty: {}, insightDirty: {} };
+
+function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtY(v){ if(v==null||!isFinite(v))return '—'; var a=Math.abs(v); if(a>=1e8)return '¥'+(v/1e8).toFixed(2)+'億'; if(a>=1e4)return '¥'+Math.round(v/1e4).toLocaleString()+'万'; return '¥'+Math.round(v).toLocaleString(); }
+function fmtN(v){ return (v==null||!isFinite(v))?'—':Math.round(v).toLocaleString(); }
+function fmtPct(v,d){ if(v==null||!isFinite(v))return '—'; return (v*100).toFixed(d==null?1:d)+'%'; }
+function fmtScore(v){ if(v==null||!isFinite(v))return '—'; return (v>0?'+':'')+Number(v).toFixed(1); }
+function stepOk(k){ var s=stepOf(k); return s&&s.status==='success'; }
+function stepOf(k){ for(var i=0;i<B.steps.length;i++)if(B.steps[i].key===k)return B.steps[i]; return null; }
+function chipFor(st){ if(st==='success')return '<span class="chip chip-ok">完了</span>'; if(st==='error')return '<span class="chip chip-err">エラー</span>'; if(st==='running')return '<span class="chip chip-warn">実行中</span>'; return '<span class="chip chip-todo">未実行</span>'; }
+function ym2label(v){ var m=B.months.filter(function(x){return x.value===v;}); return m.length?m[0].label:v; }
+
+/* ================= RPC ================= */
+function rpc(fn, args, opts){
+  opts = opts || {};
+  if(state.busy) return;
+  state.busy = true;
+  document.getElementById('progressbar').classList.add('on');
+  if(opts.btn){ opts.btn.disabled = true; }
+  var runner = google.script.run
+    .withSuccessHandler(function(res){
+      state.busy=false; document.getElementById('progressbar').classList.remove('on');
+      if(res && res.boot){ B = res.boot; }
+      if(res && res.needConfirm){ openConfirm(res.needConfirm); return; }
+      if(opts.onOk) opts.onOk(res);
+      if(opts.rerender!==false) render();
+    })
+    .withFailureHandler(function(err){
+      state.busy=false; document.getElementById('progressbar').classList.remove('on');
+      var msg = (err && err.message) ? err.message : String(err);
+      if(opts.onErr){ opts.onErr(msg); } else { showToast(msg, true); }
+      render();
+    });
+  runner = runner[fn];
+  runner.apply(google.script.run, args || []);
+}
+function openConfirm(c){
+  var mb=document.getElementById('modalBack');
+  document.getElementById('modalTitle').textContent=c.title||'確認';
+  document.getElementById('modalMsg').textContent=c.message||'';
+  mb.classList.add('on');
+  document.getElementById('modalOk').onclick=function(){
+    mb.classList.remove('on');
+    if(state.confirms.indexOf(c.key)<0)state.confirms.push(c.key);
+    rpc('webRunForecast',[state.confirms]);
+  };
+  document.getElementById('modalCancel').onclick=function(){ mb.classList.remove('on'); };
+}
+var toastTimer=null;
+function showToast(msg, isErr){
+  var el=document.getElementById('toast');
+  if(!el){ el=document.createElement('div'); el.id='toast'; el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 22px;border-radius:10px;font-size:14px;font-weight:700;z-index:95;box-shadow:0 8px 30px rgba(0,0,0,.18)'; document.body.appendChild(el); }
+  el.textContent=msg;
+  el.style.background = isErr?'var(--error)':'var(--navy)';
+  el.style.color='#fff'; el.style.opacity='1';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity .4s'; }, 3800);
+}
+
+/* ================= nav ================= */
+var NAV = [
+  {id:'home',     label:'ホーム',     icon:'<path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'},
+  {id:'prep',     label:'準備',       icon:'<path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'},
+  {id:'input',    label:'入力',       icon:'<rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'},
+  {id:'forecast', label:'予測と予算', icon:'<path d="M4 19l5-7 4 3 7-9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="6" r="1.6" fill="currentColor"/>'},
+  {id:'eval',     label:'検証',       icon:'<path d="M9 4h6l1 3h4v13H4V7h4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 13l2.4 2.4L16 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'},
+  {id:'quarterly',label:'四半期',     icon:'<rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'}
+];
+function renderNav(){
+  var html='';
+  NAV.forEach(function(n){
+    var mark = '';
+    if(n.id==='forecast' && stepOf('step4_status') && stepOf('step4_status').status==='error') mark='<span class="dot err"></span>';
+    else if(n.id==='prep' && stepOf('step1_status') && stepOf('step1_status').status==='error') mark='<span class="dot err"></span>';
+    html+='<button class="navbtn'+(state.view===n.id?' on':'')+'" data-v="'+n.id+'"><svg viewBox="0 0 24 24">'+n.icon+'</svg>'+n.label+mark+'</button>';
+  });
+  document.getElementById('sidenav').innerHTML=html;
+  Array.prototype.forEach.call(document.querySelectorAll('.navbtn'),function(b){
+    b.onclick=function(){ state.view=b.getAttribute('data-v'); location.hash=state.view; render(); };
+  });
+}
+
+/* ================= views ================= */
+function viewTitle(t, sub){
+  return '<div class="viewtitle"><h1>'+esc(t)+'</h1><span class="vsub">'+esc(sub||'')+'</span></div>';
+}
+function emptyBox(title, desc, btnLabel, view){
+  return '<div class="empty"><div class="charbox" onclick="replayChar(this)">'+CHAR_GEAR+'</div><div class="t">'+esc(title)+'</div><div class="d">'+esc(desc)+'</div>'+
+    (btnLabel?'<button class="btn btn-primary" onclick="goView(\''+view+'\')">'+esc(btnLabel)+'</button>':'')+'</div>';
+}
+function goView(v){ state.view=v; location.hash=v; render(); }
+function replayChar(el){ el.classList.remove('replay'); void el.offsetWidth; el.style.animation='none'; setTimeout(function(){ el.style.animation=''; },10); }
+
+function render(){
+  renderNav();
+  document.getElementById('hdrClient').innerHTML = B.setup.client ? '対象: <b>'+esc(B.setup.client)+'</b> / FY'+B.setup.fy : '';
+  document.getElementById('hdrUser').innerHTML = B.user ? '<b>'+esc(B.user.split('@')[0])+'</b>' : '';
+  var book=document.getElementById('bookLink'); if(B.bookUrl)book.href=B.bookUrl;
+  var v = { home:renderHome, prep:renderPrep, input:renderInput, forecast:renderForecast, 'eval':renderEval, quarterly:renderQuarterly }[state.view] || renderHome;
+  document.getElementById('main').innerHTML = v();
+  bindView();
+}
+
+/* ---------- home ---------- */
+function renderHome(){
+  var s=B.output && B.output.sections && B.output.sections[0];
+  var html=viewTitle('ホーム', '予測サイクルの進捗と次の操作');
+  html+='<div class="kpirow">'
+    +'<div class="kpi"><div class="lbl">対象クライアント</div><div class="val">'+esc(B.setup.client||'未設定')+'</div></div>'
+    +'<div class="kpi"><div class="lbl">予測年度（FY）</div><div class="val">'+esc(B.setup.fy)+'</div></div>'
+    +'<div class="kpi"><div class="lbl">年間予測（Baseline P50）</div><div class="val">'+(s?fmtY(s.annual.p50):'—')+'</div></div>'
+    +'<div class="kpi"><div class="lbl">最終予算（合計）</div><div class="val">'+(s&&s.annual.final!=null?fmtY(s.annual.final):'—')+'</div></div></div>';
+
+  html+='<div class="card"><h2>次の一手</h2><div class="guide"><div class="charbox" onclick="replayChar(this)">'+CHAR_ARROW+'</div><div class="bubble">'+nextStepHtml()+'</div></div></div>';
+
+  html+='<div class="card"><h2>プロセス進捗</h2><div class="sub">メニュー A-1〜C-3 の実行状態（PROCESS_STATUS）</div><div class="tblwrap"><table class="tbl">'
+    +'<colgroup><col style="width:90px"><col style="width:220px"><col style="width:100px"><col style="width:90px"><col style="width:110px"><col></colgroup>'
+    +'<thead><tr><th>メニュー</th><th>処理</th><th>状態</th><th class="num">件数</th><th>実行者</th><th>要因 / メモ</th></tr></thead><tbody>';
+  B.steps.forEach(function(s){
+    var memo = s.status==='error' ? s.error : (s.status==='success' ? s.date : '');
+    html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(s.menu)+'</td><td>'+esc(s.label)+'</td><td>'+chipFor(s.status)+'</td><td class="num">'+(s.count||'—')+'</td><td>'+esc((s.by||'').split('@')[0])+'</td><td class="locked">'+esc(memo)+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+
+  html+='<div class="card"><h2>直近の実行履歴</h2><div class="tblwrap"><table class="tbl">'
+    +'<colgroup><col style="width:120px"><col style="width:140px"><col><col style="width:90px"><col style="width:90px"></colgroup>'
+    +'<thead><tr><th>日時</th><th>実行者</th><th>処理</th><th>状態</th><th class="num">件数</th></tr></thead><tbody>';
+  if(!B.runLog.length) html+='<tr><td colspan="5" class="locked">実行履歴はまだありません</td></tr>';
+  B.runLog.forEach(function(r){
+    html+='<tr><td>'+esc(r.at)+'</td><td>'+esc(r.by)+'</td><td>'+esc(r.fn)+'</td><td>'+chipFor(r.status==='success'?'success':(r.status==='error'?'error':r.status))+'</td><td class="num">'+(r.count||'—')+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+  return html;
+}
+
+function nextStepHtml(){
+  var s1=stepOf('step1_status'), s4=stepOf('step4_status');
+  if(!B.setup.client) return 'まず「準備」タブでクライアントとFYを設定してください。こっちこっち。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'prep\')">準備へ</button></div>';
+  if(!s1||s1.status!=='success') return '外部シートから売上データを取り込みます（A-2）。これが全部の土台です。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'prep\')">取り込みへ</button></div>';
+  if(!s4||s4.status!=='success') return '入力（製品・クライアント要因・見解・Spot）を整えて、予測を実行します（A-9）。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'input\')">入力へ</button></div><div class="act" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="goView(\'forecast\')">予測へ</button></div>';
+  var s2=stepOf('step2_status'), s5=stepOf('step5_status');
+  if(!s2||s2.status!=='success') return '実績月が確定したら、検証用に実績を取り込みます（B-1）。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'eval\')">検証へ</button></div>';
+  if(!s5||s5.status!=='success') return '検証レポートを更新すると、誤差とインサイトが見えます（B-2〜B-4）。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'eval\')">検証へ</button></div>';
+  var q=stepOf('quarterly_review_status');
+  if(!q||q.status!=='success') return '四半期が確定したらレビューを生成します（C-1）。予測の前提を自動で点検します。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'quarterly\')">四半期へ</button></div>';
+  return '予測は最新です。月が進んだら A-2 → A-9 → B-1〜B-4 の順で回してください。';
+}
+
+/* ---------- prep ---------- */
+function renderPrep(){
+  var html=viewTitle('準備', '初期設定と売上データの取り込み・加工・AI調査');
+  html+='<div class="errstrip" id="err_prep"></div>';
+
+  html+='<div class="card"><h2>初期設定（A-1 相当）</h2><div class="sub">クライアント・年度・担当者を保存します。シートの全消去・再構築は Web では行いません（必要な場合はスプレッドシートのメニューから実行）。</div>'
+    +'<div class="frow">'
+    +'<div><label class="flabel">クライアント（メーカー名）</label><div class="sel"><select id="set_client"><option value="">候補を読み込み中…</option></select></div></div>'
+    +'<div><label class="flabel">予測年度 FY</label><div class="sel"><select id="set_fy">'+fyOptions()+'</select></div></div>'
+    +'<div><label class="flabel">担当者（カンマ区切り）</label><input class="inp" id="set_people" value="'+esc(B.setup.peopleCsv)+'" placeholder="例: 村井, 佐藤"></div>'
+    +'<div><button class="btn btn-navy" id="btn_setup">設定を保存</button></div>'
+    +'</div></div>';
+
+  html+='<div class="rowcards">'
+    + actCard('A-2', '売上データ取り込み', '外部の実績集計シートから当クライアント分を取り込み、入力シートをFY向けに整えます。', 'step1_status', 'btn_import', '取り込み実行')
+    + actCard('A-3', '売上データ加工', '取り込んだ明細を FY の月次系列（SALES_MONTHLY）に集計します。A-2 完了後に実行。', null, 'btn_agg', '加工を実行')
+    + actCard('A-4', 'AI調査', 'Vertex AI で市場・競合・チャネル・DX の外部環境を調査し、スコアに反映します（数分かかります）。', 'step3_status', 'btn_ai', 'AI調査を実行')
+    +'</div>';
+
+  if(!B.setup.aiEnabled){
+    html+='<div class="warnbox">AI調査は現在オフです（CONFIG の AI_RESEARCH_ENABLED=0）。スコアなしでも予測は実行できます。有効化はスプレッドシートの CONFIG シートで行います。</div>';
+  } else if(!B.setup.geminiReady){
+    html+='<div class="warnbox">AI調査の必須設定（VERTEX_PROJECT_ID / LOCATION / GEMINI_MODEL）が未入力です。A-4 はエラーになります。</div>';
+  }
+  return html;
+}
+function fyOptions(){
+  var cur=B.setup.fy, out='';
+  for(var y=cur-2;y<=cur+3;y++) out+='<option value="'+y+'"'+(y===cur?' selected':'')+'>FY'+y+'</option>';
+  return out;
+}
+function actCard(menu, ttl, desc, stepKey, btnId, btnLabel){
+  var st = stepKey ? stepOf(stepKey) : null;
+  var stHtml = st ? chipFor(st.status) : '';
+  var extra = st && st.status==='success' ? '<span class="note">'+esc(st.date)+' / '+st.count+'件</span>' : (st && st.status==='error' ? '<span class="note" style="color:var(--error)">'+esc(st.error)+'</span>' : '');
+  return '<div class="actcard"><div class="ttl"><span class="chip chip-navy">'+menu+'</span>'+esc(ttl)+'</div><div class="desc">'+esc(desc)+'</div><div class="foot"><button class="btn btn-primary" id="'+btnId+'">'+esc(btnLabel)+'</button>'+stHtml+extra+'</div></div>';
+}
+
+/* ---------- input ---------- */
+var INPUT_TABS = [
+  {id:'product',  label:'製品別要因',   menu:'A-5'},
+  {id:'client',   label:'クライアント要因', menu:'A-6'},
+  {id:'opinions', label:'担当者の見解', menu:'A-7'},
+  {id:'devspot',  label:'Spot・開発案件', menu:'A-8'}
+];
+function inputCols(kind){
+  if(kind==='product') return [
+    {k:'person', w:130, type:'people'}, {k:'product', w:200, type:'products'},
+    {k:'ym', w:140, type:'month'}, {k:'step', w:110, type:'step'}, {k:'reason', w:0, type:'text', ph:'理由'}];
+  if(kind==='client') return [
+    {k:'person', w:130, type:'people'}, {k:'ym', w:140, type:'month'},
+    {k:'step', w:110, type:'step'}, {k:'reason', w:0, type:'text', ph:'理由'}];
+  if(kind==='opinions') return [
+    {k:'person', w:130, type:'people'}, {k:'ym', w:140, type:'month'},
+    {k:'step', w:110, type:'step'}, {k:'conf', w:90, type:'conf'}, {k:'note', w:0, type:'text', ph:'補足（情報源・確度の根拠など）'}];
+  return [
+    {k:'person', w:130, type:'people'}, {k:'ym', w:140, type:'month'},
+    {k:'project', w:220, type:'text', ph:'案件名'}, {k:'amount', w:140, type:'money'}, {k:'conf', w:90, type:'conf'}];
+}
+function inputHead(kind){
+  if(kind==='product') return ['担当者','製品','対象月','増減率','理由'];
+  if(kind==='client') return ['担当者','対象月','増減率','理由'];
+  if(kind==='opinions') return ['担当者','対象月','増減率','確度(0-1)','補足'];
+  return ['担当者','対象月','案件名','金額(円)','確度(0-1)'];
+}
+function getDraft(kind){
+  if(!state.inputDraft) state.inputDraft = JSON.parse(JSON.stringify(B.input));
+  if(!state.inputDraft[kind]) state.inputDraft[kind]=[];
+  return state.inputDraft[kind];
+}
+function renderInput(){
+  var kind=state.inputTab;
+  var tab = INPUT_TABS.filter(function(t){return t.id===kind;})[0];
+  var rows=getDraft(kind), dirty=state.inputDirty[kind];
+  var html=viewTitle('入力', '担当者の主観情報を月次で登録します（保存すると予測に反映）');
+  html+='<div class="errstrip" id="err_input"></div>';
+  html+='<div class="pilltabs">';
+  INPUT_TABS.forEach(function(t){
+    var n=B.input[t.id].length;
+    var dirtyMark = state.inputDirty[t.id] ? ' *' : '';
+    html+='<button class="pill'+(t.id===kind?' on':'')+'" data-tab="'+t.id+'">'+t.menu+' '+t.label+'<span class="cnt">'+n+'</span>'+dirtyMark+'</button>';
+  });
+  html+='</div>';
+
+  var guides={
+    product:'製品ごとの増減見込み。増減率は対象月の製品別売上に掛かります（例: 競合発売で -30%）。',
+    client:'クライアント全体に効く増減（予算圧縮・体制変更など）。対象月の全売上に掛かります。',
+    opinions:'担当者の目線。増減率 × 確度で反映されます。情報源の信頼度は確度(0-1)で指定。',
+    devspot:'決まっているスポット案件。金額×確度がそのまま対象月に加算されます（定性ルート）。'
+  };
+  html+='<div class="card"><h2>'+tab.menu+' '+esc(tab.label)+'</h2><div class="sub">'+guides[kind]+'</div>';
+
+  if(!stepOk('step1_status')){
+    html+=emptyBox('まず売上データを取り込んでください', 'A-2 の実行で入力シートの雛形ができます。', '準備へ', 'prep');
+  } else {
+    html+='<div class="tblwrap"><table class="tbl"><colgroup>';
+    inputCols(kind).forEach(function(c){ html+='<col style="width:'+(c.w||'')+'px">'; });
+    html+='<col style="width:44px"></colgroup><thead><tr>';
+    inputHead(kind).forEach(function(h){ html+='<th>'+h+'</th>'; });
+    html+='<th></th></tr></thead><tbody id="inrows">';
+    rows.forEach(function(r,i){ html+=inputRowHtml(kind, r, i); });
+    html+='</tbody></table></div>';
+    html+='<div class="inputfoot"><button class="btn btn-ghost btn-sm" id="btn_addrow">+ 行を追加</button>'
+      +'<button class="btn btn-primary" id="btn_saveinput">保存</button>'
+      +(dirty?'<span class="dirtydot">未保存の変更があります</span>':'')
+      +'<span class="note">必須項目が空の行は予測では無視されます（既存仕様と同じ）。</span></div>';
+  }
+  html+='</div>';
+  return html;
+}
+function selHtml(cls, opts, cur, extra){
+  var h='<div class="sel"><select class="'+cls+'" '+extra+'>';
+  opts.forEach(function(o){
+    var v=typeof o==='string'?o:o.value, l=typeof o==='string'?o:o.label;
+    h+='<option value="'+esc(v)+'"'+(String(cur)===String(v)?' selected':'')+'>'+esc(l)+'</option>';
+  });
+  return h+'</select></div>';
+}
+function inputCell(kind, c, r, i){
+  var v=r[c.k];
+  if(c.type==='people') return selHtml('in-'+c.k+'-'+i, [''].concat(B.setup.people), v, 'data-i="'+i+'" data-k="'+c.k+'"');
+  if(c.type==='products') return selHtml('in-'+c.k+'-'+i, [''].concat(B.products), v, 'data-i="'+i+'" data-k="'+c.k+'"');
+  if(c.type==='month') return selHtml('in-'+c.k+'-'+i, [''].concat(B.months), v, 'data-i="'+i+'" data-k="'+c.k+'"');
+  if(c.type==='step') return selHtml('in-'+c.k+'-'+i, [''].concat(B.stepOptions), v===''?'':v, 'data-i="'+i+'" data-k="'+c.k+'"');
+  if(c.type==='conf') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" min="0" max="1" step="0.1" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
+  if(c.type==='money') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" min="0" step="10000" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
+  return '<input class="inp in-'+c.k+'-'+i+'" type="text" value="'+esc(v)+'" placeholder="'+(c.ph||'')+'" data-i="'+i+'" data-k="'+c.k+'">';
+}
+function inputRowHtml(kind, r, i){
+  var h='<tr data-ri="'+i+'">';
+  inputCols(kind).forEach(function(c){ h+='<td>'+inputCell(kind,c,r,i)+'</td>'; });
+  h+='<td><button class="cell-del" data-del="'+i+'" title="行を削除">×</button></td></tr>';
+  return h;
+}
+
+/* ---------- forecast ---------- */
+function renderForecast(){
+  var html=viewTitle('予測と予算', 'A-9 予測実行 / A-10 月次予算の策定');
+  html+='<div class="errstrip" id="err_fc"></div>';
+
+  var s4=stepOf('step4_status');
+  html+='<div class="card"><div style="display:flex;align-items:center;gap:14px">'
+    +'<button class="btn btn-navy" id="btn_runfc"'+(stepOk('step1_status')?'':' disabled')+'>予測を実行（A-9）</button>'
+    + chipFor(s4?s4.status:'not_run')
+    +'<span class="note">'+((s4&&s4.status==='success')?('最終: '+s4.date+' / '+s4.count+'ヶ月'):'A-2 取り込み後に実行できます')+'</span></div></div>';
+
+  var O=B.output;
+  if(!O){ html+='<div class="card">'+emptyBox('予測はまだありません','A-9 を実行すると、年間見通しと月次予測がここに表示されます。','',null)+'</div>'; return html; }
+
+  var p=O.sections[0];
+  html+='<div class="kpirow">'
+    +kpi('Baseline（P50）', fmtY(p.annual.p50))
+    +kpi('Downside（P10）', fmtY(p.annual.p10))
+    +kpi('Upside（P90）', fmtY(p.annual.p90))
+    +kpi('最終予算（合計）', p.annual.final!=null?fmtY(p.annual.final):'—')
+    +'</div>';
+
+  html+='<div class="card chartcard"><h2>月次予測（混合 P50・P10〜P90 帯）</h2><canvas id="chart"></canvas>'
+    +'<div class="legend"><span><i style="background:#BFE1F7"></i>P10〜P90</span><span><i style="background:var(--primary)"></i>Baseline P50</span><span><i style="background:#8a94a6"></i>Linear回帰</span><span><i style="background:var(--navy)"></i>採用予測/実績</span></div></div>';
+
+  if(O.composition.length){
+    var c=O.composition[0];
+    html+='<div class="card"><h2>予測の構成（診断指標）</h2>'
+      +'<div class="meter">'
+      +'<i style="width:'+Math.round(c.quant*100)+'%;background:var(--navy)"></i>'
+      +'<i style="width:'+Math.round((c.subjective||0)*100)+'%;background:var(--primary)"></i>'
+      +'<i style="width:'+Math.round((c.ai||0)*100)+'%;background:#7FB8DF"></i>'
+      +'<i style="width:'+Math.round((c.spot||0)*100)+'%;background:#C9D6E4"></i></div>'
+      +'<div class="meterrow"><span>定量（トレンド）</span><span></span><span class="v">'+fmtPct(c.quant)+'</span></div>'
+      +'<div class="meterrow"><span>主観オーバーレイ</span><span></span><span class="v">'+fmtPct(c.subjective)+'</span></div>'
+      +'<div class="meterrow"><span>AI寄与</span><span></span><span class="v">'+fmtPct(c.ai)+'</span></div>'
+      +'<div class="meterrow"><span>Known Spot</span><span></span><span class="v">'+fmtPct(c.spot)+'</span></div>'
+      +(c.warn?'<div class="warnbox" style="margin-top:8px">'+esc(c.warn)+'</div>':'')
+      +'</div>';
+  }
+
+  // 月次表（予算編集つき）
+  html+='<div class="card"><h2>月次予測と予算策定</h2><div class="sub">「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯（hard gate ではありません）。</div>'
+    +'<div class="tblwrap"><table class="tbl" id="budgetTbl">'
+    +'<colgroup><col style="width:86px"><col><col><col><col><col style="width:150px"><col style="width:130px"><col></colgroup>'
+    +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">幅(P90-P10)</th><th class="num">採用予測</th><th class="num">上積み</th><th class="num">最終予算</th></tr></thead><tbody>';
+  p.monthly.forEach(function(m){
+    var dirty=state.budgetDirty[m.row];
+    var ad = dirty?dirty.adopted:m.adopted, up = dirty?dirty.uplift:m.uplift;
+    var fin = (isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0);
+    if(dirty||m.adopted!=null||m.uplift!=null){ if(!isFinite(fin)||fin===0)fin=m.final; }
+    html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(m.month)+'</td>'
+      +'<td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num locked">'+fmtN(m.range)+'</td>'
+      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="adopted" value="'+(ad==null?'':Math.round(ad))+'"></td>'
+      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="uplift" value="'+(up==null?'':Math.round(up))+'"></td>'
+      +'<td class="num" style="font-weight:700" data-fin="'+m.row+'">'+fmtN(dirty?fin:m.final)+'</td></tr>';
+  });
+  var sumFinal = p.monthly.reduce(function(a,m){var d=state.budgetDirty[m.row];var ad=d?d.adopted:m.adopted,up=d?d.uplift:m.uplift;if(d)return a+((isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0));return a+(m.final||0);},0);
+  html+='<tr class="sum"><td>年度合計</td><td class="num">'+fmtN(p.annual.p10)+'</td><td class="num">'+fmtN(p.annual.p50)+'</td><td class="num">'+fmtN(p.annual.p90)+'</td><td class="num">'+fmtN(p.annual.range)+'</td><td class="num">'+fmtN(p.annual.adopted)+'</td><td class="num">'+fmtN(p.annual.uplift)+'</td><td class="num">'+fmtN(sumFinal)+'</td></tr>';
+  html+='</tbody></table></div>'
+    +'<div class="inputfoot"><button class="btn btn-ghost btn-sm" id="btn_copyp50">P50を採用予測にコピー</button>'
+    +'<button class="btn btn-primary" id="btn_savebudget">予算を保存（A-10）</button>'
+    +(Object.keys(state.budgetDirty).length?'<span class="dirtydot">未保存の変更があります</span>':'')
+    +'<span class="note">年度合計と月の合計が一致しないのは正常です（P10/P90 は分散で縮みます）。</span></div></div>';
+
+  if(O.aiScores.length){
+    html+='<div class="card"><h2>AI調査スコア（4軸）</h2><div class="aiscores">';
+    O.aiScores.forEach(function(s){
+      var pct=Math.max(4,Math.min(100,50+s.score));
+      html+='<div class="aiscore"><div class="n">'+esc(s.name)+'</div><div class="s" style="color:'+(s.score<0?'var(--error)':'var(--navy)')+'">'+fmtScore(s.score)+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></div>';
+    });
+    html+='</div>'+(O.aiScoreNote?'<div class="note" style="margin-top:10px">'+esc(O.aiScoreNote)+'</div>':'')+'</div>';
+  }
+
+  if(O.trendInsight||O.aiInsight){
+    html+='<div class="secgrid">'
+      +(O.trendInsight?'<div class="card"><h2>過去数年の数値トレンド</h2><div class="insight">'+esc(O.trendInsight)+'</div></div>':'')
+      +(O.aiInsight?'<div class="card"><h2>AI調査レポート</h2><div class="insight">'+esc(O.aiInsight)+'</div></div>':'')
+      +'</div>';
+  }
+
+  if(O.sections[1]){
+    var q=O.sections[1];
+    html+='<details class="fold"><summary>副次目的（客観のみ / 過去売上ベース）— 年間 P50 '+fmtY(q.annual.p50)+'</summary><div class="inner"><div class="tblwrap"><table class="tbl">'
+      +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">回帰</th><th class="num">季節加重</th></tr></thead><tbody>';
+    q.monthly.forEach(function(m){ html+='<tr><td>'+esc(m.month)+'</td><td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num">'+fmtN(m.reg)+'</td><td class="num">'+fmtN(m.seasonal)+'</td></tr>'; });
+    html+='</tbody></table></div></div></details>';
+  }
+
+  if(O.breakdown.length){
+    html+='<details class="fold"><summary>内訳とメモ（P50 比較・定量/混合の差分）</summary><div class="inner"><div class="tblwrap"><table class="tbl">'
+      +'<thead><tr><th>月</th><th class="num">実績確定</th><th>ソース</th><th class="num">Ops P50(定量)</th><th class="num">Ops P50(混合)</th><th class="num">背景SPOT</th><th class="num">known spot</th><th class="num">差分</th><th>OPINIONS要約</th></tr></thead><tbody>';
+    O.breakdown.forEach(function(b){
+      html+='<tr><td>'+esc(b.month)+'</td><td class="num">'+(b.actualClosed!=null?fmtN(b.actualClosed):'—')+'</td><td class="locked">'+esc(b.source)+'</td><td class="num">'+fmtN(b.opsQuant)+'</td><td class="num">'+fmtN(b.opsMixed)+'</td><td class="num">'+fmtN(b.bgSpot)+'</td><td class="num">'+fmtN(b.knownSpot)+'</td><td class="num">'+fmtN(b.diff)+'</td><td class="locked">'+esc(b.opinions)+'</td></tr>';
+    });
+    html+='</tbody></table></div></div></details>';
+  }
+
+  if(O.engineNote) html+='<div class="note" style="margin-bottom:24px">'+esc(O.engineNote).replace(/\n/g,'<br>')+'</div>';
+  return html;
+}
+function kpi(lbl,val){ return '<div class="kpi"><div class="lbl">'+esc(lbl)+'</div><div class="val">'+esc(val)+'</div></div>'; }
+
+/* ---------- eval ---------- */
+function renderEval(){
+  var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト');
+  html+='<div class="errstrip" id="err_eval"></div>';
+  html+='<div class="rowcards">'
+    + actCard('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
+    + actCard('B-2','検証レポート更新','予測と実績を突合し、月次の誤差・内訳を更新します。','step5_status','btn_b2','レポート更新')
+    + actCard('B-3','ダッシュボード更新','年間制約・半期 WAPE・過大率の判定を集計します。','step6_status','btn_b3','集計を実行')
+    + actCard('B-4','学習インサイト','誤差の大きい月に原因記入欄付きのインサイト行を生成します。','step7_status','btn_b4','インサイト生成')
+    +'</div>';
+
+  if(B.eval.metrics.length){
+    html+='<div class="card"><h2>精度KPI（DASHBOARD）</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:180px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>判定 / 備考</th></tr></thead><tbody>';
+    B.eval.metrics.forEach(function(m){ html+='<tr><td>'+esc(m.name)+'</td><td class="num">'+esc(metricVal(m.value))+'</td><td class="locked">'+esc(m.note)+'</td></tr>'; });
+    html+='</tbody></table></div></div>';
+  }
+
+  if(B.eval.compare.length){
+    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num">差分</th><th class="num">誤差率</th><th>範囲外</th><th>期</th></tr></thead><tbody>';
+    B.eval.compare.forEach(function(c){
+      html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  }
+
+  if(B.eval.insights.length){
+    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl">'
+      +'<colgroup><col style="width:80px"><col style="width:130px"><col style="width:130px"><col style="width:90px"><col><col style="width:200px"><col style="width:130px"><col style="width:110px"><col style="width:110px"></colgroup>'
+      +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num">誤差率</th><th>インサイト / 次アクション</th><th>原因仮説</th><th>対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
+    B.eval.insights.forEach(function(r){
+      var d=state.insightDirty[r.row]||{};
+      html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(r.month)+'</td><td class="num">'+fmtN(r.pred)+'</td><td class="num">'+fmtN(r.actual)+'</td><td class="num"'+(r.errRate>0.1?' style="color:var(--error);font-weight:700"':'')+'>'+fmtPct(r.errRate)+'</td>'
+        +'<td><div>'+esc(r.insight)+'</div>'+(r.nextAction?'<div class="note">→ '+esc(r.nextAction)+'</div>':'')+'</td>'
+        +'<td><input class="inp" data-irow="'+r.row+'" data-ik="hypothesis" value="'+esc(d.hypothesis!=null?d.hypothesis:r.hypothesis)+'"></td>'
+        +'<td><div class="sel"><select data-irow="'+r.row+'" data-ik="actionType">'+insightActionOpts(d.actionType!=null?d.actionType:r.actionType)+'</select></div></td>'
+        +'<td><div class="sel"><select data-irow="'+r.row+'" data-ik="owner">'+[''].concat(B.setup.people).map(function(p){return '<option'+(p===(d.owner!=null?d.owner:r.owner)?' selected':'')+'>'+esc(p)+'</option>';}).join('')+'</select></div></td>'
+        +'<td><div class="sel"><select data-irow="'+r.row+'" data-ik="status">'+insightStatusOpts(d.status!=null?d.status:r.status)+'</select></div></td></tr>';
+    });
+    html+='</tbody></table></div><div class="inputfoot"><button class="btn btn-primary" id="btn_saveinsights">記入を保存</button>'
+      +(Object.keys(state.insightDirty).length?'<span class="dirtydot">未保存の変更があります</span>':'')+'</div></div>';
+  }
+
+  if(!B.eval.metrics.length && !B.eval.compare.length && !B.eval.insights.length){
+    html+='<div class="card">'+emptyBox('検証データはまだありません','実績月が確定したら B-1 → B-4 の順に実行すると、ここに誤差とインサイトが表示されます。','','')+'</div>';
+  }
+  return html;
+}
+function metricVal(v){ if(typeof v==='number'){ if(Math.abs(v)<3)return fmtPct(v,2); return fmtN(v);} return String(v); }
+function insightActionOpts(cur){ return ['','前提を更新','入力を修正','様子見','エスカレーション'].map(function(o){return '<option'+(o===cur?' selected':'')+'>'+o+'</option>';}).join(''); }
+function insightStatusOpts(cur){ return ['','open','in_progress','done'].map(function(o){return '<option'+(o===cur?' selected':'')+'>'+o+'</option>';}).join(''); }
+
+/* ---------- quarterly ---------- */
+function renderQuarterly(){
+  var html=viewTitle('四半期レビュー', 'C-1 提案生成 → 承認入力 → C-3 適用');
+  html+='<div class="errstrip" id="err_q"></div>';
+  var q=stepOf('quarterly_review_status');
+  html+='<div class="rowcards"><div class="actcard"><div class="ttl"><span class="chip chip-navy">C-1</span>レビュー提案の生成</div>'
+    +'<div class="desc">直近で確定した四半期の予実を分析し、モデル調整の提案を生成します（3か月分の実績確定が必要）。</div>'
+    +'<div class="foot"><button class="btn btn-primary" id="btn_c1"'+(stepOk('step4_status')?'':' disabled')+'>提案を生成</button>'+chipFor(q?q.status:'not_run')
+    +(q&&q.status==='success'?'<span class="note">'+esc(q.date)+' / '+q.count+'件</span>':'')+'</div></div></div>';
+
+  var Q=B.quarterly;
+  if(Q.applied) html+='<div class="warnbox">このレビューは適用済みです。新しい提案を作るには C-1 を再実行してください。</div>';
+  if(Q.proposals.length){
+    html+='<div class="card"><h2>'+esc(Q.title||'レビュー提案')+'</h2><div class="sub">'+esc(Q.period)+' — 承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。</div>'
+      +'<div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:170px"><col style="width:110px"><col style="width:110px"><col style="width:80px"><col><col style="width:150px"><col style="width:110px"></colgroup>'
+      +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num">自信度</th><th>根拠 / 影響</th><th>承認</th><th></th></tr></thead><tbody>';
+    Q.proposals.forEach(function(p){
+      var d=state.decisionDirty[p.row]||p.decision||'';
+      html+='<tr><td class="locked">'+esc(p.pid)+'</td><td style="font-weight:700;color:var(--navy)">'+esc(p.target)+'</td><td class="num">'+esc(p.current)+'</td><td class="num">'+esc(p.proposed)+'</td><td class="num">'+fmtPct(p.conf,0)+'</td>'
+        +'<td><div>'+esc(p.rationale)+'</div>'+(p.impact?'<div class="note">'+esc(p.impact)+'</div>':'')+'</td>'
+        +'<td><div class="sel"><select data-qrow="'+p.row+'"'+ (Q.applied?' disabled':'') +'>'+['','承認','却下','保留'].map(function(o){return '<option'+(o===d?' selected':'')+'>'+(o||'（未入力）')+'</option>';}).join('')+'</select></div></td>'
+        +'<td class="locked">'+esc(p.rollback||'')+'</td></tr>';
+    });
+    html+='</tbody></table></div><div class="inputfoot">'
+      +'<button class="btn btn-ghost" id="btn_savedec"'+(Q.applied?' disabled':'')+'>承認を保存</button>'
+      +'<button class="btn btn-primary" id="btn_c3"'+(Q.applied?' disabled':'')+'>適用する（C-3）</button>'
+      +(Object.keys(state.decisionDirty).length?'<span class="dirtydot">未保存の変更があります</span>':'')
+      +'</div></div>';
+  } else {
+    html+='<div class="card">'+emptyBox('レビュー提案はまだありません','3か月分の実績が確定したら C-1 を実行すると、ここに提案が表示されます。','','')+'</div>';
+  }
+  if(Q.logRecent.length){
+    html+='<div class="card"><h2>レビュー履歴</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:130px"><col><col style="width:90px"><col style="width:100px"></colgroup><thead><tr><th>review_id</th><th>四半期</th><th class="num">提案数</th><th>状態</th></tr></thead><tbody>';
+    Q.logRecent.forEach(function(r){ html+='<tr><td class="locked">'+esc(r.reviewId)+'</td><td>'+esc(r.quarter)+'</td><td class="num">'+r.proposals+'</td><td>'+(r.applied?'<span class="chip chip-ok">適用済</span>':'<span class="chip chip-todo">未適用</span>')+'</td></tr>'; });
+    html+='</tbody></table></div></div>';
+  }
+  return html;
+}
+
+/* ================= chart ================= */
+function drawChart(anim){
+  var cv=document.getElementById('chart'); if(!cv||!B.output)return;
+  var p=B.output.sections[0];
+  var W=cv.clientWidth||1100, H=360;
+  var dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  var ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  var padL=76,padR=20,padT=18,padB=34;
+  var ms=p.monthly; if(!ms.length)return;
+  var max=0; ms.forEach(function(m){max=Math.max(max,m.p90||0,m.p50||0,m.adopted||0);});
+  max*=1.06;
+  var X=function(i){return padL+(W-padL-padR)*(i/(ms.length-1));};
+  var Y=function(v){return padT+(H-padT-padB)*(1-v/max);};
+  var t = anim ? Math.min(1, anim.t||0) : 1;
+  // grid
+  ctx.strokeStyle='#EAF0F6'; ctx.fillStyle='#5A6B7E'; ctx.font='12px sans-serif'; ctx.lineWidth=1;
+  for(var g=0;g<=4;g++){ var yv=max*g/4, y=Y(yv); ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(W-padR,y);ctx.stroke();
+    ctx.textAlign='right'; ctx.fillText(fmtY(yv), padL-8, y+4); }
+  // band
+  ctx.beginPath();
+  ms.forEach(function(m,i){ var x=X(i); i?ctx.lineTo(x,Y(m.p90)):ctx.moveTo(x,Y(m.p90)); });
+  for(var i=ms.length-1;i>=0;i--){ ctx.lineTo(X(i),Y(ms[i].p10)); }
+  ctx.closePath(); ctx.fillStyle='rgba(0,160,233,.14)'; ctx.fill();
+  // reg dashed
+  ctx.setLineDash([5,4]); ctx.strokeStyle='#8a94a6'; ctx.lineWidth=1.6; ctx.beginPath();
+  ms.forEach(function(m,i){ var x=X(i), y=Y(m.reg); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.setLineDash([]);
+  // p50 line (animated)
+  ctx.strokeStyle='#00A0E9'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.beginPath();
+  var n=Math.max(2,Math.ceil(ms.length*t));
+  for(var i2=0;i2<n;i2++){ var m2=ms[i2]; i2?ctx.lineTo(X(i2),Y(m2.p50)):ctx.moveTo(X(i2),Y(m2.p50)); }
+  ctx.stroke();
+  // adopted
+  var hasAdopted=ms.some(function(m){return m.adopted!=null;});
+  if(hasAdopted){
+    ctx.strokeStyle='#0F3557'; ctx.lineWidth=2; ctx.setLineDash([2,3]); ctx.beginPath();
+    ms.forEach(function(m,i){ if(m.adopted==null)return; var x=X(i),y=Y(m.adopted); ctx.lineTo(x,y); });
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#0F3557';
+    ms.forEach(function(m,i){ if(m.adopted==null)return; ctx.beginPath();ctx.arc(X(i),Y(m.adopted),3,0,7);ctx.fill(); });
+  }
+  // actual closed dots
+  var bd=B.output.breakdown||[];
+  ctx.fillStyle='#0B2A47';
+  bd.forEach(function(b,i){ if(b.actualClosed==null)return; ctx.beginPath();ctx.arc(X(i),Y(b.actualClosed),4,0,7);ctx.fill(); });
+  // x labels
+  ctx.fillStyle='#5A6B7E'; ctx.textAlign='center';
+  ms.forEach(function(m,i){ ctx.fillText(m.month, X(i), H-padB+18); });
+  if(anim&&t<1){ anim.t=t+0.08; requestAnimationFrame(function(){drawChart(anim);}); }
+}
+
+/* ================= bindings ================= */
+function bindView(){
+  var $=function(id){return document.getElementById(id);};
+  // prep
+  if($('btn_setup')){
+    // lazy-load candidates
+    if(!state.candidates && !state.candidatesLoading){
+      state.candidatesLoading=true;
+      google.script.run.withSuccessHandler(function(r){
+        state.candidates=r.candidates||[]; fillClientSelect();
+      }).withFailureHandler(function(e){
+        state.candidates=[]; fillClientSelect();
+      }).webGetClientCandidates();
+    } else fillClientSelect();
+    $('btn_setup').onclick=function(e){
+      rpc('webSaveSetup',[{client:$('set_client').value,fy:Number($('set_fy').value),peopleCsv:$('set_people').value}],{btn:e.target,onOk:function(){showToast('設定を保存しました');}});
+    };
+    $('btn_import').onclick=function(e){ rpc('webRunImportSales',[],{btn:e.target,onOk:function(r){showToast('取り込み完了: '+r.count+'件 ('+r.range+')');}}); };
+    $('btn_agg').onclick=function(e){ rpc('webRunAggregate',[],{btn:e.target,onOk:function(r){showToast('加工完了: '+r.count+'行');}}); };
+    $('btn_ai').onclick=function(e){ rpc('webRunAiResearch',[],{btn:e.target,onOk:function(r){showToast('AI調査完了: '+r.rows+'行');}}); };
+  }
+  // input
+  var main=document.getElementById('main');
+  if(state.view==='input'){
+    Array.prototype.forEach.call(main.querySelectorAll('.pill'),function(p){
+      p.onclick=function(){ state.inputTab=p.getAttribute('data-tab'); render(); };
+    });
+    var tbody=$('inrows');
+    if(tbody){
+      tbody.addEventListener('change',function(ev){
+        var el=ev.target, i=Number(el.getAttribute('data-i')), k=el.getAttribute('data-k');
+        if(k==null||isNaN(i))return;
+        getDraft(state.inputTab)[i][k]=el.value;
+        state.inputDirty[state.inputTab]=true;
+        markDirty();
+      });
+      tbody.addEventListener('click',function(ev){
+        var i=ev.target.getAttribute('data-del');
+        if(i==null)return;
+        getDraft(state.inputTab).splice(Number(i),1);
+        state.inputDirty[state.inputTab]=true;
+        render();
+      });
+    }
+    if($('btn_addrow')) $('btn_addrow').onclick=function(){ getDraft(state.inputTab).push({}); state.inputDirty[state.inputTab]=true; render(); };
+    if($('btn_saveinput')) $('btn_saveinput').onclick=function(e){
+      rpc('webSaveInputs',[state.inputTab, getDraft(state.inputTab)],{btn:e.target,onOk:function(r){
+        delete state.inputDirty[state.inputTab];
+        if(state.inputDraft) state.inputDraft[state.inputTab]=r.input[state.inputTab];
+        showToast('保存しました（'+r.saved+'行）');
+      }, rerender:false, onErr:function(m){setErr('err_input',m);}});
+      // rerender skipped to preserve tab focus; re-render for pills count:
+    };
+  }
+  // forecast
+  if($('btn_runfc')){
+    $('btn_runfc').onclick=function(e){ state.confirms=[]; rpc('webRunForecast',[[]],{btn:e.target,onOk:function(){showToast('予測を更新しました');}}); };
+    var bt=$('budgetTbl');
+    if(bt) bt.addEventListener('change',function(ev){
+      var row=Number(ev.target.getAttribute('data-brow')), k=ev.target.getAttribute('data-bk');
+      if(!row||!k)return;
+      var d=state.budgetDirty[row]||(state.budgetDirty[row]={});
+      d[k]=ev.target.value===''?'':Number(ev.target.value);
+      // live final calc
+      var cur=B.output.sections[0].monthly.filter(function(m){return m.row===row;})[0];
+      var ad=d.adopted!=null?d.adopted:cur.adopted, up=d.uplift!=null?d.uplift:cur.uplift;
+      var fin=(isFinite(ad)?ad:0)+(isFinite(up)?up:0);
+      var cell=bt.querySelector('[data-fin="'+row+'"]'); if(cell)cell.textContent=fmtN(fin);
+      markDirty();
+    });
+    if($('btn_copyp50')) $('btn_copyp50').onclick=function(){
+      B.output.sections[0].monthly.forEach(function(m){ (state.budgetDirty[m.row]||(state.budgetDirty[m.row]={})).adopted=m.p50; });
+      render();
+    };
+    if($('btn_savebudget')) $('btn_savebudget').onclick=function(e){
+      var rows=Object.keys(state.budgetDirty).map(function(r){ return {row:Number(r), adopted:state.budgetDirty[r].adopted, uplift:state.budgetDirty[r].uplift}; });
+      if(!rows.length){showToast('変更がありません',true);return;}
+      rpc('webSaveBudget',[rows],{btn:e.target,onOk:function(r){
+        state.budgetDirty={};
+        if(r.output) B.output=r.output;
+        showToast('予算を保存しました（'+r.saved+'月）');
+      }});
+    };
+    drawChart({t:0});
+    var cv=$('chart'); if(cv)cv.onclick=function(){drawChart({t:0});};
+  }
+  // eval
+  if($('btn_b1')){
+    $('btn_b1').onclick=function(e){ rpc('webRunImportActuals',[],{btn:e.target,onOk:function(r){showToast('実績取込完了: '+r.count+'件');}}); };
+    $('btn_b2').onclick=function(e){ rpc('webRunEvalReport',[],{btn:e.target,onOk:function(){showToast('検証レポートを更新しました');}}); };
+    $('btn_b3').onclick=function(e){ rpc('webRunDashboard',[],{btn:e.target,onOk:function(){showToast('ダッシュボードを更新しました');}}); };
+    $('btn_b4').onclick=function(e){ rpc('webRunInsights',[],{btn:e.target,onOk:function(){showToast('インサイトを更新しました');}}); };
+    var main2=document.getElementById('main');
+    main2.addEventListener('change',function(ev){
+      var row=Number(ev.target.getAttribute('data-irow')), k=ev.target.getAttribute('data-ik');
+      if(!row||!k)return;
+      var d=state.insightDirty[row]||(state.insightDirty[row]={});
+      d[k]=ev.target.value; markDirty();
+    });
+    if($('btn_saveinsights')) $('btn_saveinsights').onclick=function(e){
+      var rows=Object.keys(state.insightDirty).map(function(r){
+        var d=state.insightDirty[r];
+        var cur=B.eval.insights.filter(function(x){return x.row===Number(r);})[0]||{};
+        return {row:Number(r), hypothesis:d.hypothesis!=null?d.hypothesis:cur.hypothesis, actionType:d.actionType!=null?d.actionType:cur.actionType,
+          reflection:d.reflection!=null?d.reflection:cur.reflection, owner:d.owner!=null?d.owner:cur.owner, status:d.status!=null?d.status:cur.status};
+      });
+      rpc('webSaveEvalInsights',[rows],{btn:e.target,onOk:function(r){state.insightDirty={};showToast('記入を保存しました（'+r.saved+'行）');}});
+    };
+  }
+  // quarterly
+  if($('btn_c1')){
+    $('btn_c1').onclick=function(e){ rpc('webRunQuarterly',[],{btn:e.target,onOk:function(r){ if(r.quarterly)B.quarterly=r.quarterly; showToast('提案を生成しました（'+r.quarterly.proposals.length+'件）');}}); };
+    document.getElementById('main').addEventListener('change',function(ev){
+      var row=Number(ev.target.getAttribute('data-qrow'));
+      if(!row)return;
+      state.decisionDirty[row]=ev.target.value; markDirty();
+    });
+    if($('btn_savedec')) $('btn_savedec').onclick=function(e){
+      var rows=Object.keys(state.decisionDirty).map(function(r){return {row:Number(r),decision:state.decisionDirty[r]};});
+      rpc('webSaveQuarterlyDecisions',[rows],{btn:e.target,onOk:function(r){state.decisionDirty={};showToast('承認を保存しました（'+r.saved+'件）');}});
+    };
+    if($('btn_c3')) $('btn_c3').onclick=function(e){
+      rpc('webApplyQuarterly',[],{btn:e.target,onOk:function(r){
+        if(r.quarterly)B.quarterly=r.quarterly;
+        var a=r.result||{};
+        showToast('適用しました（承認 '+a.applied+' / 却下 '+a.rejected+' / 保留 '+a.hold+'）');
+      }});
+    };
+  }
+}
+function fillClientSelect(){
+  var sel=document.getElementById('set_client'); if(!sel)return;
+  var cur=B.setup.client;
+  var opts=(state.candidates&&state.candidates.length?state.candidates:(cur?[cur]:[])).slice();
+  if(cur&&opts.indexOf(cur)<0)opts.unshift(cur);
+  sel.innerHTML=opts.map(function(o){return '<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>';}).join('') || '<option value="">（候補なし）</option>';
+}
+function markDirty(){ /* ボタン横のdirty表示は次回renderで反映 */ }
+function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textContent=msg;el.classList.add('on');} else showToast(msg,true); }
+
+/* ================= boot ================= */
+(function(){
+  var h=(location.hash||'').replace('#','');
+  if(['home','prep','input','forecast','eval','quarterly'].indexOf(h)>=0)state.view=h;
+  window.addEventListener('hashchange',function(){
+    var v=(location.hash||'').replace('#','');
+    if(v!==state.view){state.view=v;render();}
+  });
+  render();
+})();
+</script>
+</body>
+</html>
