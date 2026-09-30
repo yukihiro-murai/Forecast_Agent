@@ -309,12 +309,14 @@ var NAV = [
   {id:'eval',     label:'検証',       icon:'<path d="M9 4h6l1 3h4v13H4V7h4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 13l2.4 2.4L16 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'},
   {id:'quarterly',label:'四半期',     icon:'<rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'}
 ];
+// ビューごとのエラードット対象ステップ
+var NAV_ERR_STEPS = { prep:['step1_status','step3_status','step3a_status'], forecast:['step4_status'], eval:['step2_status','step5_status','step6_status','step7_status'], quarterly:['quarterly_review_status'] };
 function renderNav(){
   var html='';
   NAV.forEach(function(n){
     var mark = '';
-    if(n.id==='forecast' && stepOf('step4_status') && stepOf('step4_status').status==='error') mark='<span class="dot err"></span>';
-    else if(n.id==='prep' && stepOf('step1_status') && stepOf('step1_status').status==='error') mark='<span class="dot err"></span>';
+    var errKeys = NAV_ERR_STEPS[n.id] || [];
+    if(errKeys.some(function(k){ var s=stepOf(k); return s && s.status==='error'; })) mark='<span class="dot err"></span>';
     html+='<button class="navbtn'+(state.view===n.id?' on':'')+'"'+(state.view===n.id?' aria-current="page"':'')+' data-v="'+n.id+'"><svg viewBox="0 0 24 24">'+n.icon+'</svg>'+n.label+mark+'</button>';
   });
   document.getElementById('sidenav').innerHTML=html;
@@ -455,7 +457,7 @@ function inputHead(kind){
   return ['担当者','対象月','案件名','金額(円)','確度(0-1)'];
 }
 function getDraft(kind){
-  if(!state.inputDraft) state.inputDraft = JSON.parse(JSON.stringify(B.input));
+  if(!state.inputDraft) state.inputDraft = JSON.parse(JSON.stringify(B.input||{}));
   if(!state.inputDraft[kind]) state.inputDraft[kind]=[];
   return state.inputDraft[kind];
 }
@@ -737,7 +739,8 @@ function drawChart(anim){
   var ms=p.monthly; if(!ms.length)return;
   var max=0; ms.forEach(function(m){max=Math.max(max,m.p90||0,m.p50||0,m.adopted||0);});
   max*=1.06;
-  var X=function(i){return padL+(W-padL-padR)*(i/(ms.length-1));};
+  if(!isFinite(max)||max<=0)max=1; // 全値0・欠損でも描画を破壊しない
+  var X=function(i){return ms.length>1?padL+(W-padL-padR)*(i/(ms.length-1)):padL+(W-padL-padR)/2;};
   var Y=function(v){return padT+(H-padT-padB)*(1-v/max);};
   var t = anim ? Math.min(1, anim.t||0) : 1;
   // grid
@@ -954,7 +957,7 @@ function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textConte
   var rzT=null;
   window.addEventListener('resize',function(){
     clearTimeout(rzT);
-    rzT=setTimeout(function(){ if(state.view==='forecast') drawChart({t:0}); },160);
+    rzT=setTimeout(function(){ if(state.view==='forecast') drawChart(); },160);
   });
   render();
 })();

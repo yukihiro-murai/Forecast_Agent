@@ -491,6 +491,7 @@ function webRunAggregate() {
 
 /** A-4 相当：Vertex AI 調査（長時間・数分）。 */
 function webRunAiResearch() {
+  ensureSetupDone_();
   const before = countAIResearchStructuredRows_();
   runVertexAIResearch(); // 失敗は alertOrThrow_ 経由で例外化
   const after = countAIResearchStructuredRows_();
@@ -512,9 +513,15 @@ function webSaveInputs(kind, rows) {
   const sh = ss.getSheetByName(spec.name);
   if (!sh) throw new Error(spec.name + ' シートがありません。先に A-2 を実行してください。');
 
-  const clean = (rows || []).filter(r => r && Object.keys(r).some(k => String(r[k] || '') !== ''))
+  const clean = (rows || []).filter(r => r && Object.keys(r).some(k => String(r[k] || '').trim() !== ''))
     .map(r => spec.make(r));
   if (clean.length > 500) throw new Error('行数が上限（500）を超えています。');
+  // 数値列の検証（空は許容、数値化不能はエラー）
+  clean.forEach(r => {
+    r.forEach((v, j) => {
+      if (typeof v === 'number' && !isFinite(v)) throw new Error('数値でない値が含まれています（' + spec.name + '）。');
+    });
+  });
 
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, spec.cols).clearContent();
   if (clean.length) sh.getRange(2, 1, clean.length, spec.cols).setValues(clean);
@@ -620,6 +627,10 @@ function webSaveEvalInsights(rows) {
   (rows || []).forEach(r => {
     const row = Number(r && r.row);
     if (!row || row < 2 || row > sh.getLastRow()) return;
+    // 行がデータ行であることを確認（C-1/B-4再実行で行がずれた場合に誤書き込みしない）
+    const head = String(sh.getRange(row, 1).getValue() || '').trim();
+    const head2 = String(sh.getRange(row, 3).getValue() || '').trim();
+    if (!head && !head2) return;
     sh.getRange(row, 15).setValue(String(r.hypothesis || ''));   // cause_hypothesis
     sh.getRange(row, 19).setValue(String(r.actionType || ''));  // action_type
     sh.getRange(row, 20).setValue(String(r.reflection || ''));  // next_cycle_reflection
@@ -647,6 +658,8 @@ function webSaveQuarterlyDecisions(rows) {
   (rows || []).forEach(r => {
     const row = Number(r && r.row);
     if (!row || row < 8 || row > sh.getLastRow()) return;
+    // 提案行（pid非空）以外には書き込まない
+    if (!String(sh.getRange(row, 1).getValue() || '').trim()) return;
     const d = String(r.decision || '');
     if (d && !allowed[d]) throw new Error('承認列は「承認 / 却下 / 保留」から選択してください。');
     sh.getRange(row, 8).setValue(d);
