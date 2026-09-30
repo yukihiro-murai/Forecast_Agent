@@ -757,7 +757,7 @@ function drawChart(anim){
   ms.forEach(function(m,i){ var x=X(i), y=Y(m.reg); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.setLineDash([]);
   // p50 line (animated)
   ctx.strokeStyle='#00A0E9'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.beginPath();
-  var n=Math.max(2,Math.ceil(ms.length*t));
+  var n=Math.min(ms.length,Math.max(2,Math.ceil(ms.length*t)));
   for(var i2=0;i2<n;i2++){ var m2=ms[i2]; i2?ctx.lineTo(X(i2),Y(m2.p50)):ctx.moveTo(X(i2),Y(m2.p50)); }
   ctx.stroke();
   // adopted
