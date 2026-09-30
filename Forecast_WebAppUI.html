@@ -682,7 +682,7 @@ function renderEval(){
   }
   return html;
 }
-function metricVal(v){ if(typeof v==='number'){ if(Math.abs(v)<3)return fmtPct(v,2); return fmtN(v);} return String(v); }
+function metricVal(v){ if(v==null||v==='')return '—'; if(typeof v==='number'){ if(Math.abs(v)<3)return fmtPct(v,2); return fmtN(v);} return String(v); }
 function insightActionOpts(cur){ return ['','前提を更新','入力を修正','様子見','エスカレーション'].map(function(o){return '<option'+(o===cur?' selected':'')+'>'+o+'</option>';}).join(''); }
 function insightStatusOpts(cur){ return ['','open','in_progress','done'].map(function(o){return '<option'+(o===cur?' selected':'')+'>'+o+'</option>';}).join(''); }
 
@@ -770,9 +770,11 @@ function drawChart(anim){
   var bd=B.output.breakdown||[];
   ctx.fillStyle='#0B2A47';
   bd.forEach(function(b,i){ if(b.actualClosed==null)return; ctx.beginPath();ctx.arc(X(i),Y(b.actualClosed),4,0,7);ctx.fill(); });
-  // x labels
+  // x labels (幅に応じて間引き、衝突しない間隔にする)
   ctx.fillStyle='#5A6B7E'; ctx.textAlign='center';
-  ms.forEach(function(m,i){ ctx.fillText(m.month, X(i), H-padB+18); });
+  var stride=Math.max(1,Math.ceil(ms.length/(Math.floor((W-padL-padR)/56)||1)));
+  var lastLX=-1e9;
+  ms.forEach(function(m,i){ var x=X(i); if(i%stride===0||i===ms.length-1){ if(x-lastLX>=56){ ctx.fillText(m.month, x, H-padB+18); lastLX=x; } }});
   if(anim&&t<1){ anim.t=t+0.08; requestAnimationFrame(function(){drawChart(anim);}); }
 }
 
