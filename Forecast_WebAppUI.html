@@ -2,6 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<base target="_top">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>クライアント別売上予測</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230F3557'/><path d='M6 22l6-8 5 5 8-11' stroke='%2300A0E9' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <style>
 :root{
@@ -60,7 +63,7 @@ input,select,textarea{font-family:inherit;font-size:15px}
 .actcard .ttl{font-size:15px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px}
 .actcard .desc{font-size:13px;color:var(--muted);margin:8px 0 10px;flex:1}
 .actcard .foot{display:flex;align-items:center;gap:10px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-btn);padding:0 22px;border-radius:var(--radius-s);font-size:15px;font-weight:700;transition:background .15s,transform .05s;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-btn);min-width:120px;padding:0 22px;border-radius:var(--radius-s);font-size:15px;font-weight:700;transition:background .15s,transform .05s;white-space:nowrap}
 .btn:active{transform:scale(.98)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn-primary{background:var(--primary);color:#fff}
@@ -69,7 +72,7 @@ input,select,textarea{font-family:inherit;font-size:15px}
 .btn-navy:hover:not(:disabled){background:var(--navy-deep)}
 .btn-ghost{background:#fff;color:var(--navy);border:1.5px solid var(--line)}
 .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary-dark)}
-.btn-sm{height:36px;padding:0 16px;font-size:14px}
+.btn-sm{height:36px;min-width:0;padding:0 16px;font-size:14px}
 .btn-danger-ghost{background:#fff;color:var(--error);border:1.5px solid var(--line)}
 .btn-danger-ghost:hover:not(:disabled){border-color:var(--error)}
 .chip{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:14px;font-size:12.5px;font-weight:700}
@@ -93,10 +96,21 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .tbl tr:hover td{background:#F8FBFE}
 .tbl td.num,.tbl th.num{text-align:right;font-family:var(--fontnum);font-variant-numeric:tabular-nums}
 .tbl tr.sum td{background:#F0F5FA;font-weight:700;border-top:2px solid var(--line)}
-.tbl input,.tbl select{width:100%;height:34px;padding:0 8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;background:#fff}
+.tbl input,.tbl select{width:100%;height:34px;padding:0 8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;background:#fff;transition:border-color .12s}
 .tbl input:focus,.tbl select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
 .tbl input.num{text-align:right;font-family:var(--fontnum)}
+.tbl td.num{white-space:nowrap}
 .tbl td.locked{color:var(--muted)}
+/* 編集済み行は1色の注意色で染める (参照アプリの tr.dirty 規約) */
+.tbl tr.dirty td{background:var(--warn-bg)}
+.tbl tr.dirty:hover td{background:#FDEFD8}
+/* 横スクロールする表でも最終列（操作列）は右端に残す (参照アプリの sticky-right 規約) */
+.tbl.stickyr th:last-child,.tbl.stickyr td:last-child{position:sticky;right:0;background:#fff;z-index:2;box-shadow:inset 1px 0 0 var(--line)}
+.tbl.stickyr thead th:last-child{background:#F0F5FA;z-index:3}
+.tbl.stickyr tr.sum td:last-child{background:#F0F5FA}
+.tbl.stickyr tr:hover td:last-child{background:#F8FBFE}
+.tbl.stickyr tr.dirty td:last-child{background:var(--warn-bg)}
+.tbl.stickyr tr.dirty:hover td:last-child{background:#FDEFD8}
 .cell-del{width:30px;height:30px;border-radius:7px;color:var(--muted);font-size:16px;line-height:1}
 .cell-del:hover{background:var(--error-bg);color:var(--error)}
 
@@ -104,9 +118,19 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .sel{position:relative;display:inline-block;width:100%}
 .sel select{appearance:none;-webkit-appearance:none;width:100%;height:var(--h-input);padding:0 36px 0 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;font-size:14px;color:var(--text);cursor:pointer}
 .sel::after{content:"";position:absolute;right:13px;top:50%;width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.sel select{transition:border-color .12s,background-color .12s}
+.sel select:hover:not(:disabled){border-color:var(--primary);background:#F7FBFE}
 .sel select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
-.inp{width:100%;height:var(--h-input);padding:0 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px}
+.sel select:disabled{opacity:.6;background:#F4F6F8;cursor:not-allowed}
+.sel:has(select:disabled)::after{opacity:.35}
+.inp{width:100%;height:var(--h-input);padding:0 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;transition:border-color .12s}
 .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion: reduce){
+  .charbox{animation:none}
+  .progressbar i{animation:none}
+  *{transition:none !important}
+}
 .flabel{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:6px;display:block}
 .frow{display:grid;grid-template-columns:280px 160px 300px auto;gap:16px;align-items:end}
 .frow .btn{height:var(--h-input)}
@@ -115,10 +139,10 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .kpirow{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);height:96px;padding:14px 18px;display:flex;flex-direction:column;justify-content:center}
 .kpi .lbl{font-size:13px;color:var(--muted);font-weight:600}
-.kpi .val{font-size:24px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .val{font-size:24px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;font-feature-settings:"palt";white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .val small{font-size:14px;font-weight:600;color:var(--muted)}
 .guide{display:flex;gap:16px;align-items:flex-start}
-.charbox{width:72px;height:72px;flex:0 0 72px;cursor:pointer;animation:charfloat 3s ease-in-out infinite}
+.charbox{width:72px;height:72px;flex:0 0 72px;cursor:pointer;animation:charfloat 3s ease-in-out 4;border:0;background:none;padding:0}
 .charbox:hover{animation-play-state:paused}
 @keyframes charfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
 .charbox.replay{animation:none}
@@ -167,12 +191,12 @@ details.fold .inner{padding:0 20px 18px}
 
 /* empty state */
 .empty{text-align:center;padding:44px 20px;color:var(--muted)}
-.empty .charbox{margin:0 auto 10px}
+.empty .charbox{display:block;margin:0 auto 10px}
 .empty .t{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:6px}
 .empty .d{font-size:13px;margin-bottom:14px}
 
 .viewtitle{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
-.viewtitle h1{font-size:22px;color:var(--navy);font-weight:800}
+.viewtitle h1{font-size:22px;color:var(--navy);font-weight:800;font-feature-settings:"palt"}
 .viewtitle .vsub{font-size:13px;color:var(--muted)}
 .secgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:1100px){.secgrid{grid-template-columns:1fr}.kpirow{grid-template-columns:repeat(2,1fr)}.aiscores{grid-template-columns:repeat(2,1fr)}.frow{grid-template-columns:280px minmax(200px,300px);grid-auto-flow:row}}
@@ -196,7 +220,7 @@ details.fold .inner{padding:0 20px 18px}
 </div>
 
 <div class="modalback" id="modalBack">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <h3 id="modalTitle"></h3>
     <p id="modalMsg"></p>
     <div class="btns">
@@ -257,6 +281,7 @@ function openConfirm(c){
   document.getElementById('modalTitle').textContent=c.title||'確認';
   document.getElementById('modalMsg').textContent=c.message||'';
   mb.classList.add('on');
+  document.getElementById('modalOk').focus();
   document.getElementById('modalOk').onclick=function(){
     mb.classList.remove('on');
     if(state.confirms.indexOf(c.key)<0)state.confirms.push(c.key);
@@ -267,7 +292,7 @@ function openConfirm(c){
 var toastTimer=null;
 function showToast(msg, isErr){
   var el=document.getElementById('toast');
-  if(!el){ el=document.createElement('div'); el.id='toast'; el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 22px;border-radius:10px;font-size:14px;font-weight:700;z-index:95;box-shadow:0 8px 30px rgba(0,0,0,.18)'; document.body.appendChild(el); }
+  if(!el){ el=document.createElement('div'); el.id='toast'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite'); el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 22px;border-radius:10px;font-size:14px;font-weight:700;z-index:95;box-shadow:0 8px 30px rgba(0,0,0,.18)'; document.body.appendChild(el); }
   el.textContent=msg;
   el.style.background = isErr?'var(--error)':'var(--navy)';
   el.style.color='#fff'; el.style.opacity='1';
@@ -290,7 +315,7 @@ function renderNav(){
     var mark = '';
     if(n.id==='forecast' && stepOf('step4_status') && stepOf('step4_status').status==='error') mark='<span class="dot err"></span>';
     else if(n.id==='prep' && stepOf('step1_status') && stepOf('step1_status').status==='error') mark='<span class="dot err"></span>';
-    html+='<button class="navbtn'+(state.view===n.id?' on':'')+'" data-v="'+n.id+'"><svg viewBox="0 0 24 24">'+n.icon+'</svg>'+n.label+mark+'</button>';
+    html+='<button class="navbtn'+(state.view===n.id?' on':'')+'"'+(state.view===n.id?' aria-current="page"':'')+' data-v="'+n.id+'"><svg viewBox="0 0 24 24">'+n.icon+'</svg>'+n.label+mark+'</button>';
   });
   document.getElementById('sidenav').innerHTML=html;
   Array.prototype.forEach.call(document.querySelectorAll('.navbtn'),function(b){
@@ -303,7 +328,7 @@ function viewTitle(t, sub){
   return '<div class="viewtitle"><h1>'+esc(t)+'</h1><span class="vsub">'+esc(sub||'')+'</span></div>';
 }
 function emptyBox(title, desc, btnLabel, view){
-  return '<div class="empty"><div class="charbox" onclick="replayChar(this)">'+CHAR_GEAR+'</div><div class="t">'+esc(title)+'</div><div class="d">'+esc(desc)+'</div>'+
+  return '<div class="empty"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_GEAR+'</button><div class="t">'+esc(title)+'</div><div class="d">'+esc(desc)+'</div>'+
     (btnLabel?'<button class="btn btn-primary" onclick="goView(\''+view+'\')">'+esc(btnLabel)+'</button>':'')+'</div>';
 }
 function goView(v){ state.view=v; location.hash=v; render(); }
@@ -329,7 +354,7 @@ function renderHome(){
     +'<div class="kpi"><div class="lbl">年間予測（Baseline P50）</div><div class="val">'+(s?fmtY(s.annual.p50):'—')+'</div></div>'
     +'<div class="kpi"><div class="lbl">最終予算（合計）</div><div class="val">'+(s&&s.annual.final!=null?fmtY(s.annual.final):'—')+'</div></div></div>';
 
-  html+='<div class="card"><h2>次の一手</h2><div class="guide"><div class="charbox" onclick="replayChar(this)">'+CHAR_ARROW+'</div><div class="bubble">'+nextStepHtml()+'</div></div></div>';
+  html+='<div class="card"><h2>次の一手</h2><div class="guide"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_ARROW+'</button><div class="bubble">'+nextStepHtml()+'</div></div></div>';
 
   html+='<div class="card"><h2>プロセス進捗</h2><div class="sub">メニュー A-1〜C-3 の実行状態（PROCESS_STATUS）</div><div class="tblwrap"><table class="tbl" style="min-width:780px">'
     +'<colgroup><col style="width:90px"><col style="width:200px"><col style="width:100px"><col style="width:90px"><col style="width:140px"><col></colgroup>'
@@ -444,7 +469,7 @@ function renderInput(){
   INPUT_TABS.forEach(function(t){
     var n=B.input[t.id].length;
     var dirtyMark = state.inputDirty[t.id] ? ' *' : '';
-    html+='<button class="pill'+(t.id===kind?' on':'')+'" data-tab="'+t.id+'">'+t.menu+' '+t.label+'<span class="cnt">'+n+'</span>'+dirtyMark+'</button>';
+    html+='<button class="pill'+(t.id===kind?' on':'')+'"'+(t.id===kind?' aria-current="page"':'')+' data-tab="'+t.id+'">'+t.menu+' '+t.label+'<span class="cnt">'+n+'</span>'+dirtyMark+'</button>';
   });
   html+='</div>';
 
@@ -459,7 +484,7 @@ function renderInput(){
   if(!stepOk('step1_status')){
     html+=emptyBox('まず売上データを取り込んでください', 'A-2 の実行で入力シートの雛形ができます。', '準備へ', 'prep');
   } else {
-    html+='<div class="tblwrap"><table class="tbl" style="min-width:900px"><colgroup>';
+    html+='<div class="tblwrap"><table class="tbl stickyr" style="min-width:900px"><colgroup>';
     inputCols(kind).forEach(function(c){ html+='<col style="width:'+(c.w||'')+'px">'; });
     html+='<col style="width:56px"></colgroup><thead><tr>';
     inputHead(kind).forEach(function(h){ html+='<th>'+h+'</th>'; });
@@ -489,14 +514,16 @@ function inputCell(kind, c, r, i){
   if(c.type==='products') return selHtml('in-'+c.k+'-'+i, [''].concat(B.products), v, 'data-i="'+i+'" data-k="'+c.k+'"');
   if(c.type==='month') return selHtml('in-'+c.k+'-'+i, [''].concat(B.months), v, 'data-i="'+i+'" data-k="'+c.k+'"');
   if(c.type==='step') return selHtml('in-'+c.k+'-'+i, [''].concat(B.stepOptions), v===''?'':v, 'data-i="'+i+'" data-k="'+c.k+'"');
-  if(c.type==='conf') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" min="0" max="1" step="0.1" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
-  if(c.type==='money') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" min="0" step="10000" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
+  if(c.type==='conf') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" inputmode="decimal" min="0" max="1" step="0.1" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
+  if(c.type==='money') return '<input class="inp in-'+c.k+'-'+i+' num" type="number" inputmode="numeric" min="0" step="10000" value="'+esc(v)+'" data-i="'+i+'" data-k="'+c.k+'">';
   return '<input class="inp in-'+c.k+'-'+i+'" type="text" value="'+esc(v)+'" placeholder="'+(c.ph||'')+'" data-i="'+i+'" data-k="'+c.k+'">';
 }
 function inputRowHtml(kind, r, i){
-  var h='<tr data-ri="'+i+'">';
+  // サーバー保存値と異なる（or新規追加）の行は dirty 表示
+  var sv=(B.input[kind]||[])[i], dty = sv==null || JSON.stringify(r)!==JSON.stringify(sv);
+  var h='<tr data-ri="'+i+'"'+(dty?' class="dirty"':'')+'>';
   inputCols(kind).forEach(function(c){ h+='<td>'+inputCell(kind,c,r,i)+'</td>'; });
-  h+='<td><button class="cell-del" data-del="'+i+'" title="行を削除">×</button></td></tr>';
+  h+='<td><button class="cell-del" data-del="'+i+'" title="行を削除" aria-label="行を削除">×</button></td></tr>';
   return h;
 }
 
@@ -546,9 +573,9 @@ function renderForecast(){
 
   // 月次表（予算編集つき）
   html+='<div class="card"><h2>月次予測と予算策定</h2><div class="sub">「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯（hard gate ではありません）。</div>'
-    +'<div class="tblwrap"><table class="tbl" id="budgetTbl" style="min-width:980px">'
+    +'<div class="tblwrap"><table class="tbl stickyr" id="budgetTbl" style="min-width:980px">'
     +'<colgroup><col style="width:86px"><col><col><col><col><col style="width:150px"><col style="width:130px"><col></colgroup>'
-    +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">幅(P90-P10)</th><th class="num">採用予測</th><th class="num">上積み</th><th class="num">最終予算</th></tr></thead><tbody>';
+    +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num" title="P90−P10。大きいほど不確実">幅(P90-P10)</th><th class="num" title="予算のベース予測値（P50の採用を推奨）">採用予測</th><th class="num" title="採用予測への加算額（+/-）">上積み</th><th class="num">最終予算</th></tr></thead><tbody>';
   p.monthly.forEach(function(m){
     var dirty=state.budgetDirty[m.row];
     var ad = dirty?dirty.adopted:m.adopted, up = dirty?dirty.uplift:m.uplift;
@@ -556,10 +583,10 @@ function renderForecast(){
     var finShow;
     if(dirty){ var anyV=(ad!==''&&ad!=null)||(up!==''&&up!=null); finShow = anyV?(isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0):null; }
     else finShow=m.final;
-    html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(m.month)+'</td>'
+    html+='<tr'+(dirty?' class="dirty"':'')+'><td style="font-weight:700;color:var(--navy)">'+esc(m.month)+'</td>'
       +'<td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num locked">'+fmtN(m.range)+'</td>'
-      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="adopted" value="'+(ad===''||ad==null?'':Math.round(ad))+'"></td>'
-      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="uplift" value="'+(up===''||up==null?'':Math.round(up))+'"></td>'
+      +'<td><input class="inp num" type="number" inputmode="numeric" data-brow="'+m.row+'" data-bk="adopted" value="'+(ad===''||ad==null?'':Math.round(ad))+'"></td>'
+      +'<td><input class="inp num" type="number" inputmode="numeric" data-brow="'+m.row+'" data-bk="uplift" value="'+(up===''||up==null?'':Math.round(up))+'"></td>'
       +'<td class="num" style="font-weight:700" data-fin="'+m.row+'">'+(finShow==null?'—':fmtN(finShow))+'</td></tr>';
   });
   var sumFinal = p.monthly.reduce(function(a,m){var d=state.budgetDirty[m.row];var ad=d?d.adopted:m.adopted,up=d?d.uplift:m.uplift;if(d)return a+((isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0));return a+(m.final||0);},0);
@@ -589,14 +616,14 @@ function renderForecast(){
   if(O.sections[1]){
     var q=O.sections[1];
     html+='<details class="fold"><summary>副次目的（客観のみ / 過去売上ベース）— 年間 P50 '+fmtY(q.annual.p50)+'</summary><div class="inner"><div class="tblwrap"><table class="tbl" style="min-width:760px">'
-      +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">回帰</th><th class="num">季節加重</th></tr></thead><tbody>';
+      +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num" title="Linear回帰による定量予測">回帰</th><th class="num" title="季節指数で加重した定量予測">季節加重</th></tr></thead><tbody>';
     q.monthly.forEach(function(m){ html+='<tr><td>'+esc(m.month)+'</td><td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num">'+fmtN(m.reg)+'</td><td class="num">'+fmtN(m.seasonal)+'</td></tr>'; });
     html+='</tbody></table></div></div></details>';
   }
 
   if(O.breakdown.length){
     html+='<details class="fold"><summary>内訳とメモ（P50 比較・定量/混合の差分）</summary><div class="inner"><div class="tblwrap"><table class="tbl" style="min-width:1080px">'
-      +'<thead><tr><th>月</th><th class="num">実績確定</th><th>ソース</th><th class="num">Ops P50(定量)</th><th class="num">Ops P50(混合)</th><th class="num">背景SPOT</th><th class="num">known spot</th><th class="num">差分</th><th>OPINIONS要約</th></tr></thead><tbody>';
+      +'<thead><tr><th>月</th><th class="num" title="確定済みの当月実績">実績確定</th><th>ソース</th><th class="num" title="定量のみの予測P50">Ops P50(定量)</th><th class="num" title="定量×定性の混合予測P50">Ops P50(混合)</th><th class="num" title="実績に含まれるスポット推計">背景SPOT</th><th class="num" title="A-8で登録済みのスポット案件分">known spot</th><th class="num" title="実績 − 予測P50(混合)">差分</th><th>OPINIONS要約</th></tr></thead><tbody>';
     O.breakdown.forEach(function(b){
       html+='<tr><td>'+esc(b.month)+'</td><td class="num">'+(b.actualClosed!=null?fmtN(b.actualClosed):'—')+'</td><td class="locked">'+esc(b.source)+'</td><td class="num">'+fmtN(b.opsQuant)+'</td><td class="num">'+fmtN(b.opsMixed)+'</td><td class="num">'+fmtN(b.bgSpot)+'</td><td class="num">'+fmtN(b.knownSpot)+'</td><td class="num">'+fmtN(b.diff)+'</td><td class="locked">'+esc(b.opinions)+'</td></tr>';
     });
@@ -626,7 +653,7 @@ function renderEval(){
   }
 
   if(B.eval.compare.length){
-    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num">差分</th><th class="num">誤差率</th><th>範囲外</th><th>期</th></tr></thead><tbody>';
+    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
     B.eval.compare.forEach(function(c){
       html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
     });
@@ -634,12 +661,12 @@ function renderEval(){
   }
 
   if(B.eval.insights.length){
-    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl" style="min-width:1120px">'
+    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl stickyr" style="min-width:1120px">'
       +'<colgroup><col style="width:80px"><col style="width:130px"><col style="width:130px"><col style="width:90px"><col style="width:160px"><col style="width:170px"><col style="width:130px"><col style="width:110px"><col style="width:110px"></colgroup>'
-      +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num">誤差率</th><th>インサイト</th><th>原因仮説</th><th>対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
+      +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th>インサイト</th><th>原因仮説</th><th title="次サイクルへの対応方針">対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
     B.eval.insights.forEach(function(r){
       var d=state.insightDirty[r.row]||{};
-      html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(r.month)+'</td><td class="num">'+fmtN(r.pred)+'</td><td class="num">'+fmtN(r.actual)+'</td><td class="num"'+(r.errRate>0.1?' style="color:var(--error);font-weight:700"':'')+'>'+fmtPct(r.errRate)+'</td>'
+      html+='<tr'+(Object.keys(d).length?' class="dirty"':'')+'><td style="font-weight:700;color:var(--navy)">'+esc(r.month)+'</td><td class="num">'+fmtN(r.pred)+'</td><td class="num">'+fmtN(r.actual)+'</td><td class="num"'+(r.errRate>0.1?' style="color:var(--error);font-weight:700"':'')+'>'+fmtPct(r.errRate)+'</td>'
         +'<td><div>'+esc(r.insight)+'</div>'+(r.nextAction?'<div class="note">→ '+esc(r.nextAction)+'</div>':'')+'</td>'
         +'<td><input class="inp" data-irow="'+r.row+'" data-ik="hypothesis" value="'+esc(d.hypothesis!=null?d.hypothesis:r.hypothesis)+'"></td>'
         +'<td><div class="sel"><select data-irow="'+r.row+'" data-ik="actionType">'+insightActionOpts(d.actionType!=null?d.actionType:r.actionType)+'</select></div></td>'
@@ -674,10 +701,10 @@ function renderQuarterly(){
   if(Q.proposals.length){
     html+='<div class="card"><h2>'+esc(Q.title||'レビュー提案')+'</h2><div class="sub">'+(Q.period?esc(Q.period)+' — ':'')+'承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。</div>'
       +'<div class="tblwrap"><table class="tbl" style="min-width:880px"><colgroup><col style="width:120px"><col style="width:170px"><col style="width:110px"><col style="width:110px"><col style="width:80px"><col><col style="width:150px"><col style="width:110px"></colgroup>'
-      +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num">自信度</th><th>根拠 / 影響</th><th>承認</th><th>ロールバック</th></tr></thead><tbody>';
+      +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num" title="提案内容の確信度（0〜100%）">自信度</th><th>根拠 / 影響</th><th>承認</th><th title="適用前の値への戻し方">ロールバック</th></tr></thead><tbody>';
     Q.proposals.forEach(function(p){
       var d=state.decisionDirty[p.row]||p.decision||'';
-      html+='<tr><td class="locked">'+esc(p.pid)+'</td><td style="font-weight:700;color:var(--navy)">'+esc(p.target)+'</td><td class="num">'+esc(p.current)+'</td><td class="num">'+esc(p.proposed)+'</td><td class="num">'+fmtPct(p.conf,0)+'</td>'
+      html+='<tr'+(state.decisionDirty[p.row]?' class="dirty"':'')+'><td class="locked">'+esc(p.pid)+'</td><td style="font-weight:700;color:var(--navy)">'+esc(p.target)+'</td><td class="num">'+esc(p.current)+'</td><td class="num">'+esc(p.proposed)+'</td><td class="num">'+fmtPct(p.conf,0)+'</td>'
         +'<td><div>'+esc(p.rationale)+'</div>'+(p.impact?'<div class="note">'+esc(p.impact)+'</div>':'')+'</td>'
         +'<td><div class="sel"><select data-qrow="'+p.row+'"'+ (Q.applied?' disabled':'') +'>'+['','承認','却下','保留'].map(function(o){return '<option'+(o===d?' selected':'')+'>'+(o||'（未入力）')+'</option>';}).join('')+'</select></div></td>'
         +'<td class="locked">'+esc(p.rollback||'')+'</td></tr>';
@@ -783,6 +810,7 @@ function bindView(){
         if(k==null||isNaN(i))return;
         getDraft(state.inputTab)[i][k]=el.value;
         state.inputDirty[state.inputTab]=true;
+        var tr0=el.closest('tr'); if(tr0)tr0.classList.add('dirty');
         markDirty();
       });
       tbody.addEventListener('click',function(ev){
@@ -817,6 +845,7 @@ function bindView(){
       var anyInput=(ad!==''&&ad!=null)||(up!==''&&up!=null);
       var fin=(isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0);
       var cell=bt.querySelector('[data-fin="'+row+'"]'); if(cell)cell.textContent=anyInput?fmtN(fin):'—';
+      var btr=ev.target.closest('tr'); if(btr)btr.classList.add('dirty');
       markDirty();
     });
     if($('btn_copyp50')) $('btn_copyp50').onclick=function(){
@@ -912,10 +941,14 @@ function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textConte
   // インサイト(data-irow/ik)・四半期承認(data-qrow)の変更は#mainに1回だけ委譲する
   document.getElementById('main').addEventListener('change',function(ev){
     var irow=Number(ev.target.getAttribute('data-irow')), ik=ev.target.getAttribute('data-ik');
-    if(irow && ik){ var d=state.insightDirty[irow]||(state.insightDirty[irow]={}); d[ik]=ev.target.value; markDirty(); return; }
+    if(irow && ik){ var d=state.insightDirty[irow]||(state.insightDirty[irow]={}); d[ik]=ev.target.value; var itr=ev.target.closest('tr'); if(itr)itr.classList.add('dirty'); markDirty(); return; }
     var qrow=Number(ev.target.getAttribute('data-qrow'));
-    if(qrow){ state.decisionDirty[qrow]=ev.target.value; markDirty(); }
+    if(qrow){ state.decisionDirty[qrow]=ev.target.value; var qtr=ev.target.closest('tr'); if(qtr)qtr.classList.add('dirty'); markDirty(); }
   });
+  // モーダル: 背景クリック / Esc で閉じる
+  var mb=document.getElementById('modalBack');
+  mb.addEventListener('click',function(ev){ if(ev.target===mb)mb.classList.remove('on'); });
+  document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&mb.classList.contains('on'))mb.classList.remove('on'); });
   var rzT=null;
   window.addEventListener('resize',function(){
     clearTimeout(rzT);
