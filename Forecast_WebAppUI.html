@@ -109,6 +109,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
 .flabel{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:6px;display:block}
 .frow{display:grid;grid-template-columns:280px 160px 300px auto;gap:16px;align-items:end}
+.frow .btn{height:var(--h-input)}
 
 /* ===== home ===== */
 .kpirow{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
@@ -174,7 +175,7 @@ details.fold .inner{padding:0 20px 18px}
 .viewtitle h1{font-size:22px;color:var(--navy);font-weight:800}
 .viewtitle .vsub{font-size:13px;color:var(--muted)}
 .secgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:1100px){.secgrid{grid-template-columns:1fr}.kpirow{grid-template-columns:repeat(2,1fr)}.aiscores{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1100px){.secgrid{grid-template-columns:1fr}.kpirow{grid-template-columns:repeat(2,1fr)}.aiscores{grid-template-columns:repeat(2,1fr)}.frow{grid-template-columns:280px minmax(200px,300px);grid-auto-flow:row}}
 </style>
 </head>
 <body>
@@ -330,8 +331,8 @@ function renderHome(){
 
   html+='<div class="card"><h2>次の一手</h2><div class="guide"><div class="charbox" onclick="replayChar(this)">'+CHAR_ARROW+'</div><div class="bubble">'+nextStepHtml()+'</div></div></div>';
 
-  html+='<div class="card"><h2>プロセス進捗</h2><div class="sub">メニュー A-1〜C-3 の実行状態（PROCESS_STATUS）</div><div class="tblwrap"><table class="tbl">'
-    +'<colgroup><col style="width:90px"><col style="width:220px"><col style="width:100px"><col style="width:90px"><col style="width:110px"><col></colgroup>'
+  html+='<div class="card"><h2>プロセス進捗</h2><div class="sub">メニュー A-1〜C-3 の実行状態（PROCESS_STATUS）</div><div class="tblwrap"><table class="tbl" style="min-width:780px">'
+    +'<colgroup><col style="width:90px"><col style="width:200px"><col style="width:100px"><col style="width:90px"><col style="width:140px"><col></colgroup>'
     +'<thead><tr><th>メニュー</th><th>処理</th><th>状態</th><th class="num">件数</th><th>実行者</th><th>要因 / メモ</th></tr></thead><tbody>';
   B.steps.forEach(function(s){
     var memo = s.status==='error' ? s.error : (s.status==='success' ? s.date : '');
@@ -339,7 +340,7 @@ function renderHome(){
   });
   html+='</tbody></table></div></div>';
 
-  html+='<div class="card"><h2>直近の実行履歴</h2><div class="tblwrap"><table class="tbl">'
+  html+='<div class="card"><h2>直近の実行履歴</h2><div class="tblwrap"><table class="tbl" style="min-width:640px">'
     +'<colgroup><col style="width:120px"><col style="width:140px"><col><col style="width:90px"><col style="width:90px"></colgroup>'
     +'<thead><tr><th>日時</th><th>実行者</th><th>処理</th><th>状態</th><th class="num">件数</th></tr></thead><tbody>';
   if(!B.runLog.length) html+='<tr><td colspan="5" class="locked">実行履歴はまだありません</td></tr>';
@@ -458,14 +459,15 @@ function renderInput(){
   if(!stepOk('step1_status')){
     html+=emptyBox('まず売上データを取り込んでください', 'A-2 の実行で入力シートの雛形ができます。', '準備へ', 'prep');
   } else {
-    html+='<div class="tblwrap"><table class="tbl"><colgroup>';
+    html+='<div class="tblwrap"><table class="tbl" style="min-width:900px"><colgroup>';
     inputCols(kind).forEach(function(c){ html+='<col style="width:'+(c.w||'')+'px">'; });
-    html+='<col style="width:44px"></colgroup><thead><tr>';
+    html+='<col style="width:56px"></colgroup><thead><tr>';
     inputHead(kind).forEach(function(h){ html+='<th>'+h+'</th>'; });
     html+='<th></th></tr></thead><tbody id="inrows">';
     rows.forEach(function(r,i){ html+=inputRowHtml(kind, r, i); });
+    if(!rows.length) html+='<tr><td colspan="'+(inputCols(kind).length+1)+'" class="locked" style="text-align:center;color:var(--muted);padding:16px">まだ入力がありません。「+ 行を追加」で登録できます。</td></tr>';
     html+='</tbody></table></div>';
-    html+='<div class="inputfoot"><button class="btn btn-ghost btn-sm" id="btn_addrow">+ 行を追加</button>'
+    html+='<div class="inputfoot"><button class="btn btn-ghost" id="btn_addrow">+ 行を追加</button>'
       +'<button class="btn btn-primary" id="btn_saveinput">保存</button>'
       +(dirty?'<span class="dirtydot">未保存の変更があります</span>':'')
       +'<span class="note">必須項目が空の行は予測では無視されます（既存仕様と同じ）。</span></div>';
@@ -510,7 +512,7 @@ function renderForecast(){
     +'<span class="note">'+((s4&&s4.status==='success')?('最終: '+s4.date+' / '+s4.count+'ヶ月'):'A-2 取り込み後に実行できます')+'</span></div></div>';
 
   var O=B.output;
-  if(!O){ html+='<div class="card">'+emptyBox('予測はまだありません','A-9 を実行すると、年間見通しと月次予測がここに表示されます。','',null)+'</div>'; return html; }
+  if(!O || !O.sections || !O.sections.length){ html+='<div class="card">'+emptyBox('予測はまだありません','A-9 を実行すると、年間見通しと月次予測がここに表示されます。','',null)+'</div>'; return html; }
 
   var p=O.sections[0];
   html+='<div class="kpirow">'
@@ -525,12 +527,15 @@ function renderForecast(){
 
   if(O.composition.length){
     var c=O.composition[0];
+    // 各比率の合計は1を超えることがあるため、バー幅は合計で正規化して溢れを防ぐ
+    var compTot=(c.quant||0)+(c.subjective||0)+(c.ai||0)+(c.spot||0)||1;
+    var cw=function(x){ return Math.round((x||0)/compTot*1000)/10; };
     html+='<div class="card"><h2>予測の構成（診断指標）</h2>'
       +'<div class="meter">'
-      +'<i style="width:'+Math.round(c.quant*100)+'%;background:var(--navy)"></i>'
-      +'<i style="width:'+Math.round((c.subjective||0)*100)+'%;background:var(--primary)"></i>'
-      +'<i style="width:'+Math.round((c.ai||0)*100)+'%;background:#7FB8DF"></i>'
-      +'<i style="width:'+Math.round((c.spot||0)*100)+'%;background:#C9D6E4"></i></div>'
+      +'<i style="width:'+cw(c.quant)+'%;background:var(--navy)"></i>'
+      +'<i style="width:'+cw(c.subjective)+'%;background:var(--primary)"></i>'
+      +'<i style="width:'+cw(c.ai)+'%;background:#7FB8DF"></i>'
+      +'<i style="width:'+cw(c.spot)+'%;background:#C9D6E4"></i></div>'
       +'<div class="meterrow"><span>定量（トレンド）</span><span></span><span class="v">'+fmtPct(c.quant)+'</span></div>'
       +'<div class="meterrow"><span>主観オーバーレイ</span><span></span><span class="v">'+fmtPct(c.subjective)+'</span></div>'
       +'<div class="meterrow"><span>AI寄与</span><span></span><span class="v">'+fmtPct(c.ai)+'</span></div>'
@@ -541,24 +546,26 @@ function renderForecast(){
 
   // 月次表（予算編集つき）
   html+='<div class="card"><h2>月次予測と予算策定</h2><div class="sub">「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯（hard gate ではありません）。</div>'
-    +'<div class="tblwrap"><table class="tbl" id="budgetTbl">'
+    +'<div class="tblwrap"><table class="tbl" id="budgetTbl" style="min-width:980px">'
     +'<colgroup><col style="width:86px"><col><col><col><col><col style="width:150px"><col style="width:130px"><col></colgroup>'
     +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">幅(P90-P10)</th><th class="num">採用予測</th><th class="num">上積み</th><th class="num">最終予算</th></tr></thead><tbody>';
   p.monthly.forEach(function(m){
     var dirty=state.budgetDirty[m.row];
     var ad = dirty?dirty.adopted:m.adopted, up = dirty?dirty.uplift:m.uplift;
-    var fin = (isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0);
-    if(dirty||m.adopted!=null||m.uplift!=null){ if(!isFinite(fin)||fin===0)fin=m.final; }
+    // ドラフト中に両方空なら「予算なし」= — と表示（旧値の残像を出さない）
+    var finShow;
+    if(dirty){ var anyV=(ad!==''&&ad!=null)||(up!==''&&up!=null); finShow = anyV?(isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0):null; }
+    else finShow=m.final;
     html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(m.month)+'</td>'
       +'<td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num locked">'+fmtN(m.range)+'</td>'
-      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="adopted" value="'+(ad==null?'':Math.round(ad))+'"></td>'
-      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="uplift" value="'+(up==null?'':Math.round(up))+'"></td>'
-      +'<td class="num" style="font-weight:700" data-fin="'+m.row+'">'+fmtN(dirty?fin:m.final)+'</td></tr>';
+      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="adopted" value="'+(ad===''||ad==null?'':Math.round(ad))+'"></td>'
+      +'<td><input class="inp num" type="number" data-brow="'+m.row+'" data-bk="uplift" value="'+(up===''||up==null?'':Math.round(up))+'"></td>'
+      +'<td class="num" style="font-weight:700" data-fin="'+m.row+'">'+(finShow==null?'—':fmtN(finShow))+'</td></tr>';
   });
   var sumFinal = p.monthly.reduce(function(a,m){var d=state.budgetDirty[m.row];var ad=d?d.adopted:m.adopted,up=d?d.uplift:m.uplift;if(d)return a+((isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0));return a+(m.final||0);},0);
   html+='<tr class="sum"><td>年度合計</td><td class="num">'+fmtN(p.annual.p10)+'</td><td class="num">'+fmtN(p.annual.p50)+'</td><td class="num">'+fmtN(p.annual.p90)+'</td><td class="num">'+fmtN(p.annual.range)+'</td><td class="num">'+fmtN(p.annual.adopted)+'</td><td class="num">'+fmtN(p.annual.uplift)+'</td><td class="num">'+fmtN(sumFinal)+'</td></tr>';
   html+='</tbody></table></div>'
-    +'<div class="inputfoot"><button class="btn btn-ghost btn-sm" id="btn_copyp50">P50を採用予測にコピー</button>'
+    +'<div class="inputfoot"><button class="btn btn-ghost" id="btn_copyp50">P50を採用予測にコピー</button>'
     +'<button class="btn btn-primary" id="btn_savebudget">予算を保存（A-10）</button>'
     +(Object.keys(state.budgetDirty).length?'<span class="dirtydot">未保存の変更があります</span>':'')
     +'<span class="note">年度合計と月の合計が一致しないのは正常です（P10/P90 は分散で縮みます）。</span></div></div>';
@@ -581,14 +588,14 @@ function renderForecast(){
 
   if(O.sections[1]){
     var q=O.sections[1];
-    html+='<details class="fold"><summary>副次目的（客観のみ / 過去売上ベース）— 年間 P50 '+fmtY(q.annual.p50)+'</summary><div class="inner"><div class="tblwrap"><table class="tbl">'
+    html+='<details class="fold"><summary>副次目的（客観のみ / 過去売上ベース）— 年間 P50 '+fmtY(q.annual.p50)+'</summary><div class="inner"><div class="tblwrap"><table class="tbl" style="min-width:760px">'
       +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">回帰</th><th class="num">季節加重</th></tr></thead><tbody>';
     q.monthly.forEach(function(m){ html+='<tr><td>'+esc(m.month)+'</td><td class="num">'+fmtN(m.p10)+'</td><td class="num" style="font-weight:700">'+fmtN(m.p50)+'</td><td class="num">'+fmtN(m.p90)+'</td><td class="num">'+fmtN(m.reg)+'</td><td class="num">'+fmtN(m.seasonal)+'</td></tr>'; });
     html+='</tbody></table></div></div></details>';
   }
 
   if(O.breakdown.length){
-    html+='<details class="fold"><summary>内訳とメモ（P50 比較・定量/混合の差分）</summary><div class="inner"><div class="tblwrap"><table class="tbl">'
+    html+='<details class="fold"><summary>内訳とメモ（P50 比較・定量/混合の差分）</summary><div class="inner"><div class="tblwrap"><table class="tbl" style="min-width:1080px">'
       +'<thead><tr><th>月</th><th class="num">実績確定</th><th>ソース</th><th class="num">Ops P50(定量)</th><th class="num">Ops P50(混合)</th><th class="num">背景SPOT</th><th class="num">known spot</th><th class="num">差分</th><th>OPINIONS要約</th></tr></thead><tbody>';
     O.breakdown.forEach(function(b){
       html+='<tr><td>'+esc(b.month)+'</td><td class="num">'+(b.actualClosed!=null?fmtN(b.actualClosed):'—')+'</td><td class="locked">'+esc(b.source)+'</td><td class="num">'+fmtN(b.opsQuant)+'</td><td class="num">'+fmtN(b.opsMixed)+'</td><td class="num">'+fmtN(b.bgSpot)+'</td><td class="num">'+fmtN(b.knownSpot)+'</td><td class="num">'+fmtN(b.diff)+'</td><td class="locked">'+esc(b.opinions)+'</td></tr>';
@@ -613,13 +620,13 @@ function renderEval(){
     +'</div>';
 
   if(B.eval.metrics.length){
-    html+='<div class="card"><h2>精度KPI（DASHBOARD）</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:180px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>判定 / 備考</th></tr></thead><tbody>';
+    html+='<div class="card"><h2>精度KPI（DASHBOARD）</h2><div class="tblwrap"><table class="tbl" style="min-width:620px"><colgroup><col style="width:280px"><col style="width:180px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>判定 / 備考</th></tr></thead><tbody>';
     B.eval.metrics.forEach(function(m){ html+='<tr><td>'+esc(m.name)+'</td><td class="num">'+esc(metricVal(m.value))+'</td><td class="locked">'+esc(m.note)+'</td></tr>'; });
     html+='</tbody></table></div></div>';
   }
 
   if(B.eval.compare.length){
-    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num">差分</th><th class="num">誤差率</th><th>範囲外</th><th>期</th></tr></thead><tbody>';
+    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num">差分</th><th class="num">誤差率</th><th>範囲外</th><th>期</th></tr></thead><tbody>';
     B.eval.compare.forEach(function(c){
       html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
     });
@@ -627,9 +634,9 @@ function renderEval(){
   }
 
   if(B.eval.insights.length){
-    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl">'
-      +'<colgroup><col style="width:80px"><col style="width:130px"><col style="width:130px"><col style="width:90px"><col><col style="width:200px"><col style="width:130px"><col style="width:110px"><col style="width:110px"></colgroup>'
-      +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num">誤差率</th><th>インサイト / 次アクション</th><th>原因仮説</th><th>対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
+    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl" style="min-width:1120px">'
+      +'<colgroup><col style="width:80px"><col style="width:130px"><col style="width:130px"><col style="width:90px"><col style="width:160px"><col style="width:170px"><col style="width:130px"><col style="width:110px"><col style="width:110px"></colgroup>'
+      +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num">誤差率</th><th>インサイト</th><th>原因仮説</th><th>対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
     B.eval.insights.forEach(function(r){
       var d=state.insightDirty[r.row]||{};
       html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(r.month)+'</td><td class="num">'+fmtN(r.pred)+'</td><td class="num">'+fmtN(r.actual)+'</td><td class="num"'+(r.errRate>0.1?' style="color:var(--error);font-weight:700"':'')+'>'+fmtPct(r.errRate)+'</td>'
@@ -665,9 +672,9 @@ function renderQuarterly(){
   var Q=B.quarterly;
   if(Q.applied) html+='<div class="warnbox">このレビューは適用済みです。新しい提案を作るには C-1 を再実行してください。</div>';
   if(Q.proposals.length){
-    html+='<div class="card"><h2>'+esc(Q.title||'レビュー提案')+'</h2><div class="sub">'+esc(Q.period)+' — 承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。</div>'
-      +'<div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:170px"><col style="width:110px"><col style="width:110px"><col style="width:80px"><col><col style="width:150px"><col style="width:110px"></colgroup>'
-      +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num">自信度</th><th>根拠 / 影響</th><th>承認</th><th></th></tr></thead><tbody>';
+    html+='<div class="card"><h2>'+esc(Q.title||'レビュー提案')+'</h2><div class="sub">'+(Q.period?esc(Q.period)+' — ':'')+'承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。</div>'
+      +'<div class="tblwrap"><table class="tbl" style="min-width:880px"><colgroup><col style="width:120px"><col style="width:170px"><col style="width:110px"><col style="width:110px"><col style="width:80px"><col><col style="width:150px"><col style="width:110px"></colgroup>'
+      +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num">自信度</th><th>根拠 / 影響</th><th>承認</th><th>ロールバック</th></tr></thead><tbody>';
     Q.proposals.forEach(function(p){
       var d=state.decisionDirty[p.row]||p.decision||'';
       html+='<tr><td class="locked">'+esc(p.pid)+'</td><td style="font-weight:700;color:var(--navy)">'+esc(p.target)+'</td><td class="num">'+esc(p.current)+'</td><td class="num">'+esc(p.proposed)+'</td><td class="num">'+fmtPct(p.conf,0)+'</td>'
@@ -684,7 +691,7 @@ function renderQuarterly(){
     html+='<div class="card">'+emptyBox('レビュー提案はまだありません','3か月分の実績が確定したら C-1 を実行すると、ここに提案が表示されます。','','')+'</div>';
   }
   if(Q.logRecent.length){
-    html+='<div class="card"><h2>レビュー履歴</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:130px"><col><col style="width:90px"><col style="width:100px"></colgroup><thead><tr><th>review_id</th><th>四半期</th><th class="num">提案数</th><th>状態</th></tr></thead><tbody>';
+    html+='<div class="card"><h2>レビュー履歴</h2><div class="tblwrap"><table class="tbl" style="min-width:520px"><colgroup><col style="width:130px"><col><col style="width:90px"><col style="width:100px"></colgroup><thead><tr><th>review_id</th><th>四半期</th><th class="num">提案数</th><th>状態</th></tr></thead><tbody>';
     Q.logRecent.forEach(function(r){ html+='<tr><td class="locked">'+esc(r.reviewId)+'</td><td>'+esc(r.quarter)+'</td><td class="num">'+r.proposals+'</td><td>'+(r.applied?'<span class="chip chip-ok">適用済</span>':'<span class="chip chip-todo">未適用</span>')+'</td></tr>'; });
     html+='</tbody></table></div></div>';
   }
@@ -759,7 +766,7 @@ function bindView(){
     $('btn_setup').onclick=function(e){
       rpc('webSaveSetup',[{client:$('set_client').value,fy:Number($('set_fy').value),peopleCsv:$('set_people').value}],{btn:e.target,onOk:function(){showToast('設定を保存しました');}});
     };
-    $('btn_import').onclick=function(e){ rpc('webRunImportSales',[],{btn:e.target,onOk:function(r){showToast('取り込み完了: '+r.count+'件 ('+r.range+')');}}); };
+    $('btn_import').onclick=function(e){ rpc('webRunImportSales',[],{btn:e.target,onOk:function(r){ state.inputDraft=null; state.inputDirty={}; showToast('取り込み完了: '+r.count+'件 ('+r.range+')');}}); };
     $('btn_agg').onclick=function(e){ rpc('webRunAggregate',[],{btn:e.target,onOk:function(r){showToast('加工完了: '+r.count+'行');}}); };
     $('btn_ai').onclick=function(e){ rpc('webRunAiResearch',[],{btn:e.target,onOk:function(r){showToast('AI調査完了: '+r.rows+'行');}}); };
   }
@@ -790,15 +797,14 @@ function bindView(){
     if($('btn_saveinput')) $('btn_saveinput').onclick=function(e){
       rpc('webSaveInputs',[state.inputTab, getDraft(state.inputTab)],{btn:e.target,onOk:function(r){
         delete state.inputDirty[state.inputTab];
-        if(state.inputDraft) state.inputDraft[state.inputTab]=r.input[state.inputTab];
+        if(r.input){ B.input=r.input; if(state.inputDraft) state.inputDraft[state.inputTab]=r.input[state.inputTab]; }
         showToast('保存しました（'+r.saved+'行）');
-      }, rerender:false, onErr:function(m){setErr('err_input',m);}});
-      // rerender skipped to preserve tab focus; re-render for pills count:
+      }, onErr:function(m){setErr('err_input',m);}});
     };
   }
   // forecast
   if($('btn_runfc')){
-    $('btn_runfc').onclick=function(e){ state.confirms=[]; rpc('webRunForecast',[[]],{btn:e.target,onOk:function(){showToast('予測を更新しました');}}); };
+    $('btn_runfc').onclick=function(e){ state.confirms=[]; rpc('webRunForecast',[[]],{btn:e.target,onOk:function(){ state.budgetDirty={}; showToast('予測を更新しました');}}); };
     var bt=$('budgetTbl');
     if(bt) bt.addEventListener('change',function(ev){
       var row=Number(ev.target.getAttribute('data-brow')), k=ev.target.getAttribute('data-bk');
@@ -808,8 +814,9 @@ function bindView(){
       // live final calc
       var cur=B.output.sections[0].monthly.filter(function(m){return m.row===row;})[0];
       var ad=d.adopted!=null?d.adopted:cur.adopted, up=d.uplift!=null?d.uplift:cur.uplift;
-      var fin=(isFinite(ad)?ad:0)+(isFinite(up)?up:0);
-      var cell=bt.querySelector('[data-fin="'+row+'"]'); if(cell)cell.textContent=fmtN(fin);
+      var anyInput=(ad!==''&&ad!=null)||(up!==''&&up!=null);
+      var fin=(isFinite(Number(ad))?Number(ad):0)+(isFinite(Number(up))?Number(up):0);
+      var cell=bt.querySelector('[data-fin="'+row+'"]'); if(cell)cell.textContent=anyInput?fmtN(fin):'—';
       markDirty();
     });
     if($('btn_copyp50')) $('btn_copyp50').onclick=function(){
@@ -834,13 +841,6 @@ function bindView(){
     $('btn_b2').onclick=function(e){ rpc('webRunEvalReport',[],{btn:e.target,onOk:function(){showToast('検証レポートを更新しました');}}); };
     $('btn_b3').onclick=function(e){ rpc('webRunDashboard',[],{btn:e.target,onOk:function(){showToast('ダッシュボードを更新しました');}}); };
     $('btn_b4').onclick=function(e){ rpc('webRunInsights',[],{btn:e.target,onOk:function(){showToast('インサイトを更新しました');}}); };
-    var main2=document.getElementById('main');
-    main2.addEventListener('change',function(ev){
-      var row=Number(ev.target.getAttribute('data-irow')), k=ev.target.getAttribute('data-ik');
-      if(!row||!k)return;
-      var d=state.insightDirty[row]||(state.insightDirty[row]={});
-      d[k]=ev.target.value; markDirty();
-    });
     if($('btn_saveinsights')) $('btn_saveinsights').onclick=function(e){
       var rows=Object.keys(state.insightDirty).map(function(r){
         var d=state.insightDirty[r];
@@ -848,22 +848,30 @@ function bindView(){
         return {row:Number(r), hypothesis:d.hypothesis!=null?d.hypothesis:cur.hypothesis, actionType:d.actionType!=null?d.actionType:cur.actionType,
           reflection:d.reflection!=null?d.reflection:cur.reflection, owner:d.owner!=null?d.owner:cur.owner, status:d.status!=null?d.status:cur.status};
       });
-      rpc('webSaveEvalInsights',[rows],{btn:e.target,onOk:function(r){state.insightDirty={};showToast('記入を保存しました（'+r.saved+'行）');}});
+      if(!rows.length){showToast('変更がありません',true);return;}
+      rpc('webSaveEvalInsights',[rows],{btn:e.target,onOk:function(r){
+        state.insightDirty={};
+        rows.forEach(function(sv){ var cur=B.eval.insights.filter(function(x){return x.row===sv.row;})[0];
+          if(cur){ cur.hypothesis=sv.hypothesis; cur.actionType=sv.actionType; cur.reflection=sv.reflection; cur.owner=sv.owner; cur.status=sv.status; } });
+        showToast('記入を保存しました（'+r.saved+'行）');
+      }});
     };
   }
   // quarterly
   if($('btn_c1')){
     $('btn_c1').onclick=function(e){ rpc('webRunQuarterly',[],{btn:e.target,onOk:function(r){ if(r.quarterly)B.quarterly=r.quarterly; showToast('提案を生成しました（'+r.quarterly.proposals.length+'件）');}}); };
-    document.getElementById('main').addEventListener('change',function(ev){
-      var row=Number(ev.target.getAttribute('data-qrow'));
-      if(!row)return;
-      state.decisionDirty[row]=ev.target.value; markDirty();
-    });
     if($('btn_savedec')) $('btn_savedec').onclick=function(e){
       var rows=Object.keys(state.decisionDirty).map(function(r){return {row:Number(r),decision:state.decisionDirty[r]};});
-      rpc('webSaveQuarterlyDecisions',[rows],{btn:e.target,onOk:function(r){state.decisionDirty={};showToast('承認を保存しました（'+r.saved+'件）');}});
+      if(!rows.length){showToast('変更がありません',true);return;}
+      rpc('webSaveQuarterlyDecisions',[rows],{btn:e.target,onOk:function(r){
+        state.decisionDirty={};
+        rows.forEach(function(sv){ var cur=(B.quarterly.proposals||[]).filter(function(x){return x.row===sv.row;})[0];
+          if(cur) cur.decision=sv.decision; });
+        showToast('承認を保存しました（'+r.saved+'件）');
+      }});
     };
     if($('btn_c3')) $('btn_c3').onclick=function(e){
+      if(Object.keys(state.decisionDirty).length){ showToast('先に「承認を保存」を実行してください',true); return; }
       rpc('webApplyQuarterly',[],{btn:e.target,onOk:function(r){
         if(r.quarterly)B.quarterly=r.quarterly;
         var a=r.result||{};
@@ -879,7 +887,18 @@ function fillClientSelect(){
   if(cur&&opts.indexOf(cur)<0)opts.unshift(cur);
   sel.innerHTML=opts.map(function(o){return '<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>';}).join('') || '<option value="">（候補なし）</option>';
 }
-function markDirty(){ /* ボタン横のdirty表示は次回renderで反映 */ }
+function markDirty(){
+  // 再描画せず未保存ドットとタブの*印だけを足す（入力フォーカスを保持するため）
+  var foot=document.querySelector('.inputfoot');
+  if(foot && !foot.querySelector('.dirtydot')){
+    var d=document.createElement('span'); d.className='dirtydot'; d.textContent='未保存の変更があります';
+    foot.insertBefore(d, foot.querySelector('.note'));
+  }
+  if(state.view==='input'){
+    var p=document.querySelector('.pill.on');
+    if(p && p.textContent.slice(-2)!==' *') p.appendChild(document.createTextNode(' *'));
+  }
+}
 function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textContent=msg;el.classList.add('on');} else showToast(msg,true); }
 
 /* ================= boot ================= */
@@ -889,6 +908,18 @@ function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textConte
   window.addEventListener('hashchange',function(){
     var v=(location.hash||'').replace('#','');
     if(v!==state.view){state.view=v;render();}
+  });
+  // インサイト(data-irow/ik)・四半期承認(data-qrow)の変更は#mainに1回だけ委譲する
+  document.getElementById('main').addEventListener('change',function(ev){
+    var irow=Number(ev.target.getAttribute('data-irow')), ik=ev.target.getAttribute('data-ik');
+    if(irow && ik){ var d=state.insightDirty[irow]||(state.insightDirty[irow]={}); d[ik]=ev.target.value; markDirty(); return; }
+    var qrow=Number(ev.target.getAttribute('data-qrow'));
+    if(qrow){ state.decisionDirty[qrow]=ev.target.value; markDirty(); }
+  });
+  var rzT=null;
+  window.addEventListener('resize',function(){
+    clearTimeout(rzT);
+    rzT=setTimeout(function(){ if(state.view==='forecast') drawChart({t:0}); },160);
   });
   render();
 })();
