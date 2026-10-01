@@ -80,11 +80,20 @@ var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', heal
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function $(id){ return document.getElementById(id); }
 var toastT = null;
+/** 通知。エラーは消えないよう画面の上にも残す（閉じるまで） */
 function toast(msg, err){
   var el = $('toast');
   el.className = 'toast on' + (err ? ' err' : '');
   el.innerHTML = (err ? '' : '<span class="tc">' + YOMI_POSE.done + '</span>') + '<span>' + esc(msg) + '</span>';
-  clearTimeout(toastT); toastT = setTimeout(function(){ el.className = 'toast'; }, 3800);
+  clearTimeout(toastT); toastT = setTimeout(function(){ el.className = 'toast'; }, err ? 8000 : 3800);
+  if (err) { S.lastError = { message: String(msg), at: new Date().toLocaleTimeString('ja-JP') }; render(); }
+}
+function errorBanner(){
+  if (!S.lastError) return '';
+  return '<div class="card" style="border-color:var(--error);background:var(--error-bg)"><div class="row" style="margin-top:0;align-items:flex-start;flex-wrap:nowrap">'
+    + '<div style="flex:1"><b style="color:var(--error)">エラー（' + esc(S.lastError.at) + '）</b><div style="margin-top:4px;white-space:pre-wrap;word-break:break-all">' + esc(S.lastError.message) + '</div>'
+    + '<div class="note" style="margin-top:6px">これまでのエラーは「操作の記録」でも見られます。</div></div>'
+    + '<button class="btn btn-ghost btn-sm" onclick="S.lastError=null;render()">閉じる</button></div></div>';
 }
 var busyT = null;
 /** 右下の表示。裏の処理を待っている間はその進み、ほかは通信中（0.6 秒を超えたら）を出す */
@@ -114,8 +123,11 @@ var JOB_DONE = {
   'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); }
 };
 function startJob(kind, payload){
-  if (S.job) { toast('前の処理が終わるまでお待ちください', true); return; }
-  call('apiStartJob', [{ kind: kind, payload: payload }], function(r){ watchJob({ jobId: r.jobId, kind: kind, payload: payload, status: r.status }); });
+  if (S.job || S.starting) return;   // すでに動いている・始めている途中なら何もしない
+  S.starting = true;
+  S.lastError = null;
+  call('apiStartJob', [{ kind: kind, payload: payload }], function(r){ S.starting = false; watchJob({ jobId: r.jobId, kind: kind, payload: payload, status: r.status }); },
+    function(){ S.starting = false; });
 }
 function watchJob(j){
   S.job = { id: j.jobId, kind: j.kind, payload: j.payload || {}, status: j.status, started: Date.now(), fails: 0 };
@@ -131,7 +143,9 @@ function pollJob(){
     if (st.status === 'CONTINUED') { j.id = st.nextJobId; j.kind = st.nextKind || j.kind; j.status = 'QUEUED'; busy(0); setTimeout(pollJob, 3000); return; }
     if (st.status === 'DONE') { done(); (JOB_DONE[j.kind] || function(){})(st.result, st.payload || j.payload); render(); return; }
     if (st.status === 'FAILED' || st.status === 'STALLED' || st.status === 'LOST') { done(); toast(st.error || '処理が止まりました', true); render(); return; }
-    j.status = st.status; j.fails = 0; busy(0); setTimeout(pollJob, 3000);
+    j.status = st.status; j.fails = 0; busy(0);
+    if ($('jobBox')) $('jobBox').innerHTML = jobBanner();   // 進みの表示だけを新しくする（入力中の欄を消さない）
+    setTimeout(pollJob, 3000);
   }).withFailureHandler(function(e){
     if (!S.job || S.job.id !== j.id) return;
     j.fails++;
@@ -140,14 +154,14 @@ function pollJob(){
   }).apiJobStatus({ jobId: j.id });
 }
 /** サーバーの api* を呼ぶ。失敗は通知に出す（入力は消さない） */
-function call(fn, args, ok){
+function call(fn, args, ok, fail){
   var write = !READS[fn];
-  if (write && S.writing) { toast('前の処理が終わるまでお待ちください', true); return; }
+  if (write && S.writing) return;   // 押した直後にもう一度押しても、前の処理が終わるまで受け付けない（何も出さない）
   if (write) S.writing = true;
   busy(1);
   var r = google.script.run
     .withSuccessHandler(function(res){ if (write) S.writing = false; busy(-1); if (ok) ok(res); render(); })
-    .withFailureHandler(function(e){ if (write) S.writing = false; busy(-1); toast((e && e.message) || String(e), true); });
+    .withFailureHandler(function(e){ if (write) S.writing = false; busy(-1); if (fail) fail(e); toast((e && e.message) || String(e), true); });
   r[fn].apply(r, args || []);
 }
 
@@ -159,7 +173,15 @@ function render(){
   var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
   var v = { home: viewHome, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
-  $('main').innerHTML = v();
+  $('main').innerHTML = errorBanner() + '<div id="jobBox">' + jobBanner() + '</div>' + v();
+}
+/** 裏で動いている処理の進み（画面の上にも出す） */
+function jobBanner(){
+  if (!S.job) return '';
+  var sec = Math.round((Date.now() - S.job.started) / 1000);
+  return '<div class="card" style="background:var(--primary-soft)"><div class="row" style="margin-top:0;align-items:center">'
+    + '<span class="chip">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '</span><b>' + esc(JOB_LABEL[S.job.kind] || '処理しています') + '</b>'
+    + '<span class="note">' + sec + ' 秒（画面を閉じても続きます）</span></div></div>';
 }
 function go(v){
   S.view = v;

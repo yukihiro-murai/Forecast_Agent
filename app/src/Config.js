@@ -5,7 +5,7 @@
  * それ以外の関数は名前の末尾を _ にする（Web アプリでは _ でない関数をブラウザから呼べるため）。
  */
 const APP_NAME = '売上予測アプリ';
-const APP_VERSION = '0.3.2';
+const APP_VERSION = '0.3.3';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {
