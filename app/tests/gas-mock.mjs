@@ -45,7 +45,8 @@ export function fmtDate(d, tz, fmt) {
   return out;
 }
 export const jstDay = (offsetDays) => fmtDate(new Date(Date.now() + offsetDays * 86400e3), 'Asia/Tokyo', 'yyyy-MM-dd');
-export const FY = (() => { const d = new Date(); return 'FY' + (d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear()); })();
+/** 年度（4月始まり・始まりの年で呼ぶ。旧来の計算と vNext と同じ） */
+export const FY = (() => { const d = new Date(); return 'FY' + (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1); })();
 export const MONTH = fmtDate(new Date(), 'Asia/Tokyo', 'yyyy_MM');
 
 const colOf = (letters) => [...letters].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
@@ -227,7 +228,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   function makeFile(id, name, parent) {
     const f = { kind: 'file', id, name, mime: SHEETS_MIME, parent, trashed: false, created: new Date(state.clock += 60000) };
     Object.assign(f, {
-      getId: () => f.id, getName: () => f.name, getDateCreated: () => f.created, isTrashed: () => f.trashed,
+      getId: () => f.id, getName: () => f.name, setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed,
       setTrashed: (b) => { f.trashed = !!b; return f; },
       moveTo: (folder) => { f.parent = folder.getId(); return f; },
       makeCopy: (n, folder) => {

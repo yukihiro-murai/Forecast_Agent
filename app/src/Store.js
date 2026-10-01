@@ -18,9 +18,12 @@ function appToday_() {
   return Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM-dd');
 }
 
-/** このアプリの年度（4月〜翌3月。終わる年で呼ぶ: 2026-10 → FY2027） */
+/**
+ * 年度（4月〜翌3月）。始まりの年で呼ぶ: 2026-10 → FY2026（旧来の計算の getForecastFYStart_・vNext の vNextFiscalYearForDate_ と同じ）。
+ * 2026-10-01 までは終わりの年で呼んでいた（ログのファイル名。appEnsureFyNaming_ が一度だけ直す）。
+ */
 function appFy_(d) {
-  return d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
 }
 
 /** 時刻順に並ぶ ID（例: RL-20261001183000-1A2B3C4D） */

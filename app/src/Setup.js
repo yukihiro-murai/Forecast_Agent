@@ -22,7 +22,8 @@ function appSetup_(ctx) {
         created.push('フォルダ「' + p[1] + '」');
       }
     });
-    // 2) 今年度のログ（ここから先は記録できる）
+    // 2) 今年度のログ（ここから先は記録できる）。以前の名前のログがあれば先に直す
+    appEnsureFyNaming_();
     const logExisted = !!JSON.parse(props.getProperty(APP_PROP.logFiles) || '{}')['FY' + appFy_(new Date())];
     const log = appLogSpreadsheet_(new Date(), 'write');
     if (!logExisted) created.push('ログ「' + APP_FILES.logPrefix + 'FY' + appFy_(new Date()) + '」');

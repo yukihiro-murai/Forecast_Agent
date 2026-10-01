@@ -1,5 +1,5 @@
 /**
- * Audit.js — 操作の記録（監査ログ）・実行ログ・エラーログ。記録先は年度ごとの「売上予測アプリ ログ FYyyyy」。
+ * Audit.js — 操作の記録（監査ログ）・実行ログ・エラーログ。記録先は年度ごとの「売上予測アプリ ログ FYyyyy」（年度は始まりの年で呼ぶ）。
  * 月ごとのシート AUDIT_yyyy_MM / RUN_yyyy_MM / ERROR_yyyy_MM に追記だけする（上書き・削除しない）。
  * 監査は row_hash = SHA-256(prev_hash + 改行 + 行の内容) の鎖でつなぎ、最新のハッシュを Script Properties に控える。
  * 書き込み・実行は開始を記録できなければ行わない（fail-closed）。保存期間は 7 年（設定 audit.retention_years）。
@@ -10,6 +10,7 @@
  */
 function appLogSpreadsheet_(now, mode) {
   const props = appProps_();
+  appEnsureFyNaming_();
   const fyKey = 'FY' + appFy_(now);
   let files = {};
   try { files = JSON.parse(props.getProperty(APP_PROP.logFiles) || '{}') || {}; } catch (e) { files = {}; }
@@ -22,6 +23,32 @@ function appLogSpreadsheet_(now, mode) {
   files[fyKey] = ss.getId();
   props.setProperty(APP_PROP.logFiles, JSON.stringify(files));
   return ss;
+}
+
+/**
+ * ログのファイル名を「始まりの年で呼ぶ年度」にそろえる（一度だけ）。
+ * 2026-10-01 に作ったログは終わりの年で名付けていた（FY2027 = 2026/04〜2027/03）ので、キーとファイル名を 1 年ずらす。
+ * 何も作っていない新しい環境では、印を付けるだけ。ロックの中で印を確かめ直し、二重にずらさない。
+ */
+function appEnsureFyNaming_() {
+  const props = appProps_();
+  if (props.getProperty(APP_PROP.fyNaming) === 'start') return;
+  appWithLock_(() => {
+    if (props.getProperty(APP_PROP.fyNaming) === 'start') return;
+    let files = {};
+    try { files = JSON.parse(props.getProperty(APP_PROP.logFiles) || '{}') || {}; } catch (e) { files = {}; }
+    const next = {};
+    Object.keys(files).forEach(k => {
+      const m = /^FY(\d{4})$/.exec(k);
+      const nk = m ? 'FY' + (Number(m[1]) - 1) : k;
+      next[nk] = files[k];
+      try { DriveApp.getFileById(files[k]).setName(APP_FILES.logPrefix + nk); } catch (e) {
+        Logger.log('ログのファイル名を直せません: ' + (e && e.message ? e.message : e));
+      }
+    });
+    props.setProperty(APP_PROP.logFiles, JSON.stringify(next));
+    props.setProperty(APP_PROP.fyNaming, 'start');
+  });
 }
 
 /** その月のログのシート。無ければ作る（新しいファイルに最初からある空のシートは消す）。列が違えば止める */

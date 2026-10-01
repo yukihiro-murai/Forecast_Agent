@@ -407,8 +407,36 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const big = { big: 'x'.repeat(50000) };
   const j = JSON.parse(env.run('appJson_(__b)', { __b: big }));
   assert.deepEqual([j.truncated, j.sha256, j.head.length], [true, sha(JSON.stringify(big)), 2000]);
-  // 年度は 4 月始まり・終わる年で呼ぶ
-  assert.deepEqual([env.run('appFy_(new Date(2026, 2, 31))'), env.run('appFy_(new Date(2026, 3, 1))'), env.run('appFy_(new Date(2026, 9, 1))')], [2026, 2027, 2027]);
+  // 年度は 4 月始まり・始まりの年で呼ぶ（旧来の計算の getForecastFYStart_ と vNext の vNextFiscalYearForDate_ と同じ）
+  assert.deepEqual([env.run('appFy_(new Date(2026, 2, 31))'), env.run('appFy_(new Date(2026, 3, 1))'), env.run('appFy_(new Date(2026, 9, 1))')], [2025, 2026, 2026]);
+  const legacy = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
+  assert.match(legacy, /function getForecastFYStart_\(fy\) \{\n  return new Date\(Number\(fy\), 3, 1\);/, '旧来の計算は FY N を N 年 4 月から数える');
+  const vnext = await readFile(path.join(repoRoot, 'VNext_Core.js'), 'utf8');
+  assert.match(vnext, /return date\.getMonth\(\) >= 3 \? date\.getFullYear\(\) : date\.getFullYear\(\) - 1;/, 'vNext も始まりの年で呼ぶ');
+}
+
+// ==== 10b. 以前（終わりの年で呼んでいた）のログのファイル名を一度だけ直す ====
+{
+  const env = setUpEnv();
+  assert.equal(env.props.APP_FY_NAMING, 'start', '新しい環境は最初から始まりの年で呼ぶ');
+  const logId = JSON.parse(env.props.APP_LOG_SPREADSHEETS_JSON)[FY];
+  assert.equal(env.files[logId].name, '売上予測アプリ ログ ' + FY);
+  // 2026-10-01 の状態を作る: 終わりの年のキーと名前・印なし
+  const oldKey = 'FY' + (Number(FY.slice(2)) + 1);
+  const before = env.audit().length;
+  env.props.APP_LOG_SPREADSHEETS_JSON = JSON.stringify({ [oldKey]: logId });
+  env.files[logId].name = '売上予測アプリ ログ ' + oldKey;
+  delete env.props.APP_FY_NAMING;
+  env.call(`apiSaveClient({ clientName: 'テスト製薬' })`);
+  assert.deepEqual(JSON.parse(env.props.APP_LOG_SPREADSHEETS_JSON), { [FY]: logId }, 'キーを 1 年ずらす');
+  assert.equal(env.files[logId].name, '売上予測アプリ ログ ' + FY, 'ファイル名も直す');
+  assert.equal(env.props.APP_FY_NAMING, 'start');
+  assert.equal(env.audit().length, before + 2, '同じファイルに記録を続ける（新しいファイルを作らない）');
+  assert.equal(Object.values(env.files).filter((f) => /ログ/.test(f.name)).length, 1);
+  // 二度目は何もしない
+  env.call(`apiSaveClient({ clientName: '別の製薬' })`);
+  assert.deepEqual(JSON.parse(env.props.APP_LOG_SPREADSHEETS_JSON), { [FY]: logId });
+  assert.equal(env.state.lockHeld, false);
 }
 
 // ==== 11. 記録できなければ書き込まない（fail-closed）・列が違う表には書かない ====
