@@ -14,7 +14,8 @@ const APP_FILES = {
   logPrefix: '売上予測アプリ ログ ',
   backupFolder: 'バックアップ',
   archiveFolder: 'アーカイブ',
-  backupPrefix: '売上予測アプリ データ バックアップ '
+  backupPrefix: '売上予測アプリ データ バックアップ ',
+  scratch: '売上予測アプリ 計算用（自動）'
 };
 
 /** Script Properties のキー（ファイルの ID と鎖の最新ハッシュ。秘密情報は置かない） */
@@ -25,7 +26,8 @@ const APP_PROP = {
   backupFolderId: 'APP_BACKUP_FOLDER_ID',
   archiveFolderId: 'APP_ARCHIVE_FOLDER_ID',
   auditLastHash: 'APP_AUDIT_LAST_HASH',
-  internalDomain: 'APP_INTERNAL_DOMAIN'
+  internalDomain: 'APP_INTERNAL_DOMAIN',
+  scratchId: 'APP_SCRATCH_SPREADSHEET_ID'
 };
 
 /** 役割（弱い → 強い）。閲覧と情報提供は社内全員が持つ。予測と予算の提出は担当者、承認は承認者（2026-10-01 決定） */

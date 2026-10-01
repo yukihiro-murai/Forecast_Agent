@@ -250,6 +250,10 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   }
   const pub = declared.filter((d) => !d.name.endsWith('_'));
   assert.deepEqual(pub.map((d) => d.name).sort(), [...PUBLIC].sort(), '公開する関数は一覧のものだけ（ほかは名前の末尾を _ にする）');
+  // 実際に読み込んだ後のグローバルでも確かめる（関数の中に包んだコードは外から呼べない）
+  const probe = makeEnv();
+  const globalFns = Object.keys(probe.ctx).filter((k) => typeof probe.ctx[k] === 'function');
+  assert.deepEqual(globalFns.filter((k) => !k.endsWith('_')).sort(), [...PUBLIC].sort(), '読み込んだ後に外から呼べる関数も一覧のものだけ');
   assert.ok(pub.every((d) => d.file === 'Api.js'), '公開する関数は Api.js にだけ置く');
   const names = declared.map((d) => d.name);
   assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], '同じ名前の関数がない（GAS では黙って上書きされる）');
@@ -260,7 +264,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.match(extractFunction(sources['Api.js'], 'doGet'), /api_\('APP\.OPEN', \{ minRole: 'VIEWER', audit: false, allowAnonymousView: true \}/);
   // 業務のコードは SpreadsheetApp を Store / Audit / Setup の外で触らない
   for (const [file, src] of Object.entries(sources)) {
-    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js'].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
+    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js', 'Engine.js'].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
   }
 }
 
@@ -702,6 +706,30 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   // ファイルの読み込み順に依存しない（GAS はプロジェクトのファイル順に実行する）
   const rev = setUpEnv({ order: 'reverse' });
   assert.equal(JSON.parse(/var B = (.*);\n/.exec(rev.run('doGet({})').getContent())[1]).setUp, true);
+}
+
+// ==== 14. 乱数の固定（同じ種なら同じ結果・終われば元に戻す） ====
+{
+  const env = makeEnv();
+  const seq = (seed, n) => env.run(`(() => { const r = appSeededRandom_(__s); return Array.from({ length: ${n} }, () => r()); })()`, { __s: seed });
+  const a = seq('RUN-1', 5);
+  assert.deepEqual([...a], [...seq('RUN-1', 5)], '同じ種なら同じ並び');
+  assert.notDeepEqual([...a], [...seq('RUN-2', 5)], '種が違えば違う並び');
+  const many = [...seq('dist', 100000)];
+  assert.ok(many.every((x) => x >= 0 && x < 1));
+  const mean = many.reduce((s, x) => s + x, 0) / many.length;
+  assert.ok(Math.abs(mean - 0.5) < 0.005, `平均 ${mean}`);
+  const buckets = Array(10).fill(0);
+  many.forEach((x) => { buckets[Math.floor(x * 10)]++; });
+  assert.ok(buckets.every((b) => Math.abs(b - 10000) < 500), `偏り ${buckets}`);
+  const original = env.run('Math.random');
+  const inside = env.run(`appWithSeededRandom_('S', () => [Math.random(), Math.random()])`);
+  assert.deepEqual([...inside], [...seq('S', 2)], 'fn の中の Math.random は種つき');
+  assert.equal(env.run('Math.random'), original, '終われば元に戻す');
+  assert.throws(() => env.run(`appWithSeededRandom_('S', () => { throw new Error('boom'); })`), /boom/);
+  assert.equal(env.run('Math.random'), original, '失敗しても元に戻す');
+  assert.throws(() => env.run(`appWithSeededRandom_('A', () => appWithSeededRandom_('B', () => 1))`), /入れ子/);
+  assert.equal(env.run('Math.random'), original);
 }
 
 console.log('app-contract: all tests passed');
