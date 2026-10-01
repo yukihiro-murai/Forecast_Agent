@@ -190,6 +190,10 @@ export function makeSpreadsheet(id, name, { strict = false } = {}) {
     deleteSheet(s) { if (sheets.length === 1) throw new Error('最後のシートは消せない'); sheets.splice(sheets.indexOf(s), 1); },
     getSpreadsheetLocale: () => locale, setSpreadsheetLocale: (l) => { locale = l; },
     getSpreadsheetTimeZone: () => tz, setSpreadsheetTimeZone: (t) => { tz = t; },
+    // 裏の処理（トリガー）には画面がないので、本物ではトーストが止められる。表示の切り替えも厳しめに止める
+    toast: () => { throw new Error('Cannot call SpreadsheetApp.showNotification() from this context.'); },
+    setActiveSheet: () => { throw new Error('Cannot call setActiveSheet from this context (mock).'); },
+    moveActiveSheet: () => { throw new Error('Cannot call moveActiveSheet from this context (mock).'); },
   };
   return ss;
 }

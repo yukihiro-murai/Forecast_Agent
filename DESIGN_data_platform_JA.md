@@ -357,6 +357,7 @@ PLAN.CREATE / INPUT.CREATE・UPDATE・DELETE / IMPORT.SALES・ACTUALS / FORECAST
 | 年度の呼び方の修正 | 新アプリのログを「終わりの年」で名付けていた（FY2027 = 2026/04〜2027/03）。旧来の計算（`getForecastFYStart_`）と vNext（`vNextFiscalYearForDate_`）は「始まりの年」（FY2026 = 2026/04〜2027/03）なので、新アプリも始まりの年にそろえた。既存のログはキーとファイル名を一度だけ直す（`appEnsureFyNaming_`）。公開 @4（v0.2.2） |
 | 2-1 の本番の取り込み | **完了（2026-10-01、村井さんが実行）**。データ本体に 12,592 行。書いた後にデータ本体から読み戻して旧ブックと一致 |
 | 2-2a 計算の一致の確認（旧ブックの写し ↔ データ本体から組み立て、同じ種・同じ時刻で予測を実行し、計算後の全シートを比べる） | 実装済み（`LegacyEngine.js` = `Forecast_Agent.js` をそのまま包んだもの、`Parity.js`、`app/tests/app-engine.test.mjs`）。公開 @5（v0.3.0）。村井さんの実行を待つ |
+| 2-2a の修正: 裏の処理では画面がない | 初回の確認が「予測実行エラー: Cannot call SpreadsheetApp.showNotification() from this context.」で止まった（旧来の計算の途中のトースト。旧アプリの画面から動かすときは黙って無視されていた）。旧来の計算に渡すブックで、トーストを何もしない・表示するシートの切り替えを失敗しても止めない、に差し替えた。公開 @6（v0.3.1） |
 | 2-2b 新アプリでの予測の実行（結果をデータ本体へ戻し、FORECAST_RUNS / FORECAST_MONTHLY に残す） | 2-2a で一致を確かめてから |
 | 2-3 画面 | 未着手 |
 | 2-4 並行運用と切り替え | 未着手 |

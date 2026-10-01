@@ -57,8 +57,13 @@ const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8
   env.props.APP_ZAC_SOURCE_SPREADSHEET_ID = 'ZAC-SOURCE-ID';
   const svc = env.run(`appLegacyServices_(__b, { asOfMs: ${asOf}, seed: 'S' })`, { __b: book });
   env.ctx.__svc = svc;
-  assert.equal(env.run('__svc.SpreadsheetApp.getActiveSpreadsheet()'), book, '開いているスプレッドシート = 計算用ブック');
+  assert.equal(env.run('__svc.SpreadsheetApp.getActiveSpreadsheet().getId()'), book.getId(), '開いているスプレッドシート = 計算用ブック');
   assert.throws(() => env.run('__svc.SpreadsheetApp.getUi()'), /画面/);
+  // 画面のない実行では本物のトーストは止められるが、旧来の計算から呼ばれても何もしない
+  assert.throws(() => book.toast('x'), /showNotification/);
+  assert.equal(env.run(`__svc.SpreadsheetApp.getActiveSpreadsheet().toast('x', 'y', 5)`), undefined);
+  assert.equal(env.run(`__svc.SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(__s)`, { __s: book.getSheetByName('CONFIG') }), book.getSheetByName('CONFIG'));
+  assert.equal(env.run(`__svc.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CONFIG')`), book.getSheetByName('CONFIG'), 'ほかはそのまま');
   assert.equal(env.run('__svc.SpreadsheetApp.openById(__id)', { __id: book.getId() }), book, 'ほかの機能は本物を通す');
   assert.equal(env.run('__svc.Utilities.getUuid()'), ids[0]);
   assert.equal(env.run('__svc.Utilities.sleep(450)'), undefined, '待たない');
@@ -107,6 +112,8 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
     runPhase1Forecast() {
       if (!this.WEB_UI_CONFIRMS_.extreme) throw Object.assign(new Error('confirm'), { webConfirm: { key: 'extreme' } });
       const ss = svc.SpreadsheetApp.getActiveSpreadsheet();
+      ss.toast('予測を更新しています', 'Forecast Agent', 5);   // 旧来の toastProgress_ と同じ（画面のない実行でも止まらない）
+      ss.setActiveSheet(ss.getSheetByName('OUTPUT'));
       const fy = Number(ss.getSheetByName('CONFIG').getRange('B3').getValue());
       const bias = Number(ss.getSheetByName('CALIBRATION_STATE').getRange(2, 7).getValue());
       const r = () => Math.round(Math.random() * 1000);

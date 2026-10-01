@@ -138,6 +138,14 @@ function appLegacyServices_(book, opts) {
       return typeof v === 'function' ? (...a) => real[prop](...a) : v;
     }
   });
+  // 裏の処理（トリガー）には画面がないので、トースト（右下の通知）は Google に止められる
+  // （「Cannot call SpreadsheetApp.showNotification() from this context」2026-10-01）。何もしないにする。
+  // 表示するシートの切り替えは計算の結果に関係しないので、失敗しても計算を止めない
+  const bookView = pass(book, {
+    toast: () => {},
+    setActiveSheet: sh => { try { return book.setActiveSheet(sh); } catch (e) { return sh; } },
+    moveActiveSheet: i => { try { return book.moveActiveSheet(i); } catch (e) { return null; } }
+  });
   const props = {
     getProperty: k => (k === 'FORECAST_SOURCE_SPREADSHEET_ID' ? appProps_().getProperty('APP_ZAC_SOURCE_SPREADSHEET_ID') : null),
     getProperties: () => ({}),
@@ -147,8 +155,8 @@ function appLegacyServices_(book, opts) {
   };
   return {
     SpreadsheetApp: pass(realSA, {
-      getActiveSpreadsheet: () => book,
-      getActive: () => book,
+      getActiveSpreadsheet: () => bookView,
+      getActive: () => bookView,
       getUi: () => { throw new Error('この実行では画面（SpreadsheetApp.getUi）を使えません。'); }
     }),
     Date: appFrozenDate_(opts.asOfMs),
