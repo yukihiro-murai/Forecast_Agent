@@ -763,7 +763,7 @@ function renderEval(){
       html+='<div class="h2row" style="margin-bottom:12px"><div class="sub" style="margin-bottom:0">実績と予測P50の誤差率（月別APE）</div>'+help('棒は |実績−予測P50| ÷ 実績。P10〜P90 の帯を外れた月は注意色です。外れ値は150%で頭打ち表示（実値はバーの上に表示）。')+'</div>'
         +'<canvas id="apechart" style="width:100%;height:190px;display:block"></canvas>'
         +'<div class="legend"><span><i style="background:var(--primary)"></i>誤差率</span><span><i style="background:var(--warn-fg)"></i>P10〜P90外</span><span><i style="background:#8a94a6"></i>30% 基準線</span></div>'
-        +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><colgroup><col style="width:86px"><col><col><col><col style="width:80px"><col style="width:100px"><col style="width:110px"></colgroup><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
+        +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><colgroup><col style="width:86px"><col><col><col><col style="width:80px"><col style="width:128px"><col style="width:110px"></colgroup><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
       withFc.forEach(function(c){
         html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
       });
@@ -858,15 +858,16 @@ function drawApeChart(){
   // 30% 基準線
   ctx.setLineDash([5,4]); ctx.strokeStyle='#8a94a6'; ctx.beginPath();
   var y30=Y(0.30); ctx.moveTo(padL,y30); ctx.lineTo(W-padR,y30); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='11px sans-serif';
-  ctx.fillText('30%', W-padR-16, y30-4);
+  ctx.fillStyle='#5A6B7E'; ctx.textAlign='right'; ctx.font='11px sans-serif';
+  ctx.fillText('30%', W-padR-2, y30-4);
   // バー（150%超は頭打ち + 実値ラベル）
   rows.forEach(function(c,i){
     var raw=c.ape||0, a=Math.max(0.004, Math.min(raw,CAP)), x=X(i)-bw/2, y=Y(a);
     ctx.fillStyle=c.rangeOutside?'#A65C00':'#00A0E9';
     ctx.fillRect(x, y, bw, (H-padB)-y);
     if(raw>CAP){ ctx.fillStyle='#A65C00'; ctx.textAlign='center'; ctx.font='700 11px sans-serif';
-      ctx.fillText(Math.round(raw*100)+'%', X(i), Math.max(padT+8, y-3)); }
+      var lx=Math.max(padL+26, Math.min(W-padR-26, X(i)));
+      ctx.fillText(Math.round(raw*100)+'%', lx, Math.max(padT+8, y-3)); }
     ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='12px sans-serif';
     ctx.fillText(String(c.month).replace(/^20/,''), X(i), H-padB+16);
   });
