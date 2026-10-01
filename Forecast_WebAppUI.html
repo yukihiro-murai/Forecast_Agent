@@ -63,8 +63,8 @@ input,select,textarea{font-family:inherit;font-size:15px}
 @media(max-width:1280px){.rowcards.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.rowcards.cols4{grid-template-columns:1fr}}
 .actcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;height:196px}
-.actcard .ac-top{display:flex;align-items:center;gap:8px}
-.actcard .ac-ttl{font-size:15px;font-weight:700;color:var(--navy);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actcard .ac-top{display:flex;align-items:flex-start;gap:8px}
+.actcard .ac-ttl{font-size:15px;font-weight:700;color:var(--navy);flex:1;min-width:0;line-height:1.35}
 .actcard .ac-top .chip{flex:none}
 .actcard .desc{font-size:13px;color:var(--muted);margin:10px 0 12px;flex:1;line-height:1.55}
 .actcard .foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -743,10 +743,10 @@ function renderEval(){
     evRows.forEach(function(c){ ((c.p50!=null)||(c.forecastTotal!=null)?withFc:noFc).push(c); });
     html+='<div class="card"><h2>月次の予実比較</h2>';
     if(withFc.length){
-      html+='<div class="sub">実績と予測P50の誤差率（APE）。帯の外に出た月は注意色です。</div>'
+      html+='<div class="sub">実績と予測P50の誤差率（APE）。帯の外に出た月は注意色です（バーは150%で頭打ち表示）。</div>'
         +'<canvas id="apechart" style="width:100%;height:190px;display:block"></canvas>'
         +'<div class="legend"><span><i style="background:var(--primary)"></i>誤差率</span><span><i style="background:var(--warn-fg)"></i>P10〜P90外</span><span><i style="background:#8a94a6"></i>30% 基準線</span></div>'
-        +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
+        +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><colgroup><col style="width:86px"><col><col><col><col style="width:80px"><col style="width:100px"><col style="width:110px"></colgroup><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
       withFc.forEach(function(c){
         html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
       });
@@ -828,7 +828,8 @@ function drawApeChart(){
   cv.width=W*dpr; cv.height=H*dpr;
   var ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
   var padL=52, padR=12, padT=14, padB=30;
-  var max=0.35; rows.forEach(function(c){ var a=c.ape||0; if(a>max)max=a; });
+  var CAP=1.5; // 表示上限150%（外れ値で他バーが潰れないよう頭打ち。実値はラベル表示）
+  var max=Math.max(0.35, Math.min(CAP, Math.max.apply(null, rows.map(function(c){return Math.min(c.ape||0,CAP);}))));
   max*=1.15;
   var X=function(i){ return padL+(W-padL-padR)*(i+0.5)/rows.length; };
   var bw=Math.max(8,Math.min(44,(W-padL-padR)/rows.length*0.56));
@@ -842,11 +843,13 @@ function drawApeChart(){
   var y30=Y(0.30); ctx.moveTo(padL,y30); ctx.lineTo(W-padR,y30); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='11px sans-serif';
   ctx.fillText('30%', W-padR-16, y30-4);
-  // バー
+  // バー（150%超は頭打ち + 実値ラベル）
   rows.forEach(function(c,i){
-    var a=Math.max(0.004, c.ape||0), x=X(i)-bw/2, y=Y(a);
+    var raw=c.ape||0, a=Math.max(0.004, Math.min(raw,CAP)), x=X(i)-bw/2, y=Y(a);
     ctx.fillStyle=c.rangeOutside?'#A65C00':'#00A0E9';
     ctx.fillRect(x, y, bw, (H-padB)-y);
+    if(raw>CAP){ ctx.fillStyle='#A65C00'; ctx.textAlign='center'; ctx.font='700 11px sans-serif';
+      ctx.fillText(Math.round(raw*100)+'%', X(i), Math.max(padT+8, y-3)); }
     ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='12px sans-serif';
     ctx.fillText(String(c.month).replace(/^20/,''), X(i), H-padB+16);
   });
