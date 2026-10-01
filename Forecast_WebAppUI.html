@@ -708,7 +708,7 @@ function renderEval(){
   var vtxText=!vtx.enabled?'無効（設定で有効化できます）':(vtx.hasLog?('取得済 '+esc(vtx.at)+' / confidence '+(vtx.confidence||0).toFixed(2)):'有効・未取得（A-4 または右のボタンで生成）');
   var sLearn=stepOf('learn_status');
   html+='<div class="card"><div class="h2row"><h2>自動学習（B-5）</h2>'+help('中立シナリオの予実誤差から全体補正係数と暦月別バイアスをベイズ更新します。B-2 実行後にも自動で走り、次回 A-9 予測へ反映されます。Vertexアシストは設定で有効化できます。')+'</div>'
-    +'<div class="kpirow" style="grid-template-columns:repeat(4,1fr)">'
+    +'<div class="kpirow">'
     +kpi('全体補正係数','×'+(L.biasFactor||1).toFixed(3))
     +kpi('暦月バイアス', mbKeys2.length?('学習済み '+mbKeys2.length+' 暦月'):'未学習')
     +kpi('Vertexアシスト', vtx.enabled?('weight '+(L.vertexWeight||0.5).toFixed(2)+' × 信頼度 '+(L.vertexReliability||1).toFixed(2)):'無効')
