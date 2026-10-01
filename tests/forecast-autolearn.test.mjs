@@ -39,15 +39,23 @@ const harness = [
   ...constLines,
   extractFunction('clamp_'),
   extractFunction('parseYM_'),
+  extractFunction('toMonthStart_'),
+  extractFunction('fmtYM_'),
+  extractFunction('ymKey_'),
   extractFunction('autoLearnComputeState_'),
   extractFunction('parseResidualMonthBiasJson_'),
   extractFunction('canonicalMonthBiasJson_'),
 ].join('\n');
 
-const sandbox = { Math, JSON, Number, String, isFinite, console };
+// fmtYM_ は Utilities.formatDate(d,TZ,'yyyy/MM') を使う — Node 側で最小実装を注入
+const sandbox = { Math, JSON, Number, String, isFinite, console, TZ: 'Asia/Tokyo',
+  Utilities: { formatDate: (d, _tz, fmt) => {
+    if (fmt !== 'yyyy/MM') throw new Error('unexpected fmt ' + fmt);
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  } } };
 vm.createContext(sandbox);
-vm.runInContext(`${harness}\n;this.__fns = { autoLearnComputeState_, parseResidualMonthBiasJson_, canonicalMonthBiasJson_ };`, sandbox);
-const { autoLearnComputeState_, parseResidualMonthBiasJson_, canonicalMonthBiasJson_ } = sandbox.__fns;
+vm.runInContext(`${harness}\n;this.__fns = { autoLearnComputeState_, parseResidualMonthBiasJson_, canonicalMonthBiasJson_, ymKey_ };`, sandbox);
+const { autoLearnComputeState_, parseResidualMonthBiasJson_, canonicalMonthBiasJson_, ymKey_ } = sandbox.__fns;
 
 const AUTOLEARN_MIN_EVAL_MONTHS = 3;
 const pairs = n => Array.from({ length: n }, (_, i) => ({ ym: `2025/${String(12 - i).padStart(2, '0')}`, pred: 110, actual: 100 }));
@@ -140,6 +148,20 @@ const pairs = n => Array.from({ length: n }, (_, i) => ({ ym: `2025/${String(12 
   const data = pairs(4).concat([{ ym: '2025/11', pred: 5, actual: 0 }, { ym: '2025/10', pred: 'x', actual: 100 }]);
   const r = autoLearnComputeState_(data);
   assert.equal(r.n, 4, 'actual=0 と非数値 pred は除外');
+}
+
+// ---- 11. ymKey_: Sheets自動Date変換セルと文字列セルを同一キーへ揃える（EVAL結合バグの回帰） ----
+{
+  assert.equal(ymKey_('2026/04'), '2026/04');
+  assert.equal(ymKey_(new Date(2026, 3, 1)), '2026/04', 'Date セルは文字列と同じキーになる');
+  assert.equal(ymKey_(new Date(2026, 3, 15)), '2026/04', '月初以外の Date も月初に揃う');
+  assert.equal(ymKey_('2026-04'), '2026/04');
+  assert.equal(ymKey_('2026/4'), '2026/04', 'ゼロ埋めなし表記も揃う');
+  assert.equal(ymKey_(''), '', '空は空のまま');
+  // FORECAST_SNAPSHOT(Date) × ACTUAL_EVAL_MONTHLY('yyyy/MM'文字列) の結合が成立する
+  const snapYm = ymKey_(new Date(2026, 3, 1));
+  const actYm = ymKey_('2026/04');
+  assert.equal(snapYm, actYm, 'sheet 読み出し値が異なっても結合キー一致');
 }
 
 process.stdout.write('PASS forecast-autolearn contract tests\n');

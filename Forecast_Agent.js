@@ -7926,7 +7926,7 @@ function writeDlmShadowLanding_(ss, client, fy, result) {
     const key = [
       String(values[i][idx.client] || '').trim(),
       String(values[i][idx.fy] || '').trim(),
-      String(values[i][idx.target_month] || '').trim()
+      ymKey_(values[i][idx.target_month])
     ].join('|');
     if (key !== '||') rowByKey.set(key, i + 1);
   }
@@ -7957,7 +7957,7 @@ function writeDlmShadowLanding_(ss, client, fy, result) {
     const key = [
       String(row[idx.client] || '').trim(),
       String(row[idx.fy] || '').trim(),
-      String(row[idx.target_month] || '').trim()
+      ymKey_(row[idx.target_month])
     ].join('|');
     const rowNo = rowByKey.get(key);
     if (rowNo) updatesByRowNo.set(rowNo, { rowNo, row });
@@ -7987,6 +7987,9 @@ function writeForecastArtifacts_(result, client) {
     });
   });
   const r0 = snap.getLastRow()+1;
+  // target_month(D列)をテキスト書式にしてから書き込む（'yyyy/MM' 文字列が Date に自動変換され、
+  // 実績側の文字列キーとの結合が壊れるのを防ぐ）
+  snap.getRange(r0, 4, rows.length, 1).setNumberFormat('@');
   snap.getRange(r0,1,rows.length,rows[0].length).setValues(rows);
 }
 
@@ -8003,14 +8006,14 @@ function updatePhase1EvaluationReport() {
   const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT).getDataRange().getValues().slice(1);
   const mapA = new Map();
   actual.forEach(r=>{
-    const k = [r[0], r[3]].join('|');
+    const k = [normalizeClientName_(r[0]), ymKey_(r[3])].join('|');
     mapA.set(k, (mapA.get(k) || 0) + Number(r[4] || 0));
   });
   const p10Map = new Map();
   const p50Map = new Map();
   const p90Map = new Map();
   snap.forEach(r => {
-    const ym = String(r[3] || '');
+    const ym = ymKey_(r[3]);
     const sc = String(r[4] || '');
     const pred = Number(r[9] || 0);
     if (!ym || !isFinite(pred)) return;
@@ -8021,7 +8024,8 @@ function updatePhase1EvaluationReport() {
 
   const evalRows=[];
   snap.forEach(r=>{
-    const key = [r[2], r[3]].join('|');
+    const ymCanon = ymKey_(r[3]);
+    const key = [normalizeClientName_(r[2]), ymCanon].join('|');
     const act = mapA.get(key);
     if (act == null) return;
     const pred = Number(r[9]||0);
@@ -8030,20 +8034,20 @@ function updatePhase1EvaluationReport() {
     const absErr = Math.abs(signed);
     const scenario = String(r[4] || '');
     const role = scenario === 'neutral' ? 'P50' : (scenario === 'nega' ? 'P10' : (scenario === 'posi' ? 'P90' : ''));
-    const rangeContains = (p10Map.has(r[3]) && p90Map.has(r[3])) ? ((act >= p10Map.get(r[3]) && act <= p90Map.get(r[3])) ? 1 : 0) : '';
+    const rangeContains = (p10Map.has(ymCanon) && p90Map.has(ymCanon)) ? ((act >= p10Map.get(ymCanon) && act <= p90Map.get(ymCanon)) ? 1 : 0) : '';
     const isPlanningPoint = (scenario === 'neutral') ? 1 : 0;
     const constraintRelevant = (scenario === 'neutral') ? 1 : 0;
     evalRows.push([
-      Utilities.getUuid(), new Date(), r[2], r[3], scenario, pred, act, ape, 0, 'model_limitation',
+      Utilities.getUuid(), new Date(), r[2], ymCanon, scenario, pred, act, ape, 0, 'model_limitation',
       role,
       isPlanningPoint,
       signed,
       absErr,
       signed > 0 ? 'over' : (signed < 0 ? 'under' : 'exact'),
       rangeContains,
-      quarterLabelFromYm_(r[3]),
-      halfLabelFromYm_(r[3]),
-      fyLabelFromYm_(r[3]),
+      quarterLabelFromYm_(ymCanon),
+      halfLabelFromYm_(ymCanon),
+      fyLabelFromYm_(ymCanon),
       VERSION,
       EVALUATION_POLICY_VERSION,
       constraintRelevant
@@ -8052,13 +8056,16 @@ function updatePhase1EvaluationReport() {
   const out = ss.getSheetByName(SHEETS.EVAL_LOG);
   const evalHeaders = ['eval_id','evaluated_at','client','target_month','scenario','pred','actual','ape','was_overridden','error_category','forecast_role','is_planning_point_estimate','signed_error','abs_error','bias_direction','range_contains_actual','quarter_label','half_label','fy_label','model_version','evaluation_policy_version','constraint_relevant_flag'];
   ensureSheetHeaders_(out, evalHeaders);
+  // target_month列をテキスト化しておく（'yyyy/MM' 文字列の Date 自動変換を防ぐ）
+  const evalTmColIdx = evalHeaders.indexOf('target_month') + 1;
+  if (out.getMaxRows() >= 2) out.getRange(2, evalTmColIdx, out.getMaxRows() - 1, 1).setNumberFormat('@');
   const evalValues = out.getDataRange().getValues();
   const evalIdx = headerIndexMap_(evalValues[0] || evalHeaders);
   const evalRowByKey = new Map();
   for (let i = 1; i < evalValues.length; i++) {
     const key = [
       String(evalValues[i][evalIdx.client] || '').trim(),
-      String(evalValues[i][evalIdx.target_month] || '').trim(),
+      ymKey_(evalValues[i][evalIdx.target_month]),
       String(evalValues[i][evalIdx.scenario] || '').trim()
     ].join('|');
     if (key !== '||') evalRowByKey.set(key, i + 1);
@@ -8068,7 +8075,7 @@ function updatePhase1EvaluationReport() {
   evalRows.forEach(row => {
     const key = [
       String(row[evalIdx.client] || '').trim(),
-      String(row[evalIdx.target_month] || '').trim(),
+      ymKey_(row[evalIdx.target_month]),
       String(row[evalIdx.scenario] || '').trim()
     ].join('|');
     const rowNo = evalRowByKey.get(key);
@@ -8099,7 +8106,7 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
 
   const actualMap = new Map();
   actualRows.forEach(r => {
-    const ym = String(r[3] || '');
+    const ym = ymKey_(r[3]);
     const type = String(r[1] || '').trim().toUpperCase();
     const amt = Number(r[4] || 0);
     if (!ym || !isFinite(amt)) return;
@@ -8111,7 +8118,7 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
   const p50Map = new Map();
   const p90Map = new Map();
   snapRows.forEach(r => {
-    const ym = String(r[3] || '');
+    const ym = ymKey_(r[3]);
     const scenario = String(r[4] || '');
     const pred = Number(r[9] || 0);
     if (!ym || !isFinite(pred)) return;
@@ -8373,7 +8380,7 @@ function updatePhase1LearningInsights() {
 
   const byMonth = new Map();
   vals.forEach(r => {
-    const month = String(r[3] || '');
+    const month = ymKey_(r[3]);
     const scenario = String(r[4] || '');
     const pred = Number(r[5] || 0);
     const actual = Number(r[6] || 0);
@@ -8628,8 +8635,10 @@ function parseYM_(s) {
 function toMonthStart_(v) {
   if (!v) return null;
 
-  // Date型の場合（Sheetsが自動変換した場合）
-  if (v instanceof Date && !isNaN(v.getTime())) {
+  // Date型の場合（Sheetsが自動変換した場合）。instanceof は realm を跨ぐと偽になるため
+  // getTime の存在でも判定する（テスト用 sandbox / 将来の値橋渡し対策）
+  const isDateLike = (v instanceof Date) || Object.prototype.toString.call(v) === '[object Date]' || (v && typeof v.getTime === 'function');
+  if (isDateLike && isFinite(v.getTime())) {
     return new Date(v.getFullYear(), v.getMonth(), 1);
   }
 
@@ -8650,6 +8659,17 @@ function toMonthStart_(v) {
   if (m3) return new Date(Number(m3[1]), Number(m3[2]) - 1, 1);
 
   return null;
+}
+
+/**
+ * シートから読んだ target_month を正規の 'yyyy/MM' キーに揃える。
+ * Sheetsが文字列 'yyyy/MM' を書き込み時に自動でDate変換した場合（列書式が自動）でも、
+ * 文字列のまま残った場合でも、結合キーが一致するようにする。
+ * 認識できない値は trim した文字列をそのまま返す（空判定の破壊を避けるため）。
+ */
+function ymKey_(v) {
+  const ms = toMonthStart_(v);
+  return ms ? fmtYM_(ms) : String(v || '').trim();
 }
 
 
@@ -9430,7 +9450,7 @@ function collectNeutralEvalPairs_(ss, client) {
     if (!isSameClient_(r[idx.client], client)) continue;
     if (String(r[idx.scenario] || '') !== 'neutral') continue;
     if (idx.constraint_relevant_flag !== undefined && String(r[idx.constraint_relevant_flag] || '') !== '1') continue;
-    const ym = String(r[idx.target_month] || '');
+    const ym = ymKey_(r[idx.target_month]);
     if (!ym) continue;
     const rawAt = idx.evaluated_at !== undefined ? r[idx.evaluated_at] : '';
     const at = rawAt instanceof Date ? rawAt.getTime() : new Date(rawAt).getTime();
@@ -9998,7 +10018,7 @@ function collectQuarterlyReviewData_(client) {
     const evalConstraintIdx = evalIdx.constraint_relevant_flag;
     const evalRows = evalValues.slice(1)
       .filter(r => isSameClient_(r[evalClientIdx], client) && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
-    const months = Array.from(new Set(evalRows.map(r => String(r[evalTargetMonthIdx] || '')))).sort();
+    const months = Array.from(new Set(evalRows.map(r => ymKey_(r[evalTargetMonthIdx])))).sort();
     const last3 = months.slice(-3);
     if (last3.length < 3) {
       return { ready: false, missingMonths: 3 - last3.length, months: last3, client, evalIdx, impactIdx: {}, subjectiveImpactIdx: {} };
@@ -10013,7 +10033,7 @@ function collectQuarterlyReviewData_(client) {
         const impactClientIdx = impactIdx.client;
         const impactTargetMonthIdx = impactIdx.target_month;
         impacts = impactValues.slice(1)
-          .filter(r => isSameClient_(r[impactClientIdx], client) && last3.indexOf(String(r[impactTargetMonthIdx] || '')) >= 0);
+          .filter(r => isSameClient_(r[impactClientIdx], client) && last3.indexOf(ymKey_(r[impactTargetMonthIdx])) >= 0);
       }
     }
     const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
@@ -10026,7 +10046,7 @@ function collectQuarterlyReviewData_(client) {
         const subjClientIdx = subjectiveImpactIdx.client;
         const subjTargetMonthIdx = subjectiveImpactIdx.target_month;
         subjectiveImpacts = subjectiveValues.slice(1)
-          .filter(r => isSameClient_(r[subjClientIdx], client) && last3.indexOf(String(r[subjTargetMonthIdx] || '')) >= 0);
+          .filter(r => isSameClient_(r[subjClientIdx], client) && last3.indexOf(ymKey_(r[subjTargetMonthIdx])) >= 0);
       }
     }
     const scoreSh = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
@@ -10051,10 +10071,10 @@ function generateQuarterlyProposals_(data) {
     const impactKIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'k_ai');
     const impactDirectionIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'ai_direction');
     const impactQuantOnlyIdx = requireHeaderIndex_(impactIdx, SHEETS.AI_IMPACT_HISTORY, 'pred_p50_quant_only');
-    const evalMap = new Map(data.evalRows.map(r => [String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0)]));
+    const evalMap = new Map(data.evalRows.map(r => [ymKey_(r[evalTargetMonthIdx]), Number(r[evalActualIdx] || 0)]));
     let hit = 0; let den = 0;
     data.impacts.forEach(r => {
-      const ym = String(r[impactTargetMonthIdx] || '');
+      const ym = ymKey_(r[impactTargetMonthIdx]);
       const aiDir = String(r[impactDirectionIdx] || 'flat');
       const actual = Number(evalMap.get(ym) || 0);
       const q = Number(r[impactQuantOnlyIdx] || 0);
@@ -10114,14 +10134,14 @@ function computeReliabilityHitStats_(data) {
   const evalActualByMonth = new Map();
   (data.evalRows || []).forEach(r => {
     if (String(r[evalScenarioIdx] || '') !== 'neutral') return;
-    evalActualByMonth.set(String(r[evalTargetMonthIdx] || ''), Number(r[evalActualIdx] || 0));
+    evalActualByMonth.set(ymKey_(r[evalTargetMonthIdx]), Number(r[evalActualIdx] || 0));
   });
   const quantByMonth = new Map();
   const latestQuantByMonth = new Map();
   (data.impacts || []).forEach((r, seq) => {
     const forecastSource = impactForecastSourceIdx === undefined ? '' : String(r[impactForecastSourceIdx] || '').trim();
     if (forecastSource !== 'forecast_open') return;
-    const ym = String(r[impactTargetMonthIdx] || '');
+    const ym = ymKey_(r[impactTargetMonthIdx]);
     if (!ym) return;
     const runMs = runAtMs(impactRunAtIdx === undefined ? '' : r[impactRunAtIdx]);
     const prev = latestQuantByMonth.get(ym);
@@ -10137,7 +10157,7 @@ function computeReliabilityHitStats_(data) {
   (data.subjectiveImpacts || []).forEach((r, seq) => {
     const forecastSource = subjForecastSourceIdx === undefined ? '' : String(r[subjForecastSourceIdx] || '').trim();
     if (forecastSource !== 'forecast_open') return;
-    const ym = String(r[subjTargetMonthIdx] || '');
+    const ym = ymKey_(r[subjTargetMonthIdx]);
     const type = String(r[subjTypeIdx] || '').trim();
     const key = String(r[subjKeyIdx] || '').trim();
     if (!ym || !type || !key) return;
