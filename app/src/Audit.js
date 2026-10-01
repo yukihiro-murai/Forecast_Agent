@@ -62,7 +62,7 @@ function appAuditAppend_(e) {
       e.entityType || '', e.entityId || '', e.clientId || '', e.planId || '',
       appJson_(e.detail), appJson_(e.before), appJson_(e.after), String(e.reason || '').slice(0, 2000),
       String(e.error || '').slice(0, 2000), e.requestId || '', APP_VERSION
-    ];
+    ].map(v => (v === undefined || v === null ? '' : String(v)));  // 書いた値と読み戻した値を同じにする（数値の ID でも鎖が合う）
     const hash = appSha256Hex_(prev + '\n' + JSON.stringify(body));
     appLogWrite_(sh, body.concat([prev, hash]));
     props.setProperty(APP_PROP.auditLastHash, hash);

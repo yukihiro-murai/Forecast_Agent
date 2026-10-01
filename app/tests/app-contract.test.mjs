@@ -600,6 +600,13 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const bad = env.call('apiHealth()').tables.filter((t) => !t.ok);
   assert.equal(bad.length, 1);
   assert.match(bad[0].note, /_SCHEMA と違う/);
+  // 数値などが来ても文字列にして書く（読み戻した値で鎖が合う）
+  sh.rows.splice(0, sh.rows.length, ...saved);
+  schemaSheet.rows[1][2] = sha(tables[schemaSheet.rows[1][0]].columns.join('|'));
+  env.run(`appAuditAppend_({ actor: '${OWNER}', action: 'TEST.NUM', phase: 'END', result: 'OK', entityId: 123, clientId: 0 })`);
+  const lastRow = sh.rows.slice(-1)[0];
+  assert.equal(lastRow[auditCols.indexOf('entity_id')], '123');
+  assert.equal(verify().ok, true);
   // 長い JSON はハッシュと先頭だけ
   const big = { big: 'x'.repeat(50000) };
   const j = JSON.parse(env.run('appJson_(__b)', { __b: big }));
