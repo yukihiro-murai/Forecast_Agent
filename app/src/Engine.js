@@ -89,3 +89,177 @@ function appScratchReset_(ss) {
   ss.getSheets().forEach(s => { if (s.getSheetId() !== keep.getSheetId()) ss.deleteSheet(s); });
   return keep;
 }
+
+// ---- 旧来の計算に渡す差し替え（LegacyEngine.js の appLegacyEngine_ に渡す） ----
+
+/** 「今」を asOfMs に固定した Date（引数なしの new Date() と Date.now() だけを固定し、ほかは本物と同じ。instanceof も本物の日付で通る） */
+function appFrozenDate_(asOfMs) {
+  const RealDate = Date;
+  return new Proxy(RealDate, {
+    construct(target, args, newTarget) {
+      return Reflect.construct(target, args.length ? args : [asOfMs], newTarget);
+    },
+    apply() {
+      return new RealDate(asOfMs).toString();
+    },
+    get(target, prop) {
+      if (prop === 'now') return () => asOfMs;
+      return Reflect.get(target, prop, target);
+    }
+  });
+}
+
+/** 種から決まる UUID（旧来の計算が作る ID を、同じ種なら同じにする。Math.random は使わない＝乱数の並びを変えない） */
+function appSeededUuidMaker_(seedText) {
+  let n = 0;
+  return () => {
+    const h = appSha256Hex_(String(seedText) + ':uuid:' + (n++));
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-4' + h.slice(13, 16) + '-a' + h.slice(17, 20) + '-' + h.slice(20, 32);
+  };
+}
+
+/** 呼ぶと必ず止まるサービス（旧来の計算からの外部への通信や画面表示を止める） */
+function appBlockedService_(name) {
+  return new Proxy({}, { get: (t, prop) => () => { throw new Error('この実行では ' + name + '.' + String(prop) + ' を使いません。'); } });
+}
+
+/**
+ * 旧来の計算に渡すサービス一式。book = 計算用ブック（旧来の「開いているスプレッドシート」の代わり）。
+ * opts: { asOfMs, seed }
+ */
+function appLegacyServices_(book, opts) {
+  const realSA = SpreadsheetApp;
+  const realUtil = Utilities;
+  const uuid = appSeededUuidMaker_(opts.seed);
+  const pass = (real, overrides) => new Proxy({}, {
+    get(t, prop) {
+      if (Object.prototype.hasOwnProperty.call(overrides, prop)) return overrides[prop];
+      const v = real[prop];
+      return typeof v === 'function' ? (...a) => real[prop](...a) : v;
+    }
+  });
+  const props = {
+    getProperty: k => (k === 'FORECAST_SOURCE_SPREADSHEET_ID' ? appProps_().getProperty('APP_ZAC_SOURCE_SPREADSHEET_ID') : null),
+    getProperties: () => ({}),
+    getKeys: () => [],
+    setProperty: () => { throw new Error('旧来の計算からは Script Properties に書きません。'); },
+    deleteProperty: () => { throw new Error('旧来の計算からは Script Properties を消しません。'); }
+  };
+  return {
+    SpreadsheetApp: pass(realSA, {
+      getActiveSpreadsheet: () => book,
+      getActive: () => book,
+      getUi: () => { throw new Error('この実行では画面（SpreadsheetApp.getUi）を使えません。'); }
+    }),
+    Date: appFrozenDate_(opts.asOfMs),
+    // 待ち（トーストの間隔）は結果に関係しないので待たない。ID は種から決める
+    Utilities: pass(realUtil, { getUuid: uuid, sleep: () => {} }),
+    PropertiesService: {
+      getScriptProperties: () => props,
+      getUserProperties: () => { throw new Error('旧来の計算からは User Properties を使いません。'); },
+      getDocumentProperties: () => { throw new Error('旧来の計算からは Document Properties を使いません。'); }
+    },
+    UrlFetchApp: appBlockedService_('UrlFetchApp'),
+    HtmlService: appBlockedService_('HtmlService')
+  };
+}
+
+/**
+ * 計算用ブックの上で旧来の予測（A-9 runPhase1Forecast）を動かす。種と「今」を固定する。
+ * opts: { asOfMs, seed, confirms: ['extreme', ...] }。返り値: { ok, needConfirm?, version, sourceSha256 }
+ */
+function appRunLegacyForecast_(book, opts) {
+  const svc = appLegacyServices_(book, opts);
+  return appWithSeededRandom_(opts.seed, () => {
+    const eng = appLegacyEngine_(svc);
+    Object.keys(eng.WEB_UI_CONFIRMS_).forEach(k => { delete eng.WEB_UI_CONFIRMS_[k]; });
+    (opts.confirms || []).forEach(k => { eng.WEB_UI_CONFIRMS_[String(k)] = true; });
+    try {
+      eng.runPhase1Forecast();
+      return { ok: true, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 };
+    } catch (e) {
+      if (e && e.webConfirm) return { ok: false, needConfirm: e.webConfirm, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 };
+      throw e;
+    }
+  });
+}
+
+// ---- 計算用ブックの準備と、計算後の中身の控え ----
+
+/** 旧ブックの計算に使うシートを、そのまま（書式・数式・注記ごと）計算用ブックに写す（一致の確認の「元」側） */
+function appScratchCopyLegacy_(scratch, legacy) {
+  const placeholder = appScratchReset_(scratch);
+  const copied = [];
+  Object.keys(APP_ENGINE_SHEETS).forEach(name => {
+    const sh = legacy.getSheetByName(name);
+    if (!sh) return;
+    sh.copyTo(scratch).setName(name);
+    copied.push(name);
+  });
+  if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
+  return copied;
+}
+
+/** データ本体の計画 1 つ分から、計算用ブックを組み立てる（一致の確認の「新」側・新アプリでの予測の実行） */
+function appScratchFromStore_(scratch, planId) {
+  const sheets = appEngLoadPlanSheets_(planId);
+  const placeholder = appScratchReset_(scratch);
+  const report = [];
+  Object.keys(APP_ENGINE_SHEETS).forEach(name => {
+    const dec = sheets[name];
+    if (!dec) return;
+    const w = appEngWriteSheet_(scratch, dec, null);
+    report.push({ sheet: name, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples });
+  });
+  if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
+  return report;
+}
+
+/** 計算用ブックの計算に使うシートの控え（シートごとのハッシュと行ごとの短いハッシュ）。2 つの実行の結果を比べる */
+function appScratchDigest_(scratch) {
+  const out = {};
+  scratch.getSheets().forEach(sh => {
+    const name = sh.getName();
+    const reg = APP_ENGINE_SHEETS[name];
+    const snap = appSheetSnapshot_(sh, reg && reg.header ? reg.header.length : 0);
+    const rows = [];
+    for (let r = 0; r < snap.lastRow; r++) {
+      const cells = [];
+      for (let c = 0; c < snap.lastCol; c++) cells.push(appCellEncode_(snap.values[r][c], snap.formulas[r] && snap.formulas[r][c]).join(''));
+      rows.push(appSha256Hex_(JSON.stringify(cells)).slice(0, 16));
+    }
+    const fmt = appSha256Hex_(JSON.stringify(snap.formats));
+    out[name] = { rows: rows, formats: fmt, size: [snap.maxRows, snap.maxCols, snap.lastRow, snap.lastCol].join('x'),
+      hash: appSha256Hex_(JSON.stringify([rows, fmt, snap.maxRows, snap.maxCols, snap.lastRow, snap.lastCol])) };
+  });
+  return out;
+}
+
+/** 2 つの控えの違い（シートごと: 大きさ・表示形式・違う行の番号） */
+function appDigestDiff_(a, b) {
+  const names = Object.keys(a).concat(Object.keys(b).filter(n => !a[n])).sort();
+  const out = [];
+  names.forEach(n => {
+    const x = a[n];
+    const y = b[n];
+    if (!x || !y) { out.push({ sheet: n, missing: !x ? 'A' : 'B' }); return; }
+    if (x.hash === y.hash) return;
+    const rows = [];
+    for (let i = 0; i < Math.max(x.rows.length, y.rows.length); i++) if (x.rows[i] !== y.rows[i]) rows.push(i + 1);
+    out.push({ sheet: n, size: x.size === y.size ? '' : x.size + ' / ' + y.size, formats: x.formats !== y.formats, rows: rows.slice(0, 20), rowCount: rows.length });
+  });
+  return out;
+}
+
+/** 予測の主な結果（OUTPUT の年度合計と月ごとの P10/P50/P90。旧来の行の位置のとおり） */
+function appForecastHeadline_(book) {
+  const sh = book.getSheetByName('OUTPUT');
+  if (!sh || sh.getLastRow() < 40) return null;
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
+  const annual = sh.getRange(26, 2, 1, 3).getValues()[0].map(num);
+  const objective = sh.getLastRow() >= 65 ? sh.getRange(65, 2, 1, 3).getValues()[0].map(num) : [null, null, null];
+  const monthly = sh.getRange(29, 1, 12, 4).getValues().map(r => ({ month: appIsDate_(r[0]) ? Utilities.formatDate(r[0], APP_TZ, 'yyyy/MM') : String(r[0]),
+    p10: num(r[1]), p50: num(r[2]), p90: num(r[3]) }));
+  return { title: String(sh.getRange(1, 1).getValue() || ''), annual: { p10: annual[0], p50: annual[1], p90: annual[2] },
+    objective: { p10: objective[0], p50: objective[1], p90: objective[2] }, monthly: monthly };
+}

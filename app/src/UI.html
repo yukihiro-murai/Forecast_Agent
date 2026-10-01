@@ -75,7 +75,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
 var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false,
-  mig: { url: '', dry: null, result: null } };
+  mig: { url: '', dry: null, result: null, plans: null, parity: null } };
 
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function $(id){ return document.getElementById(id); }
@@ -103,13 +103,15 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1 };
+var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
-var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます' };
+var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
+  'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）' };
 var JOB_DONE = {
   'MIGRATION.DRYRUN': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.dry = r; },
-  'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); }
+  'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); loadPlans(); },
+  'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); }
 };
 function startJob(kind, payload){
   if (S.job) { toast('前の処理が終わるまでお待ちください', true); return; }
@@ -126,6 +128,7 @@ function pollJob(){
   var done = function(){ S.job = null; busy(0); };
   google.script.run.withSuccessHandler(function(st){
     if (!S.job || S.job.id !== j.id) return;
+    if (st.status === 'CONTINUED') { j.id = st.nextJobId; j.kind = st.nextKind || j.kind; j.status = 'QUEUED'; busy(0); setTimeout(pollJob, 3000); return; }
     if (st.status === 'DONE') { done(); (JOB_DONE[j.kind] || function(){})(st.result, st.payload || j.payload); render(); return; }
     if (st.status === 'FAILED' || st.status === 'STALLED' || st.status === 'LOST') { done(); toast(st.error || '処理が止まりました', true); render(); return; }
     j.status = st.status; j.fails = 0; busy(0); setTimeout(pollJob, 3000);
@@ -164,6 +167,7 @@ function go(v){
   else if (v === 'settings') call('apiListSettings', [], function(r){ S.settings = r.settings; });
   else if (v === 'audit') loadAudit();
   else if (v === 'health') call('apiHealth', [], function(r){ S.health = r; });
+  else if (v === 'migrate') loadPlans();
   render();
 }
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
@@ -236,7 +240,8 @@ function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x
 var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバーの登録', 'ROLE.GRANT': '役割の付与', 'ROLE.REVOKE': '役割の取り消し',
   'CLIENT.SAVE': 'クライアントの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
   'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る',
-  'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行' };
+  'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行',
+  'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る' };
 var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
@@ -290,6 +295,7 @@ function viewMigrate(){
       + (d.timing ? '<p class="note">読むのにかかった時間: ' + Math.round(d.timing.totalMs / 1000) + ' 秒</p>' : '')
       + '<div class="row"><button class="btn" ' + (d.lossless && !S.job ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
   }
+  html += viewParity();
   if (m.result) {
     var r = m.result;
     var total = r.written ? Object.keys(r.written).reduce(function(a, k){ return a + r.written[k]; }, 0) : 0;
@@ -299,6 +305,36 @@ function viewMigrate(){
   }
   return html;
 }
+function loadPlans(){ call('apiListPlans', [], function(r){ S.mig.plans = r.plans; }); }
+function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLocaleString('ja-JP'); }
+function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 100).toFixed(2) + '%'; }
+function viewParity(){
+  var m = S.mig, html = '';
+  if (m.plans && m.plans.length) {
+    html += '<div class="card"><h2>取り込んだ計画</h2><table class="tbl"><colgroup><col style="width:260px"><col style="width:100px"><col style="width:200px"><col></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>取り込み</th><th></th></tr></thead><tbody>'
+      + m.plans.map(function(p){
+        return '<tr><td>' + esc(p.clientName) + '</td><td>FY' + esc(p.fy) + '</td><td>' + esc((p.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>'
+          + '<button class="btn btn-sm" ' + (S.job ? 'disabled ' : '') + 'onclick="startParity(\'' + esc(p.planId) + '\')">計算の一致を確かめる</button></td></tr>';
+      }).join('') + '</tbody></table><p class="note" style="margin-top:8px">旧ブックをそのまま写したものと、データ本体から組み立てたもので、同じ乱数・同じ時刻で予測を 2 回動かし、計算後の全シートを比べます（3〜5 分ほど。どちらにも書き込みません）。</p></div>';
+  }
+  var r = m.parity;
+  if (r) {
+    var verdict = r.same ? '<span class="chip">完全に一致</span>' : '<span class="chip ng">違いあり（' + r.diff.length + ' シート）</span>';
+    var row = function(label, h){ return '<tr><td>' + label + '</td><td>' + yen(h && h.annual.p10) + '</td><td>' + yen(h && h.annual.p50) + '</td><td>' + yen(h && h.annual.p90) + '</td></tr>'; };
+    var diffs = (r.diff || []).map(function(d){ return esc(d.sheet) + (d.missing ? '（片方にない）' : '（' + d.rowCount + ' 行' + (d.size ? '・大きさ ' + esc(d.size) : '') + (d.formats ? '・表示形式' : '') + '）'); }).join('、');
+    var sec = r.timing ? Math.round((r.timing.a.copyMs + r.timing.a.runMs + r.timing.a.digestMs + r.timing.b.buildMs + r.timing.b.runMs + r.timing.b.compareMs) / 1000) : 0;
+    html += '<div class="card"><h2>計算の一致の確認</h2><div class="row" style="margin-top:0;align-items:center">' + verdict
+      + (r.legacyChangedAfterImport ? '<span class="chip warn">取り込みの後に旧ブックが変わっています（取り込み直してから確かめてください）</span>' : '') + '</div>'
+      + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（シミュレーション予測）</th><th>Downside（P10）</th><th>Baseline（P50）</th><th>Upside（P90）</th></tr></thead><tbody>'
+      + row('旧ブックの写しで実行', r.legacy) + row('データ本体から組み立てて実行', r.store)
+      + row('<span class="note">参考: 旧ブックで前回に実行した結果</span>', r.previous) + '</tbody></table>'
+      + (diffs ? '<p class="note" style="margin-top:8px;color:var(--error)">違いのあったシート: ' + diffs + '</p>' : '')
+      + '<p class="note" style="margin-top:8px">上の 2 行は同じ乱数・同じ時刻（' + esc(String(r.asOf || '').replace('T', ' ').slice(0, 16)) + '）で動かした結果です。前回の結果は乱数と実行日が違うので、少し違って正常です'
+      + (r.previous && r.legacy ? '（P50 の差 ' + pct(r.legacy.annual.p50, r.previous.annual.p50) + '）' : '') + '。かかった時間: ' + sec + ' 秒。</p></div>';
+  }
+  return html;
+}
+function startParity(planId){ S.mig.parity = null; startJob('FORECAST.PARITY', { planId: planId }); render(); }
 function migDry(){
   S.mig.url = $('mig_url').value; S.mig.dry = null; S.mig.result = null;
   startJob('MIGRATION.DRYRUN', { bookUrl: S.mig.url });

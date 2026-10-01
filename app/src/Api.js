@@ -72,6 +72,11 @@ function apiRunBackup() {
   return api_('BACKUP.RUN', { minRole: 'ADMIN', entityType: 'SYSTEM', after: res => res }, ctx => appBackup_(ctx));
 }
 
+/** 計画の一覧（取り込み・計算の一致の確認の対象） */
+function apiListPlans() {
+  return api_('PLANS.LIST', { minRole: 'ADMIN', audit: false }, () => ({ plans: appListPlans_() }));
+}
+
 /** 時間のかかる処理を始める（裏で動かす。種類ごとに権限が違う: 旧ブックの試し読み・取り込みは所有者だけ） */
 function apiStartJob(input) {
   return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJob_(ctx, input));

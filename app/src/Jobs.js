@@ -13,7 +13,9 @@ const APP_JOB_KEEP_MS = 24 * 3600 * 1000;
 function appJobSpec_(kind) {
   const specs = {
     'MIGRATION.DRYRUN': { ownerOnly: true, label: '旧ブックの試し読み' },
-    'MIGRATION.IMPORT': { ownerOnly: true, label: '旧ブックの取り込み' }
+    'MIGRATION.IMPORT': { ownerOnly: true, label: '旧ブックの取り込み' },
+    'FORECAST.PARITY': { ownerOnly: true, label: '計算の一致の確認' },
+    'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true }   // 続きの処理（画面からは始めない）
   };
   const s = specs[String(kind || '')];
   if (!s) throw new Error('未定義の処理です: ' + kind);
@@ -23,6 +25,7 @@ function appJobSpec_(kind) {
 /** apiStartJob の権限（種類ごと） */
 function appJobStartOpts_(input) {
   const spec = appJobSpec_(input && input.kind);
+  if (spec.internal) throw new Error('この処理は画面から始められません: ' + input.kind);
   return spec.ownerOnly ? { ownerOnly: true, audit: false, detail: { kind: input.kind } } : { minRole: spec.minRole || 'ADMIN', audit: false, detail: { kind: input.kind } };
 }
 
@@ -38,6 +41,14 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'MIGRATION.IMPORT', { entityType: 'PLAN', detail: { book: p.bookUrl, contentHash: p.contentHash, jobId: job.id },
         after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
         () => appMigrationImport_(ctx, p));
+    case 'FORECAST.PARITY':
+      return appAudited_(ctx, 'FORECAST.PARITY.A', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
+        after: res => ({ next: res.__next.kind, seed: res.__next.payload.seed, legacyAnnual: res.__next.payload.legacy && res.__next.payload.legacy.annual,
+          timing: res.__next.payload.timingA }) }, () => appParityA_(ctx, p, job));
+    case 'FORECAST.PARITY_B':
+      return appAudited_(ctx, 'FORECAST.PARITY.B', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id, parentJobId: p.parentJobId },
+        after: res => ({ same: res.same, diffSheets: res.diff.length, seed: res.seed, asOf: res.asOf, storeAnnual: res.store && res.store.annual,
+          legacyAnnual: res.legacy && res.legacy.annual, timing: res.timing }) }, () => appParityB_(ctx, p));
     default:
       throw new Error('未定義の処理です: ' + job.kind);
   }
@@ -118,14 +129,20 @@ function appStartJob_(ctx, input) {
     appCleanupJobs_();
     const busy = appJobList_().filter(j => j.status === 'QUEUED' || (j.status === 'RUNNING' && !appJobIsStale_(j)));
     if (busy.length) throw new Error('ほかの処理（' + appJobSpec_(busy[0].kind).label + '）が終わるまでお待ちください。');
-    const job = { id: appId_('JOB'), kind: kind, payload: (input && input.payload) || {}, status: 'QUEUED', requestedBy: ctx.actor,
-      createdAt: new Date().toISOString(), startedAt: '', finishedAt: '', error: '', attempts: 0 };
-    if (JSON.stringify(job).length > 8000) throw new Error('処理に渡す内容が大きすぎます。');
-    const trigger = ScriptApp.newTrigger('triggerRunJob').timeBased().after(1000).create();
-    job.triggerUid = String(trigger.getUniqueId());
-    appJobSave_(job);
+    const job = appEnqueueJob_(kind, (input && input.payload) || {}, ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
+}
+
+/** 処理を待ち行列に入れ、1 回だけ動くトリガーを作る（ロックの中で呼ぶ） */
+function appEnqueueJob_(kind, payload, requestedBy, parentId) {
+  const job = { id: appId_('JOB'), kind: kind, payload: payload || {}, status: 'QUEUED', requestedBy: requestedBy, parentId: parentId || '',
+    createdAt: new Date().toISOString(), startedAt: '', finishedAt: '', error: '', attempts: 0, nextJobId: '' };
+  if (JSON.stringify(job).length > 8000) throw new Error('処理に渡す内容が大きすぎます。');
+  const trigger = ScriptApp.newTrigger('triggerRunJob').timeBased().after(1000).create();
+  job.triggerUid = String(trigger.getUniqueId());
+  appJobSave_(job);
+  return job;
 }
 
 function appJobIsStale_(job) {
@@ -167,13 +184,22 @@ function appRunJob_(id) {
   const t0 = new Date().getTime();
   let status = 'DONE';
   let error = '';
+  let nextJobId = '';
   try {
     APP_STORE_CACHE_ = {};
     const ctx = appJobContext_(job);
     const spec = appJobSpec_(job.kind);
     const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, spec.minRole || 'ADMIN');
     if (!allowed) throw new Error('この操作をする権限がありません。');
-    appJobPutResult_(id, appSerialize_(appJobExecute_(ctx, job)));
+    const res = appJobExecute_(ctx, job);
+    if (res && res.__next) {
+      // 続きの処理: 次の処理を待ち行列に入れ、この処理の結果は「続きあり」にする
+      const next = appWithLock_(() => appEnqueueJob_(res.__next.kind, res.__next.payload, job.requestedBy, job.id));
+      nextJobId = next.id;
+      appJobPutResult_(id, { continued: true, nextJobId: next.id, nextKind: next.kind });
+    } else {
+      appJobPutResult_(id, appSerialize_(res));
+    }
   } catch (err) {
     status = 'FAILED';
     error = String(err && err.message ? err.message : err).slice(0, 1000);
@@ -182,6 +208,7 @@ function appRunJob_(id) {
   const done = appJobGet_(id) || job;
   done.status = status;
   done.error = error;
+  done.nextJobId = nextJobId;
   done.finishedAt = new Date().toISOString();
   appJobSave_(done);
   appRunLog_({ requestId: id, kind: 'JOB:' + job.kind, startedAt: job.startedAt, durationMs: new Date().getTime() - t0, status: status,
@@ -202,6 +229,11 @@ function appJobStatus_(ctx, id) {
   } else if (appJobIsStale_(job)) {
     out.status = 'STALLED';
     out.error = '処理が時間内に終わりませんでした（1 回の実行は 6 分まで）。';
+  } else if (job.status === 'DONE' && job.nextJobId) {
+    const next = appJobGet_(job.nextJobId);
+    out.status = 'CONTINUED';
+    out.nextJobId = job.nextJobId;
+    out.nextKind = next ? next.kind : '';
   } else if (job.status === 'DONE') {
     const r = appJobGetResult_(job.id);
     if (r.found) out.result = r.value; else { out.status = 'LOST'; out.error = '結果の保存期間が過ぎました。もう一度始めてください。'; }

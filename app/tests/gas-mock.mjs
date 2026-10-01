@@ -127,6 +127,14 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
     deleteColumns: (start, n) => { assert.ok(start + n - 1 <= maxCols); [rows, fmls, fmts].forEach((a) => a.forEach((row) => row && row.splice(start - 1, n))); maxCols -= n; },
     setFrozenRows: () => {},
     clear: () => { rows.length = 0; fmls.length = 0; fmts.length = 0; return sh; },
+    /** 別のスプレッドシートへ写す（本物と同じく「（名前）のコピー」という名前で足す） */
+    copyTo(dest) {
+      const c = dest.insertSheet(sh.name + ' のコピー', { rows: maxRows, cols: maxCols, strict: dest.strict });
+      rows.forEach((r, i) => { if (r) c.rows[i] = r.slice(); });
+      fmls.forEach((r, i) => { if (r) c.fmls[i] = r.slice(); });
+      fmts.forEach((r, i) => { if (r) c.fmts[i] = r.slice(); });
+      return c;
+    },
     /** テスト用: 変換なしでそのまま中身を置く（旧ブックの今の状態を作る） */
     load({ values = [], formats = {}, formulas = {} } = {}) {
       values.forEach((row, r) => row.forEach((v, c) => put(rows, r, c, v)));
@@ -229,6 +237,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     const f = { kind: 'file', id, name, mime: SHEETS_MIME, parent, trashed: false, created: new Date(state.clock += 60000) };
     Object.assign(f, {
       getId: () => f.id, getName: () => f.name, setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed,
+      getLastUpdated: () => f.updated || f.created,
       setTrashed: (b) => { f.trashed = !!b; return f; },
       moveTo: (folder) => { f.parent = folder.getId(); return f; },
       makeCopy: (n, folder) => {
@@ -248,7 +257,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   }
   const env = {
     Logger: { log: (m) => logs.push(String(m)) },
-    Session: { getActiveUser: () => ({ getEmail: () => state.active }), getEffectiveUser: () => ({ getEmail: () => state.owner }) },
+    Session: { getActiveUser: () => ({ getEmail: () => state.active }), getEffectiveUser: () => ({ getEmail: () => state.owner }), getScriptTimeZone: () => 'Asia/Tokyo' },
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k) => (k in props ? props[k] : null),
@@ -340,6 +349,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   const makeBook = (name, sheets) => {
     const ss = makeSpreadsheet(newId('BOOK'), name);
     sheetsById[ss.id] = ss;
+    makeFile(ss.id, name, 'ROOT');
     ss.sheets.splice(0, ss.sheets.length);
     Object.entries(sheets).forEach(([n, spec]) => {
       const s = makeSheet(n, { rows: spec.rows || 1000, cols: spec.cols || 26 });
@@ -360,11 +370,16 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       });
     } finally { state.active = prev; }
   };
-  /** 処理を始めて、トリガーで動かし、結果を受け取る */
+  /** 処理を始めて、トリガーで動かし、結果を受け取る（続きの処理があればそれも動かす） */
   const runJob = (kind, payload, opts) => {
-    const started = call('apiStartJob(__in)', { __in: { kind, payload } });
-    fireTriggers('triggerRunJob', opts);
-    return call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
+    let id = call('apiStartJob(__in)', { __in: { kind, payload } }).jobId;
+    for (let i = 0; i < 5; i++) {
+      fireTriggers('triggerRunJob', opts);
+      const st = call('apiJobStatus(__in)', { __in: { jobId: id } });
+      if (st.status !== 'CONTINUED') return st;
+      id = st.nextJobId;
+    }
+    throw new Error('続きの処理が終わらない');
   };
   return {
     ctx, state, props, cache, files, sheetsById, triggers, logs, run, call, as, data, log, makeBook, fireTriggers, runJob,

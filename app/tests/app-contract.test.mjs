@@ -21,7 +21,9 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'apiStartJob', 'apiJobStatus', 'triggerDailyBackup', 'triggerRunJob'];
+  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'triggerDailyBackup', 'triggerRunJob'];
+/** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */
+const WRAPPED = ['LegacyEngine.js'];
 
 const TODAY = jstDay(0);
 const YESTERDAY = jstDay(-1);
@@ -35,6 +37,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.deepEqual(srcNames.filter((n) => n.endsWith('.html')), ['UI.html']);
   const declared = [];
   for (const [file, src] of Object.entries(sources)) {
+    if (WRAPPED.includes(file)) { declared.push({ file, name: 'appLegacyEngine_' }); continue; }
     for (const m of src.matchAll(/^(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/gm)) declared.push({ file, name: m[1] });
     assert.doesNotMatch(src, /^(?:var|let|const)\s+[A-Za-z0-9_$]+\s*=\s*(?:async\b|function\b|\([^)]*\)\s*=>|[A-Za-z0-9_$]+\s*=>)/m,
       `${file}: トップレベルで関数を変数に入れない（入口が増える）`);
@@ -55,7 +58,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.match(extractFunction(sources['Api.js'], 'doGet'), /api_\('APP\.OPEN', \{ minRole: 'VIEWER', audit: false, allowAnonymousView: true \}/);
   // 業務のコードは SpreadsheetApp を Store / Audit / Setup の外で触らない
   for (const [file, src] of Object.entries(sources)) {
-    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js', 'Engine.js', 'Migrate.js'].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
+    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js', 'Engine.js', 'Migrate.js', 'Parity.js', ...WRAPPED].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
   }
 }
 
