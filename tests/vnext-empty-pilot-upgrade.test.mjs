@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = await readFile(path.join(root, 'VNext_Admin.js'), 'utf8');
+const naming = await readFile(path.join(root, '0_VNext_Naming.js'), 'utf8');
 
 checkStaticSafetyContract();
 checkPartialHubMetaAppendRecovery();
@@ -104,6 +105,7 @@ function repairSandbox(input) {
     Utilities: { getUuid: () => 'uuid' }
   };
   vm.createContext(sandbox);
+  vm.runInContext(naming, sandbox, { filename: '0_VNext_Naming.js' });
   vm.runInContext(source, sandbox, { filename: 'VNext_Admin.js' });
   sandbox.vNextAdminReadCoreRows_ = (store, sheetName) => {
     assert.equal(sheetName, 'BOOK_META');

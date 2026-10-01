@@ -39,7 +39,10 @@ async function checkHtmlScripts() {
     for (const name of names) {
       const source = await readFile(path.join(dir, name), 'utf8');
       for (const match of source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)) {
-        new vm.Script(match[1], { filename: path.join(path.basename(dir), name) });
+        // HtmlService templates (e.g. Forecast_WebAppUI.html) embed server scriptlets in client JS;
+        // stand in a literal for printing scriptlets and drop the rest so the client code is still checked.
+        const script = match[1].replace(/<\?(!?=)?[\s\S]*?\?>/g, (_, printing) => printing ? 'null' : '');
+        new vm.Script(script, { filename: path.join(path.basename(dir), name) });
       }
     }
   }
