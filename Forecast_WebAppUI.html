@@ -59,10 +59,19 @@ input,select,textarea{font-family:inherit;font-size:15px}
 .card .sub{font-size:13px;color:var(--muted);margin-bottom:14px}
 .card .sub:empty{display:none}
 .rowcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:20px}
-.actcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;height:176px}
-.actcard .ttl{font-size:15px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px}
-.actcard .desc{font-size:13px;color:var(--muted);margin:8px 0 10px;flex:1}
-.actcard .foot{display:flex;align-items:center;gap:10px}
+.rowcards.cols4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1280px){.rowcards.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.rowcards.cols4{grid-template-columns:1fr}}
+.actcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;height:196px}
+.actcard .ac-top{display:flex;align-items:center;gap:8px}
+.actcard .ac-ttl{font-size:15px;font-weight:700;color:var(--navy);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actcard .ac-top .chip{flex:none}
+.actcard .desc{font-size:13px;color:var(--muted);margin:10px 0 12px;flex:1;line-height:1.55}
+.actcard .foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.actcard .ac-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.actcard .ac-err{font-size:12.5px;color:var(--error);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tblscroll{max-height:460px;overflow-y:auto}
+.tblscroll thead th{position:sticky;top:0;z-index:2}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-btn);min-width:120px;padding:0 22px;border-radius:var(--radius-s);font-size:15px;font-weight:700;transition:background .15s,transform .05s;white-space:nowrap}
 .btn:active{transform:scale(.98)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -252,7 +261,17 @@ function fmtPct(v,d){ if(v==null||!isFinite(v))return '—'; return (v*100).toFi
 function fmtScore(v){ if(v==null||!isFinite(v))return '—'; return (v>0?'+':'')+Number(v).toFixed(1); }
 function stepOk(k){ var s=stepOf(k); return s&&s.status==='success'; }
 function stepOf(k){ for(var i=0;i<B.steps.length;i++)if(B.steps[i].key===k)return B.steps[i]; return null; }
-function chipFor(st){ if(st==='success')return '<span class="chip chip-ok">完了</span>'; if(st==='error')return '<span class="chip chip-err">エラー</span>'; if(st==='running')return '<span class="chip chip-warn">実行中</span>'; return '<span class="chip chip-todo">未実行</span>'; }
+function chipFor(st){ if(st==='success')return '<span class="chip chip-ok">完了</span>'; if(st==='error')return '<span class="chip chip-err">エラー</span>'; if(st==='running')return '<span class="chip chip-warn">実行中</span>'; if(st==='warning')return '<span class="chip chip-warn">要確認</span>'; return '<span class="chip chip-todo">未実行</span>'; }
+var FN_LABELS={
+  runPhase1Forecast:'予測実行（A-9）',runMonthlyAutoLearn:'自動学習（B-5）',runMonthlyAutoLearn_:'自動学習（B-5）',
+  updatePhase1EvaluationReport:'検証レポート（B-2）',importActualEvalMonthly:'検証実績取込（B-1）',
+  updatePhase1Dashboard:'ダッシュボード（B-3）',updatePhase1LearningInsights:'学習インサイト（B-4）',
+  runQuarterlyReview:'四半期レビュー（C-1）',openQuarterlyReviewLog:'レビューログ確認',applyQuarterlyProposals:'提案適用（C-3）',
+  runVertexAIResearch:'AI調査（A-4）',runVertexForecastAssist_:'Vertexアシスト',
+  writeReliabilityEvidence_:'信頼度エビデンス記録',importSalesInputMonthly:'売上データ取込（A-2）',
+  aggregateSalesData:'売上データ加工（A-3）',webRunAggregate:'売上データ加工（A-3）'
+};
+function fnLabel(fn){ var k=String(fn||''); return FN_LABELS[k]||FN_LABELS[k.replace(/_+$/,'')]||k; }
 function ym2label(v){ var m=B.months.filter(function(x){return x.value===v;}); return m.length?m[0].label:v; }
 
 /* ================= RPC ================= */
@@ -313,13 +332,13 @@ var NAV = [
   {id:'quarterly',label:'四半期',     icon:'<rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'}
 ];
 // ビューごとのエラードット対象ステップ
-var NAV_ERR_STEPS = { prep:['step1_status','step3_status','step3a_status'], forecast:['step4_status'], eval:['step2_status','step5_status','step6_status','step7_status','learn_status'], quarterly:['quarterly_review_status'] };
+var NAV_ERR_STEPS = { prep:['step1_status','step1a_status','step3_status','step3a_status'], forecast:['step4_status'], eval:['step2_status','step5_status','step6_status','step7_status','learn_status'], quarterly:['quarterly_review_status'] };
 function renderNav(){
   var html='';
   NAV.forEach(function(n){
     var mark = '';
     var errKeys = NAV_ERR_STEPS[n.id] || [];
-    if(errKeys.some(function(k){ var s=stepOf(k); return s && s.status==='error'; })) mark='<span class="dot err"></span>';
+    if(errKeys.some(function(k){ var s=stepOf(k); return s && (s.status==='error'||s.status==='warning'); })) mark='<span class="dot err"></span>';
     html+='<button class="navbtn'+(state.view===n.id?' on':'')+'"'+(state.view===n.id?' aria-current="page"':'')+' data-v="'+n.id+'"><svg viewBox="0 0 24 24">'+n.icon+'</svg>'+n.label+mark+'</button>';
   });
   document.getElementById('sidenav').innerHTML=html;
@@ -366,7 +385,7 @@ function renderHome(){
     +'<thead><tr><th>メニュー</th><th>処理</th><th>状態</th><th class="num">件数</th><th>実行者</th><th>要因 / メモ</th></tr></thead><tbody>';
   B.steps.forEach(function(s){
     var memo = s.status==='error' ? s.error : (s.status==='success' ? s.date : '');
-    html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(s.menu)+'</td><td>'+esc(s.label)+'</td><td>'+chipFor(s.status)+'</td><td class="num">'+(s.count||'—')+'</td><td>'+esc((s.by||'').split('@')[0])+'</td><td class="locked">'+esc(memo)+'</td></tr>';
+    html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(s.menu)+'</td><td>'+esc(s.label)+'</td><td>'+chipFor(s.status)+'</td><td class="num">'+(s.count?fmtN(s.count):'—')+'</td><td>'+esc((s.by||'').split('@')[0]||'—')+'</td><td class="locked">'+esc(memo)+'</td></tr>';
   });
   html+='</tbody></table></div></div>';
 
@@ -375,7 +394,7 @@ function renderHome(){
     +'<thead><tr><th>日時</th><th>実行者</th><th>処理</th><th>状態</th><th class="num">件数</th></tr></thead><tbody>';
   if(!B.runLog.length) html+='<tr><td colspan="5" class="locked">実行履歴はまだありません</td></tr>';
   B.runLog.forEach(function(r){
-    html+='<tr><td>'+esc(r.at)+'</td><td>'+esc(r.by)+'</td><td>'+esc(r.fn)+'</td><td>'+chipFor(r.status==='success'?'success':(r.status==='error'?'error':r.status))+'</td><td class="num">'+(r.count||'—')+'</td></tr>';
+    html+='<tr><td>'+esc(r.at)+'</td><td>'+esc(r.by)+'</td><td>'+esc(fnLabel(r.fn))+'</td><td>'+chipFor(r.status==='success'?'success':(r.status==='error'?'error':r.status))+'</td><td class="num">'+(r.count?fmtN(r.count):'—')+'</td></tr>';
   });
   html+='</tbody></table></div></div>';
   return html;
@@ -409,7 +428,7 @@ function renderPrep(){
 
   html+='<div class="rowcards">'
     + actCard('A-2', '売上データ取り込み', '外部の実績集計シートから当クライアント分を取り込み、入力シートをFY向けに整えます。', 'step1_status', 'btn_import', '取り込み実行')
-    + actCard('A-3', '売上データ加工', '取り込んだ明細を FY の月次系列（SALES_MONTHLY）に集計します。A-2 完了後に実行。', null, 'btn_agg', '加工を実行')
+    + actCard('A-3', '売上データ加工', '取り込んだ明細を FY の月次系列（SALES_MONTHLY）に集計します。A-2 完了後に実行。', 'step1a_status', 'btn_agg', '加工を実行')
     + actCard('A-4', 'AI調査', 'Vertex AI で市場・競合・チャネル・DX の外部環境を調査し、スコアに反映します（数分かかります）。', 'step3_status', 'btn_ai', 'AI調査を実行')
     +'</div>';
 
@@ -425,11 +444,16 @@ function fyOptions(){
   for(var y=cur-2;y<=cur+3;y++) out+='<option value="'+y+'"'+(y===cur?' selected':'')+'>FY'+y+'</option>';
   return out;
 }
-function actCard(menu, ttl, desc, stepKey, btnId, btnLabel){
+function actCard(menu, ttl, desc, stepKey, btnId, btnLabel, btnDisabled){
+  // 全カード統一構造: 上段=[メニューbadge+タイトル … 状態チップ] / 中段=説明 / 下段=[ボタン … メタ]
   var st = stepKey ? stepOf(stepKey) : null;
-  var stHtml = st ? chipFor(st.status) : '';
-  var extra = st && st.status==='success' ? '<span class="note">'+esc(st.date)+' / '+st.count+'件</span>' : (st && st.status==='error' ? '<span class="note" style="color:var(--error)">'+esc(st.error)+'</span>' : '');
-  return '<div class="actcard"><div class="ttl"><span class="chip chip-navy">'+menu+'</span>'+esc(ttl)+'</div><div class="desc">'+esc(desc)+'</div><div class="foot"><button class="btn btn-primary" id="'+btnId+'">'+esc(btnLabel)+'</button>'+stHtml+extra+'</div></div>';
+  var chip = chipFor(st ? st.status : 'not_run');
+  var meta = '';
+  if(st && st.status==='success') meta='<span class="ac-meta">最終 '+esc(st.date)+'・'+fmtN(st.count||0)+'件</span>';
+  else if(st && st.status==='error') meta='<span class="ac-err" title="'+esc(st.error||'')+'">'+esc(st.error||'エラー')+'</span>';
+  return '<div class="actcard"><div class="ac-top"><span class="chip chip-navy">'+menu+'</span><span class="ac-ttl">'+esc(ttl)+'</span>'+chip+'</div>'
+    +'<div class="desc">'+esc(desc)+'</div>'
+    +'<div class="foot"><button class="btn btn-primary" id="'+btnId+'"'+(btnDisabled?' disabled':'')+'>'+esc(btnLabel)+'</button>'+meta+'</div></div>';
 }
 
 /* ---------- input ---------- */
@@ -541,7 +565,7 @@ function renderForecast(){
   html+='<div class="card"><div style="display:flex;align-items:center;gap:14px">'
     +'<button class="btn btn-navy" id="btn_runfc"'+(stepOk('step1_status')?'':' disabled')+'>予測を実行（A-9）</button>'
     + chipFor(s4?s4.status:'not_run')
-    +'<span class="note">'+((s4&&s4.status==='success')?('最終: '+s4.date+' / '+s4.count+'ヶ月'):'A-2 取り込み後に実行できます')+'</span></div></div>';
+    +'<span class="ac-meta">'+((s4&&s4.status==='success')?('最終 '+esc(s4.date)+'・'+fmtN(s4.count)+'ヶ月'):'A-2 取り込み後に実行できます')+'</span></div></div>';
 
   var O=B.output;
   if(!O || !O.sections || !O.sections.length){ html+='<div class="card">'+emptyBox('予測はまだありません','A-9 を実行すると、年間見通しと月次予測がここに表示されます。','',null)+'</div>'; return html; }
@@ -657,7 +681,7 @@ function kpi(lbl,val){ return '<div class="kpi"><div class="lbl">'+esc(lbl)+'</d
 function renderEval(){
   var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト → B-5 自動学習');
   html+='<div class="errstrip" id="err_eval"></div>';
-  html+='<div class="rowcards">'
+  html+='<div class="rowcards cols4">'
     + actCard('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
     + actCard('B-2','検証レポート更新','予測と実績を突合し、月次の誤差・内訳を更新します。','step5_status','btn_b2','レポート更新')
     + actCard('B-3','ダッシュボード更新','年間制約・半期 WAPE・過大率の判定を集計します。','step6_status','btn_b3','集計を実行')
@@ -669,12 +693,12 @@ function renderEval(){
   var mbKeys2=Object.keys(mb).map(Number).sort(function(a,b){return a-b;});
   var mbText=mbKeys2.length?mbKeys2.map(function(m){var b=mb[m];return m+'月 '+(b>0?'+':'')+(b*100).toFixed(1)+'%';}).join('　'):'なし';
   var vtx=L.vertex||{};
-  var vtxText=!vtx.enabled?'無効（CONFIG: VERTEX_FORECAST_ENABLED=0）':(vtx.hasLog?('取得済 '+esc(vtx.at)+' / confidence '+(vtx.confidence||0).toFixed(2)):'有効・未取得（A-4 または右のボタンで生成）');
+  var vtxText=!vtx.enabled?'無効（設定で有効化できます）':(vtx.hasLog?('取得済 '+esc(vtx.at)+' / confidence '+(vtx.confidence||0).toFixed(2)):'有効・未取得（A-4 または右のボタンで生成）');
   var sLearn=stepOf('learn_status');
   html+='<div class="card"><h2>自動学習（B-5：ベイズ補正 + Vertexハイブリッド）</h2>'
     +'<div class="sub">中立シナリオの予実誤差から全体補正係数と暦月別バイアスをベイズ更新します。B-2 実行後にも自動で走り、次回 A-9 予測へ反映されます。</div>'
     +'<div class="tblwrap"><table class="tbl" style="min-width:660px"><colgroup><col style="width:220px"><col><col style="width:230px"></colgroup><tbody>'
-    +'<tr><td>全体補正係数</td><td class="num">×'+(L.biasFactor||1).toFixed(4)+'</td><td class="locked">'+(L.autoUpdate?'自動更新 ON':'自動更新 OFF（CALIBRATION_STATE）')+'</td></tr>'
+    +'<tr><td>全体補正係数</td><td class="num">×'+(L.biasFactor||1).toFixed(3)+'</td><td class="locked">'+(L.autoUpdate?'自動更新 ON':'自動更新 OFF（CALIBRATION_STATE）')+'</td></tr>'
     +'<tr><td>暦月別バイアス</td><td>'+mbText+'</td><td class="locked">'+(mbKeys2.length?('学習済み '+mbKeys2.length+' 暦月'):'—')+'</td></tr>'
     +'<tr><td>Vertexアシスト</td><td>'+vtxText+'</td><td class="locked">weight '+(L.vertexWeight||0.5).toFixed(2)+' × 信頼度 '+(L.vertexReliability||1).toFixed(2)+'</td></tr>'
     +'<tr><td>ソース信頼度の学習</td><td>'+((L.reliabilityNonDefault||0)>0?L.reliabilityNonDefault+'件のソースに重み適用中':'デフォルト（全ソース×1.0）')+'</td><td class="locked">'+(L.lastAppliedQuarter?('四半期適用 '+esc(L.lastAppliedQuarter)):'C-2 未適用')+'</td></tr>'
@@ -714,11 +738,22 @@ function renderEval(){
   }
 
   if(B.eval.compare.length){
-    html+='<div class="card"><h2>月次 予実比較</h2><div class="tblwrap"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
-    B.eval.compare.forEach(function(c){
-      html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
-    });
-    html+='</tbody></table></div></div>';
+    // 予測のある月だけを比較対象にし、予測未生成の過去月は実績のみとして件数表示に畳む
+    var evRows=B.eval.compare, withFc=[], noFc=[];
+    evRows.forEach(function(c){ ((c.p50!=null)||(c.forecastTotal!=null)?withFc:noFc).push(c); });
+    html+='<div class="card"><h2>月次の予実比較</h2>';
+    if(withFc.length){
+      html+='<div class="sub">実績と予測P50の誤差率（APE）。帯の外に出た月は注意色です。</div>'
+        +'<canvas id="apechart" style="width:100%;height:190px;display:block"></canvas>'
+        +'<div class="legend"><span><i style="background:var(--primary)"></i>誤差率</span><span><i style="background:var(--warn-fg)"></i>P10〜P90外</span><span><i style="background:#8a94a6"></i>30% 基準線</span></div>'
+        +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
+      withFc.forEach(function(c){
+        html+='<tr><td style="font-weight:700;color:var(--navy)">'+esc(c.month)+'</td><td class="num">'+fmtN(c.p50!=null?c.p50:c.forecastTotal)+'</td><td class="num">'+fmtN(c.actualTotal)+'</td><td class="num"'+(c.gap<0?' style="color:var(--error)"':'')+'>'+fmtN(c.gap)+'</td><td class="num">'+fmtPct(c.ape)+'</td><td>'+(c.rangeOutside?'<span class="chip chip-warn">P10-90外</span>':'')+'</td><td class="locked">'+esc(c.half||c.quarter)+'</td></tr>';
+      });
+      html+='</tbody></table></div>';
+    }
+    if(noFc.length) html+='<div class="note"'+(withFc.length?' style="margin-top:10px"':'')+'>予測未生成の '+noFc.length+' か月（'+esc(noFc[0].month)+'〜'+esc(noFc[noFc.length-1].month)+'）は実績のみのため省略しています。</div>';
+    html+='</div>';
   }
 
   if(B.eval.insights.length){
@@ -751,11 +786,9 @@ function insightStatusOpts(cur){ return ['','open','in_progress','done'].map(fun
 function renderQuarterly(){
   var html=viewTitle('四半期レビュー', 'C-1 提案生成 → 承認入力 → C-3 適用');
   html+='<div class="errstrip" id="err_q"></div>';
-  var q=stepOf('quarterly_review_status');
-  html+='<div class="rowcards"><div class="actcard"><div class="ttl"><span class="chip chip-navy">C-1</span>レビュー提案の生成</div>'
-    +'<div class="desc">直近で確定した四半期の予実を分析し、モデル調整の提案を生成します（3か月分の実績確定が必要）。</div>'
-    +'<div class="foot"><button class="btn btn-primary" id="btn_c1"'+(stepOk('step4_status')?'':' disabled')+'>提案を生成</button>'+chipFor(q?q.status:'not_run')
-    +(q&&q.status==='success'?'<span class="note">'+esc(q.date)+' / '+q.count+'件</span>':'')+'</div></div></div>';
+  html+='<div class="rowcards">'
+    +actCard('C-1','レビュー提案の生成','直近で確定した四半期の予実を分析し、モデル調整の提案を生成します（3か月分の実績確定が必要）。','quarterly_review_status','btn_c1','提案を生成',!stepOk('step4_status'))
+    +'</div>';
 
   var Q=B.quarterly;
   if(Q.applied) html+='<div class="warnbox">このレビューは適用済みです。新しい提案を作るには C-1 を再実行してください。</div>';
@@ -787,6 +820,38 @@ function renderQuarterly(){
 }
 
 /* ================= chart ================= */
+function drawApeChart(){
+  var cv=document.getElementById('apechart'); if(!cv)return;
+  var rows=(B.eval.compare||[]).filter(function(c){return (c.p50!=null)||(c.forecastTotal!=null);});
+  if(!rows.length)return;
+  var W=cv.clientWidth||1100, H=190, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  var ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  var padL=52, padR=12, padT=14, padB=30;
+  var max=0.35; rows.forEach(function(c){ var a=c.ape||0; if(a>max)max=a; });
+  max*=1.15;
+  var X=function(i){ return padL+(W-padL-padR)*(i+0.5)/rows.length; };
+  var bw=Math.max(8,Math.min(44,(W-padL-padR)/rows.length*0.56));
+  var Y=function(v){ return padT+(H-padT-padB)*(1-v/max); };
+  // グリッド + Y軸ラベル
+  ctx.font='12px sans-serif'; ctx.lineWidth=1; ctx.strokeStyle='#EAF0F6'; ctx.fillStyle='#5A6B7E';
+  for(var g=0;g<=4;g++){ var yv=max*g/4, y=Y(yv); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.textAlign='right'; ctx.fillText(Math.round(yv*100)+'%', padL-8, y+4); }
+  // 30% 基準線
+  ctx.setLineDash([5,4]); ctx.strokeStyle='#8a94a6'; ctx.beginPath();
+  var y30=Y(0.30); ctx.moveTo(padL,y30); ctx.lineTo(W-padR,y30); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='11px sans-serif';
+  ctx.fillText('30%', W-padR-16, y30-4);
+  // バー
+  rows.forEach(function(c,i){
+    var a=Math.max(0.004, c.ape||0), x=X(i)-bw/2, y=Y(a);
+    ctx.fillStyle=c.rangeOutside?'#A65C00':'#00A0E9';
+    ctx.fillRect(x, y, bw, (H-padB)-y);
+    ctx.fillStyle='#5A6B7E'; ctx.textAlign='center'; ctx.font='12px sans-serif';
+    ctx.fillText(String(c.month).replace(/^20/,''), X(i), H-padB+16);
+  });
+}
+
 function drawChart(anim){
   var cv=document.getElementById('chart'); if(!cv||!B.output)return;
   var p=B.output.sections[0];
@@ -937,6 +1002,7 @@ function bindView(){
     if($('btn_b5')) $('btn_b5').onclick=function(e){ rpc('webRunMonthlyLearn',[],{btn:e.target,onOk:function(r){ var res=r&&r.result; if(res&&res.ready)showToast('自動学習を更新しました: 係数 ×'+res.prevFactor.toFixed(3)+' → ×'+res.factor.toFixed(3)+'（暦月 '+Object.keys(res.monthBias||{}).length+'件）'); else showToast(res&&res.skipped==='auto_update_disabled'?'自動更新が無効です（CALIBRATION_STATE auto_update_enabled=0）':'中立シナリオの評価月が不足しています');}}); };
     if($('btn_vassist')) $('btn_vassist').onclick=function(e){ rpc('webRunVertexAssist',[],{btn:e.target,onOk:function(r){ var a=r&&r.result; showToast('Vertexアシストを取得しました（confidence '+((a&&a.confidence)||0).toFixed(2)+'）。次回 A-9 で反映されます。');}}); };
     if($('btn_backtest')) $('btn_backtest').onclick=function(e){ rpc('webRunLearningBacktest',[],{btn:e.target,onOk:function(r){ state.backtest=(r&&r.result)||null;}}); };
+    drawApeChart();
     if($('btn_saveinsights')) $('btn_saveinsights').onclick=function(e){
       var rows=Object.keys(state.insightDirty).map(function(r){
         var d=state.insightDirty[r];
@@ -1019,7 +1085,7 @@ function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textConte
   var rzT=null;
   window.addEventListener('resize',function(){
     clearTimeout(rzT);
-    rzT=setTimeout(function(){ if(state.view==='forecast') drawChart(); },160);
+    rzT=setTimeout(function(){ if(state.view==='forecast') drawChart(); if(state.view==='eval') drawApeChart(); },160);
   });
   render();
 })();

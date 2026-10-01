@@ -6758,7 +6758,7 @@ function applyValueTypeAlignment_(sh, startRow, numRows, numCols) {
 
 function initializeProcessStatus_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
-  const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status','learn_status'];
+  const keys = ['step1_status','step1a_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status','learn_status'];
   const rows = keys.map(k => [k,'','', 'not_run','','','']);
   sh.getRange(2,1,rows.length,7).setValues(rows);
 }
@@ -6806,6 +6806,7 @@ function aggregateSalesData() {
     }
 
     ss.setActiveSheet(sales);
+    updateProcessStatus_('step1a_status', nonZeroCount === 0 ? 'warning' : 'success', client, nonZeroCount, nonZeroCount === 0 ? '集計結果がすべて0です' : '');
 
     if (nonZeroCount === 0) {
       SpreadsheetApp.getUi().alert(
@@ -6822,6 +6823,7 @@ function aggregateSalesData() {
       );
     }
   } catch (e) {
+    try { updateProcessStatus_('step1a_status', 'error', '', 0, String(e && e.message || e)); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
     SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }

@@ -98,6 +98,7 @@ function webFyMonths_(fy) {
 function webParseSteps_(ss) {
   const defs = [
     ['step1_status', 'A-2', '売上データ取り込み'],
+    ['step1a_status', 'A-3', '売上データ加工'],
     ['step2_status', 'B-1', '検証実績取り込み'],
     ['step3_status', 'A-4', 'AI調査'],
     ['step3a_status', 'A-4', 'AI調査詳細'],
@@ -486,9 +487,15 @@ function webRunAggregate() {
   const client = normalizeClientName_(String(cfgSh.getRange('B2').getValue() || '').trim());
   if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
   const fy = Number(cfgSh.getRange('B3').getValue()) || getDefaultFY_();
-  const count = syncSalesFromSalesInput_(fy, client);
-  hideNonUserSheets_();
-  return { count: count, boot: webGetBootstrap_() };
+  try {
+    const count = syncSalesFromSalesInput_(fy, client);
+    hideNonUserSheets_();
+    try { updateProcessStatus_('step1a_status', 'success', client, count, ''); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
+    return { count: count, boot: webGetBootstrap_() };
+  } catch (e) {
+    try { updateProcessStatus_('step1a_status', 'error', client, 0, String(e && e.message || e)); } catch (e2) { /* 同上 */ }
+    throw e;
+  }
 }
 
 /** A-4 相当：Vertex AI 調査（長時間・数分）。 */
