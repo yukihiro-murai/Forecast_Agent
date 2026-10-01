@@ -5,7 +5,7 @@
 | 項目 | 値 |
 |---|---|
 | プロジェクト | 「売上予測アプリ」（`app/.clasp.json`、rootDir `src`） |
-| 公開 | 版 @2（2026-10-01、段階2-1 旧ブックの取り込み v0.2.0。@1 は段階1 の土台）。実行は所有者、公開範囲は**所有者のみ**（`MYSELF`） |
+| 公開 | 版 @3（2026-10-01、v0.2.1: 時間のかかる処理を裏で動かす。@2 は旧ブックの取り込み、@1 は段階1 の土台）。実行は所有者、公開範囲は**所有者のみ**（`MYSELF`） |
 | 公開 URL | `https://script.google.com/a/macros/bigm2y.com/s/AKfycbyOjx4LkD0RPzGC4-Lx9eCMVxFJHPSVJHhMjUnq12jmoBEp-4yEKzZhxE-5prwUcd6dig/exec` |
 | データを持つアカウント | 村井さん（2026-10-01 決定。システム用アカウントは作らない） |
 
