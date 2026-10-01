@@ -80,6 +80,7 @@ function appTableSheet_(name, create) {
   if (!sh) {
     if (!create) throw new Error('表がありません（' + name + '）。管理者が「初期設定」を実行してください。');
     sh = ss.insertSheet(name);
+    appFitColumns_(sh, def.columns.length);
     sh.getRange(1, 1, 1, def.columns.length).setNumberFormat('@').setValues([def.columns]);
     sh.setFrozenRows(1);
     return sh;
@@ -89,11 +90,30 @@ function appTableSheet_(name, create) {
   return sh;
 }
 
+/** シートの列数をちょうど n にする（足りなければ足し、余りは消してセルの上限を節約する） */
+function appFitColumns_(sh, n) {
+  const max = sh.getMaxColumns();
+  if (max < n) sh.insertColumnsAfter(max, n - max);
+  else if (max > n) sh.deleteColumns(n + 1, max - n);
+}
+
+/** 行を 2 行目から書く（大きいときは分けて書く）。足りない行は足す */
+function appWriteBody_(sh, rows, width) {
+  if (!rows.length) return;
+  const need = rows.length + 1;
+  if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
+  const CHUNK = 5000;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const part = rows.slice(i, i + CHUNK);
+    sh.getRange(2 + i, 1, part.length, width).setNumberFormat('@').setValues(part);
+  }
+}
+
 function appRowToObject_(def, r) {
   const o = {};
   def.columns.forEach((c, j) => {
     const v = r[j] === null || r[j] === undefined ? '' : String(r[j]);
-    const t = appColumnType_(c);
+    const t = appColumnType_(c, def);
     o[c] = t === 'bool' ? v === 'TRUE' : t === 'int' ? (v === '' ? 0 : Number(v)) : v;
   });
   return o;
@@ -102,7 +122,7 @@ function appRowToObject_(def, r) {
 function appObjectToRow_(def, o) {
   return def.columns.map(c => {
     const v = o[c];
-    const t = appColumnType_(c);
+    const t = appColumnType_(c, def);
     if (v === undefined || v === null) return t === 'bool' ? 'FALSE' : t === 'int' ? '0' : '';
     if (t === 'bool') return v ? 'TRUE' : 'FALSE';
     if (t === 'json' && typeof v !== 'string') return appJson_(v);
@@ -140,6 +160,30 @@ function appInsertRows_(name, objs) {
   if (start + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), Math.max(1000, rows.length));
   sh.getRange(start, 1, rows.length, def.columns.length).setNumberFormat('@').setValues(rows);
   return objs;
+}
+
+/**
+ * 表の中身を入れ替える。keep(row) が true の行は残し、その後ろに objs を足す（計画 1 つ分の入れ替えなどに使う）。
+ * 新しい中身を先に書いてから、余った古い行を消す。返り値は { removed, kept, added }
+ */
+function appReplaceRows_(name, keep, objs) {
+  const def = APP_TABLES[name];
+  const sh = appTableSheet_(name, false);
+  const cur = appReadTable_(name);
+  const kept = cur.filter(keep).map(appStripRow_);
+  const all = kept.concat(objs);
+  const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
+  const seen = {};
+  all.forEach(o => {
+    const k = keyOf(o);
+    if (seen[k]) throw new Error('同じキーの行があります（' + name + '）。');
+    seen[k] = true;
+  });
+  const oldLast = sh.getLastRow();
+  appWriteBody_(sh, all.map(o => appObjectToRow_(def, o)), def.columns.length);
+  const newLast = all.length + 1;
+  if (oldLast > newLast) sh.getRange(newLast + 1, 1, oldLast - newLast, def.columns.length).clearContent();
+  return { removed: cur.length - kept.length, kept: kept.length, added: objs.length };
 }
 
 function appStripRow_(o) {

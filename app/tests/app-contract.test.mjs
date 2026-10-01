@@ -8,233 +8,24 @@
  */
 
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
-import { fileURLToPath } from 'node:url';
+import {
+  appDir, srcDir, repoRoot, srcNames, sources, uiHtml, OWNER, MEMBER, OTHER, OUTSIDER,
+  sha, J, fmtDate, jstDay, FY, MONTH, extractFunction, makeEnv, setUpEnv,
+} from './gas-mock.mjs';
 
-const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const srcDir = path.join(appDir, 'src');
-const repoRoot = path.resolve(appDir, '..');
-const srcNames = (await readdir(srcDir)).sort();
-const jsFiles = srcNames.filter((n) => n.endsWith('.js'));
-const sources = Object.fromEntries(await Promise.all(jsFiles.map(async (n) => [n, await readFile(path.join(srcDir, n), 'utf8')])));
-const uiHtml = await readFile(path.join(srcDir, 'UI.html'), 'utf8');
 const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'), 'utf8'));
-
-const OWNER = 'owner@bigm2y.com';
-const MEMBER = 'member@bigm2y.com';
-const OTHER = 'other@bigm2y.com';
-const OUTSIDER = 'someone@gmail.com';
-const SHEETS_MIME = 'application/vnd.google-apps.spreadsheet';
 
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'triggerDailyBackup'];
+  'apiMigrationInspect', 'apiMigrationImport', 'triggerDailyBackup'];
 
-const sha = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
-const J = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
-function extractFunction(src, name) {
-  const start = src.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} not found`);
-  let depth = 0;
-  for (let p = src.indexOf('{', start); p < src.length; p++) {
-    if (src[p] === '{') depth++;
-    else if (src[p] === '}' && --depth === 0) return src.slice(start, p + 1);
-  }
-  throw new Error(`${name} not closed`);
-}
-/** Utilities.formatDate の代わり（Asia/Tokyo 固定。使う書式だけ） */
-function fmtDate(d, tz, fmt) {
-  assert.equal(tz, 'Asia/Tokyo');
-  const t = new Date(d.getTime() + 9 * 3600e3);
-  const p = (n) => String(n).padStart(2, '0');
-  const map = { yyyy: String(t.getUTCFullYear()), MM: p(t.getUTCMonth() + 1), dd: p(t.getUTCDate()), HH: p(t.getUTCHours()),
-    mm: p(t.getUTCMinutes()), ss: p(t.getUTCSeconds()), Z: '+0900' };
-  let out = '';
-  for (let i = 0; i < fmt.length;) {
-    if (fmt[i] === "'") { const j = fmt.indexOf("'", i + 1); out += fmt.slice(i + 1, j); i = j + 1; continue; }
-    const tok = ['yyyy', 'MM', 'dd', 'HH', 'mm', 'ss', 'Z'].find((k) => fmt.startsWith(k, i));
-    if (tok) { out += map[tok]; i += tok.length; } else { out += fmt[i++]; }
-  }
-  return out;
-}
-const jstDay = (offsetDays) => fmtDate(new Date(Date.now() + offsetDays * 86400e3), 'Asia/Tokyo', 'yyyy-MM-dd');
 const TODAY = jstDay(0);
 const YESTERDAY = jstDay(-1);
 const TOMORROW = jstDay(1);
-const FY = (() => { const d = new Date(); return 'FY' + (d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear()); })();
-const MONTH = fmtDate(new Date(), 'Asia/Tokyo', 'yyyy_MM');
-
-// ---- GAS のモック ----
-function makeSheet(name) {
-  const rows = [];
-  let maxRows = 1000;
-  const sh = {
-    rows, name, failWrites: false,
-    getName: () => name,
-    getLastRow: () => rows.length,
-    getMaxRows: () => maxRows,
-    insertRowsAfter: (_, n) => { maxRows += n; },
-    setFrozenRows: () => {},
-    getRange(r, c, nr = 1, nc = 1) {
-      const range = {
-        setNumberFormat: (f) => { assert.equal(f, '@', 'セルは書式なしテキストで書く'); return range; },
-        setValues(vals) {
-          if (sh.failWrites) throw new Error('write failed');
-          if (r + vals.length - 1 > maxRows) throw new Error('out of grid');
-          vals.forEach((v, i) => {
-            assert.equal(v.length, nc);
-            v.forEach((x) => assert.equal(typeof x, 'string', 'すべて文字列で書く'));
-            const row = rows[r - 1 + i] || [];
-            v.forEach((x, j) => { row[c - 1 + j] = x; });
-            rows[r - 1 + i] = row;
-          });
-          return range;
-        },
-        getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => (rows[r - 1 + i] || [])[c - 1 + j] ?? '')),
-      };
-      return range;
-    },
-  };
-  return sh;
-}
-function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) {
-  const state = { active, owner, locks: 0, lockHeld: false, uuid: 0, clock: Date.now() - 1e9, seq: 0 };
-  const props = {};
-  const files = {};
-  const sheetsById = {};
-  const triggers = [];
-  const logs = [];
-  const newId = (p) => p + '-' + (++state.seq);
-  const iter = (arr) => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
-  function makeSpreadsheet(id, name) {
-    const sheets = [makeSheet('シート1')];
-    const ss = {
-      id, name, sheets,
-      getId: () => id, getName: () => name, getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id,
-      getSheetByName: (n) => sheets.find((s) => s.name === n) || null,
-      getSheets: () => sheets.slice(),
-      insertSheet(n) { assert.ok(!sheets.some((s) => s.name === n), 'シート名の重複'); const s = makeSheet(n); sheets.push(s); return s; },
-      deleteSheet(s) { if (sheets.length === 1) throw new Error('最後のシートは消せない'); sheets.splice(sheets.indexOf(s), 1); },
-    };
-    sheetsById[id] = ss;
-    return ss;
-  }
-  function makeFolder(name, parent) {
-    const f = { kind: 'folder', id: newId('FOLDER'), name, parent, trashed: false };
-    Object.assign(f, {
-      getId: () => f.id, getName: () => f.name, getUrl: () => 'https://drive.google.com/drive/folders/' + f.id,
-      createFolder: (n) => makeFolder(n, f.id),
-      // 本物と同じく、ゴミ箱のファイルも一覧に出す
-      getFilesByType: (mime) => iter(Object.values(files).filter((x) => x.kind === 'file' && x.parent === f.id && x.mime === mime)),
-    });
-    files[f.id] = f;
-    return f;
-  }
-  function makeFile(id, name, parent) {
-    const f = { kind: 'file', id, name, mime: SHEETS_MIME, parent, trashed: false, created: new Date(state.clock += 60000) };
-    Object.assign(f, {
-      getId: () => f.id, getName: () => f.name, getDateCreated: () => f.created, isTrashed: () => f.trashed,
-      setTrashed: (b) => { f.trashed = !!b; return f; },
-      moveTo: (folder) => { f.parent = folder.getId(); return f; },
-      makeCopy: (n, folder) => {
-        const src = sheetsById[id];
-        const copy = makeSpreadsheet(newId('SS'), n);
-        copy.sheets.splice(0, copy.sheets.length, ...src.sheets.map((s) => { const c = makeSheet(s.name); s.rows.forEach((r) => c.rows.push(r.slice())); return c; }));
-        return makeFile(copy.id, n, folder.getId());
-      },
-    });
-    files[id] = f;
-    return f;
-  }
-  const env = {
-    Logger: { log: (m) => logs.push(String(m)) },
-    Session: { getActiveUser: () => ({ getEmail: () => state.active }), getEffectiveUser: () => ({ getEmail: () => state.owner }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
-    LockService: {
-      getScriptLock: () => ({
-        waitLock() { if (state.lockHeld) throw new Error('ロックを二重に取ろうとした'); state.lockHeld = true; state.locks++; },
-        releaseLock() { state.lockHeld = false; },
-      }),
-    },
-    SpreadsheetApp: {
-      create(name) { const ss = makeSpreadsheet(newId('SS'), name); makeFile(ss.id, name, 'ROOT'); return ss; },
-      openById(id) { if (!sheetsById[id]) throw new Error('not found ' + id); return sheetsById[id]; },
-      flush() {},
-    },
-    DriveApp: {
-      createFolder: (name) => makeFolder(name, 'ROOT'),
-      getFolderById: (id) => { if (!files[id] || files[id].kind !== 'folder') throw new Error('no folder ' + id); return files[id]; },
-      getFileById: (id) => { if (!files[id] || files[id].kind !== 'file') throw new Error('no file ' + id); return files[id]; },
-    },
-    MimeType: { GOOGLE_SHEETS: SHEETS_MIME },
-    ScriptApp: {
-      getProjectTriggers: () => triggers.map((t) => ({ getUniqueId: () => t.uid, getHandlerFunction: () => t.handler })),
-      newTrigger(handler) {
-        const t = { handler, uid: String(9000000000 + triggers.length) };
-        const b = { timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; },
-          create: () => { triggers.push(t); return t; } };
-        return b;
-      },
-    },
-    HtmlService: {
-      createTemplateFromFile(name) {
-        assert.equal(name, 'UI');
-        const t = {
-          evaluate() {
-            const html = uiHtml.replace(/<\?!=\s*(\w+)\s*\?>/g, (_, k) => { if (!(k in t)) throw new Error('template: ' + k); return String(t[k]); });
-            const out = { html, title: '', favicon: '', metas: [] };
-            Object.assign(out, {
-              setTitle: (x) => { out.title = x; return out; },
-              addMetaTag: (n, c) => { out.metas.push([n, c]); return out; },
-              // 本物は画像の拡張子で終わらない URL を受け付けない
-              setFaviconUrl: (u) => { if (!/\.(png|ico|gif|jpe?g)$/i.test(u)) throw new Error('Invalid argument: url'); out.favicon = u; return out; },
-              getContent: () => html,
-            });
-            return out;
-          },
-        };
-        return t;
-      },
-    },
-    Utilities: {
-      getUuid: () => (++state.uuid).toString(16).padStart(8, '0') + '-0000-4000-8000-000000000000',
-      formatDate: fmtDate,
-      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-      computeDigest: (alg, s, cs) => {
-        assert.equal(alg, 'sha256'); assert.equal(cs, 'utf8');
-        return Array.from(createHash('sha256').update(String(s), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b));
-      },
-    },
-  };
-  const ctx = vm.createContext(env);
-  const names = order === 'reverse' ? [...jsFiles].reverse() : jsFiles;
-  for (const n of names) vm.runInContext(sources[n], ctx, { filename: n });
-  const run = (code, extra) => { Object.assign(ctx, extra || {}); return vm.runInContext(code, ctx); };
-  const call = (code, extra) => J(run(code, extra));
-  const as = (email) => { state.active = email; };
-  const data = () => sheetsById[props.APP_DATA_SPREADSHEET_ID];
-  const log = () => sheetsById[JSON.parse(props.APP_LOG_SPREADSHEETS_JSON || '{}')[FY]];
-  const objects = (sh) => (sh ? sh.rows.slice(1).map((r) => Object.fromEntries(sh.rows[0].map((h, j) => [h, r[j] ?? '']))) : []);
-  return {
-    ctx, state, props, files, sheetsById, triggers, logs, run, call, as, data, log,
-    table: (name) => objects(data().getSheetByName(name)),
-    auditSheet: () => log().getSheetByName('AUDIT_' + MONTH),
-    audit: () => objects(log() && log().getSheetByName('AUDIT_' + MONTH)),
-    runLog: () => objects(log() && log().getSheetByName('RUN_' + MONTH)),
-    errors: () => objects(log() && log().getSheetByName('ERROR_' + MONTH)),
-    backups: () => Object.values(files).filter((f) => f.kind === 'file' && f.parent === props.APP_BACKUP_FOLDER_ID),
-  };
-}
-function setUpEnv(opts) {
-  const env = makeEnv(opts);
-  env.as(OWNER);
-  env.call('apiSetup()');
-  return env;
-}
 const tables = makeEnv().run('APP_TABLES');
 const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
 
@@ -264,7 +55,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.match(extractFunction(sources['Api.js'], 'doGet'), /api_\('APP\.OPEN', \{ minRole: 'VIEWER', audit: false, allowAnonymousView: true \}/);
   // 業務のコードは SpreadsheetApp を Store / Audit / Setup の外で触らない
   for (const [file, src] of Object.entries(sources)) {
-    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js', 'Engine.js'].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
+    if (!['Store.js', 'Audit.js', 'Setup.js', 'Backup.js', 'Engine.js', 'Migrate.js'].includes(file)) assert.doesNotMatch(src, /SpreadsheetApp\./, `${file} は保存の層を通す`);
   }
 }
 
@@ -344,7 +135,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const schema = env.table('_SCHEMA');
   assert.equal(schema.length, Object.keys(tables).length);
   for (const s of schema) {
-    assert.equal(s.schema_version, '1');
+    assert.equal(s.schema_version, String(env.run('APP_SCHEMA_VERSION')));
     assert.equal(s.columns_hash, sha(tables[s.table].columns.join('|')));
   }
   assert.deepEqual(env.table('MEMBERS').map((m) => [m.email, m.is_active, m.row_version]), [[OWNER, 'TRUE', '1']]);

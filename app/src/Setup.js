@@ -40,18 +40,7 @@ function appSetup_(ctx) {
     if (!props.getProperty(APP_PROP.internalDomain)) props.setProperty(APP_PROP.internalDomain, ctx.user.owner.split('@')[1] || '');
     // 5) 表と _SCHEMA（無い表だけ作る。列が違う表があれば止まる）
     const ss = appDataSpreadsheet_();
-    const madeTables = [];
-    Object.keys(APP_TABLES).forEach(name => {
-      if (!ss.getSheetByName(name)) madeTables.push(name);
-      appTableSheet_(name, true);
-    });
-    ss.getSheets().forEach(s => {
-      if (!APP_TABLES[s.getName()] && s.getLastRow() === 0 && /^(シート|Sheet)\d+$/.test(s.getName())) ss.deleteSheet(s);
-    });
-    const schemaRows = appReadTable_('_SCHEMA');
-    const missing = Object.keys(APP_TABLES).filter(n => !schemaRows.some(r => r.table === n));
-    appInsertRows_('_SCHEMA', missing.map(n => ({ table: n, schema_version: APP_SCHEMA_VERSION, columns_hash: appColumnsHash_(n),
-      migrated_at: appNowIso_(), migrated_by: ctx.actor })));
+    const madeTables = appEnsureTables_(ctx);
     // 6) 所有者をメンバーに
     if (!appReadTable_('MEMBERS').some(m => m.email === ctx.user.owner)) {
       const now = appNowIso_();
@@ -69,19 +58,47 @@ function appSetup_(ctx) {
   });
 }
 
+/**
+ * 無い表を作り、_SCHEMA に記録する（何度実行しても同じ。列が定義と違う表があれば止まる）。作った表の名前を返す。
+ * 版を上げて表を足したときは、初期設定をもう一度実行するか、表を使う処理（取り込みなど）がこれを呼ぶ。
+ */
+function appEnsureTables_(ctx) {
+  return appWithLock_(() => {
+    const ss = appDataSpreadsheet_();
+    const made = [];
+    Object.keys(APP_TABLES).forEach(name => {
+      if (!ss.getSheetByName(name)) made.push(name);
+      appTableSheet_(name, true);
+    });
+    ss.getSheets().forEach(sh => {
+      if (!APP_TABLES[sh.getName()] && sh.getLastRow() === 0 && /^(シート|Sheet)\d+$/.test(sh.getName())) ss.deleteSheet(sh);
+    });
+    const schemaRows = appReadTable_('_SCHEMA');
+    const missing = Object.keys(APP_TABLES).filter(n => !schemaRows.some(r => r.table === n));
+    appInsertRows_('_SCHEMA', missing.map(n => ({ table: n, schema_version: APP_SCHEMA_VERSION, columns_hash: appColumnsHash_(n),
+      migrated_at: appNowIso_(), migrated_by: ctx.actor })));
+    return made;
+  });
+}
+
 /** 状態の点検（表の列・_SCHEMA・監査の鎖・バックアップ・定期処理）。管理画面の「状態」 */
 function appHealth_() {
   const out = { setUp: appIsSetUp_(), tables: [], audit: null, backup: null, triggers: [], files: {} };
   if (!out.setUp) return out;
   const props = appProps_();
   const schemaRows = (() => { try { return appReadTable_('_SCHEMA'); } catch (e) { return []; } })();
+  const ss = (() => { try { return appDataSpreadsheet_(); } catch (e) { return null; } })();
   Object.keys(APP_TABLES).forEach(name => {
-    const t = { name: name, ok: true, rows: 0, note: '' };
+    const t = { name: name, ok: true, rows: 0, note: '', engine: name.indexOf('ENG_') === 0 };
     try {
-      t.rows = name === '_SCHEMA' ? schemaRows.length : appReadTable_(name).length;
-      const s = schemaRows.filter(r => r.table === name)[0];
-      if (!s) { t.ok = false; t.note = '_SCHEMA に記録なし'; }
-      else if (s.columns_hash !== appColumnsHash_(name)) { t.ok = false; t.note = '列の定義が _SCHEMA と違う（移行が必要）'; }
+      if (ss && !ss.getSheetByName(name)) {
+        t.ok = false; t.missing = true; t.note = '未作成（「初期設定」をもう一度実行すると作られます）';
+      } else {
+        t.rows = name === '_SCHEMA' ? schemaRows.length : appReadTable_(name).length;
+        const s = schemaRows.filter(r => r.table === name)[0];
+        if (!s) { t.ok = false; t.note = '_SCHEMA に記録なし'; }
+        else if (s.columns_hash !== appColumnsHash_(name)) { t.ok = false; t.note = '列の定義が _SCHEMA と違う（移行が必要）'; }
+      }
     } catch (e) { t.ok = false; t.note = String(e && e.message || e); }
     out.tables.push(t);
   });

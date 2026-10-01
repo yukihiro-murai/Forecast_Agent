@@ -74,7 +74,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 <script>
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
-var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false };
+var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false,
+  mig: { url: '', dry: null, result: null } };
 
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function $(id){ return document.getElementById(id); }
@@ -108,12 +109,13 @@ function call(fn, args, ok){
 }
 
 var NAV_ADMIN = [['home','ホーム'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
+var NAV_OWNER = [['migrate','旧ブックから移す']];
 function render(){
   $('hdrUser').innerHTML = B.user && B.user.email ? '<b>' + esc(B.user.email.split('@')[0]) + '</b>' : '';
   $('hdrVer').textContent = B.user && B.user.isAdmin && B.app ? 'v' + B.app.version : '';
-  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN : [['home','ホーム']];
+  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
-  var v = { home: viewHome, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth }[S.view] || viewHome;
+  var v = { home: viewHome, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
   $('main').innerHTML = v();
 }
 function go(v){
@@ -218,15 +220,73 @@ function viewAudit(){
     + '<p class="note" style="margin-top:8px">今月と先月の新しい順に 500 件まで。それより前は、状態の画面の「今年度のログ」で見られます。</p></div>';
 }
 
+function migChip(x){
+  if (x.losslessMismatch) return '<span class="chip ng">保存で変わる ' + x.losslessMismatch + '</span>';
+  if (x.mismatch) return '<span class="chip ng">組み立てで違う ' + x.mismatch + '</span>';
+  var out = '<span class="chip">一致</span>';
+  if (x.repaired) out += '<span class="chip warn">書き方を変えて一致 ' + x.repaired + '</span>';
+  if (x.forcedText) out += '<span class="chip warn">文字列に固定 ' + x.forcedText + '</span>';
+  return out;
+}
+function viewMigrate(){
+  var m = S.mig, d = m.dry;
+  var html = '<h1>旧ブックから移す</h1>'
+    + guide('explain', '旧ブック（クライアント別売上予測）のデータを、このアプリのデータ本体へ写します。まず「試しに読む」で、何も書き込まずに、そのまま写せるかを確かめます。旧ブックは読むだけで、何も変えません。')
+    + '<div class="card"><div class="row" style="margin-top:0"><div class="field"><label>旧ブックの URL</label><input class="inp" id="mig_url" style="width:520px" value="' + esc(m.url) + '" placeholder="https://docs.google.com/spreadsheets/d/..."></div>'
+    + '<button class="btn" onclick="migDry()">試しに読む</button></div><p class="note" style="margin-top:8px">1 分ほどかかります。</p></div>';
+  if (d) {
+    var verdict = !d.lossless ? '<span class="chip ng">このままでは写せません</span>' : (d.faithful ? '<span class="chip">そのまま写せます</span>' : '<span class="chip warn">写せます（組み立てに注意が必要なセルあり）</span>');
+    var rows = d.sheets.map(function(x){
+      return '<tr><td>' + esc(x.sheet) + '</td><td>' + x.rows + '</td><td>' + (x.mode === 'table' ? '表' : '行ごと') + (x.warnings.length ? '<div class="note">' + esc(x.warnings.join(' / ')) + '</div>' : '') + '</td><td>' + migChip(x) + (x.samples && x.samples.length ? '<div class="note">' + esc(x.samples.join(', ')) + '</div>' : '') + '</td></tr>';
+    }).join('');
+    html += '<div class="card"><h2>試しに読んだ結果</h2><div class="row" style="margin-top:0;align-items:center">'
+      + '<span class="chip">' + esc(d.client) + '</span><span class="chip">FY' + esc(d.fy) + '</span><span class="chip">担当者 ' + d.peopleCount + ' 人</span>' + verdict + '</div>'
+      + (d.existingPlan ? '<p class="note" style="margin-top:8px">前に取り込んだ計画があります（' + esc((d.existingPlan.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '）。' + (d.existingPlan.unchanged ? '内容は前回と同じです。' : '取り込むと、この計画の中身を入れ替えます。') + '</p>' : '')
+      + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + (d.missing.length ? '<p class="note" style="margin-top:8px">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
+      + (d.notMigrated.length || d.unknown.length ? '<p class="note">移さないシート（計算で使わない）: ' + esc(d.notMigrated.concat(d.unknown).join('、')) + '</p>' : '')
+      + '<div class="row"><button class="btn" ' + (d.lossless ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
+  }
+  if (m.result) {
+    var r = m.result;
+    var total = r.written ? Object.keys(r.written).reduce(function(a, k){ return a + r.written[k]; }, 0) : 0;
+    var verifyHtml = r.unchanged ? '' : (r.verified ? '<p><span class="chip">読み戻して旧ブックと一致</span></p>'
+      : '<p><span class="chip ng">読み戻すと旧ブックと違うシートがあります</span></p><p class="note">' + esc((r.verify || []).map(function(x){ return x.sheet + '（' + x.mismatch + '）'; }).join('、')) + '</p>');
+    html += '<div class="card"><h2>取り込みの結果</h2>' + (r.unchanged ? '<p>前回と同じ内容なので、書き込みませんでした。</p>' : '<p>データ本体に ' + total + ' 行を書きました。</p>') + verifyHtml + '</div>';
+  }
+  return html;
+}
+function migDry(){
+  S.mig.url = $('mig_url').value; S.mig.dry = null; S.mig.result = null;
+  call('apiMigrationInspect', [{ bookUrl: S.mig.url }], function(r){ S.mig.dry = r; });
+}
+function migImport(){
+  var d = S.mig.dry;
+  if (!d || !confirm(d.client + ' FY' + d.fy + ' のデータを取り込みますか？')) return;
+  call('apiMigrationImport', [{ bookUrl: S.mig.url, contentHash: d.contentHash }], function(r){ S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); });
+}
+
 function viewHealth(){
   var h = S.health;
   if (!h) return '<h1>状態</h1><div class="card note">点検中…</div>';
-  var t = (h.tables || []).map(function(x){ return '<tr><td>' + esc(x.name) + '</td><td>' + x.rows + '</td><td>' + (x.ok ? '<span class="chip">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(x.note)) + '</td></tr>'; }).join('');
+  var row = function(name, rows, ok, note){ return '<tr><td>' + esc(name) + '</td><td>' + rows + '</td><td>' + (ok ? '<span class="chip">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(note)) + '</td></tr>'; };
+  var core = (h.tables || []).filter(function(x){ return !x.engine; });
+  var eng = (h.tables || []).filter(function(x){ return x.engine; });
+  var t = core.map(function(x){ return row(x.name, x.rows, x.ok, x.note); }).join('');
+  if (eng.length) {
+    var engBad = eng.filter(function(x){ return !x.ok; });
+    var engMissing = engBad.filter(function(x){ return x.missing; }).length;
+    var engRows = eng.reduce(function(a, x){ return a + (x.rows || 0); }, 0);
+    t += row('計算用の表（' + eng.length + '）', engRows, !engBad.length,
+      engMissing === engBad.length ? engMissing + ' 個が未作成' : engBad.map(function(x){ return x.name + '：' + x.note; }).join(' / '));
+  }
+  var missingAny = (h.tables || []).some(function(x){ return x.missing; });
   var a = h.audit || {};
   var b = h.backup || {};
   var f = h.files || {};
   return '<h1>状態</h1>'
-    + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table></div>'
+    + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table>'
+    + (missingAny && B.user.isOwner ? '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
     + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
     + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
     + '<div class="row">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')

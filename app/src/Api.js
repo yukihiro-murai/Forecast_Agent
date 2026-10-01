@@ -72,6 +72,20 @@ function apiRunBackup() {
   return api_('BACKUP.RUN', { minRole: 'ADMIN', entityType: 'SYSTEM', after: res => res }, ctx => appBackup_(ctx));
 }
 
+/** 旧ブックを試しに読む（データ本体には書かない。計算用ブックで組み立て直せるかを確かめる）。所有者だけ */
+function apiMigrationInspect(input) {
+  return api_('MIGRATION.DRYRUN', { ownerOnly: true, entityType: 'PLAN', detail: { book: input && input.bookUrl },
+    after: res => ({ client: res.client, fy: res.fy, sheets: res.sheets.length, lossless: res.lossless, faithful: res.faithful, contentHash: res.contentHash }) },
+    ctx => appMigrationDryRun_(ctx, input));
+}
+
+/** 旧ブックを取り込む（試しのときと内容が同じときだけ。計画 1 つ分を入れ替える）。所有者だけ */
+function apiMigrationImport(input) {
+  return api_('MIGRATION.IMPORT', { ownerOnly: true, entityType: 'PLAN', detail: { book: input && input.bookUrl, contentHash: input && input.contentHash },
+    after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
+    ctx => appMigrationImport_(ctx, input));
+}
+
 /**
  * 毎日のバックアップ（時間主導のトリガーから）。トリガーは所有者として動く。
  * トリガーの中では操作者のメールが空になることがあるので、そのときはイベントの triggerUid が

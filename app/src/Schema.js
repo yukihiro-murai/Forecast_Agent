@@ -1,9 +1,10 @@
 /**
  * Schema.js — 表の定義（スキーマ登録）。表の列はここだけで決め、データ本体の 1 行目と一致しなければ書き込まない。
  * 1 表 = 1 シート、1 行目に英字の列名、2 行目から値だけ（数式・タイトル・説明・色は置かない）。
- * 段階1 はマスタと設定の表。予測・予算・評価などの表は段階2・3 で足す（版を上げ、移行の手順で作る）。
+ * 段階1 はマスタと設定の表。段階2 で計画（PLANS）・取り込みの記録（IMPORT_BATCHES）と、旧来の計算が使う表（ENG_*）を足した。
+ * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  */
-const APP_SCHEMA_VERSION = 1;
+const APP_SCHEMA_VERSION = 2;
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -29,8 +30,83 @@ const APP_TABLES = {
     // 設定は上書きせず、変更のたびに 1 行足す（effective_from が今日以前で最も新しい行が今の値）
     key: ['setting_id'],
     columns: ['setting_id', 'key', 'value', 'scope', 'scope_id', 'effective_from', 'note', 'created_at', 'created_by']
+  },
+  PLANS: {
+    // 計画 = クライアント × 年度。旧ブック 1 冊が 1 つの計画になる（source_book_id）
+    key: ['plan_id'],
+    columns: ['plan_id', 'client_id', 'fy', 'client_label', 'people_csv', 'source_book_id', 'locale', 'time_zone', 'state', 'note',
+      'created_at', 'created_by', 'updated_at', 'updated_by', 'row_version']
+  },
+  IMPORT_BATCHES: {
+    // 取り込み 1 回（追記のみ）。content_hash が前回と同じなら書き込まない
+    key: ['batch_id'],
+    columns: ['batch_id', 'plan_id', 'source_type', 'source_id', 'content_hash', 'summary_json', 'status', 'started_at', 'finished_at', 'actor_email']
+  },
+  ENG_SHEETS: {
+    // 計画ごとの旧来のシート 1 枚の情報（形・大きさ・内容のハッシュ）
+    key: ['plan_id', 'sheet'], raw: true,
+    columns: ['plan_id', 'sheet', 'mode', 'max_rows', 'max_columns', 'last_row', 'last_column', 'fmt_columns', 'content_hash',
+      'import_batch_id', 'updated_at', 'updated_by']
+  },
+  ENG_ROWS: {
+    // 表の形でないシートの行と、表の外にあるセル（cells_json = セルごとに「型 1 文字 + 値」）
+    key: ['plan_id', 'sheet', 'row_no', 'col_from'], raw: true,
+    columns: ['plan_id', 'sheet', 'row_no', 'col_from', 'cells_json']
+  },
+  ENG_FORMATS: {
+    // 列ごとの表示形式の並び（runs_json = [[始まりの行, 終わりの行, 形式], ...]）。シートの自動変換を旧ブックと同じにするため
+    key: ['plan_id', 'sheet', 'col'], raw: true,
+    columns: ['plan_id', 'sheet', 'col', 'runs_json']
   }
 };
+
+/**
+ * 旧来の計算（Forecast_Agent.js）が読み書きするシート（段階2で移す）。並びは旧ブックのシートの並び。
+ * table = 1 行目が見出しの表（見出しは Forecast_Agent.js の定義と同じ。app/tests が原文と照合する）→ 表 ENG_シート名 に 1 行 = 1 件で持つ。
+ * rows  = 表の形でないシート（CONFIG・OUTPUT・四半期レビューの画面など）→ ENG_ROWS に行ごとに持つ。
+ * 計算で読まないシート（GUIDE・ハブ用・未使用・AI の生データとその記録）は移さない（旧ブックに残る）。
+ */
+const APP_ENGINE_SHEETS = {
+  CONFIG: { mode: 'rows' },
+  SALES_INPUT: { mode: 'table', header: ['client', 'service_type', 'product', 'target_month', 'input_amount', 'status', 'source_updated_at'] },
+  SALES_MONTHLY: { mode: 'rows' },
+  PRODUCT: { mode: 'table', header: ['Person', 'ProductName', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Reason'] },
+  CLIENT: { mode: 'table', header: ['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Reason'] },
+  OPINIONS: { mode: 'table', header: ['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Confidence(0..1)', 'Note'] },
+  DEV_SPOT: { mode: 'table', header: ['Person', 'Month(yyyy/mm/dd)', 'Project', 'Amount(JPY)', 'Confidence(0..1)'] },
+  OUTPUT: { mode: 'rows' },
+  ACTUAL_EVAL_MONTHLY: { mode: 'table', header: ['client', 'service_type', 'product', 'target_month', 'eval_actual_amount', 'actual_closed_flag', 'source_updated_at'] },
+  AI_RESEARCH: { mode: 'rows' },
+  AI_RESEARCH_STRUCTURED: { mode: 'table', header: ['client', 'as_of_date', 'topic', 'row_type', 'direction', 'impact_score', 'confidence', 'evidence', 'time_horizon', 'business_relevance_reason', 'market_size_ref', 'peer_universe', 'peer_basis', 'relative_position_label', 'relative_percentile', 'relative_confidence', 'benchmark_quality', 'relative_reason', 'report_text', 'event_score', 'benchmark_score', 'blended_score'] },
+  RUN_LOG: { mode: 'table', header: ['run_id', 'run_at', 'run_by', 'function_name', 'client', 'status', 'count', 'model_version', 'parameters_snapshot_json', 'input_data_hash', 'execution_duration_sec', 'error_summary'] },
+  FORECAST_SNAPSHOT: { mode: 'table', header: ['snapshot_id', 'run_date', 'client', 'target_month', 'scenario', 'base_pred', 'subjective_adj', 'ai_adj', 'deterministic_adj', 'final_pred', 'confidence_interval_lower', 'confidence_interval_upper', 'key_factors_json', 'subjective_input_date', 'calibration_applied_json'] },
+  EVAL_LOG: { mode: 'table', header: ['eval_id', 'evaluated_at', 'client', 'target_month', 'scenario', 'pred', 'actual', 'ape', 'was_overridden', 'error_category', 'forecast_role', 'is_planning_point_estimate', 'signed_error', 'abs_error', 'bias_direction', 'range_contains_actual', 'quarter_label', 'half_label', 'fy_label', 'model_version', 'evaluation_policy_version', 'constraint_relevant_flag'] },
+  EVAL_COMPARE_MONTHLY: { mode: 'table', header: ['target_month', 'forecast_base', 'forecast_spot', 'forecast_total', 'actual_base', 'actual_spot', 'actual_total', 'gap_total', 'forecast_total_p10', 'forecast_total_p50', 'forecast_total_p90', 'signed_error_p50', 'abs_error_p50', 'ape_p50', 'quarter_label', 'half_label', 'fy_label', 'over_flag', 'under_flag', 'range_outside_flag', 'note_for_investigation', 'planning_point_estimate_label', 'range_label'] },
+  EVAL_INSIGHTS: { mode: 'table', header: ['evaluated_at', 'client', 'target_month', 'actual_total', 'pred_p50', 'diff', 'error_rate', 'insight', 'next_action', 'diagnostic_type', 'annual_constraint_breach', 'half_constraint_breach', 'overforecast_breach', 'range_breach', 'cause_hypothesis', 'cause_bucket', 'impacted_assumption', 'feedback_target_sheet', 'action_type', 'next_cycle_reflection', 'owner', 'due_date', 'status', 'review_cycle'] },
+  PROCESS_STATUS: { mode: 'table', header: ['step_key', 'last_run_date', 'last_run_by', 'status', 'target_client', 'record_count', 'error_summary'] },
+  DASHBOARD: { mode: 'table', header: ['metric', 'value', 'note'] },
+  AI_SCORE_HISTORY: { mode: 'table', header: ['run_id', 'run_at', 'client', 'topic', 'blended_score', 'quality_score', 'degraded_mode', 'neutralized', 'coverage_event_rows', 'coverage_benchmark_rows', 'latest_as_of_date'] },
+  AI_IMPACT_HISTORY: { mode: 'table', header: ['run_id', 'run_at', 'client', 'target_month', 'k_ai', 'ai_total_score', 'ai_direction', 'pred_p50', 'pred_p50_quant_only', 'ai_neutralized', 'disabled_topics_count', 'forecast_source'] },
+  SUBJECTIVE_IMPACT_HISTORY: { mode: 'table', header: ['run_id', 'run_at', 'client', 'target_month', 'source_type', 'source_key', 'push_step', 'push_direction', 'applied_reliability_r', 'source_updated_at', 'forecast_source'] },
+  CALIBRATION_STATE: { mode: 'table', header: ['client', 'updated_at', 'updated_by', 'ai_weight_override', 'ai_max_abs_effect_override', 'ai_topic_disable_json', 'bias_correction_factor', 'qual_scale_override', 'residual_month_bias_json', 'last_applied_quarter', 'last_applied_review_id', 'auto_update_enabled', 'note'] },
+  CALIBRATION_HISTORY: { mode: 'table', header: ['change_id', 'changed_at', 'changed_by', 'client', 'quarter_label', 'review_id', 'factor_name', 'old_value', 'new_value', 'rollback_hint'] },
+  QUARTERLY_REVIEW: { mode: 'rows' },
+  QUARTERLY_REVIEW_LOG: { mode: 'table', header: ['review_id', 'proposal_id', 'reviewed_at', 'client', 'quarter_label', 'quarter_start_month', 'quarter_end_month', 'phase', 'target_field', 'current_value', 'proposed_value', 'confidence', 'rationale', 'impact_estimate', 'rollback_hint', 'approval_status', 'approval_decided_at', 'approval_decided_by', 'applied', 'applied_at', 'diagnostic_metrics_json'] },
+  SOURCE_RELIABILITY: { mode: 'table', header: ['client', 'source_type', 'source_key', 'reliability_r', 'sample_count', 'last_eval_window', 'updated_at', 'updated_by', 'note'] },
+  RELIABILITY_EVIDENCE: { mode: 'table', header: ['client', 'source_type', 'source_key', 'quarter_label', 'quarter_end_month', 'n', 'hit', 'hit_rate', 'computed_at', 'run_id', 'note'] },
+  POOL_PRIOR: { mode: 'table', header: ['pool_scope', 'param_key', 'pooled_value', 'precision', 'n_clients', 'updated_at', 'updated_by', 'note'] },
+  LANDING_FORECAST: { mode: 'table', header: ['client', 'fy', 'target_month', 'as_of_month', 'landing_p10', 'landing_p50', 'landing_p90', 'updated_at', 'source_run_id', 'note'] },
+  VERTEX_FORECAST_LOG: { mode: 'table', header: ['run_id', 'run_at', 'client', 'fy', 'target_months_json', 'monthly_adj_json', 'confidence', 'rationale_ja', 'model', 'status', 'duration_sec', 'usage_json', 'note'] }
+};
+const APP_ENGINE_NOT_MIGRATED = ['GUIDE', 'POOL_REGISTRY', 'POOL_AGGREGATION_LOG', 'DLM_STATE', 'BACKTEST_REPORT', 'AI_RESEARCH_RAW', 'AI_RESEARCH_TASK_LOG'];
+
+// 表の形のシートごとに ENG_ の表を足す（列 = 計画・行番号・旧来の見出し・型の並び）
+Object.keys(APP_ENGINE_SHEETS).forEach(name => {
+  const d = APP_ENGINE_SHEETS[name];
+  if (d.mode !== 'table') return;
+  APP_TABLES['ENG_' + name] = { key: ['plan_id', 'seq'], raw: true, engineSheet: name, columns: ['plan_id', 'seq'].concat(d.header, ['_types']) };
+});
+
 
 /** ログのファイルの月別シート（AUDIT_yyyy_MM など） */
 const APP_LOG_TABLES = {
@@ -41,8 +117,9 @@ const APP_LOG_TABLES = {
   ERROR: ['error_id', 'occurred_at', 'request_id', 'actor_email', 'where', 'message', 'stack_head']
 };
 
-/** 列の型（保存はすべて書式なしテキスト。読むときにここで戻す） */
-function appColumnType_(col) {
+/** 列の型（保存はすべて書式なしテキスト。読むときにここで戻す）。raw の表はすべて文字列のまま */
+function appColumnType_(col, def) {
+  if (def && def.raw) return 'text';
   if (/_json$/.test(col)) return 'json';
   if (col === 'is_active') return 'bool';
   if (col === 'row_version' || col === 'schema_version') return 'int';
