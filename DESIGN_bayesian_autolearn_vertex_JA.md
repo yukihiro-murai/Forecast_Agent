@@ -124,3 +124,26 @@ AIトピックスコア・直近の予測ミス を渡し、JSON
 4. `auto_update_enabled=0` では B-5 は no-op、C-2 の手動経路は残る。
 5. `VERTEX_FORECAST_ENABLED=0` では kVertex=1（無影響）でA-4も失敗しない（skipped）。
 6. 検算カードは評価月不足時に理由を表示し、十分時は補正なし/あり WAPE を並べる。
+
+---
+
+## 6. 実機検証で発見・修正した根本原因（2026-10-01 追記）
+
+学習ループの実経路検証（B-1→B-2→B-5→検算→A-9）で、**EVAL_LOG が永遠に空になる
+事前バグ**を発見し修正した。これは自動学習だけでなく C-1 の信頼度集計や
+EVAL_COMPARE_MONTHLY の月結合をも全て止めていた。
+
+- 原因: FORECAST_SNAPSHOT.target_month へ 'yyyy/MM' 文字列を setValues すると
+  Sheets の自動書式推定で **Date セル化** する列があった。一方 ACTUAL_EVAL_MONTHLY は
+  文字列 'yyyy/MM'。`[client|month]` 結合で `String(Date)` ('Wed Apr 01 2026…')
+  と '2026/04' が一致せず、EVAL 追記・比較表・C-1 last3 フィルタ・
+  LANDING_FORECAST upsert の dedupe が全てミスしていた。
+- 対処: `ymKey_(v)`（Date / 'YYYY/MM' / 'YYYY-MM' / 'YYYY/M' → 'yyyy/MM'）を
+  全結合点（B-2 評価マージ・比較表・B-4・C-1・ランディング dedupe・
+  collectNeutralEvalPairs_）に適用。書き込み側は SNAPSHOT/EVAL_LOG の
+  target_month 列に `@` 書式を setValues 前に設定し新規 Date 化を抑止。
+  `toMonthStart_` は realm 非依存の Date 判定に強化。
+- 効果（実データ @20）: B-2 で EVAL_LOG 蓄積→内部自動学習が発火
+  （n=10, factor 1.00→0.95→0.90 収束中、暦月バイアス 9 ヶ月学習済み）、
+  検算 WAPE 0.612→0.584、A-9 で学習係数が予測へ自動適用され
+  予測画面の「学習パラメータ」カードに表示されることを目視確認。
