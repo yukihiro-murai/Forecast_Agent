@@ -7,6 +7,8 @@
 > **2026-10-01: データ基盤の再設計に移行中（[`DESIGN_data_platform_JA.md`](./DESIGN_data_platform_JA.md)、ユーザー承認済み）。** 段階0として、
 > クライアント年度ブックの新規作成とテンプレートの版の発行は**停止**、旧 Web アプリは所有者のみ、申請入口は社内全員の権限を外す。
 > vNext の新機能追加・新しい版の発行・新しい年度ブックの作成はしない。新しい作業は設計文書の段階に沿って行う。
+> **段階1（2026-10-01〜）: 新アプリ「売上予測アプリ」は `app/`（別の Apps Script プロジェクト、[`app/README.md`](./app/README.md)）。**
+> 反映は `cd app && clasp -P . push -f` → `clasp -P . deploy -i <デプロイ ID>`。公開する関数は `Api.js` の `doGet`・`api*`・`trigger*` だけで、すべて `api_` を通す（`node app/tests/app-contract.test.mjs`）。
 
 ## 最初に行うこと
 
