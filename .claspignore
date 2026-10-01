@@ -8,3 +8,5 @@ client_runtime/**
 portal_runtime/**
 # デザイン素材 (キャラの描画確認ページ・SVG・PNG) は GAS に上げない
 assets/**
+# Claude Code などの作業用ワークツリー (.claude/worktrees/) は GAS に上げない
+.claude/**
