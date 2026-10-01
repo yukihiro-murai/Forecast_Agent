@@ -87,15 +87,55 @@ function toast(msg, err){
   clearTimeout(toastT); toastT = setTimeout(function(){ el.className = 'toast'; }, 3800);
 }
 var busyT = null;
+/** 右下の表示。裏の処理を待っている間はその進み、ほかは通信中（0.6 秒を超えたら）を出す */
 function busy(delta){
   var el = $('busy');
-  if (!el.innerHTML) el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>観測中…<small>処理しています</small></span>';
   S.pending = Math.max(0, S.pending + delta);
   clearTimeout(busyT);
+  if (S.job) {
+    var sec = Math.round((Date.now() - S.job.started) / 1000);
+    el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>' + esc(JOB_LABEL[S.job.kind] || '処理しています') + '…<small>'
+      + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '（' + sec + ' 秒）</small></span>';
+    el.classList.add('on');
+    return;
+  }
+  el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>観測中…<small>処理しています</small></span>';
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1 };
+var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1 };
+
+// ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
+var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます' };
+var JOB_DONE = {
+  'MIGRATION.DRYRUN': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.dry = r; },
+  'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); }
+};
+function startJob(kind, payload){
+  if (S.job) { toast('前の処理が終わるまでお待ちください', true); return; }
+  call('apiStartJob', [{ kind: kind, payload: payload }], function(r){ watchJob({ jobId: r.jobId, kind: kind, payload: payload, status: r.status }); });
+}
+function watchJob(j){
+  S.job = { id: j.jobId, kind: j.kind, payload: j.payload || {}, status: j.status, started: Date.now(), fails: 0 };
+  busy(0);
+  setTimeout(pollJob, 2500);
+}
+function pollJob(){
+  var j = S.job;
+  if (!j) return;
+  var done = function(){ S.job = null; busy(0); };
+  google.script.run.withSuccessHandler(function(st){
+    if (!S.job || S.job.id !== j.id) return;
+    if (st.status === 'DONE') { done(); (JOB_DONE[j.kind] || function(){})(st.result, st.payload || j.payload); render(); return; }
+    if (st.status === 'FAILED' || st.status === 'STALLED' || st.status === 'LOST') { done(); toast(st.error || '処理が止まりました', true); render(); return; }
+    j.status = st.status; j.fails = 0; busy(0); setTimeout(pollJob, 3000);
+  }).withFailureHandler(function(e){
+    if (!S.job || S.job.id !== j.id) return;
+    j.fails++;
+    if (j.fails >= 5) { done(); toast('処理の状態を確かめられません: ' + ((e && e.message) || e), true); return; }
+    setTimeout(pollJob, 5000);   // 一時的な通信の失敗は、少し待って尋ね直す（処理は裏で続いている）
+  }).apiJobStatus({ jobId: j.id });
+}
 /** サーバーの api* を呼ぶ。失敗は通知に出す（入力は消さない） */
 function call(fn, args, ok){
   var write = !READS[fn];
@@ -195,7 +235,8 @@ function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x
 
 var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバーの登録', 'ROLE.GRANT': '役割の付与', 'ROLE.REVOKE': '役割の取り消し',
   'CLIENT.SAVE': 'クライアントの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
-  'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る' };
+  'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る',
+  'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行' };
 var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
@@ -212,7 +253,8 @@ function viewAudit(){
   }).map(function(a){
     var st = auditStep(a);
     var target = a.entity_type ? (ENTITY_LABELS[a.entity_type] || a.entity_type) + (a.entity_id ? '：' + a.entity_id : '') : '';
-    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(ACTION_LABELS[a.action] || a.action) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target) + '">' + esc(target) + '</td></tr>';
+    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(ACTION_LABELS[a.action] || a.action) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target + (a.error ? '\n' + a.error : '')) + '">' + esc(target)
+      + (a.error ? '<div class="note" style="color:var(--error);white-space:normal">' + esc(a.error.slice(0, 160)) + '</div>' : '') + '</td></tr>';
   }).join('');
   if (!S.audit) return '<h1>操作の記録</h1><div class="card note">読み込み中…</div>';
   return '<h1>操作の記録</h1><div class="card"><div class="row" style="margin-top:0"><div class="field"><label>絞り込み（人・操作・対象）</label><input class="inp" id="a_q" value="' + esc(S.auditQ) + '"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>'
@@ -233,7 +275,7 @@ function viewMigrate(){
   var html = '<h1>旧ブックから移す</h1>'
     + guide('explain', '旧ブック（クライアント別売上予測）のデータを、このアプリのデータ本体へ写します。まず「試しに読む」で、何も書き込まずに、そのまま写せるかを確かめます。旧ブックは読むだけで、何も変えません。')
     + '<div class="card"><div class="row" style="margin-top:0"><div class="field"><label>旧ブックの URL</label><input class="inp" id="mig_url" style="width:520px" value="' + esc(m.url) + '" placeholder="https://docs.google.com/spreadsheets/d/..."></div>'
-    + '<button class="btn" onclick="migDry()">試しに読む</button></div><p class="note" style="margin-top:8px">1 分ほどかかります。</p></div>';
+    + '<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="migDry()">試しに読む</button></div><p class="note" style="margin-top:8px">裏で動かします。1〜2 分ほどかかります（画面を閉じても続き、開き直すと結果を待ちます）。</p></div>';
   if (d) {
     var verdict = !d.lossless ? '<span class="chip ng">このままでは写せません</span>' : (d.faithful ? '<span class="chip">そのまま写せます</span>' : '<span class="chip warn">写せます（組み立てに注意が必要なセルあり）</span>');
     var rows = d.sheets.map(function(x){
@@ -245,7 +287,8 @@ function viewMigrate(){
       + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
       + (d.missing.length ? '<p class="note" style="margin-top:8px">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
       + (d.notMigrated.length || d.unknown.length ? '<p class="note">移さないシート（計算で使わない）: ' + esc(d.notMigrated.concat(d.unknown).join('、')) + '</p>' : '')
-      + '<div class="row"><button class="btn" ' + (d.lossless ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
+      + (d.timing ? '<p class="note">読むのにかかった時間: ' + Math.round(d.timing.totalMs / 1000) + ' 秒</p>' : '')
+      + '<div class="row"><button class="btn" ' + (d.lossless && !S.job ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
   }
   if (m.result) {
     var r = m.result;
@@ -258,12 +301,13 @@ function viewMigrate(){
 }
 function migDry(){
   S.mig.url = $('mig_url').value; S.mig.dry = null; S.mig.result = null;
-  call('apiMigrationInspect', [{ bookUrl: S.mig.url }], function(r){ S.mig.dry = r; });
+  startJob('MIGRATION.DRYRUN', { bookUrl: S.mig.url });
+  render();
 }
 function migImport(){
   var d = S.mig.dry;
   if (!d || !confirm(d.client + ' FY' + d.fy + ' のデータを取り込みますか？')) return;
-  call('apiMigrationImport', [{ bookUrl: S.mig.url, contentHash: d.contentHash }], function(r){ S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); });
+  startJob('MIGRATION.IMPORT', { bookUrl: S.mig.url, contentHash: d.contentHash });
 }
 
 function viewHealth(){
@@ -295,6 +339,7 @@ function viewHealth(){
 }
 
 render();
+if (B.activeJob) { if (B.activeJob.payload && B.activeJob.payload.bookUrl) S.mig.url = B.activeJob.payload.bookUrl; if (/^MIGRATION\./.test(B.activeJob.kind)) S.view = 'migrate'; render(); watchJob(B.activeJob); }
 </script>
 </body>
 </html>

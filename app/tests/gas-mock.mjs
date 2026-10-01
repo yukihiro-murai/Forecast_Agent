@@ -200,6 +200,7 @@ export function extractFunction(src, name) {
 export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) {
   const state = { active, owner, locks: 0, lockHeld: false, uuid: 0, clock: Date.now() - 1e9, seq: 0 };
   const props = {};
+  const cache = {};
   const files = {};
   const sheetsById = {};
   const triggers = [];
@@ -247,7 +248,26 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   const env = {
     Logger: { log: (m) => logs.push(String(m)) },
     Session: { getActiveUser: () => ({ getEmail: () => state.active }), getEffectiveUser: () => ({ getEmail: () => state.owner }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => (k in props ? props[k] : null),
+        setProperty: (k, v) => {
+          // 本物の上限: 値 1 つ 9KB、全体 500KB
+          assert.ok(String(v).length <= 9 * 1024, 'Script Properties の値は 9KB まで: ' + k);
+          props[k] = String(v);
+          assert.ok(Object.entries(props).reduce((a, [kk, vv]) => a + kk.length + vv.length, 0) <= 500 * 1024, 'Script Properties は全体で 500KB まで');
+        },
+        deleteProperty: (k) => { delete props[k]; },
+        getKeys: () => Object.keys(props),
+      }),
+    },
+    CacheService: {
+      getScriptCache: () => ({
+        put: (k, v, ttl) => { assert.ok(String(v).length <= 100 * 1024, 'CacheService の値は 100KB まで'); assert.ok(ttl <= 21600); cache[k] = String(v); },
+        get: (k) => (k in cache ? cache[k] : null),
+        remove: (k) => { delete cache[k]; },
+      }),
+    },
     LockService: {
       getScriptLock: () => ({
         waitLock() { if (state.lockHeld) throw new Error('ロックを二重に取ろうとした'); state.lockHeld = true; state.locks++; },
@@ -268,11 +288,13 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     ScriptApp: {
       getProjectTriggers: () => triggers.map((t) => ({ getUniqueId: () => t.uid, getHandlerFunction: () => t.handler })),
       newTrigger(handler) {
-        const t = { handler, uid: String(9000000000 + triggers.length) };
+        const t = { handler, uid: String(9000000000 + (++state.seq)) };
         const b = { timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; },
-          create: () => { triggers.push(t); return t; } };
+          after: (ms) => { t.afterMs = ms; return b; },
+          create: () => { assert.ok(triggers.length < 20, 'トリガーは 1 人 1 プロジェクト 20 個まで'); triggers.push(t); return { getUniqueId: () => t.uid, getHandlerFunction: () => t.handler }; } };
         return b;
       },
+      deleteTrigger(t) { const i = triggers.findIndex((x) => x.uid === t.getUniqueId()); if (i >= 0) triggers.splice(i, 1); },
     },
     HtmlService: {
       createTemplateFromFile(name) {
@@ -325,8 +347,26 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     });
     return ss;
   };
+  /** 1 回だけのトリガーを動かす（本物と同じく、トリガーの中では操作者のメールが空のこともある） */
+  const fireTriggers = (handler, { email = '', dropFirst = false } = {}) => {
+    const due = triggers.filter((t) => t.handler === handler && t.afterMs !== undefined);
+    const prev = state.active;
+    state.active = email;
+    try {
+      return due.map((t) => {
+        if (dropFirst) { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); }   // 本物で一覧から先に消えている場合
+        return J(run(`${handler}({ triggerUid: '${t.uid}' })`));
+      });
+    } finally { state.active = prev; }
+  };
+  /** 処理を始めて、トリガーで動かし、結果を受け取る */
+  const runJob = (kind, payload, opts) => {
+    const started = call('apiStartJob(__in)', { __in: { kind, payload } });
+    fireTriggers('triggerRunJob', opts);
+    return call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
+  };
   return {
-    ctx, state, props, files, sheetsById, triggers, logs, run, call, as, data, log, makeBook,
+    ctx, state, props, cache, files, sheetsById, triggers, logs, run, call, as, data, log, makeBook, fireTriggers, runJob,
     table: (name) => objects(data().getSheetByName(name)),
     auditSheet: () => log().getSheetByName('AUDIT_' + MONTH),
     audit: () => objects(log() && log().getSheetByName('AUDIT_' + MONTH)),

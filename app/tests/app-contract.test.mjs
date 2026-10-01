@@ -21,7 +21,7 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'apiMigrationInspect', 'apiMigrationImport', 'triggerDailyBackup'];
+  'apiStartJob', 'apiJobStatus', 'triggerDailyBackup', 'triggerRunJob'];
 
 const TODAY = jstDay(0);
 const YESTERDAY = jstDay(-1);
@@ -89,7 +89,8 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const reads = Object.keys(JSON.parse(/var READS = (\{[^}]*\});/.exec(uiHtml)[1].replace(/(\w+):/g, '"$1":')));
   for (const n of reads) assert.match(extractFunction(sources['Api.js'], n), /audit: false/, `${n} は読むだけ`);
   for (const n of called) {
-    if (!reads.includes(n) && n !== 'apiSetup') assert.doesNotMatch(extractFunction(sources['Api.js'], n), /audit: false/, `${n} は書き込みなので記録する`);
+    // 初期設定は自分で記録し、処理の開始は裏で動く処理そのものが記録する
+    if (!reads.includes(n) && !['apiSetup', 'apiStartJob'].includes(n)) assert.doesNotMatch(extractFunction(sources['Api.js'], n), /audit: false/, `${n} は書き込みなので記録する`);
   }
   // キャラの絵は assets/characters と同じ（cd assets/characters/src && python3 build.py で作り直す）
   const env = makeEnv();

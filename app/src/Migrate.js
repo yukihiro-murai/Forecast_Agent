@@ -54,9 +54,12 @@ function appPlanOfBook_(bookId) {
 }
 
 function appMigrationDryRun_(ctx, input) {
+  const t0 = new Date().getTime();
   const bookId = appParseBookId_(input && input.bookUrl);
   const src = appLegacyRead_(bookId);
+  const t1 = new Date().getTime();
   const encoded = src.snaps.map(snap => appEngEncodeSheet_('PL-DRYRUN', snap));
+  const t2 = new Date().getTime();
   return appWithLock_(() => {
     const scratch = appScratchBook_();
     try { scratch.setSpreadsheetTimeZone(src.timeZone); scratch.setSpreadsheetLocale(src.locale); } catch (e) {
@@ -79,7 +82,9 @@ function appMigrationDryRun_(ctx, input) {
     const plan = appIsSetUp_() ? (() => { try { return appPlanOfBook_(bookId); } catch (e) { return null; } })() : null;
     const lastBatch = plan ? appLastImport_(plan.plan_id) : null;
     const contentHash = appLegacyContentHash_(src, encoded);
+    const t3 = new Date().getTime();
     return {
+      timing: { readMs: t1 - t0, encodeMs: t2 - t1, scratchMs: t3 - t2, totalMs: t3 - t0 },
       book: { title: src.title, locale: src.locale, timeZone: src.timeZone },
       client: src.client, fy: src.fy, peopleCount: src.people.split(',').map(x => x.trim()).filter(Boolean).length,
       sheets: sheets, missing: src.missing, notMigrated: src.notMigrated, unknown: src.unknown,

@@ -72,18 +72,20 @@ function apiRunBackup() {
   return api_('BACKUP.RUN', { minRole: 'ADMIN', entityType: 'SYSTEM', after: res => res }, ctx => appBackup_(ctx));
 }
 
-/** 旧ブックを試しに読む（データ本体には書かない。計算用ブックで組み立て直せるかを確かめる）。所有者だけ */
-function apiMigrationInspect(input) {
-  return api_('MIGRATION.DRYRUN', { ownerOnly: true, entityType: 'PLAN', detail: { book: input && input.bookUrl },
-    after: res => ({ client: res.client, fy: res.fy, sheets: res.sheets.length, lossless: res.lossless, faithful: res.faithful, contentHash: res.contentHash }) },
-    ctx => appMigrationDryRun_(ctx, input));
+/** 時間のかかる処理を始める（裏で動かす。種類ごとに権限が違う: 旧ブックの試し読み・取り込みは所有者だけ） */
+function apiStartJob(input) {
+  return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJob_(ctx, input));
 }
 
-/** 旧ブックを取り込む（試しのときと内容が同じときだけ。計画 1 つ分を入れ替える）。所有者だけ */
-function apiMigrationImport(input) {
-  return api_('MIGRATION.IMPORT', { ownerOnly: true, entityType: 'PLAN', detail: { book: input && input.bookUrl, contentHash: input && input.contentHash },
-    after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
-    ctx => appMigrationImport_(ctx, input));
+/** 処理の状態（終わっていれば結果）。頼んだ人と所有者だけ */
+function apiJobStatus(input) {
+  return api_('JOB.STATUS', { minRole: 'VIEWER', audit: false }, ctx => appJobStatus_(ctx, input && input.jobId));
+}
+
+/** 処理を裏で動かす（apiStartJob が作った 1 回だけのトリガーから） */
+function triggerRunJob(e) {
+  return api_('JOB.RUN', { minRole: 'ADMIN', audit: false, trigger: { event: e, handler: 'triggerRunJob', alsoAccept: appIsJobTrigger_ } },
+    ctx => appRunJobs_(ctx, e));
 }
 
 /**
@@ -108,7 +110,9 @@ function api_(action, opts, fn) {
   opts = opts || {};
   APP_STORE_CACHE_ = {};
   let user = appCurrentUser_();
-  if (opts.trigger && !user.email && appIsOwnTrigger_(opts.trigger.event, opts.trigger.handler)) {
+  const trigUid = opts.trigger && opts.trigger.event && opts.trigger.event.triggerUid ? String(opts.trigger.event.triggerUid) : '';
+  if (opts.trigger && !user.email && (appIsOwnTrigger_(opts.trigger.event, opts.trigger.handler) ||
+      (opts.trigger.alsoAccept && trigUid && appIsSetUp_() && opts.trigger.alsoAccept(trigUid)))) {
     user = Object.assign({}, user, { email: user.owner, isOwner: !!user.owner });
   }
   const roles = appRolesOf_(user);
@@ -157,7 +161,8 @@ function appBootstrap_(ctx) {
     user: { email: ctx.user.email, isOwner: ctx.user.isOwner, isAdmin: isAdmin,
       roles: ctx.roles.map(r => ({ role: r.role, label: APP_ROLE_LABELS[r.role], scopeType: r.scope_type, clientId: r.client_id })) },
     setUp: appIsSetUp_(),
-    allowed: true
+    allowed: true,
+    activeJob: (() => { try { return ctx.user.email && appIsSetUp_() ? appActiveJobOf_(ctx.user.email) : null; } catch (e) { return null; } })()
   };
 }
 
