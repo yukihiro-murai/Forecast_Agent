@@ -14,6 +14,7 @@
   ../../Forecast_WebApp.js        「タブのアイコン」区間の FORECAST_FAVICON_URL (64×64 PNG の data URI + #favicon.png) を書き換える
                                   (別ファイルにすると管理ハブ runtime の許可リスト 21 ファイルが崩れるため、既存ファイルの中に置く)
   ../../Forecast_WebAppUI.html    「キャラの絵」区間の CHAR_SVG (9 体) / YOMI_POSE (5 ポーズ) を書き換える (同じ理由で既存の HTML の中)
+  ../../app/src/Assets.js         新アプリのタブのアイコン (APP_FAVICON_URL) と画面のキャラ (APP_UI_CHARS_JS)。ファイルごと生成
 
 PNG 化はヘッドレス Chromium (Playwright 同梱の chrome-headless-shell) で行う。
 確認用の HTML は一時ディレクトリに作り、リポジトリには残さない。
@@ -29,6 +30,7 @@ PNG_SIZES = (160, 512)
 FAVICON_PX = 64
 WEBAPP_JS = os.path.join(REPO, 'Forecast_WebApp.js')
 WEBAPP_UI = os.path.join(REPO, 'Forecast_WebAppUI.html')
+APP_ASSETS_JS = os.path.join(REPO, 'app', 'src', 'Assets.js')  # 新アプリ（段階1〜）
 DATA_URL_PREFIX = 'data:image/png;base64,'
 # Apps Script の setFaviconUrl は末尾が画像の拡張子でない URL を黙って捨てる。# 以降は URL の断片で画像データではない
 DATA_URL_SUFFIX = '#favicon.png'
@@ -206,6 +208,31 @@ def write_ui_chars():
         open(WEBAPP_UI, 'w', encoding='utf-8').write(new)
 
 
+def write_app_assets(data_url):
+    """新アプリ (app/src) のキャラ素材。ファイルごと生成する (手で編集しない)"""
+    import json
+    if not os.path.isdir(os.path.dirname(APP_ASSETS_JS)):
+        return
+    chars = {c[0]: cast.svg_of(c) for c in cast.CAST}
+    poses = {p[0]: cast.pose_svg(p) for p in cast.YOMI_POSES}
+    js = lambda d: json.dumps(d, ensure_ascii=False, separators=(',', ':'))
+    ui = 'var CHAR_SVG = ' + js(chars) + ';\nvar YOMI_POSE = ' + js(poses) + ';'
+    if '<?' in ui or '</script' in ui.lower():
+        raise SystemExit('Assets: GAS テンプレートや script を壊す文字列を含む')
+    text = '\n'.join([
+        '/**',
+        ' * Assets.js — 画面のキャラ素材（自動生成: Forecast_Agent/assets/characters/src/build.py。手で編集しない）。',
+        ' * APP_FAVICON_URL: タブのアイコン（よみの頭・64x64 PNG の data URI。末尾の #favicon.png は消さない）',
+        ' * APP_UI_CHARS_JS: UI.html に差し込む CHAR_SVG（9 体）と YOMI_POSE（5 ポーズ）',
+        ' */',
+        'const APP_FAVICON_URL = ' + json.dumps(data_url) + ';',
+        'const APP_UI_CHARS_JS = ' + json.dumps(ui, ensure_ascii=False) + ';',
+        ''])
+    old = open(APP_ASSETS_JS, encoding='utf-8').read() if os.path.exists(APP_ASSETS_JS) else None
+    if old != text:
+        open(APP_ASSETS_JS, 'w', encoding='utf-8').write(text)
+
+
 def main():
     out = []
     for c in cast.CAST:
@@ -223,6 +250,7 @@ def main():
     data_url = DATA_URL_PREFIX + base64.b64encode(open(fav_png, 'rb').read()).decode('ascii') + DATA_URL_SUFFIX
     write_favicon_url(data_url)
     write_ui_chars()
+    write_app_assets(data_url)
     os.makedirs(os.path.join(ASSETS, 'review'), exist_ok=True)
     shoot(review_page('売上予測キャラクター v8（よみ＋天気8種）',
                       'フラット・単純図形・テカリなし。顔はキャラクター図鑑の共通部品（目2点＋口1本）で統一しています。'),

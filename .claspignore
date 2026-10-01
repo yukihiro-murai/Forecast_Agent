@@ -10,3 +10,5 @@ portal_runtime/**
 assets/**
 # Claude Code などの作業用ワークツリー (.claude/worktrees/) は GAS に上げない
 .claude/**
+# 新アプリ（段階1〜、別の Apps Script プロジェクト。app/.clasp.json）は中央 project に上げない
+app/**

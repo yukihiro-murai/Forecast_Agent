@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<base target="_top">
+<title>売上予測アプリ</title>
+<style>
+:root{
+  --bg:#F4F7FB; --card:#FFFFFF;
+  --primary:#00A0E9; --primary-dark:#0084C5; --primary-soft:#E5F4FD;
+  --navy:#0F3557; --text:#24303E; --muted:#5A6B7E; --line:#DCE4EC;
+  --warn-bg:#FFF6E8; --warn-fg:#A65C00; --error:#C0392B; --error-bg:#FDEDEC;
+  --radius:14px; --radius-s:10px; --h-btn:40px; --h-input:40px;
+  --shadow:0 1px 2px rgba(15,53,87,.05), 0 6px 18px rgba(15,53,87,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.55}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font-family:inherit;font-size:14px}
+.topbar{position:fixed;top:0;left:0;right:0;height:60px;background:var(--navy);display:flex;align-items:center;padding:0 24px;color:#fff;z-index:60}
+.topbar .ttl{font-size:17px;font-weight:700}
+.topbar .spacer{flex:1}
+.topbar .meta{font-size:13px;color:#B8CFE3;margin-left:14px}
+.topbar .meta b{color:#fff}
+.layout{display:flex;padding-top:60px;min-height:100vh}
+.sidenav{width:210px;flex:0 0 210px;padding:18px 12px;border-right:1px solid var(--line);background:#fff}
+.navbtn{display:flex;width:100%;height:44px;align-items:center;padding:0 14px;border-radius:var(--radius-s);font-size:14px;font-weight:700;color:var(--muted);margin-bottom:4px;text-align:left}
+.navbtn.on{background:var(--navy);color:#fff}
+.navbtn:hover:not(.on){background:var(--primary-soft);color:var(--navy)}
+.main{flex:1;padding:24px 28px;max-width:1180px}
+h1{font-size:22px;color:var(--navy);margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px}
+.card h2{font-size:16px;color:var(--navy);margin-bottom:10px}
+.note{font-size:12.5px;color:var(--muted)}
+.guide{display:flex;gap:16px;align-items:flex-start}
+.charbox{width:72px;height:72px;flex:0 0 72px}
+.charbox svg{width:100%;height:100%;display:block}
+.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:14px 18px;flex:1;font-size:14px;color:var(--navy)}
+.bubble .chip{background:#fff}
+.bubble::before{content:"";position:absolute;left:-8px;top:20px;border:8px solid transparent;border-right-color:var(--primary-soft);border-left:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:var(--h-btn);min-width:120px;padding:0 18px;border-radius:var(--radius-s);font-size:14px;font-weight:700;background:var(--navy);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{background:#fff;color:var(--navy);border:1.5px solid var(--line)}
+.btn-sm{height:32px;min-width:72px;padding:0 12px;font-size:13px}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12.5px;font-weight:700;color:var(--navy)}
+.inp{height:var(--h-input);padding:0 10px;border:1.5px solid var(--line);border-radius:8px;width:220px;background:#fff}
+.inp.sm{width:140px}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
+.tbl th{background:#F1F5F9;color:var(--navy);font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tbl td{padding:8px 10px;border-bottom:1px solid #EEF2F6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;margin:0 4px 2px 0;background:var(--primary-soft);color:var(--primary-dark)}
+.chip.off{background:#EDF1F5;color:var(--muted)}
+.chip.ng{background:var(--error-bg);color:var(--error)}
+.chip.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 22px 8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:#fff;background:var(--navy);box-shadow:0 8px 30px rgba(0,0,0,.18);opacity:0;transition:opacity .3s;z-index:95}
+.toast.on{opacity:1}
+.toast.err{background:var(--error);padding:12px 22px}
+.toast .tc{width:34px;height:34px;flex:0 0 34px;background:#fff;border-radius:50%;padding:2px}
+.toast .tc svg{width:100%;height:100%;display:block}
+.busy{position:fixed;right:24px;bottom:24px;width:210px;height:64px;display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);font-size:13px;font-weight:700;color:var(--navy);opacity:0;pointer-events:none;transition:opacity .2s;z-index:94}
+.busy.on{opacity:1}
+.busy .bc{width:48px;height:48px;flex:0 0 48px}
+.busy .bc svg{width:100%;height:100%;display:block}
+.busy small{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="ttl">売上予測アプリ</div><div class="spacer"></div><div class="meta" id="hdrUser"></div><div class="meta" id="hdrVer"></div></div>
+<div class="layout"><nav class="sidenav" id="nav"></nav><main class="main" id="main"></main></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="busy" id="busy" role="status" aria-live="polite"></div>
+<script>
+<?!= charsJs ?>
+var B = <?!= bootJson ?>;
+var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false };
+
+function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function $(id){ return document.getElementById(id); }
+var toastT = null;
+function toast(msg, err){
+  var el = $('toast');
+  el.className = 'toast on' + (err ? ' err' : '');
+  el.innerHTML = (err ? '' : '<span class="tc">' + YOMI_POSE.done + '</span>') + '<span>' + esc(msg) + '</span>';
+  clearTimeout(toastT); toastT = setTimeout(function(){ el.className = 'toast'; }, 3800);
+}
+var busyT = null;
+function busy(delta){
+  var el = $('busy');
+  if (!el.innerHTML) el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>観測中…<small>処理しています</small></span>';
+  S.pending = Math.max(0, S.pending + delta);
+  clearTimeout(busyT);
+  if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
+}
+/** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
+var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1 };
+/** サーバーの api* を呼ぶ。失敗は通知に出す（入力は消さない） */
+function call(fn, args, ok){
+  var write = !READS[fn];
+  if (write && S.writing) { toast('前の処理が終わるまでお待ちください', true); return; }
+  if (write) S.writing = true;
+  busy(1);
+  var r = google.script.run
+    .withSuccessHandler(function(res){ if (write) S.writing = false; busy(-1); if (ok) ok(res); render(); })
+    .withFailureHandler(function(e){ if (write) S.writing = false; busy(-1); toast((e && e.message) || String(e), true); });
+  r[fn].apply(r, args || []);
+}
+
+var NAV_ADMIN = [['home','ホーム'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
+function render(){
+  $('hdrUser').innerHTML = B.user && B.user.email ? '<b>' + esc(B.user.email.split('@')[0]) + '</b>' : '';
+  $('hdrVer').textContent = B.user && B.user.isAdmin && B.app ? 'v' + B.app.version : '';
+  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN : [['home','ホーム']];
+  $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
+  var v = { home: viewHome, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth }[S.view] || viewHome;
+  $('main').innerHTML = v();
+}
+function go(v){
+  S.view = v;
+  if (v === 'members' || v === 'clients') call('apiListDirectory', [], function(r){ S.dir = r; });
+  else if (v === 'settings') call('apiListSettings', [], function(r){ S.settings = r.settings; });
+  else if (v === 'audit') loadAudit();
+  else if (v === 'health') call('apiHealth', [], function(r){ S.health = r; });
+  render();
+}
+function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
+
+function viewHome(){
+  if (!B.allowed) return '<h1>売上予測アプリ</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
+  if (!B.setUp) {
+    if (B.user.isOwner) return '<h1>はじめに</h1>' + guide('explain', 'データ本体・操作の記録・バックアップの置き場所を作ります。所有者だけが実行できます。何度実行しても同じ結果になります。'
+      + '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(r){ B.setUp = true; toast(\'初期設定が終わりました\'); go(\'health\'); })">初期設定を実行</button></div>');
+    return '<h1>売上予測アプリ</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
+  }
+  var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
+  return '<h1>ホーム</h1>' + guide('guide', '新しい売上予測アプリの土台です。予測・予算・検証の画面は、これから旧アプリから移します。<div class="row" style="align-items:center"><span class="note">あなたの役割</span>' + roles + '</div>');
+}
+
+function viewMembers(){
+  var d = S.dir;
+  if (!d) return '<h1>メンバーと役割</h1><div class="card note">読み込み中…</div>';
+  var clientName = {}; d.clients.forEach(function(c){ clientName[c.client_id] = c.client_name; });
+  var rows = d.members.map(function(m){
+    var rs = d.roles.filter(function(r){ return r.email === m.email && r.is_active; }).map(function(r){
+      return '<span class="chip">' + esc(d.roleLabels[r.role]) + (r.scope_type === 'CLIENT' ? '：' + esc(clientName[r.client_id] || r.client_id) : '') + '</span>'
+        + '<button class="btn btn-ghost btn-sm" onclick="revoke(\'' + esc(r.role_id) + '\',' + r.row_version + ')">外す</button>';
+    }).join(' ');
+    if (m.email === d.owner) rs = '<span class="chip">' + esc(d.roleLabels.ADMIN) + '（所有者）</span>' + (rs ? ' ' + rs : '');
+    return '<tr><td>' + esc(m.display_name) + '</td><td>' + esc(m.email) + '</td><td>' + esc(m.department) + '</td><td>' + (m.is_active ? '' : '<span class="chip off">無効</span>') + (rs || '<span class="note">閲覧・情報提供のみ</span>') + '</td></tr>';
+  }).join('');
+  var memberOpts = d.members.filter(function(m){ return m.is_active; }).map(function(m){ return '<option value="' + esc(m.email) + '">' + esc(m.display_name) + '（' + esc(m.email) + '）</option>'; }).join('');
+  var roleOpts = d.grantable.map(function(r){ return '<option value="' + r + '">' + esc(d.roleLabels[r]) + '</option>'; }).join('');
+  var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.client_name) + '</option>'; }).join('');
+  return '<h1>メンバーと役割</h1>'
+    + '<div class="card"><h2>メンバー</h2><p class="note">社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録してください。</p>'
+    + '<table class="tbl" style="margin-top:10px"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div class="row"><div class="field"><label>メール</label><input class="inp" id="m_email" placeholder="name@' + esc((B.user.email || '').split('@')[1] || '') + '"></div>'
+    + '<div class="field"><label>名前</label><input class="inp sm" id="m_name"></div><div class="field"><label>部署</label><input class="inp sm" id="m_dept"></div>'
+    + '<button class="btn" onclick="saveMember()">登録する</button></div></div>'
+    + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label>メンバー</label><select class="inp" id="g_email" style="width:320px">' + memberOpts + '</select></div>'
+    + '<div class="field"><label>役割</label><select class="inp sm" id="g_role">' + roleOpts + '</select></div>'
+    + '<div class="field"><label>範囲（予算策定担当のみ）</label><select class="inp" id="g_client">' + clientOpts + '</select></div>'
+    + '<button class="btn" onclick="grant()">付ける</button></div></div>';
+}
+function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); go('members'); }); }
+function grant(){ var c = $('g_client').value; call('apiGrantRole', [{ email: $('g_email').value, role: $('g_role').value, scopeType: c ? 'CLIENT' : 'ALL', clientId: c }], function(){ toast('役割を付けました'); go('members'); }); }
+function revoke(id, ver){ if (!confirm('この役割を外しますか？')) return; call('apiRevokeRole', [{ roleId: id, rowVersion: ver }], function(){ toast('役割を外しました'); go('members'); }); }
+
+function viewClients(){
+  var d = S.dir;
+  if (!d) return '<h1>クライアント</h1><div class="card note">読み込み中…</div>';
+  var rows = d.clients.map(function(c){ return '<tr><td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>'; }).join('');
+  return '<h1>クライアント</h1><div class="card"><table class="tbl"><colgroup><col style="width:300px"><col style="width:160px"><col></colgroup><thead><tr><th>名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="note">まだ登録がありません</td></tr>') + '</tbody></table>'
+    + '<div class="row"><div class="field"><label>クライアント名</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
+    + '<button class="btn" onclick="saveClient()">追加する</button></div><p class="note" style="margin-top:8px">旧アプリのクライアントは、段階2で移すときにまとめて登録します。</p></div>';
+}
+function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, zacCode: $('c_zac').value }], function(){ toast('追加しました'); go('clients'); }); }
+
+function viewSettings(){
+  var s = S.settings;
+  if (!s) return '<h1>設定</h1><div class="card note">読み込み中…</div>';
+  var rows = s.map(function(x, i){
+    var val = x.type === 'bool' ? (x.value ? 'する' : 'しない') : x.value;
+    var input = x.type === 'bool' ? '<select class="inp sm" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
+      : '<input class="inp sm" id="s_' + i + '" value="' + esc(x.value) + '">';
+    return '<tr><td>' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? '・既定値' : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td>' + esc(val) + '</td><td>' + input
+      + ' <button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></td></tr>';
+  }).join('');
+  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl" style="margin-top:10px"><colgroup><col style="width:340px"><col style="width:120px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
+
+var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバーの登録', 'ROLE.GRANT': '役割の付与', 'ROLE.REVOKE': '役割の取り消し',
+  'CLIENT.SAVE': 'クライアントの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
+  'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る' };
+var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム' };
+function auditStep(a){
+  if (a.phase === 'DENIED') return ['拒否', 'ng'];
+  if (a.phase === 'START') return ['開始', 'off'];
+  return { OK: ['完了', ''], FAILED: ['失敗', 'ng'], NEEDS_CONFIRM: ['確認待ち', 'warn'] }[a.result] || [a.result || a.phase, 'off'];
+}
+/** 最近の記録を読む（新しい順に 500 件まで）。絞り込みは画面の中で行う（日本語の操作名でも探せる） */
+function loadAudit(){ if ($('a_q')) S.auditQ = $('a_q').value; call('apiListAudit', [{ limit: 500 }], function(r){ S.audit = r.rows; }); }
+function viewAudit(){
+  var q = String(S.auditQ || '').trim().toLowerCase();
+  var rows = (S.audit || []).filter(function(a){
+    if (!q) return true;
+    return [a.actor_email, a.action, ACTION_LABELS[a.action], ENTITY_LABELS[a.entity_type], a.entity_id, auditStep(a)[0]].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).map(function(a){
+    var st = auditStep(a);
+    var target = a.entity_type ? (ENTITY_LABELS[a.entity_type] || a.entity_type) + (a.entity_id ? '：' + a.entity_id : '') : '';
+    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(ACTION_LABELS[a.action] || a.action) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target) + '">' + esc(target) + '</td></tr>';
+  }).join('');
+  if (!S.audit) return '<h1>操作の記録</h1><div class="card note">読み込み中…</div>';
+  return '<h1>操作の記録</h1><div class="card"><div class="row" style="margin-top:0"><div class="field"><label>絞り込み（人・操作・対象）</label><input class="inp" id="a_q" value="' + esc(S.auditQ) + '"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>'
+    + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:170px"><col style="width:240px"><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="note">記録はまだありません</td></tr>') + '</tbody></table>'
+    + '<p class="note" style="margin-top:8px">今月と先月の新しい順に 500 件まで。それより前は、状態の画面の「今年度のログ」で見られます。</p></div>';
+}
+
+function viewHealth(){
+  var h = S.health;
+  if (!h) return '<h1>状態</h1><div class="card note">点検中…</div>';
+  var t = (h.tables || []).map(function(x){ return '<tr><td>' + esc(x.name) + '</td><td>' + x.rows + '</td><td>' + (x.ok ? '<span class="chip">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(x.note)) + '</td></tr>'; }).join('');
+  var a = h.audit || {};
+  var b = h.backup || {};
+  var f = h.files || {};
+  return '<h1>状態</h1>'
+    + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table></div>'
+    + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
+    + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
+    + '<div class="row">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
+    + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐバックアップ</button></div></div>'
+    + '<div class="card"><h2>ファイル</h2><div class="row" style="margin-top:0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note" style="margin-top:8px">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
+}
+
+render();
+</script>
+</body>
+</html>

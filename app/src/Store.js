@@ -1,0 +1,169 @@
+/**
+ * Store.js — 保存先の差し替え層（スプレッドシート版）。業務のコードはここ以外で SpreadsheetApp を直接触らない。
+ * すべてのセルを書式なしテキスト（@）で保存し、読むときに Schema の型へ戻す（日付や数値への自動変換を防ぐ）。
+ * 将来ログなどを BigQuery へ移すときは、この層に実装を足す（業務のコードは変えない）。
+ */
+let APP_STORE_CACHE_ = {};
+let APP_LOCK_DEPTH_ = 0;
+
+function appProps_() {
+  return PropertiesService.getScriptProperties();
+}
+
+function appNowIso_() {
+  return Utilities.formatDate(new Date(), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ");
+}
+
+function appToday_() {
+  return Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM-dd');
+}
+
+/** このアプリの年度（4月〜翌3月。終わる年で呼ぶ: 2026-10 → FY2027） */
+function appFy_(d) {
+  return d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+}
+
+/** 時刻順に並ぶ ID（例: RL-20261001183000-1A2B3C4D） */
+function appId_(prefix) {
+  return prefix + '-' + Utilities.formatDate(new Date(), APP_TZ, 'yyyyMMddHHmmss') + '-' +
+    Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
+function appSha256Hex_(text) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text), Utilities.Charset.UTF_8);
+  return bytes.map(b => ('0' + (b < 0 ? b + 256 : b).toString(16)).slice(-2)).join('');
+}
+
+/** 長い JSON はハッシュと先頭だけにする（セルの上限 5 万字に対し 4 万字まで） */
+function appJson_(v) {
+  if (v === undefined || v === null || v === '') return '';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  if (s.length <= APP_JSON_MAX) return s;
+  return JSON.stringify({ truncated: true, length: s.length, sha256: appSha256Hex_(s), head: s.slice(0, 2000) });
+}
+
+/** スクリプト全体のロック。入れ子で呼ばれても 1 回だけ取る */
+function appWithLock_(fn) {
+  if (APP_LOCK_DEPTH_ > 0) {
+    APP_LOCK_DEPTH_++;
+    try { return fn(); } finally { APP_LOCK_DEPTH_--; }
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(APP_LOCK_WAIT_MS);
+  APP_LOCK_DEPTH_ = 1;
+  try {
+    return fn();
+  } finally {
+    APP_LOCK_DEPTH_ = 0;
+    lock.releaseLock();
+  }
+}
+
+function appIsSetUp_() {
+  return !!appProps_().getProperty(APP_PROP.dataId);
+}
+
+function appDataSpreadsheet_() {
+  if (APP_STORE_CACHE_.data) return APP_STORE_CACHE_.data;
+  const id = appProps_().getProperty(APP_PROP.dataId);
+  if (!id) throw new Error('データ本体がまだありません。管理者が「初期設定」を実行してください。');
+  APP_STORE_CACHE_.data = SpreadsheetApp.openById(id);
+  return APP_STORE_CACHE_.data;
+}
+
+/** 表のシート。create=true なら無いときに作る。列が定義と違えば止める（fail-closed） */
+function appTableSheet_(name, create) {
+  const def = APP_TABLES[name];
+  if (!def) throw new Error('未定義の表: ' + name);
+  const ss = appDataSpreadsheet_();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    if (!create) throw new Error('表がありません（' + name + '）。管理者が「初期設定」を実行してください。');
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, def.columns.length).setNumberFormat('@').setValues([def.columns]);
+    sh.setFrozenRows(1);
+    return sh;
+  }
+  const head = sh.getRange(1, 1, 1, def.columns.length).getValues()[0].map(String);
+  if (head.join('|') !== def.columns.join('|')) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
+  return sh;
+}
+
+function appRowToObject_(def, r) {
+  const o = {};
+  def.columns.forEach((c, j) => {
+    const v = r[j] === null || r[j] === undefined ? '' : String(r[j]);
+    const t = appColumnType_(c);
+    o[c] = t === 'bool' ? v === 'TRUE' : t === 'int' ? (v === '' ? 0 : Number(v)) : v;
+  });
+  return o;
+}
+
+function appObjectToRow_(def, o) {
+  return def.columns.map(c => {
+    const v = o[c];
+    const t = appColumnType_(c);
+    if (v === undefined || v === null) return t === 'bool' ? 'FALSE' : t === 'int' ? '0' : '';
+    if (t === 'bool') return v ? 'TRUE' : 'FALSE';
+    if (t === 'json' && typeof v !== 'string') return appJson_(v);
+    return String(v);
+  });
+}
+
+/** 表の全行（_row = シートの行番号つき）。キーが空の行は飛ばす */
+function appReadTable_(name) {
+  const def = APP_TABLES[name];
+  const sh = appTableSheet_(name, false);
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, def.columns.length).getValues()
+    .map((r, i) => { const o = appRowToObject_(def, r); o._row = i + 2; return o; })
+    .filter(o => def.key.some(k => o[k] !== ''));
+}
+
+function appInsertRows_(name, objs) {
+  const def = APP_TABLES[name];
+  if (!objs.length) return [];
+  // キーの重複を入れない（同じ秒に作った ID がぶつかった場合なども止める）
+  const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
+  const seen = {};
+  appReadTable_(name).forEach(o => { seen[keyOf(o)] = true; });
+  objs.forEach(o => {
+    const k = keyOf(o);
+    if (def.key.every(c => o[c] === undefined || o[c] === null || o[c] === '')) throw new Error('キーが空の行は足せません（' + name + '）。');
+    if (seen[k]) throw new Error('同じキーの行がすでにあります（' + name + '）。');
+    seen[k] = true;
+  });
+  const sh = appTableSheet_(name, false);
+  const rows = objs.map(o => appObjectToRow_(def, o));
+  const start = sh.getLastRow() + 1;
+  if (start + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), Math.max(1000, rows.length));
+  sh.getRange(start, 1, rows.length, def.columns.length).setNumberFormat('@').setValues(rows);
+  return objs;
+}
+
+function appStripRow_(o) {
+  const c = Object.assign({}, o);
+  delete c._row;
+  return c;
+}
+
+/**
+ * キーで 1 行を更新する。expectedVersion を渡すと、読み込んだ後にほかの人が更新していたら止める（楽観ロック）。
+ * 返り値は { before, after }（監査の変更前後に使う）
+ */
+function appUpdateByKey_(name, keyVals, patch, expectedVersion, actor) {
+  const def = APP_TABLES[name];
+  const cur = appReadTable_(name).filter(r => def.key.every(k => r[k] === keyVals[k]))[0];
+  if (!cur) throw new Error('対象が見つかりません（' + name + '）。');
+  if (expectedVersion !== undefined && expectedVersion !== null && expectedVersion !== '' &&
+      Number(expectedVersion) !== Number(cur.row_version)) {
+    throw new Error('ほかの人が先に更新しました。画面を読み直してから、もう一度保存してください。');
+  }
+  const after = Object.assign(appStripRow_(cur), patch, {
+    updated_at: appNowIso_(), updated_by: actor, row_version: Number(cur.row_version || 0) + 1
+  });
+  const sh = appTableSheet_(name, false);
+  sh.getRange(cur._row, 1, 1, def.columns.length).setNumberFormat('@').setValues([appObjectToRow_(def, after)]);
+  return { before: appStripRow_(cur), after: after };
+}
