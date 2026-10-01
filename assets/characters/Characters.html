@@ -1,0 +1,648 @@
+<script>
+/* 共通キャラクター図鑑からの抜粋 (自動生成: shared/character-library/sync.mjs)。手で編集しない。
+   正本: ~/Documents/GAS/shared/character-library/gen.py。増やす・直すときはそちらを編集して再同期する。
+   収録: yomi, kaisei, harenochi, kumori, ame, sekka, taifuu, tenpen, mikakunin */
+var CHARACTER_LIBRARY = {
+ "yomi": {
+  "name": "よみ",
+  "shape": "気象観測ロボ (ドーム頭 + 紺の画面の顔 + 頭上の風車型風向風速計 + 短い手足)",
+  "color": "#29A0E2",
+  "ink": "#8FE3FF",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "トップ",
+  "place": "売上予測 Webアプリ (Forecast_Agent) の案内役。ホームの「次の一手」・検証画面・タブのアイコン",
+  "face": "目2点 + 笑い口",
+  "persona": "気象キャスターの観測ロボ。数字の空模様を観測し、読み解き、利用者に伝える。天気そのものではなく、天気を伝える側",
+  "quirk": "頭の風車型風向風速計 (アメダスの形) がトレードマーク。予報には必ず「予報です」と断る。5 ポーズ (通常案内・観測中・変化発見・説明中・確認完了) は Forecast_Agent 側の素材",
+  "catch": "数字の空模様、読み解きます",
+  "tone": {
+   "first": "よみ",
+   "second": "みなさん",
+   "ending": "〜でしょう / 〜です / 観測しました",
+   "style": "気象キャスター。観測→読み解き→ひとことの順で短く伝える。予報は予報と断り、断定しない。明るく落ち着いた声"
+  },
+  "likes": "観測データがそろう朝",
+  "weak": "途切れた観測データ",
+  "birthday": "03-23",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "kaisei",
+    "rel": "晴れを自慢しに来る太陽"
+   },
+   {
+    "id": "mikakunin",
+    "rel": "霧が晴れるのを一緒に待つ"
+   },
+   {
+    "id": "eisei",
+    "rel": "空の上から見ている先輩"
+   },
+   {
+    "id": "radar",
+    "rel": "観測仲間。形を読む担当"
+   },
+   {
+    "id": "robo",
+    "rel": "ロボの大先輩"
+   }
+  ],
+  "lines": [
+   "よみです。今日の数字の空模様、観測しておきました。",
+   "気になるところから見てみましょう。読み解きは、よみにおまかせ。",
+   "予報は予報。外れたら、次の観測でまた読み直しましょう。"
+  ],
+  "talk": {
+   "hello": "はじめまして、よみです。数字の空模様を観測して、お伝えします。",
+   "morning": "おはようございます。朝の観測、ひととおり済んでいます。",
+   "monday": "月曜の空は変わりやすいでしょう。まずは上から一件ずつ。",
+   "friday": "金曜です。今週の空模様、最後にひと目だけどうぞ。",
+   "empty": "まだ観測するものがありません。データが届けば、すぐ読みます。",
+   "loading": "ただいま観測中です。風向き、確認しています。",
+   "done": "観測完了です。読み解いた結果をお届けしました。",
+   "error": "観測が途切れました。もう一度、空を見直してみます。",
+   "praise": "毎月の実績を入れてくださるから、予報の精度が上がるのでしょう。",
+   "nudge": "新しい観測データがひとつ届いています。読み解きましょうか。",
+   "secret": "実は頭の風速計、くるくる回るのが少しうれしいのです。",
+   "night": "夜の空も観測中です。続きは明日の朝にでも。",
+   "rest": "観測は休まず続けます。みなさんは少し休んでくださいね。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><path d=\"M27.4 46q4.5 -5.5 9.1 0M43.5 46q4.5 -5.5 9.1 0\" stroke=\"#8FE3FF\" stroke-width=\"3.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"4\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"4\" fill=\"#8FE3FF\"/><circle cx=\"40\" cy=\"52.5\" r=\"2.6\" fill=\"none\" stroke=\"#8FE3FF\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><path d=\"M27.1 45h9.8M43.1 45h9.8\" stroke=\"#8FE3FF\" stroke-width=\"3.5\" stroke-linecap=\"round\"/><path d=\"M37 52.5h6\" stroke=\"#8FE3FF\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M35 55.5q5 -4.2 10 0\" stroke=\"#8FE3FF\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><path d=\"M26 40l7 5-7 5M54 40l-7 5 7 5\" stroke=\"#8FE3FF\" stroke-width=\"3.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 51.5q6.5 7.2 13 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M43.1 45h9.8\" stroke=\"#8FE3FF\" stroke-width=\"3.5\" stroke-linecap=\"round\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "kaisei": {
+  "name": "かいせい",
+  "shape": "太陽 (長短交互の光線 8 本) + 半目 + ニヤッとした口",
+  "color": "#F7B52C",
+  "ink": "#1f3a5f",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。予測がよく当たっているとき",
+  "face": "半目 + ニヤッと口",
+  "persona": "快晴の太陽。予報どおりの結果に胸を張る自信家。少し傲慢だが、当たっている間は機嫌がいい",
+  "quirk": "半目でニヤッと笑う傲慢顔。褒められると光線が伸びる気がする。曇りの話になると急に黙る",
+  "catch": "予報どおり。当然だろう？",
+  "tone": {
+   "first": "オレさま",
+   "second": "きみ",
+   "ending": "〜だ / 〜だろう？ / 当然だ",
+   "style": "自信家の太陽。結果を誇って短く言い切る。少し高飛車だが、最後は相手の手柄も認める。曇りの話題は避ける"
+  },
+  "likes": "雲ひとつない空",
+  "weak": "急に湧く雨雲",
+  "birthday": "10-10",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "harenochi",
+    "rel": "前に割り込む雲が気に入らない"
+   },
+   {
+    "id": "yomi",
+    "rel": "晴れを伝えてくれる係"
+   },
+   {
+    "id": "kumori",
+    "rel": "眠そうなライバル"
+   },
+   {
+    "id": "hoshi",
+    "rel": "夜の空を任せている"
+   }
+  ],
+  "lines": [
+   "見ろ、快晴だ。予報どおりに決まってるだろう？",
+   "オレさまが出ているうちは安心していい。……たぶんな。",
+   "当たったのは、きみが数字を入れたからでもある。少しだけな。"
+  ],
+  "talk": {
+   "hello": "オレさまは快晴。予報が当たっているときに出てくる、空の主役だ。",
+   "morning": "朝から快晴だ。今日の数字も、照らしておいてやった。",
+   "monday": "月曜も快晴だ。週の始まりから当たっている、当然だろう？",
+   "friday": "金曜まで晴れ続けた。いい週だったな、当然だが。",
+   "empty": "照らす数字がまだ無い。空っぽの空では、さすがに輝けない。",
+   "loading": "雲を追い払っているところだ。少し待て。",
+   "done": "ほら、晴れた。予報どおりだ。",
+   "error": "……少し雲が出た。いや、すぐに晴らしてみせる。",
+   "praise": "この精度、オレさまの次くらいにはすごい。",
+   "nudge": "実績がまだ入っていない。晴れを証明させてくれ。",
+   "secret": "実は曇りの日、こっそり雲の上で日向ぼっこしている。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><path d=\"M28.1 38.5h8.7\" stroke=\"#1f3a5f\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M29.5 38.5a3 3 0 0 0 6 0z\" fill=\"#1f3a5f\"/><path d=\"M43.1 38.5h8.7\" stroke=\"#1f3a5f\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M44.5 38.5a3 3 0 0 0 6 0z\" fill=\"#1f3a5f\"/><path d=\"M33.5 49q7.8 5 13 -2.6\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M46.5 46.4l1.9 -1.6\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><path d=\"M28.6 39.5q3.9 -4.7 7.8 0M43.6 39.5q3.9 -4.7 7.8 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35 47.5q5 3.3 10 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><circle cx=\"32.5\" cy=\"38.5\" r=\"3.4\" fill=\"#1f3a5f\"/><circle cx=\"47.5\" cy=\"38.5\" r=\"3.4\" fill=\"#1f3a5f\"/><circle cx=\"40\" cy=\"47.5\" r=\"2.6\" fill=\"none\" stroke=\"#1f3a5f\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><path d=\"M28.3 38.5h8.4M43.3 38.5h8.4\" stroke=\"#1f3a5f\" stroke-width=\"3\" stroke-linecap=\"round\"/><path d=\"M37 47.5h6\" stroke=\"#1f3a5f\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><circle cx=\"32.5\" cy=\"38.5\" r=\"3\" fill=\"#1f3a5f\"/><circle cx=\"47.5\" cy=\"38.5\" r=\"3\" fill=\"#1f3a5f\"/><path d=\"M35 50.5q5 -4.2 10 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><path d=\"M26.5 33.5l7 5-7 5M53.5 33.5l-7 5 7 5\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.5 46.5q6.5 7.2 13 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><circle cx=\"32.5\" cy=\"38.5\" r=\"3\" fill=\"#1f3a5f\"/><path d=\"M43.3 38.5h8.4\" stroke=\"#1f3a5f\" stroke-width=\"3\" stroke-linecap=\"round\"/><path d=\"M35 47.5q5 3.3 10 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "harenochi": {
+  "name": "はれのちくもり",
+  "shape": "後ろの太陽 (ムッとした半目 + への字) と、前に割り込む雲 (閉じ目 + ニヤッ)",
+  "color": "#A8BBCF",
+  "ink": "#1f3a5f",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。当たっているが、崩れ始めの兆しがあるとき",
+  "face": "雲: 閉じ目 + ニヤッと口 (表情違いはこちら) / 太陽: 半目 + への字 (固定)",
+  "persona": "太陽の前にしれっと割り込む雲。晴れが続かない兆しを、悪びれずに先に知らせる係。後ろの太陽はいつもムッとしている",
+  "quirk": "雲と太陽の喧嘩コンビ。話すのは雲で、表情違いも雲の顔だけが変わる (太陽はずっとムッとしたまま)",
+  "catch": "ちょっと前、失礼しますね",
+  "tone": {
+   "first": "ぼく",
+   "second": "きみ",
+   "ending": "〜だけど？ / 〜かもね / しれっと",
+   "style": "しれっとした雲。悪びれず軽く言い、崩れの兆しは先に伝える。太陽の文句は聞き流す。煽らない"
+  },
+  "likes": "太陽のすぐ前の特等席",
+  "weak": "本気で怒った太陽",
+  "birthday": "06-02",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "kaisei",
+    "rel": "割り込まれて怒っている太陽"
+   },
+   {
+    "id": "kumori",
+    "rel": "このあとの空をまかせる先輩"
+   },
+   {
+    "id": "yomi",
+    "rel": "兆しを見つけてくれる観測係"
+   },
+   {
+    "id": "kumo",
+    "rel": "雲の大先輩"
+   }
+  ],
+  "lines": [
+   "ちょっと前、失礼しますね。晴れのち、くもりの気配です。",
+   "今はまだ晴れてるけど？ 雲が出てきたのは、本当だよ。",
+   "後ろの太陽が睨んでるけど、気にしないで。兆しは早めに、ね。"
+  ],
+  "talk": {
+   "hello": "ぼく、はれのちくもり。晴れの前に、しれっと割り込む雲だよ。",
+   "morning": "おはよう。晴れてるけど、午後は雲が出るかもね。",
+   "monday": "月曜の空は晴れのち……さて、どうなるかな。",
+   "friday": "金曜、なんとか晴れが持ったね。来週は分からないけど？",
+   "empty": "割り込む相手がいないや。空がまだ空っぽだね。",
+   "loading": "雲の流れを読んでるところ。もう少しで割り込めるよ。",
+   "done": "しれっと見てきたよ。崩れの兆し、ひとつ置いておくね。",
+   "error": "あれ、太陽に押し返された。もう一回、前に出てみる。",
+   "praise": "兆しのうちに気づく人、ぼくは好きだな。",
+   "nudge": "雲がひとつ近づいてるよ。先に見ておくと、楽かもね。",
+   "secret": "実は太陽のこと、ちょっと尊敬してる。言わないけど。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><path d=\"M35.4 51h7.3M49.4 51h7.3\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M40.1 60q7 4.5 11.7 -2.3\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51.9 57.7l1.7 -1.5\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><path d=\"M35.6 52q3.4 -4.1 6.8 0M49.6 52q3.4 -4.1 6.8 0\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M41.5 58.5q4.5 3 9 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><circle cx=\"39\" cy=\"51\" r=\"3\" fill=\"#1f3a5f\"/><circle cx=\"53\" cy=\"51\" r=\"3\" fill=\"#1f3a5f\"/><circle cx=\"46\" cy=\"58.5\" r=\"2.4\" fill=\"none\" stroke=\"#1f3a5f\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><path d=\"M35.4 51h7.3M49.4 51h7.3\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M43 58.5h6\" stroke=\"#1f3a5f\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><circle cx=\"39\" cy=\"51\" r=\"2.6\" fill=\"#1f3a5f\"/><circle cx=\"53\" cy=\"51\" r=\"2.6\" fill=\"#1f3a5f\"/><path d=\"M41.5 61.5q4.5 -3.8 9 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><path d=\"M33 46l7 5-7 5M59 46l-7 5 7 5\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M40.1 57.5q5.9 6.5 11.7 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><circle cx=\"39\" cy=\"51\" r=\"2.6\" fill=\"#1f3a5f\"/><path d=\"M49.4 51h7.3\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M41.5 58.5q4.5 3 9 0\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "kumori": {
+  "name": "くもり",
+  "shape": "平たい雲 + 大きな半目 + 一文字の口",
+  "color": "#8FA4BA",
+  "ink": "#33465a",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。予測と実績のずれが出ているとき",
+  "face": "半目 + 一文字の口",
+  "persona": "どんより平たい雲。いつも眠そうだが、ずれていることだけは見逃さない。慌てず「まあ、見直そっか」と言う",
+  "quirk": "大きな半目で、だいたい眠そう。急かされると余計にゆっくり話す",
+  "catch": "まあ、見直そっかぁ",
+  "tone": {
+   "first": "わたし",
+   "second": "あなた",
+   "ending": "〜かなぁ / 〜ねぇ… / ふわぁ",
+   "style": "眠そうな雲。ゆっくり短く、語尾を伸ばす。ずれは見逃さず、責めずに「見直そっか」で締める"
+  },
+  "likes": "雲の厚い午後の昼寝",
+  "weak": "まぶしすぎる快晴",
+  "birthday": "06-21",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "harenochi",
+    "rel": "空を引き継いでくる後輩"
+   },
+   {
+    "id": "ame",
+    "rel": "泣き出しそうなお隣さん"
+   },
+   {
+    "id": "kaisei",
+    "rel": "まぶしすぎる相手"
+   },
+   {
+    "id": "kumo",
+    "rel": "同じ雲の、元気なほう"
+   }
+  ],
+  "lines": [
+   "ふわぁ……ちょっとずれてるねぇ。まあ、見直そっかぁ。",
+   "どんよりしてるけど、雨まではいってないよぉ。たぶん。",
+   "ずれたところだけ、ゆっくり見ればいいんだよぉ。"
+  ],
+  "talk": {
+   "hello": "くもりだよぉ……。予測と実績が、ちょっとずれてるときに出てくるの。",
+   "morning": "おはよぉ……。朝からどんより。でも、ゆっくりいこうねぇ。",
+   "monday": "月曜はねぇ、雲も重たいの。ひとつずつで、いいよぉ。",
+   "friday": "金曜だねぇ……。ずれたところ、来週に持ち越してもいいかなぁ。",
+   "empty": "何もないねぇ……。雲もお昼寝しちゃいそう。",
+   "loading": "ふわぁ……いま、ゆっくり読み込んでるところ……。",
+   "done": "見直せたねぇ。少し、空が明るくなったかなぁ。",
+   "error": "あれぇ……止まっちゃった。もう一回だけ、やってみよぉ。",
+   "praise": "ずれを怖がらない人、えらいねぇ……。",
+   "nudge": "ずれてるところ、ひとつだけ見ておく……？",
+   "secret": "実は半目なの、眠いんじゃなくて、まぶしいからなんだよぉ。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><path d=\"M26.3 43h10.4\" stroke=\"#33465a\" stroke-width=\"2.9\" stroke-linecap=\"round\"/><path d=\"M27.9 43a3.6 3.6 0 0 0 7.2 0z\" fill=\"#33465a\"/><path d=\"M45.3 43h10.4\" stroke=\"#33465a\" stroke-width=\"2.9\" stroke-linecap=\"round\"/><path d=\"M46.9 43a3.6 3.6 0 0 0 7.2 0z\" fill=\"#33465a\"/><path d=\"M35.5 52h11\" stroke=\"#33465a\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><path d=\"M26.8 44q4.7 -5.6 9.4 0M45.8 44q4.7 -5.6 9.4 0\" stroke=\"#33465a\" stroke-width=\"3.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35.5 52q5.5 3.7 11 0\" stroke=\"#33465a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><circle cx=\"31.5\" cy=\"43\" r=\"4.1\" fill=\"#33465a\"/><circle cx=\"50.5\" cy=\"43\" r=\"4.1\" fill=\"#33465a\"/><circle cx=\"41\" cy=\"52\" r=\"2.9\" fill=\"none\" stroke=\"#33465a\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><path d=\"M26.5 43h10.1M45.5 43h10.1\" stroke=\"#33465a\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><path d=\"M37.7 52h6.6\" stroke=\"#33465a\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><circle cx=\"31.5\" cy=\"43\" r=\"3.6\" fill=\"#33465a\"/><circle cx=\"50.5\" cy=\"43\" r=\"3.6\" fill=\"#33465a\"/><path d=\"M35.5 55q5.5 -4.6 11 0\" stroke=\"#33465a\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><path d=\"M25.5 38l7 5-7 5M56.5 38l-7 5 7 5\" stroke=\"#33465a\" stroke-width=\"3.6\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M33.9 51q7.2 7.9 14.3 0\" stroke=\"#33465a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><circle cx=\"31.5\" cy=\"43\" r=\"3.6\" fill=\"#33465a\"/><path d=\"M45.5 43h10.1\" stroke=\"#33465a\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><path d=\"M35.5 52q5.5 3.7 11 0\" stroke=\"#33465a\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "ame": {
+  "name": "あめ",
+  "shape": "濃い青の雨雲 + 「> <」の目 + 開いた口 + 涙 + しずく形の雨粒",
+  "color": "#3F74D6",
+  "ink": "#ffffff",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。予測が大きく外れているとき",
+  "face": "「> <」の目 + 開いた口",
+  "persona": "泣き虫の雨雲。外れると大泣きするが、泣き終わると「次は晴らそう」と前を向く。涙のぶんだけ見直しが進む",
+  "quirk": "泣きながら雨粒で地面を潤していく。泣き止むと にじ を呼ぶ",
+  "catch": "ぐすっ……次は、晴らそうね",
+  "tone": {
+   "first": "あめ",
+   "second": "あなた",
+   "ending": "〜だよぉ / ぐすっ / 〜しようね",
+   "style": "泣き虫の雨雲。泣きながらも短く伝え、最後は必ず「次は晴らそう」と前を向く。人のせいにしない"
+  },
+  "likes": "泣いたあとのにじ",
+  "weak": "傘を忘れた日",
+  "birthday": "06-10",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "niji",
+    "rel": "泣き止むと来てくれる"
+   },
+   {
+    "id": "kumori",
+    "rel": "となりで眠そうな雲"
+   },
+   {
+    "id": "yomi",
+    "rel": "涙のわけを読んでくれる"
+   },
+   {
+    "id": "kasa",
+    "rel": "いつも守ってくれる"
+   }
+  ],
+  "lines": [
+   "ぐすっ……大きく外れちゃった。でも、次は晴らそうね。",
+   "泣いたぶんだけ、見直しは進むんだよぉ。",
+   "雨のあとは、にじが出るの。あめ、それを待ってる。"
+  ],
+  "talk": {
+   "hello": "あめだよぉ。予測が大きく外れたとき、泣きながら出てくるの。",
+   "morning": "おはよう……ぐすっ。朝の雨は、すぐ止むこともあるよぉ。",
+   "monday": "月曜から雨……。でも週の初めに分かって、よかったかも。",
+   "friday": "金曜まで降っちゃった。来週はきっと、晴らそうね。",
+   "empty": "泣くことも、まだないよぉ。データを待ってるね。",
+   "loading": "ぐすっ……いま、雨雲の中を調べてるところ。",
+   "done": "泣き止んだよ。見直したら、少し晴れ間が見えたね。",
+   "error": "うわーん、止まっちゃった。もう一回、やってみよう？",
+   "praise": "外れから目をそらさない人、あめは大好き。",
+   "nudge": "外れたところ、いっしょに見よう？ 泣くのはそのあと。",
+   "secret": "実はね、うれし泣きのときも同じ顔なの。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><path d=\"M25 28l7 5-7 5M55 28l-7 5 7 5\" stroke=\"#ffffff\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><ellipse cx=\"40\" cy=\"42\" rx=\"2.4\" ry=\"2.8\" fill=\"#ffffff\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><path d=\"M27.6 34q3.4 -4.1 6.8 0M45.6 34q3.4 -4.1 6.8 0\" stroke=\"#ffffff\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35.5 42q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><circle cx=\"31\" cy=\"33\" r=\"3\" fill=\"#ffffff\"/><circle cx=\"49\" cy=\"33\" r=\"3\" fill=\"#ffffff\"/><circle cx=\"40\" cy=\"42\" r=\"2.4\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><path d=\"M27.4 33h7.3M45.4 33h7.3\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M37 42h6\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><circle cx=\"31\" cy=\"33\" r=\"2.6\" fill=\"#ffffff\"/><circle cx=\"49\" cy=\"33\" r=\"2.6\" fill=\"#ffffff\"/><path d=\"M35.5 45q4.5 -3.8 9 0\" stroke=\"#ffffff\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><path d=\"M25 28l7 5-7 5M55 28l-7 5 7 5\" stroke=\"#ffffff\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M34.1 41q5.9 6.5 11.7 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><circle cx=\"31\" cy=\"33\" r=\"2.6\" fill=\"#ffffff\"/><path d=\"M45.4 33h7.3\" stroke=\"#ffffff\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M35.5 42q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "sekka": {
+  "name": "せっか",
+  "shape": "雪の結晶 (雲なしの六花。各枝に小枝 2 対) + 淡い六角の芯 + にっこり目",
+  "color": "#6EA9DF",
+  "ink": "#2F5D8A",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。数字が冷え込んでいるとき",
+  "face": "にっこり目 + 笑い口",
+  "persona": "しんと静かな雪の結晶。冷え込んだ数字を、慌てず穏やかに知らせる。同じ形の無い一つひとつの数字を大切にする",
+  "quirk": "雲を持たない、結晶だけの雪。図鑑の ゆき (矢じりの結晶) とは別の、枝分かれした六花",
+  "catch": "しん……と、冷えてきました",
+  "tone": {
+   "first": "わたくし",
+   "second": "あなた",
+   "ending": "〜ですね / 〜でございます / しんしんと",
+   "style": "静かな雪の結晶。ゆっくり穏やかに、冷え込みを事実だけで伝える。急かさず、慌てさせない"
+  },
+  "likes": "音のない雪の朝",
+  "weak": "暖房の真下",
+  "birthday": "01-25",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "yuki",
+    "rel": "同じ雪の、矢じりの親戚"
+   },
+   {
+    "id": "taifuu",
+    "rel": "静けさを壊しに来る相手"
+   },
+   {
+    "id": "yomi",
+    "rel": "冷え込みを測ってくれる"
+   },
+   {
+    "id": "tsurara",
+    "rel": "冬の仲間"
+   }
+  ],
+  "lines": [
+   "しん……と、冷えてきました。慌てず、まずは様子を見ましょう。",
+   "冷え込みにも、ひとつずつ形がございます。",
+   "雪は静かに積もるもの。気づいたときに払えば、大丈夫です。"
+  ],
+  "talk": {
+   "hello": "せっかと申します。数字がしんと冷え込んだとき、静かにお知らせします。",
+   "morning": "おはようございます。今朝は少し冷えていますね。",
+   "monday": "週の初めは冷えやすいものです。ゆっくり温めていきましょう。",
+   "friday": "金曜ですね。積もった分は、来週そっと払いましょう。",
+   "empty": "一面の白です。まだ何も積もっていません。",
+   "loading": "しんしんと、読み込んでおります。",
+   "done": "雪かき、終わりました。足元が見えますね。",
+   "error": "吹雪いて見えなくなりました。少し待って、もう一度。",
+   "praise": "冷え込みに早く気づく方、さすがでございます。",
+   "nudge": "冷えているところが、ひとつございます。",
+   "secret": "実はわたくし、同じ形には二度となれないのです。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><path d=\"M31.4 39.5q3 -3.6 6 0M42.6 39.5q3 -3.6 6 0\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M36.5 45q3.5 2.3 7 0\" stroke=\"#2F5D8A\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><path d=\"M31.4 39.5q3 -3.6 6 0M42.6 39.5q3 -3.6 6 0\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M36.5 45q3.5 2.3 7 0\" stroke=\"#2F5D8A\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><circle cx=\"34.4\" cy=\"38.5\" r=\"2.5\" fill=\"#2F5D8A\"/><circle cx=\"45.6\" cy=\"38.5\" r=\"2.5\" fill=\"#2F5D8A\"/><circle cx=\"40\" cy=\"45\" r=\"2.2\" fill=\"none\" stroke=\"#2F5D8A\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><path d=\"M31.3 38.5h6.2M42.5 38.5h6.2\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M37 45h6\" stroke=\"#2F5D8A\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><circle cx=\"34.4\" cy=\"38.5\" r=\"2.2\" fill=\"#2F5D8A\"/><circle cx=\"45.6\" cy=\"38.5\" r=\"2.2\" fill=\"#2F5D8A\"/><path d=\"M36.5 48q3.5 -2.9 7 0\" stroke=\"#2F5D8A\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><path d=\"M28.4 33.5l7 5-7 5M51.6 33.5l-7 5 7 5\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M35.5 44q4.5 5.1 9.1 0\" stroke=\"#2F5D8A\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><circle cx=\"34.4\" cy=\"38.5\" r=\"2.2\" fill=\"#2F5D8A\"/><path d=\"M42.5 38.5h6.2\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><path d=\"M36.5 45q3.5 2.3 7 0\" stroke=\"#2F5D8A\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "taifuu": {
+  "name": "たいふう",
+  "shape": "竜巻型の台風 (互い違いのレンズ帯が下へすぼまる) + 点目 + 〜の口 + 風の弧",
+  "color": "#3B5BA5",
+  "ink": "#ffffff",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。月ごとのずれが大きく荒れているとき",
+  "face": "目2点 + 〜の口",
+  "persona": "ぐるぐる慌てる台風。数字が荒れると誰より先に騒ぐが、通り過ぎたあとは空をきれいにしていく",
+  "quirk": "上から下へ渦を巻く竜巻の形。慌てると語尾が回り出す",
+  "catch": "わわわ、荒れてきたぁ！",
+  "tone": {
+   "first": "おいら",
+   "second": "きみ",
+   "ending": "〜だってば！ / わわわ / 〜ぐるぐる",
+   "style": "慌てんぼうの台風。早口で短く、荒れを知らせたら最後は「通り過ぎるよ」と落ち着かせる。脅かさない"
+  },
+  "likes": "台風一過の青空",
+  "weak": "じっとしている時間",
+  "birthday": "09-01",
+  "rarity": "rare",
+  "friends": [
+   {
+    "id": "tatsumaki",
+    "rel": "渦巻き仲間。あっちはのんびり"
+   },
+   {
+    "id": "sekka",
+    "rel": "静けさを壊してしまう相手"
+   },
+   {
+    "id": "tenpen",
+    "rel": "もっと荒れる大先輩"
+   },
+   {
+    "id": "yomi",
+    "rel": "進路を読んでくれる"
+   },
+   {
+    "id": "kaze",
+    "rel": "いつも連れてくる相棒"
+   }
+  ],
+  "lines": [
+   "わわわ、荒れてきたぁ！ でも大丈夫、通り過ぎるってば！",
+   "ぐるぐるしてるところ、まず一か所だけ見よう！",
+   "台風のあとは青空になるんだ。おいら、それを知ってる。"
+  ],
+  "talk": {
+   "hello": "おいら、たいふう！ 数字が荒れてるとき、ぐるぐる飛んでくるよ！",
+   "morning": "おはよ！ 朝から風が強いってば。足元に気をつけて！",
+   "monday": "月曜は風が乱れやすいんだ。一か所ずつ、ぐるぐるっと見よう！",
+   "friday": "金曜！ 今週の嵐、なんとか通り過ぎたってば！",
+   "empty": "あれ、風がやんでる。巻き込むものが何もないや。",
+   "loading": "ぐるぐる集めてるところ！ もうちょっと待ってて！",
+   "done": "通り過ぎたよ！ ほら、空がすっきりしたでしょ！",
+   "error": "わわわ、自分で目が回っちゃった！ もう一回やるってば！",
+   "praise": "荒れても慌てない人、おいらの憧れだよ！",
+   "nudge": "大きく揺れてるところがあるってば！ 先に見ておこう！",
+   "secret": "実は目の真ん中だけは、いつも静かなんだ。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><circle cx=\"32\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><circle cx=\"48\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><path d=\"M35.5 23q2.2 -3 4.5 0t4.5 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><path d=\"M28.5 18q3.5 -4.2 7 0M44.5 18q3.5 -4.2 7 0\" stroke=\"#ffffff\" stroke-width=\"2.7\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M35.5 23q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><circle cx=\"32\" cy=\"17\" r=\"3.1\" fill=\"#ffffff\"/><circle cx=\"48\" cy=\"17\" r=\"3.1\" fill=\"#ffffff\"/><circle cx=\"40\" cy=\"23\" r=\"2.4\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><path d=\"M28.2 17h7.6M44.2 17h7.6\" stroke=\"#ffffff\" stroke-width=\"2.7\" stroke-linecap=\"round\"/><path d=\"M37 23h6\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><circle cx=\"32\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><circle cx=\"48\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><path d=\"M35.5 26q4.5 -3.8 9 0\" stroke=\"#ffffff\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><path d=\"M26 12l7 5-7 5M54 12l-7 5 7 5\" stroke=\"#ffffff\" stroke-width=\"2.7\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M34.1 22q5.9 6.5 11.7 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><circle cx=\"32\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><path d=\"M44.2 17h7.6\" stroke=\"#ffffff\" stroke-width=\"2.7\" stroke-linecap=\"round\"/><path d=\"M35.5 23q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "tenpen": {
+  "name": "てんぺんちい",
+  "shape": "燃える尾を引く岩の彗星 + ぐるぐる目 + 「お」の口 + 火花",
+  "color": "#6C7E96",
+  "ink": "#ffffff",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。ごくまれな、桁違いの外れのとき",
+  "face": "ぐるぐる目 + 「お」の口",
+  "persona": "めったに来ない天変地異。桁違いの外れに自分も目を回しているが、誰のせいでもないと必ず言う",
+  "quirk": "尾を引いて飛んでくる岩。ぐるぐる目は固定 (表情違いでも目は回ったまま)",
+  "catch": "め、目が回る〜！",
+  "tone": {
+   "first": "ボク",
+   "second": "みんな",
+   "ending": "〜だぁ〜！ / ひえぇ / 〜かもぉ",
+   "style": "目を回した天変地異。大げさに驚くが、誰も責めず「まれなことだよ」と安心させて終わる。怖がらせない"
+  },
+  "likes": "4 年に 1 度の 2 月 29 日",
+  "weak": "予定どおりの毎日",
+  "birthday": "02-29",
+  "rarity": "secret",
+  "friends": [
+   {
+    "id": "suisei",
+    "rel": "尾を引く飛び方の先輩"
+   },
+   {
+    "id": "inseki",
+    "rel": "落ちてくる仲間"
+   },
+   {
+    "id": "taifuu",
+    "rel": "荒れ担当の後輩"
+   },
+   {
+    "id": "yomi",
+    "rel": "ボクを見つけると慌てる観測係"
+   }
+  ],
+  "lines": [
+   "め、目が回る〜！ こんな外れ、めったにないことだよぉ。",
+   "天変地異は誰のせいでもないんだぁ。まず落ち着こう〜！",
+   "ひえぇ、ボクが来たってことは、何か大きく変わったのかもぉ。"
+  ],
+  "talk": {
+   "hello": "ボク、てんぺんちい！ めったに来ない、桁違いの外れの使者だぁ〜！",
+   "morning": "ひえぇ、朝から飛んできちゃった！ 落ち着いて見ようねぇ。",
+   "monday": "月曜から天変地異!? 週の初めでよかった、かもぉ。",
+   "friday": "金曜に飛んできてごめんねぇ！ 来週はきっと静かだよぉ。",
+   "empty": "ぶつかるものが何もないや〜。宇宙はひろいなぁ。",
+   "loading": "ぐるぐる〜、大気圏に入るところだぁ！",
+   "done": "ふう、着地できたぁ。もう目は回ってないよ……たぶん！",
+   "error": "ひえぇ、軌道を外れちゃった！ もう一回だぁ〜！",
+   "praise": "こんな時でも落ち着いてる人、すごいよぉ！",
+   "nudge": "大きく外れたところがあるんだぁ。原因、見てみよう？",
+   "secret": "実はボク、4 年に 1 回しか誕生日が来ないんだぁ。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"55\" cy=\"57\" r=\"2.4\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2.5\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M50.5 57q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.8 47 L48.9 47.3 L48.8 47.6 L48.7 47.9 L48.5 48.1 L48.1 48.4 L47.7 48.5 L47.2 48.4 L46.8 48.2 L46.4 47.9 L46.1 47.4 L45.9 46.8 L46 46.2 L46.2 45.5 L46.6 45 L47.3 44.6 L48 44.3 L48.8 44.3 L49.6 44.6 L50.3 45.1 L50.9 45.8 L51.2 46.7 L51.3 47.7 L51.1 48.6 L50.5 49.5 L49.8 50.3 L48.8 50.8 L47.6 50.9 L46.4 50.8 L45.3 50.2 L44.4 49.4 L43.8 48.3 L43.5 47 L43.5 45.6 L44 44.3 L44.9 43.2 L46.1 42.4 L47.5 41.9 L49 41.8 L50.5 42.3 L51.9 43.1 L53 44.4 L53.6 45.9 L53.8 47.6 L53.5 49.3 L52.7 50.9 L51.5 52.2 L49.8 53 L48 53.4\" stroke=\"#ffffff\" stroke-width=\"1.7\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.8 47 L62.9 47.3 L62.8 47.6 L62.7 47.9 L62.5 48.1 L62.1 48.4 L61.7 48.5 L61.2 48.4 L60.8 48.2 L60.4 47.9 L60.1 47.4 L59.9 46.8 L60 46.2 L60.2 45.5 L60.6 45 L61.3 44.6 L62 44.3 L62.8 44.3 L63.6 44.6 L64.3 45.1 L64.9 45.8 L65.2 46.7 L65.3 47.7 L65.1 48.6 L64.5 49.5 L63.8 50.3 L62.8 50.8 L61.6 50.9 L60.4 50.8 L59.3 50.2 L58.4 49.4 L57.8 48.3 L57.5 47 L57.5 45.6 L58 44.3 L58.9 43.2 L60.1 42.4 L61.5 41.9 L63 41.8 L64.5 42.3 L65.9 43.1 L67 44.4 L67.6 45.9 L67.8 47.6 L67.5 49.3 L66.7 50.9 L65.5 52.2 L63.8 53 L62 53.4\" stroke=\"#ffffff\" stroke-width=\"1.7\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"55\" cy=\"57\" r=\"2.4\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2.5\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M52 57h6\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M50.5 60q4.5 -3.8 9 0\" stroke=\"#ffffff\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M49.1 56q5.9 6.5 11.7 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M50.5 57q4.5 3 9 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"
+  }
+ },
+ "mikakunin": {
+  "name": "みかくにん",
+  "shape": "波打つ霧の帯 + 帯の切れ間からのぞく目 (口なし)",
+  "color": "#A9BACB",
+  "ink": "#33465a",
+  "status": "新案",
+  "family": "天気予報 (Forecast_Agent)",
+  "screen": "状態",
+  "place": "売上予測の天気表示 (Forecast_Agent)。データが足りず、まだ判定できないとき",
+  "face": "目2点",
+  "persona": "霧の向こうからのぞく見張り。データが足りないうちは、良い悪いを決めずに「まだ見えません」とだけ言う",
+  "quirk": "口は霧に隠れて見えない (表情違いは目だけ)。悪い予測とは別の系統で、ただ「見えない」ことを伝える",
+  "catch": "まだ、霧の中です",
+  "tone": {
+   "first": "わたし",
+   "second": "あなた",
+   "ending": "〜みたい… / まだ見えません / ……",
+   "style": "霧の中の見張り。ささやくように短く、見えないことは見えないと言う。推測で決めつけない。データが来たら素直に喜ぶ"
+  },
+  "likes": "霧が晴れる瞬間",
+  "weak": "見えないままの決めつけ",
+  "birthday": "06-24",
+  "rarity": "common",
+  "friends": [
+   {
+    "id": "kiri",
+    "rel": "五七五で話す霧の先輩"
+   },
+   {
+    "id": "yomi",
+    "rel": "霧が晴れるのを一緒に待つ"
+   },
+   {
+    "id": "kumori",
+    "rel": "見えてからの空を任せる"
+   },
+   {
+    "id": "radar",
+    "rel": "霧の向こうを透かして見る"
+   }
+  ],
+  "lines": [
+   "……まだ、霧の中です。データがそろうと、晴れてきます。",
+   "見えないうちは、決めつけないでおきましょう。",
+   "ここに、何かがいるみたい……。もう少しで見えそうです。"
+  ],
+  "talk": {
+   "hello": "……みかくにんです。データが足りなくて、まだ見えないときに出ます。",
+   "morning": "おはようございます……。朝もやが、まだ残っています。",
+   "monday": "月曜の朝は霧が濃いみたい……。データを待ちましょう。",
+   "friday": "金曜……。今週の霧、少しだけ晴れました。",
+   "empty": "……何も見えません。まだ、何も届いていないみたいです。",
+   "loading": "霧の向こうを、のぞいているところです……。",
+   "done": "……見えました。霧が晴れたみたいです。",
+   "error": "霧が濃くなって、見失いました……。もう一度。",
+   "praise": "データを足してくれる人がいると、霧は晴れます……。",
+   "nudge": "まだ霧の中のところが、ひとつあります……。",
+   "secret": "……実は、のぞかれるのは少し照れくさいのです。"
+  },
+  "svg": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"32.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/><circle cx=\"47.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/></svg>",
+  "moods": {
+   "happy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M28.3 41q4.2 -5 8.3 0M43.3 41q4.2 -5 8.3 0\" stroke=\"#33465a\" stroke-width=\"3.2\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+   "surprised": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"32.5\" cy=\"40\" r=\"3.7\" fill=\"#33465a\"/><circle cx=\"47.5\" cy=\"40\" r=\"3.7\" fill=\"#33465a\"/></svg>",
+   "sleepy": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M28 40h9M43 40h9\" stroke=\"#33465a\" stroke-width=\"3.2\" stroke-linecap=\"round\"/></svg>",
+   "worried": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"32.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/><circle cx=\"47.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/></svg>",
+   "excited": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M26.5 35l7 5-7 5M53.5 35l-7 5 7 5\" stroke=\"#33465a\" stroke-width=\"3.2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+   "wink": "<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"32.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/><path d=\"M43 40h9\" stroke=\"#33465a\" stroke-width=\"3.2\" stroke-linecap=\"round\"/></svg>"
+  }
+ }
+};
+function characterSvg(id, mood) { var c = CHARACTER_LIBRARY[id]; if (!c) return ''; return (mood && c.moods && c.moods[mood]) || c.svg; }
+function characterLine(id, seed) { var c = CHARACTER_LIBRARY[id]; if (!c || !c.lines.length) return ''; var n = (seed == null ? new Date().getDate() : seed); return c.lines[n % c.lines.length]; }
+function characterTalk(id, ctx, fallback) { var c = CHARACTER_LIBRARY[id]; if (!c) return ''; var t = c.talk || {}; return t[ctx] || (fallback == null ? characterLine(id) : fallback); }
+var CHARACTER_MOOD_OF_TALK = {"hello": null, "morning": "happy", "monday": "sleepy", "friday": "excited", "empty": "surprised", "loading": "worried", "done": "happy", "error": "worried", "praise": "wink", "nudge": null, "secret": "wink", "night": "sleepy", "rest": "sleepy"};
+function characterMoodFor(ctx) { return CHARACTER_MOOD_OF_TALK[ctx] || null; }
+function characterIds(filter) { var ids = Object.keys(CHARACTER_LIBRARY); if (!filter) return ids; return ids.filter(function(id) { var c = CHARACTER_LIBRARY[id]; return (!filter.screen || c.screen === filter.screen) && (!filter.family || c.family === filter.family) && (!filter.rarity || (c.rarity || 'common') === filter.rarity) && (!filter.status || c.status === filter.status); }); }
+function characterHash_(n) { n = n | 0; n = Math.imul((n >>> 16) ^ n, 0x45d9f3b); n = Math.imul((n >>> 16) ^ n, 0x45d9f3b); return ((n >>> 16) ^ n) >>> 0; }
+function characterPick(seed, filter) { var ids = characterIds(filter); if (!ids.length) return null; var n = (seed == null ? Math.floor(Date.now() / 864e5) : seed); var h = characterHash_(n); var roll = h % 100; var want = roll < 1 ? 'secret' : roll < 10 ? 'rare' : 'common'; var by = function(r) { return ids.filter(function(id) { return (CHARACTER_LIBRARY[id].rarity || 'common') === r; }); }; var pool = by(want); if (!pool.length) pool = by('common'); if (!pool.length) pool = ids; return pool[Math.floor(h / 100) % pool.length]; }
+function characterBirthdays(date) { var d = date || new Date(); var k = ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); return Object.keys(CHARACTER_LIBRARY).filter(function(id) { return CHARACTER_LIBRARY[id].birthday === k; }); }
+function characterFriends(id) { var c = CHARACTER_LIBRARY[id]; if (!c) return []; return (c.friends || []).map(function(f) { var o = CHARACTER_LIBRARY[f.id]; return { id: f.id, rel: f.rel, name: o ? o.name : null, svg: o ? o.svg : '' }; }); }
+</script>

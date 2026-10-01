@@ -120,3 +120,49 @@ def svg_of(c, mood=None):
     """図鑑の compose() と同じ合成 (body + 顔)。mood で表情違い"""
     return kit.compose(c[2], c[3], c[4], mood)
 
+
+# ---------- よみ 5 ポーズ (body と fs の組。顔は図鑑の部品) ----------
+RING = '#E5F4FD'  # 画面の淡い青 (Forecast_WebAppUI の --primary-soft)
+def tilt(s, a, cx=40, cy=24):
+    return f'<g transform="rotate({a} {cx} {cy})">{s}</g>'
+def signal(cx, cy, color=Y_LIGHT):
+    """受信中を示す小さな電波の弧 2 本 (右向き)"""
+    return (f'<path d="M{f(cx)} {f(cy-4)}a5 5 0 0 1 0 8" stroke="{color}" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
+            f'<path d="M{f(cx+3.6)} {f(cy-7)}a9 9 0 0 1 0 14" stroke="{color}" stroke-width="2.2" fill="none" stroke-linecap="round"/>')
+_MAGNIFIER = (f'<path d="M64 50l6-8" stroke="{NAVY}" stroke-width="3.4" stroke-linecap="round"/>'
+              f'<circle cx="71.5" cy="35.5" r="5.6" fill="{RING}" stroke="{NAVY}" stroke-width="2.6"/>'
+              f'<path d="M68.3 39.8l-2.8 3.6" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>')
+_CHART_CARD = (f'<rect x="58.5" y="23" width="20" height="16" rx="3.5" fill="{WHITE}" stroke="{NAVY}" stroke-width="2.2"/>'
+               f'<path d="M62.2 34.6l4-4.2 3.2 2.6 5.2-6.2" stroke="{Y_BLUE}" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>')
+_POINTER = (f'<path d="M63 54l6-4" stroke="{NAVY}" stroke-width="3.4" stroke-linecap="round"/><circle cx="69.5" cy="49.5" r="3.6" fill="{NAVY}"/>'
+            f'<path d="M69.5 49.5L64 39.5" stroke="{NAVY}" stroke-width="2" stroke-linecap="round"/>')
+_ALERT = f'<path d="M72 6v11" stroke="{RAY}" stroke-width="4.2" stroke-linecap="round"/><circle cx="72" cy="24.4" r="2.5" fill="{RAY}"/>'
+_CHECK = (f'<circle cx="70" cy="31" r="8.6" fill="{Y_BLUE}" stroke="{WHITE}" stroke-width="2"/>'
+          f'<path d="M66 31.2l3 3 5.4-6" stroke="{WHITE}" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>')
+# (key, 表示名, body, fs, 用途)
+YOMI_POSES = [
+    ('guide', '通常案内', yomi_body, dict(YOMI_FS), 'ホームの「次の一手」など、ふだんの案内'),
+    ('observe', '観測中', aerovane() + signal(58, 13) + arm(16, 52, 9.4, 61) + YOMI_SHELL + _MAGNIFIER,
+     dict(YOMI_FS, x=42.5, mouth='line', w=7, my=8), '取り込み・計算・読み込みの待ち時間'),
+    ('discover', '変化発見', tilt(aerovane(), -14) + arm(17, 50, 8.5, 41) + arm(63, 50, 71.5, 41) + YOMI_SHELL + _ALERT,
+     dict(YOMI_FS, mouth='o', r=4.0, w=9, my=8.5), '前回からの変化・注意点を知らせるとき'),
+    ('explain', '説明中', aerovane() + arm(16, 52, 9.4, 61) + YOMI_SHELL + _CHART_CARD + _POINTER,
+     dict(YOMI_FS), '数値・グラフ・検証結果の読み方を説明するとき'),
+    ('done', '確認完了', aerovane() + arm(16, 52, 9.4, 61) + arm(64, 49, 69, 40) + YOMI_SHELL + _CHECK,
+     dict(YOMI_FS, eyes='arcs', mouth='grin', w=9, my=7.5), '保存・実行・確認が終わったとき'),
+]
+def pose_svg(p):
+    return kit.compose(p[2], p[3], Y_CYAN)
+
+# ---------- ファビコン (よみの頭だけを 32 升に枠いっぱいで描いた専用の絵) ----------
+# 16px のタブでつぶれないよう、手足を省いて頭と顔を大きくし、風車型風向風速計は小さく載せる。色は本体と同じ
+FAVICON_SVG = ('<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">'
+               f'<path d="M16 9V4.6" stroke="{NAVY}" stroke-width="2.2" stroke-linecap="round"/>'
+               f'<path d="M11 4a1.8 1.8 0 0 1 1.8-1.8h6.4l2.6 1.8-2.6 1.8h-6.4A1.8 1.8 0 0 1 11 4z" fill="{NAVY}"/>'
+               f'<path d="M19.4 2.6l2.4-2.6h2.2l-1.4 2.6zM19.4 5.4l2.4 2.6h2.2l-1.4-2.6z" fill="{NAVY}"/>'
+               f'<rect x="8.4" y="0.2" width="2.2" height="7.6" rx="1.1" fill="{Y_LIGHT}"/>'
+               f'<path d="M0.5 20.5C0.5 13 7.4 7.2 16 7.2S31.5 13 31.5 20.5V25.5a6.5 6.5 0 0 1-6.5 6.5H7A6.5 6.5 0 0 1 .5 25.5z" fill="{Y_BLUE}"/>'
+               f'<rect x="3.6" y="13.6" width="24.8" height="15" rx="5.5" fill="{NAVY}"/>'
+               f'<circle cx="10.8" cy="19.8" r="2.8" fill="{Y_CYAN}"/><circle cx="21.2" cy="19.8" r="2.8" fill="{Y_CYAN}"/>'
+               f'<path d="M12.4 24.2q3.6 2.6 7.2 0" stroke="{Y_CYAN}" stroke-width="2" fill="none" stroke-linecap="round"/>'
+               '</svg>')

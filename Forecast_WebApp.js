@@ -23,11 +23,33 @@
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('Forecast_WebAppUI');
   t.bootJson = webJson_(webGetBootstrap_());
-  return t.evaluate()
+  const out = t.evaluate()
     .setTitle('クライアント別売上予測')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  return webSetFavicon_(out);
 }
+
+/**
+ * タブのアイコンを案内キャラ「よみ」にする（下の FORECAST_FAVICON_URL）。
+ * ページ内の <link rel="icon"> は Apps Script に無視されるため HtmlOutput.setFaviconUrl で渡す。
+ * 失敗しても画面は止めず、既定のアイコンのまま返す。
+ */
+function webSetFavicon_(out) {
+  try {
+    out.setFaviconUrl(FORECAST_FAVICON_URL);
+  } catch (err) {
+    Logger.log('webSetFavicon_: ' + (err && err.message ? err.message : err));
+  }
+  return out;
+}
+
+// ===== タブのアイコン（自動生成: assets/characters/src/build.py。この区間は手で編集しない） =====
+// 案内キャラ「よみ」の頭を枠いっぱいに描いた 64x64 の PNG（assets/characters/favicon/yomi_favicon_64.png）。
+// 末尾の #favicon.png は消さない。Apps Script は末尾が画像の拡張子でない URL を例外なしで捨てる（# 以降は画像データではない）。
+// 別ファイルにしないのは、管理ハブ runtime の許可リスト（VNEXT_ADMIN_RUNTIME_FILE_TYPES_ の 21 ファイル）を変えないため。
+const FORECAST_FAVICON_URL = 'data:image/png;base64,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#favicon.png';
+// ===== /タブのアイコン =====
 
 function webJson_(obj) {
   return JSON.stringify(obj).replace(/</g, '\\u003c');
