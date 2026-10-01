@@ -249,6 +249,7 @@ details.fold .inner{padding:0 20px 18px}
   <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M3 19l6-9 4 4 8-11" stroke="#00A0E9" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="ttl">クライアント別売上予測</div>
   <a class="book" id="bookLink" target="_blank" rel="noopener">スプレッドシートで開く</a>
+  <a class="book" id="auditLink" target="_blank" rel="noopener" style="display:none">操作の記録</a>
   <div class="spacer"></div>
   <div class="meta" id="hdrClient"></div>
   <div class="meta" id="hdrUser"></div>
@@ -466,6 +467,7 @@ function render(){
   document.getElementById('hdrClient').innerHTML = B.setup.client ? '対象: <b>'+esc(B.setup.client)+'</b> / FY'+B.setup.fy : '';
   document.getElementById('hdrUser').innerHTML = B.user ? '<b>'+esc(B.user.split('@')[0])+'</b>' : '';
   var book=document.getElementById('bookLink'); if(B.bookUrl)book.href=B.bookUrl;
+  var audit=document.getElementById('auditLink'), au=(B.access&&B.access.auditUrl)||''; if(audit){ audit.style.display=au?'':'none'; if(au)audit.href=au; }
   var v = { home:renderHome, prep:renderPrep, input:renderInput, forecast:renderForecast, 'eval':renderEval, quarterly:renderQuarterly }[state.view] || renderHome;
   document.getElementById('main').innerHTML = v();
   bindView();

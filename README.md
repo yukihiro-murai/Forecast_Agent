@@ -39,10 +39,12 @@ Adminコードを改修した後は、中央projectへclasp反映してからAdm
 
 ## 売上予測 Webアプリ（Legacy book の doGet）
 
-「クライアント別売上予測」スプレッドシートの bound script を `executeAs=USER_DEPLOYING` / `access=DOMAIN` の Webアプリとして公開しています。Legacy メニュー（A-2 取り込み → A-3 加工 → A-4 AI調査 → A-5〜A-8 主観入力 → A-9 予測 → A-10 予算入力 → B-1〜B-5 検証・自動学習 → C-1〜C-3 四半期レビュー）を、スプレッドシートを開かずにブラウザだけで一巡できる SPA です。
+「クライアント別売上予測」スプレッドシートの bound script を `executeAs=USER_DEPLOYING` の Webアプリとして公開しています。**2026-10-01 から公開範囲は `access=MYSELF`（所有者のみ）**です（段階0。理由と記録は下記）。Legacy メニュー（A-2 取り込み → A-3 加工 → A-4 AI調査 → A-5〜A-8 主観入力 → A-9 予測 → A-10 予算入力 → B-1〜B-5 検証・自動学習 → C-1〜C-3 四半期レビュー）を、スプレッドシートを開かずにブラウザだけで一巡できる SPA です。
 
 B-5（月次ベイズ自動学習 + Vertexアシスト）により、B-1/B-2 で実績評価が蓄積されるたび補正係数が自動更新され、次回 A-9 予測へ反映されます。設計は [`DESIGN_bayesian_autolearn_vertex_JA.md`](./DESIGN_bayesian_autolearn_vertex_JA.md) を参照。
 
 - 実装: [`Forecast_WebApp.js`](./Forecast_WebApp.js)（`doGet` + `webGetBootstrap` + `webRun*/webSave*` RPC）と [`Forecast_WebAppUI.html`](./Forecast_WebAppUI.html)（SPA）
 - 反映: `clasp push` 後に `clasp deploy --deploymentId <id>` で exec URL の版を上げる（`/dev` は Google ログイン必須のため運用には使わない）
 - 運用上の注意と検証手順は [`AI_HANDOFF.md`](./AI_HANDOFF.md) の「Webアプリ」を参照
+- **公開範囲を所有者のみにした理由（2026-10-01）:** Apps Script の Web アプリでは、名前の末尾が `_` でない関数（このプロジェクトで178個。初期化 `setupForecastBook`、全シート削除 `adminSetupGuideOnly`、vNext の管理機能を含む）を、画面に無くてもブラウザから `google.script.run` で呼べる。`USER_DEPLOYING` かつ社内ドメイン公開のままでは、社内の誰でもデプロイした人の権限でそれらを実行できたため。社内の他の人が使うのは、新しいアプリ（[`DESIGN_data_platform_JA.md`](./DESIGN_data_platform_JA.md)）ができてから。
+- **操作の記録:** Web からの書き込み・実行（17関数）は `webAudited_` を通し、年度ごとのログ用スプレッドシート「売上予測 ログ FYyyyy」の月別シート `AUDIT_yyyy_MM` に、開始と終了（OK / NEEDS_CONFIRM / FAILED / DENIED）、操作した人、変更前後の値を残す。各行は前の行のハッシュとつなぐ（改ざん・削除の検知用）。開始を記録できなければ処理しない。ログのファイルの ID は Script Property `FORECAST_LOG_SPREADSHEETS_JSON`、最新のハッシュは `FORECAST_AUDIT_LAST_HASH`。所有者以外の管理者を足すときは `FORECAST_WEB_ADMIN_EMAILS`（カンマ区切り）。画面上部の「操作の記録」から開ける（管理者のみ）。スプレッドシートのメニューからの操作は記録しない。

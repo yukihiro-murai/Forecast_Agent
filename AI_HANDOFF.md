@@ -4,6 +4,10 @@
 対象ブランチ: `cursor/portal-create-cta-landing-9c79`（先端 `cursor/portal-entry-ux-audit-2902` = Admin 簡素化 + Portal 1.7.39 の上に 1.7.40）  
 この文書の目的: チャット履歴や端末固有メモリを使わず、GitHub上のリポジトリだけから安全に作業を再開できるようにする。
 
+> **2026-10-01: データ基盤の再設計に移行中（[`DESIGN_data_platform_JA.md`](./DESIGN_data_platform_JA.md)、ユーザー承認済み）。** 段階0として、
+> クライアント年度ブックの新規作成とテンプレートの版の発行は**停止**、旧 Web アプリは所有者のみ、申請入口は社内全員の権限を外す。
+> vNext の新機能追加・新しい版の発行・新しい年度ブックの作成はしない。新しい作業は設計文書の段階に沿って行う。
+
 ## 最初に行うこと
 
 1. [`AGENTS.md`](./AGENTS.md) とワークスペースルートの `AGENTS.md` / `GIT_SYNC_RULES.md` を読む。
@@ -131,8 +135,10 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 ## Webアプリ（Legacy book doGet）
 
-「クライアント別売上予測」book の bound script を Webアプリとして公開済み（`executeAs=USER_DEPLOYING` / `access=DOMAIN`、deployment `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`）。Legacy メニュー全般をブラウザ上で一巡できる。
+「クライアント別売上予測」book の bound script を Webアプリとして公開済み（`executeAs=USER_DEPLOYING` / **`access=MYSELF`（2026-10-01 から。それ以前は DOMAIN）**、deployment `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`）。Legacy メニュー全般をブラウザ上で一巡できる。
 
+- **公開範囲を DOMAIN に戻さない。** Web アプリでは末尾が `_` でない関数（178個）をブラウザから `google.script.run` で呼べ、`USER_DEPLOYING` ではデプロイした人の権限で動く。DOMAIN だと社内の誰でも初期化や vNext の管理機能を実行できた（2026-10-01 に発見し、所有者のみに変更。README「売上予測 Webアプリ」）。社内向けの画面は新アプリ（DESIGN_data_platform_JA.md）で用意する。
+- **Web からの書き込み・実行は必ず `webAudited_` を通す**（開始を記録できなければ処理しない。`tests/forecast-webaudit.test.mjs` が 17 関数と公開範囲を見張る）。
 - 反映: `clasp push` だけでは exec URL の版は上がらない。`clasp deploy --deploymentId <上記ID> --description "クライアント別売上予測 Webアプリ"` で版を上げること。
 - Webアプリ context の落とし穴: `SpreadsheetApp.getUi()` は例外になる（toast / setActiveSheet は例外にならない）。UIアラートを出す既存経路は `safeSpreadsheetUi_()` / `alertOrThrow_()` でラップ済み。確認ダイアログ（A-9 の48ヶ月未満・極端入力）は `forecastConfirmOrAbort_()` が `err.webConfirm` を投げ、`webRunForecast` が `{needConfirm}` 戻り値に変換して SPA のモーダルに繋ぐ。新しい alert/confirm を足す場合は必ずこの2関数を使う。
 - `VNEXT_ADMIN_RUNTIME_FILE_TYPES_`（runtime copyの allowlist）は 21ファイル。Forecast_WebApp 系の追加/削除時は件数と中身を一致させること（不一致だと `vNextAdminVerifyScriptContent_` が失敗する）。

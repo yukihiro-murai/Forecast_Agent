@@ -92,6 +92,9 @@ function webGetBootstrap_() {
     runLog: webParseRunLog_(ss),
     learning: webParseLearning_(ss, client)
   };
+  // 操作の記録（監査ログ）へのリンクは管理者にだけ渡す
+  const actor = webActor_();
+  boot.access = { isAdmin: actor.isAdmin, auditUrl: actor.isAdmin ? webAuditLogUrl_() : '' };
 
   try {
     const vertex = readVertexConfig_();
@@ -473,13 +476,16 @@ function webParseRunLog_(ss) {
 
 /** A-1 相当：設定の保存（シートの全消去は Web では行わない）。 */
 function webSaveSetup(p) {
-  const client = String(p && p.client || '').trim();
-  const fy = Number(p && p.fy);
-  const people = String(p && p.peopleCsv || '').trim();
-  if (!client) throw new Error('クライアント（メーカー名）を選択してください。');
-  if (!fy || !isFinite(fy)) throw new Error('予測年度（FY）を選択してください。');
-  saveInitialSetupSettings(client, String(fy), people);
-  return webGetBootstrap_();
+  return webAudited_('SETUP.SAVE', () => {
+    const client = String(p && p.client || '').trim();
+    const fy = Number(p && p.fy);
+    const people = String(p && p.peopleCsv || '').trim();
+    if (!client) throw new Error('クライアント（メーカー名）を選択してください。');
+    if (!fy || !isFinite(fy)) throw new Error('予測年度（FY）を選択してください。');
+    saveInitialSetupSettings(client, String(fy), people);
+    return webGetBootstrap_();
+  }, { detail: { client: p && p.client, fy: p && p.fy, peopleCsv: p && p.peopleCsv },
+    before: () => { const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG); return cfg ? { client: cfg.getRange('B2').getValue(), fy: cfg.getRange('B3').getValue(), peopleCsv: cfg.getRange('B4').getValue() } : null; } });
 }
 
 /** セットアップのクライアント候補（外部実績SSから遅延取得）。 */
@@ -492,72 +498,82 @@ function webGetClientCandidates() {
 
 /** A-2 相当：外部SSから売上を取り込み、入力シートをFY向けに整える。 */
 function webRunImportSales() {
-  ensureSetupDone_();
-  const res = importMonthlyFromExternal_(SHEETS.SALES_INPUT, true);
-  const fy = webCurrentFy_(SpreadsheetApp.getActiveSpreadsheet());
-  refreshManualInputSheets_(fy);
-  hideNonUserSheets_();
-  return { count: res.count, range: res.range, boot: webGetBootstrap_() };
+  return webAudited_('IMPORT.SALES', () => {
+    ensureSetupDone_();
+    const res = importMonthlyFromExternal_(SHEETS.SALES_INPUT, true);
+    const fy = webCurrentFy_(SpreadsheetApp.getActiveSpreadsheet());
+    refreshManualInputSheets_(fy);
+    hideNonUserSheets_();
+    return { count: res.count, range: res.range, boot: webGetBootstrap_() };
+  }, { after: (res) => ({ count: res.count, range: res.range }) });
 }
 
 /** A-3 相当：SALES_INPUT → SALES_MONTHLY への集計。 */
 function webRunAggregate() {
-  ensureSetupDone_();
-  requireStepSuccess_('step1_status', '先に A-2 売上データ取り込みを実行してください。');
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfgSh = ss.getSheetByName(SHEETS.CONFIG);
-  const client = normalizeClientName_(String(cfgSh.getRange('B2').getValue() || '').trim());
-  if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
-  const fy = Number(cfgSh.getRange('B3').getValue()) || getDefaultFY_();
-  try {
-    const count = syncSalesFromSalesInput_(fy, client);
-    hideNonUserSheets_();
-    try { updateProcessStatus_('step1a_status', 'success', client, count, ''); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
-    return { count: count, boot: webGetBootstrap_() };
-  } catch (e) {
-    try { updateProcessStatus_('step1a_status', 'error', client, 0, String(e && e.message || e)); } catch (e2) { /* 同上 */ }
-    throw e;
-  }
+  return webAudited_('SALES.AGGREGATE', () => {
+    ensureSetupDone_();
+    requireStepSuccess_('step1_status', '先に A-2 売上データ取り込みを実行してください。');
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cfgSh = ss.getSheetByName(SHEETS.CONFIG);
+    const client = normalizeClientName_(String(cfgSh.getRange('B2').getValue() || '').trim());
+    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
+    const fy = Number(cfgSh.getRange('B3').getValue()) || getDefaultFY_();
+    try {
+      const count = syncSalesFromSalesInput_(fy, client);
+      hideNonUserSheets_();
+      try { updateProcessStatus_('step1a_status', 'success', client, count, ''); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
+      return { count: count, boot: webGetBootstrap_() };
+    } catch (e) {
+      try { updateProcessStatus_('step1a_status', 'error', client, 0, String(e && e.message || e)); } catch (e2) { /* 同上 */ }
+      throw e;
+    }
+  }, { after: (res) => ({ count: res.count }) });
 }
 
 /** A-4 相当：Vertex AI 調査（長時間・数分）。 */
 function webRunAiResearch() {
-  ensureSetupDone_();
-  const before = countAIResearchStructuredRows_();
-  runVertexAIResearch(); // 失敗は alertOrThrow_ 経由で例外化
-  const after = countAIResearchStructuredRows_();
-  return { rows: after, changed: after !== before, boot: webGetBootstrap_() };
+  return webAudited_('AI.RESEARCH', () => {
+    ensureSetupDone_();
+    const before = countAIResearchStructuredRows_();
+    runVertexAIResearch(); // 失敗は alertOrThrow_ 経由で例外化
+    const after = countAIResearchStructuredRows_();
+    return { rows: after, changed: after !== before, boot: webGetBootstrap_() };
+  }, { after: (res) => ({ rows: res.rows, changed: res.changed }) });
 }
 
 // ===== 入力保存 =====
 
 /** 入力シートを全面書き換え（読み取り側は必須欠落行を自動スキップする既存仕様に準拠）。 */
 function webSaveInputs(kind, rows) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const spec = {
-    product:  { name: SHEETS.PRODUCT,  cols: 5, make: (r) => [r.person || '', r.product || '', webYmToDate_(r.ym), String(r.step || ''), r.reason || ''] },
-    client:   { name: SHEETS.CLIENT,   cols: 4, make: (r) => [r.person || '', webYmToDate_(r.ym), String(r.step || ''), r.reason || ''] },
-    opinions: { name: SHEETS.OPINIONS, cols: 5, make: (r) => [r.person || '', webYmToDate_(r.ym), String(r.step || ''), r.conf === '' || r.conf === null ? '' : Number(r.conf), r.note || ''] },
-    devspot:  { name: SHEETS.DEV_SPOT, cols: 5, make: (r) => [r.person || '', webYmToDate_(r.ym), r.project || '', r.amount === '' || r.amount === null ? '' : Number(r.amount), r.conf === '' || r.conf === null ? '' : Number(r.conf)] }
-  }[String(kind || '')];
-  if (!spec) throw new Error('不明な入力種別: ' + kind);
-  const sh = ss.getSheetByName(spec.name);
-  if (!sh) throw new Error(spec.name + ' シートがありません。先に A-2 を実行してください。');
+  return webAudited_('INPUT.SAVE', () => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const spec = {
+      product:  { name: SHEETS.PRODUCT,  cols: 5, make: (r) => [r.person || '', r.product || '', webYmToDate_(r.ym), String(r.step || ''), r.reason || ''] },
+      client:   { name: SHEETS.CLIENT,   cols: 4, make: (r) => [r.person || '', webYmToDate_(r.ym), String(r.step || ''), r.reason || ''] },
+      opinions: { name: SHEETS.OPINIONS, cols: 5, make: (r) => [r.person || '', webYmToDate_(r.ym), String(r.step || ''), r.conf === '' || r.conf === null ? '' : Number(r.conf), r.note || ''] },
+      devspot:  { name: SHEETS.DEV_SPOT, cols: 5, make: (r) => [r.person || '', webYmToDate_(r.ym), r.project || '', r.amount === '' || r.amount === null ? '' : Number(r.amount), r.conf === '' || r.conf === null ? '' : Number(r.conf)] }
+    }[String(kind || '')];
+    if (!spec) throw new Error('不明な入力種別: ' + kind);
+    const sh = ss.getSheetByName(spec.name);
+    if (!sh) throw new Error(spec.name + ' シートがありません。先に A-2 を実行してください。');
 
-  const clean = (rows || []).filter(r => r && Object.keys(r).some(k => String(r[k] || '').trim() !== ''))
-    .map(r => spec.make(r));
-  if (clean.length > 500) throw new Error('行数が上限（500）を超えています。');
-  // 数値列の検証（空は許容、数値化不能はエラー）
-  clean.forEach(r => {
-    r.forEach((v, j) => {
-      if (typeof v === 'number' && !isFinite(v)) throw new Error('数値でない値が含まれています（' + spec.name + '）。');
+    const clean = (rows || []).filter(r => r && Object.keys(r).some(k => String(r[k] || '').trim() !== ''))
+      .map(r => spec.make(r));
+    if (clean.length > 500) throw new Error('行数が上限（500）を超えています。');
+    // 数値列の検証（空は許容、数値化不能はエラー）
+    clean.forEach(r => {
+      r.forEach((v, j) => {
+        if (typeof v === 'number' && !isFinite(v)) throw new Error('数値でない値が含まれています（' + spec.name + '）。');
+      });
     });
-  });
 
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, spec.cols).clearContent();
-  if (clean.length) sh.getRange(2, 1, clean.length, spec.cols).setValues(clean);
-  SpreadsheetApp.flush();
-  return { saved: clean.length, input: webParseInputs_(ss) };
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, spec.cols).clearContent();
+    if (clean.length) sh.getRange(2, 1, clean.length, spec.cols).setValues(clean);
+    SpreadsheetApp.flush();
+    return { saved: clean.length, input: webParseInputs_(ss) };
+  }, { detail: { kind: kind, rows: (rows || []).length },
+    before: () => (webParseInputs_(SpreadsheetApp.getActiveSpreadsheet())[String(kind || '')] || null),
+    after: (res) => ({ saved: res.saved, rows: res.input && res.input[String(kind || '')] }) });
 }
 
 function webYmToDate_(ym) {
@@ -574,135 +590,162 @@ function webYmToDate_(ym) {
  * confirms=[key] を付けて再実行する。
  */
 function webRunForecast(confirms) {
-  Object.keys(WEB_UI_CONFIRMS_).forEach(k => { delete WEB_UI_CONFIRMS_[k]; });
-  (confirms || []).forEach(k => { WEB_UI_CONFIRMS_[String(k)] = true; });
-  try {
-    runPhase1Forecast();
-  } catch (e) {
-    // 確認要否は例外ではなく戻り値で返す（google.script.run は throw の custom props を保持しない）
-    if (e && e.webConfirm) return { needConfirm: e.webConfirm };
-    throw e;
-  } finally {
+  return webAudited_('FORECAST.RUN', () => {
     Object.keys(WEB_UI_CONFIRMS_).forEach(k => { delete WEB_UI_CONFIRMS_[k]; });
-  }
-  return { boot: webGetBootstrap_() };
+    (confirms || []).forEach(k => { WEB_UI_CONFIRMS_[String(k)] = true; });
+    try {
+      runPhase1Forecast();
+    } catch (e) {
+      // 確認要否は例外ではなく戻り値で返す（google.script.run は throw の custom props を保持しない）
+      if (e && e.webConfirm) return { needConfirm: e.webConfirm };
+      throw e;
+    } finally {
+      Object.keys(WEB_UI_CONFIRMS_).forEach(k => { delete WEB_UI_CONFIRMS_[k]; });
+    }
+    return { boot: webGetBootstrap_() };
+  }, { detail: { confirms: confirms || [] },
+    after: (res) => (res && res.needConfirm ? { needConfirm: res.needConfirm.key } : { done: true }) });
 }
 
 /** A-10 相当：OUTPUT の予算列（H=Adopted / I=Uplift）を保存。J列（Final）は数式のまま触らない。 */
 function webSaveBudget(rows) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.OUTPUT);
-  if (!sh) throw new Error('OUTPUT がありません。先に予測を実行してください。');
-  if (!Array.isArray(rows) || !rows.length) throw new Error('保存する予算行がありません。');
+  return webAudited_('BUDGET.SAVE', () => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.OUTPUT);
+    if (!sh) throw new Error('OUTPUT がありません。先に予測を実行してください。');
+    if (!Array.isArray(rows) || !rows.length) throw new Error('保存する予算行がありません。');
 
-  // 月次行の正当性をサーバ側でも確認（行番号がずれていたら書き込まない）
-  const vals = sh.getDataRange().getValues();
-  const writes = [];
-  rows.forEach(r => {
-    const row = Number(r && r.row);
-    if (!row || row < 1 || row > vals.length) return;
-    const label = String(vals[row - 1][0] || '').trim();
-    if (!/^20\d\d\/\d{2}$/.test(label)) return; // 月次行以外には書かない
-    const adopted = r.adopted === '' || r.adopted === null || r.adopted === undefined ? '' : Number(r.adopted);
-    const uplift = r.uplift === '' || r.uplift === null || r.uplift === undefined ? '' : Number(r.uplift);
-    if ((adopted !== '' && !isFinite(adopted)) || (uplift !== '' && !isFinite(uplift))) throw new Error('予算は数値で入力してください（' + label + '）');
-    writes.push({ row: row, adopted: adopted, uplift: uplift });
-  });
-  if (!writes.length) throw new Error('有効な月次行が見つかりませんでした。予測を再実行してください。');
+    // 月次行の正当性をサーバ側でも確認（行番号がずれていたら書き込まない）
+    const vals = sh.getDataRange().getValues();
+    const writes = [];
+    rows.forEach(r => {
+      const row = Number(r && r.row);
+      if (!row || row < 1 || row > vals.length) return;
+      const label = String(vals[row - 1][0] || '').trim();
+      if (!/^20\d\d\/\d{2}$/.test(label)) return; // 月次行以外には書かない
+      const adopted = r.adopted === '' || r.adopted === null || r.adopted === undefined ? '' : Number(r.adopted);
+      const uplift = r.uplift === '' || r.uplift === null || r.uplift === undefined ? '' : Number(r.uplift);
+      if ((adopted !== '' && !isFinite(adopted)) || (uplift !== '' && !isFinite(uplift))) throw new Error('予算は数値で入力してください（' + label + '）');
+      writes.push({ row: row, adopted: adopted, uplift: uplift });
+    });
+    if (!writes.length) throw new Error('有効な月次行が見つかりませんでした。予測を再実行してください。');
 
-  writes.forEach(w => {
-    sh.getRange(w.row, 8).setValue(w.adopted);
-    sh.getRange(w.row, 9).setValue(w.uplift);
-  });
-  SpreadsheetApp.flush();
-  return { saved: writes.length, output: webParseOutput_(ss) };
+    writes.forEach(w => {
+      sh.getRange(w.row, 8).setValue(w.adopted);
+      sh.getRange(w.row, 9).setValue(w.uplift);
+    });
+    SpreadsheetApp.flush();
+    return { saved: writes.length, output: webParseOutput_(ss) };
+  }, { detail: { rows: (rows || []).length },
+    before: () => webCellsSnapshot_(SHEETS.OUTPUT, rows, [1, 8, 9]),
+    after: () => webCellsSnapshot_(SHEETS.OUTPUT, rows, [1, 8, 9]) });
 }
 
 // ===== 検証 =====
 
 /** B-1 相当：検証用実績の取り込み。 */
 function webRunImportActuals() {
-  ensureSetupDone_();
-  requireStepSuccess_('step1_status', '先に A-2 売上データ取り込みを実行してください。');
-  const res = importMonthlyFromExternal_(SHEETS.ACTUAL_EVAL_MONTHLY, true);
-  hideNonUserSheets_();
-  return { count: res.count, range: res.range, boot: webGetBootstrap_() };
+  return webAudited_('IMPORT.ACTUALS', () => {
+    ensureSetupDone_();
+    requireStepSuccess_('step1_status', '先に A-2 売上データ取り込みを実行してください。');
+    const res = importMonthlyFromExternal_(SHEETS.ACTUAL_EVAL_MONTHLY, true);
+    hideNonUserSheets_();
+    return { count: res.count, range: res.range, boot: webGetBootstrap_() };
+  }, { after: (res) => ({ count: res.count, range: res.range }) });
 }
 
 /** B-2 相当：検証レポート更新。 */
 function webRunEvalReport() {
-  updatePhase1EvaluationReport();
-  hideNonUserSheets_();
-  return { boot: webGetBootstrap_() };
+  return webAudited_('EVAL.REPORT', () => {
+    updatePhase1EvaluationReport();
+    hideNonUserSheets_();
+    return { boot: webGetBootstrap_() };
+  });
 }
 
 /** B-3 相当：ダッシュボード更新。 */
 function webRunDashboard() {
-  updatePhase1Dashboard();
-  hideNonUserSheets_();
-  return { boot: webGetBootstrap_() };
+  return webAudited_('EVAL.DASHBOARD', () => {
+    updatePhase1Dashboard();
+    hideNonUserSheets_();
+    return { boot: webGetBootstrap_() };
+  });
 }
 
 /** B-4 相当：学習インサイト更新。 */
 function webRunInsights() {
-  updatePhase1LearningInsights();
-  hideNonUserSheets_();
-  return { boot: webGetBootstrap_() };
+  return webAudited_('EVAL.INSIGHTS', () => {
+    updatePhase1LearningInsights();
+    hideNonUserSheets_();
+    return { boot: webGetBootstrap_() };
+  });
 }
 
 /** EVAL_INSIGHTS の記入列を保存（原因仮説・対応など）。 */
 function webSaveEvalInsights(rows) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
-  if (!sh) throw new Error('EVAL_INSIGHTS がありません。先に B-4 を実行してください。');
-  (rows || []).forEach(r => {
-    const row = Number(r && r.row);
-    if (!row || row < 2 || row > sh.getLastRow()) return;
-    // 行がデータ行であることを確認（C-1/B-4再実行で行がずれた場合に誤書き込みしない）
-    const head = String(sh.getRange(row, 1).getValue() || '').trim();
-    const head2 = String(sh.getRange(row, 3).getValue() || '').trim();
-    if (!head && !head2) return;
-    sh.getRange(row, 15).setValue(String(r.hypothesis || ''));   // cause_hypothesis
-    sh.getRange(row, 19).setValue(String(r.actionType || ''));  // action_type
-    sh.getRange(row, 20).setValue(String(r.reflection || ''));  // next_cycle_reflection
-    sh.getRange(row, 21).setValue(String(r.owner || ''));       // owner
-    sh.getRange(row, 23).setValue(String(r.status || ''));      // status
-  });
-  SpreadsheetApp.flush();
-  return { saved: (rows || []).length };
+  return webAudited_('INSIGHT.SAVE', () => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
+    if (!sh) throw new Error('EVAL_INSIGHTS がありません。先に B-4 を実行してください。');
+    (rows || []).forEach(r => {
+      const row = Number(r && r.row);
+      if (!row || row < 2 || row > sh.getLastRow()) return;
+      // 行がデータ行であることを確認（C-1/B-4再実行で行がずれた場合に誤書き込みしない）
+      const head = String(sh.getRange(row, 1).getValue() || '').trim();
+      const head2 = String(sh.getRange(row, 3).getValue() || '').trim();
+      if (!head && !head2) return;
+      sh.getRange(row, 15).setValue(String(r.hypothesis || ''));   // cause_hypothesis
+      sh.getRange(row, 19).setValue(String(r.actionType || ''));  // action_type
+      sh.getRange(row, 20).setValue(String(r.reflection || ''));  // next_cycle_reflection
+      sh.getRange(row, 21).setValue(String(r.owner || ''));       // owner
+      sh.getRange(row, 23).setValue(String(r.status || ''));      // status
+    });
+    SpreadsheetApp.flush();
+    return { saved: (rows || []).length };
+  }, { detail: { rows: (rows || []).length },
+    before: () => webCellsSnapshot_(SHEETS.EVAL_INSIGHTS, rows, [3, 15, 19, 20, 21, 23], 2),
+    after: () => webCellsSnapshot_(SHEETS.EVAL_INSIGHTS, rows, [3, 15, 19, 20, 21, 23], 2) });
 }
 
 // ===== 四半期レビュー =====
 
 /** C-1 相当：四半期レビュー提案の生成。 */
 function webRunQuarterly() {
-  runQuarterlyReview();
-  return { quarterly: webParseQuarterly_(SpreadsheetApp.getActiveSpreadsheet()) };
+  return webAudited_('REVIEW.GENERATE', () => {
+    runQuarterlyReview();
+    return { quarterly: webParseQuarterly_(SpreadsheetApp.getActiveSpreadsheet()) };
+  });
 }
 
 /** C-2 相当（Web版）：承認列（承認/却下/保留）を保存。 */
 function webSaveQuarterlyDecisions(rows) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
-  if (!sh) throw new Error('QUARTERLY_REVIEW がありません。先に C-1 を実行してください。');
-  const allowed = { '承認': 1, '却下': 1, '保留': 1 };
-  (rows || []).forEach(r => {
-    const row = Number(r && r.row);
-    if (!row || row < 8 || row > sh.getLastRow()) return;
-    // 提案行（pid非空）以外には書き込まない
-    if (!String(sh.getRange(row, 1).getValue() || '').trim()) return;
-    const d = String(r.decision || '');
-    if (d && !allowed[d]) throw new Error('承認列は「承認 / 却下 / 保留」から選択してください。');
-    sh.getRange(row, 8).setValue(d);
-  });
-  SpreadsheetApp.flush();
-  return { saved: (rows || []).length };
+  return webAudited_('REVIEW.DECIDE', () => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
+    if (!sh) throw new Error('QUARTERLY_REVIEW がありません。先に C-1 を実行してください。');
+    const allowed = { '承認': 1, '却下': 1, '保留': 1 };
+    (rows || []).forEach(r => {
+      const row = Number(r && r.row);
+      if (!row || row < 8 || row > sh.getLastRow()) return;
+      // 提案行（pid非空）以外には書き込まない
+      if (!String(sh.getRange(row, 1).getValue() || '').trim()) return;
+      const d = String(r.decision || '');
+      if (d && !allowed[d]) throw new Error('承認列は「承認 / 却下 / 保留」から選択してください。');
+      sh.getRange(row, 8).setValue(d);
+    });
+    SpreadsheetApp.flush();
+    return { saved: (rows || []).length };
+  }, { detail: { rows: (rows || []).length },
+    before: () => webCellsSnapshot_(SHEETS.QUARTERLY_REVIEW, rows, [1, 8], 8),
+    after: () => webCellsSnapshot_(SHEETS.QUARTERLY_REVIEW, rows, [1, 8], 8) });
 }
 
 /** C-3 相当：承認済み提案を適用。 */
 function webApplyQuarterly() {
-  const res = applyQuarterlyProposals();
-  return { result: res || null, quarterly: webParseQuarterly_(SpreadsheetApp.getActiveSpreadsheet()) };
+  return webAudited_('REVIEW.APPLY', () => {
+    const res = applyQuarterlyProposals();
+    return { result: res || null, quarterly: webParseQuarterly_(SpreadsheetApp.getActiveSpreadsheet()) };
+  }, { after: (res) => res && res.result });
 }
 
 // ===== 自動学習（B-5）/ Vertexアシスト / 学習バックテスト =====
@@ -758,31 +801,35 @@ function webParseLearning_(ss, client) {
 
 /** B-5 相当：月次ベイズ自動学習を実行。 */
 function webRunMonthlyLearn() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
-  const res = runMonthlyAutoLearn_(client, {});
-  if (res && res.ready) {
-    updateProcessStatus_('learn_status', 'success', client, res.n, '');
-  } else if (res) {
-    updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`);
-  }
-  return { result: res || null, boot: webGetBootstrap_() };
+  return webAudited_('LEARN.MONTHLY', () => {
+    ensureSetupDone_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+    const res = runMonthlyAutoLearn_(client, {});
+    if (res && res.ready) {
+      updateProcessStatus_('learn_status', 'success', client, res.n, '');
+    } else if (res) {
+      updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`);
+    }
+    return { result: res || null, boot: webGetBootstrap_() };
+  }, { after: (res) => res && res.result });
 }
 
 /** Vertexアシスト単体実行（A-4と同じログを残し、A-9は次回実行時に自動反映）。 */
 function webRunVertexAssist() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
-  const vertex = readVertexConfig_();
-  if (!vertex.geminiReady) throw new Error('Vertex の必須設定が未入力です（CONFIG: VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL）。');
-  ensureAIResearchRuntimeSheets_(ss);
-  const res = runVertexForecastAssist_(client, ss, vertex, null);
-  if (res.skipped === 'disabled') throw new Error('CONFIG の VERTEX_FORECAST_ENABLED を 1 にしてください。');
-  if (!res.ok) throw new Error('Vertexアシスト失敗: ' + (res.error || res.skipped || 'unknown'));
-  safeLogRun_('runVertexForecastAssist_', client, 'success', 12, new Date(), `manual conf=${res.confidence}`);
-  return { result: res, boot: webGetBootstrap_() };
+  return webAudited_('AI.ASSIST', () => {
+    ensureSetupDone_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+    const vertex = readVertexConfig_();
+    if (!vertex.geminiReady) throw new Error('Vertex の必須設定が未入力です（CONFIG: VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL）。');
+    ensureAIResearchRuntimeSheets_(ss);
+    const res = runVertexForecastAssist_(client, ss, vertex, null);
+    if (res.skipped === 'disabled') throw new Error('CONFIG の VERTEX_FORECAST_ENABLED を 1 にしてください。');
+    if (!res.ok) throw new Error('Vertexアシスト失敗: ' + (res.error || res.skipped || 'unknown'));
+    safeLogRun_('runVertexForecastAssist_', client, 'success', 12, new Date(), `manual conf=${res.confidence}`);
+    return { result: res, boot: webGetBootstrap_() };
+  }, { after: (res) => ({ ok: res.result && res.result.ok, confidence: res.result && res.result.confidence }) });
 }
 
 /** カウンターファクト学習バックテスト（EVAL_LOG walk-forward 簡易検算）。 */
@@ -791,4 +838,174 @@ function webRunLearningBacktest() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
   return { result: runLearningBacktest_(client, {}) };
+}
+
+// ===== 操作の記録（監査ログ）と実行者の確認 — 段階0（DESIGN_data_platform_JA.md 10章） =====
+// Web からの書き込み・実行は webAudited_ を通す。実行前の「開始」を記録できなければ処理しない（fail-closed）。
+// 記録先は年度ごとのログ用スプレッドシート「売上予測 ログ FYyyyy」（Script Property に ID を控え、無ければ初回に作る）。
+// 月ごとのシート AUDIT_yyyy_MM に 1 行ずつ追記し、row_hash = SHA-256(prev_hash + 行の内容) の鎖でつなぐ（改ざん・削除の検知用）。
+// 管理者 = スクリプトの所有者（デプロイした人）＋ Script Property FORECAST_WEB_ADMIN_EMAILS（カンマ区切り）。
+// Web アプリの公開範囲は appsscript.json で「自分のみ」。この確認は公開範囲を広げたときの二重の守り。
+const WEB_AUDIT_HEADERS_ = ['audit_id', 'occurred_at', 'actor_email', 'action', 'phase', 'result', 'client', 'fy',
+  'detail_json', 'before_json', 'after_json', 'error', 'request_id', 'app_version', 'prev_hash', 'row_hash'];
+const WEB_AUDIT_JSON_MAX_ = 40000;
+const WEB_AUDIT_PROP_FILES_ = 'FORECAST_LOG_SPREADSHEETS_JSON';  // {"FY2027": "<spreadsheetId>"}
+const WEB_AUDIT_PROP_FOLDER_ = 'FORECAST_LOG_FOLDER_ID';          // 任意: ログのファイルを置くフォルダ
+const WEB_AUDIT_PROP_LAST_HASH_ = 'FORECAST_AUDIT_LAST_HASH';
+const WEB_ADMIN_PROP_ = 'FORECAST_WEB_ADMIN_EMAILS';
+
+/** 操作した人と、管理者かどうか。メールが取れなければ管理者として扱わない。 */
+function webActor_() {
+  let email = '';
+  let owner = '';
+  try { email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase(); } catch (e) { email = ''; }
+  try { owner = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase(); } catch (e) { owner = ''; }
+  const extra = String(PropertiesService.getScriptProperties().getProperty(WEB_ADMIN_PROP_) || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const admins = [owner].concat(extra).filter(Boolean);
+  return { email: email, isAdmin: !!email && admins.indexOf(email) >= 0 };
+}
+
+/** このアプリの年度（4月〜翌3月。終わる年で呼ぶ: 2026-10 → FY2027）。 */
+function webAuditFy_(d) {
+  return d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+}
+
+/** 長い JSON はハッシュと先頭だけにする（セルの上限 5 万字に対し 4 万字まで）。 */
+function webAuditJson_(v) {
+  if (v === undefined || v === null || v === '') return '';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  if (s.length <= WEB_AUDIT_JSON_MAX_) return s;
+  return JSON.stringify({ truncated: true, length: s.length, sha256: vNextSha256Hex_(s), head: s.slice(0, 2000) });
+}
+
+/** その月の監査シート。ログのファイルと月のシートが無ければ作る。列が想定と違えば止める。 */
+function webAuditSheet_(now) {
+  const props = PropertiesService.getScriptProperties();
+  const fyKey = 'FY' + webAuditFy_(now);
+  let files = {};
+  try { files = JSON.parse(props.getProperty(WEB_AUDIT_PROP_FILES_) || '{}') || {}; } catch (e) { files = {}; }
+  let ss;
+  if (files[fyKey]) {
+    ss = SpreadsheetApp.openById(files[fyKey]);  // 開けなければ例外（記録できないので処理も止まる）
+  } else {
+    ss = SpreadsheetApp.create('売上予測 ログ ' + fyKey);
+    const folderId = String(props.getProperty(WEB_AUDIT_PROP_FOLDER_) || '').trim();
+    if (folderId) DriveApp.getFileById(ss.getId()).moveTo(DriveApp.getFolderById(folderId));
+    files[fyKey] = ss.getId();
+    props.setProperty(WEB_AUDIT_PROP_FILES_, JSON.stringify(files));
+  }
+  const name = 'AUDIT_' + Utilities.formatDate(now, TZ, 'yyyy_MM');
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, WEB_AUDIT_HEADERS_.length).setNumberFormat('@').setValues([WEB_AUDIT_HEADERS_]);
+    sh.setFrozenRows(1);
+    // 新しいファイルに最初からある空のシートは消す（データシートはヘッダー＋データだけにする）
+    ss.getSheets().forEach(s => {
+      if (s.getName() !== name && s.getLastRow() === 0 && /^(シート|Sheet)\d+$/.test(s.getName())) ss.deleteSheet(s);
+    });
+  } else {
+    const head = sh.getRange(1, 1, 1, WEB_AUDIT_HEADERS_.length).getValues()[0].map(String);
+    if (head.join('|') !== WEB_AUDIT_HEADERS_.join('|')) throw new Error('監査ログの列が想定と違います（' + name + '）。');
+  }
+  return sh;
+}
+
+/** 1 行を文字列のまま書く（日付などへの自動変換を防ぐ）。 */
+function webAuditWriteRow_(sh, row) {
+  const r = sh.getLastRow() + 1;
+  if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1000);
+  sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+}
+
+/** 監査ログに 1 行足し、ハッシュの鎖を伸ばす。書けなければ例外。 */
+function webAuditAppend_(e) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const now = new Date();
+    const sh = webAuditSheet_(now);
+    const props = PropertiesService.getScriptProperties();
+    const prev = String(props.getProperty(WEB_AUDIT_PROP_LAST_HASH_) || '');
+    const body = [
+      Utilities.getUuid(),
+      Utilities.formatDate(now, TZ, "yyyy-MM-dd'T'HH:mm:ssZ"),
+      e.actor || '', e.action || '', e.phase || '', e.result || '',
+      e.client || '', e.fy ? String(e.fy) : '',
+      webAuditJson_(e.detail), webAuditJson_(e.before), webAuditJson_(e.after),
+      String(e.error || '').slice(0, 2000), e.requestId || '', e.appVersion || ''
+    ];
+    const hash = vNextSha256Hex_(prev + '\n' + JSON.stringify(body));
+    webAuditWriteRow_(sh, body.concat([prev, hash]));
+    props.setProperty(WEB_AUDIT_PROP_LAST_HASH_, hash);
+    SpreadsheetApp.flush();
+    return hash;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 記録に添える対象（クライアントと年度）。読めなくても処理は止めない。 */
+function webAuditContext_() {
+  try {
+    const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
+    if (!cfg) return { client: '', fy: '' };
+    return { client: String(cfg.getRange('B2').getValue() || '').trim(), fy: String(cfg.getRange('B3').getValue() || '').trim() };
+  } catch (e) {
+    return { client: '', fy: '' };
+  }
+}
+
+/** 指定した行・列の今の値（変更前の記録用）。 */
+function webCellsSnapshot_(sheetName, rows, cols, minRow) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  if (!sh) return null;
+  const last = sh.getLastRow();
+  return (rows || []).map(r => Number(r && r.row)).filter(n => n >= (minRow || 1) && n <= last).slice(0, 200)
+    .map(n => ({ row: n, values: cols.map(c => sh.getRange(n, c).getValue()) }));
+}
+
+/**
+ * 書き込み・実行を記録つきで行う。管理者でなければ拒否（拒否も記録）。
+ * 開始を記録 → 実行 → 終了（OK / NEEDS_CONFIRM / FAILED）を記録。開始を記録できなければ実行しない。
+ */
+function webAudited_(action, fn, opts) {
+  opts = opts || {};
+  const actor = webActor_();
+  const ctx = webAuditContext_();
+  const base = { actor: actor.email || '(unknown)', action: action, requestId: Utilities.getUuid(),
+    appVersion: VERSION + ' / ' + BUILD_STAGE, client: ctx.client, fy: ctx.fy };
+  if (!actor.isAdmin) {
+    try { webAuditAppend_(Object.assign({}, base, { phase: 'DENIED', result: 'DENIED', detail: opts.detail })); }
+    catch (e) { Logger.log('webAudited_ DENIED の記録に失敗: ' + (e && e.message ? e.message : e)); }
+    throw new Error('この操作は管理者だけが実行できます。');
+  }
+  let before = '';
+  try { before = opts.before ? opts.before() : ''; } catch (e) { before = { error: String(e && e.message || e) }; }
+  webAuditAppend_(Object.assign({}, base, { phase: 'START', detail: opts.detail, before: before }));
+  try {
+    const res = fn();
+    let after = '';
+    try { after = opts.after ? opts.after(res) : ''; } catch (e) { after = { error: String(e && e.message || e) }; }
+    const result = res && res.needConfirm ? 'NEEDS_CONFIRM' : 'OK';
+    try { webAuditAppend_(Object.assign({}, base, { phase: 'END', result: result, after: after })); }
+    catch (e) { Logger.log('webAudited_ END の記録に失敗: ' + (e && e.message ? e.message : e)); }
+    return res;
+  } catch (err) {
+    try { webAuditAppend_(Object.assign({}, base, { phase: 'END', result: 'FAILED', error: String(err && err.message || err) })); }
+    catch (e) { Logger.log('webAudited_ FAILED の記録に失敗: ' + (e && e.message ? e.message : e)); }
+    throw err;
+  }
+}
+
+/** 今の年度のログのファイルの URL（管理者の画面のリンク用。無ければ空）。 */
+function webAuditLogUrl_() {
+  try {
+    const files = JSON.parse(PropertiesService.getScriptProperties().getProperty(WEB_AUDIT_PROP_FILES_) || '{}') || {};
+    const id = files['FY' + webAuditFy_(new Date())];
+    return id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '';
+  } catch (e) {
+    return '';
+  }
 }
