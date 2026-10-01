@@ -56,20 +56,28 @@ input,select,textarea{font-family:inherit;font-size:15px}
 /* ===== generic components ===== */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:20px}
 .card h2{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.h2row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.h2row h2{margin-bottom:0}
 .card .sub{font-size:13px;color:var(--muted);margin-bottom:14px}
 .card .sub:empty{display:none}
-.rowcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:20px}
-.rowcards.cols4{grid-template-columns:repeat(4,minmax(0,1fr))}
-@media(max-width:1280px){.rowcards.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.rowcards.cols4{grid-template-columns:1fr}}
-.actcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;height:196px}
-.actcard .ac-top{display:flex;align-items:flex-start;gap:8px}
-.actcard .ac-ttl{font-size:15px;font-weight:700;color:var(--navy);flex:1;min-width:0;line-height:1.35}
-.actcard .ac-top .chip{flex:none}
-.actcard .desc{font-size:13px;color:var(--muted);margin:10px 0 12px;flex:1;line-height:1.55}
-.actcard .foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.actcard .ac-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
-.actcard .ac-err{font-size:12.5px;color:var(--error);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ===== 工程リスト（1列・行構造） ===== */
+.steplist{display:flex;flex-direction:column}
+.stepitem{display:flex;align-items:center;gap:14px;padding:15px 4px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.stepitem:last-child{border-bottom:none;padding-bottom:4px}
+.stepitem:first-child{padding-top:2px}
+.stepitem .s-name{flex:1 1 340px;min-width:0;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;color:var(--navy)}
+.stepitem .s-name .chip{flex:none}
+.stepitem .s-act{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.ac-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.ac-err{font-size:12.5px;color:var(--error);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ⓘヘルプ: 押すと開くポップオーバー */
+.qh{position:relative;display:inline-block;flex:none}
+.qh>summary{list-style:none;cursor:pointer;width:22px;height:22px;border-radius:50%;background:#EAF3FB;color:var(--primary-dark);font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;line-height:1;user-select:none}
+.qh>summary::-webkit-details-marker{display:none}
+.qh>summary:hover{background:var(--primary-soft)}
+.qh[open]>summary{background:var(--primary);color:#fff}
+.qh>.qh-pop{position:absolute;top:calc(100% + 8px);left:0;z-index:70;min-width:280px;max-width:360px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(15,53,87,.18);padding:13px 15px;font-size:13px;line-height:1.6;color:var(--navy);font-weight:400;white-space:normal}
+.qh.qr>.qh-pop{left:auto;right:0}
 .tblscroll{max-height:460px;overflow-y:auto}
 .tblscroll thead th{position:sticky;top:0;z-index:2}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-btn);min-width:120px;padding:0 22px;border-radius:var(--radius-s);font-size:15px;font-weight:700;transition:background .15s,transform .05s;white-space:nowrap}
@@ -380,7 +388,7 @@ function renderHome(){
 
   html+='<div class="card"><h2>次の一手</h2><div class="guide"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_ARROW+'</button><div class="bubble">'+nextStepHtml()+'</div></div></div>';
 
-  html+='<div class="card"><h2>プロセス進捗</h2><div class="sub">メニュー A-1〜C-3 の実行状態（PROCESS_STATUS）</div><div class="tblwrap"><table class="tbl" style="min-width:780px">'
+  html+='<div class="card"><h2>プロセス進捗</h2><div class="tblwrap" style="margin-top:12px"><table class="tbl" style="min-width:780px">'
     +'<colgroup><col style="width:90px"><col style="width:200px"><col style="width:100px"><col style="width:90px"><col style="width:140px"><col></colgroup>'
     +'<thead><tr><th>メニュー</th><th>処理</th><th>状態</th><th class="num">件数</th><th>実行者</th><th>要因 / メモ</th></tr></thead><tbody>';
   B.steps.forEach(function(s){
@@ -389,7 +397,7 @@ function renderHome(){
   });
   html+='</tbody></table></div></div>';
 
-  html+='<div class="card"><h2>直近の実行履歴</h2><div class="tblwrap"><table class="tbl" style="min-width:640px">'
+  html+='<div class="card"><h2>直近の実行履歴</h2><div class="tblwrap" style="margin-top:12px"><table class="tbl" style="min-width:640px">'
     +'<colgroup><col style="width:120px"><col style="width:140px"><col><col style="width:90px"><col style="width:90px"></colgroup>'
     +'<thead><tr><th>日時</th><th>実行者</th><th>処理</th><th>状態</th><th class="num">件数</th></tr></thead><tbody>';
   if(!B.runLog.length) html+='<tr><td colspan="5" class="locked">実行履歴はまだありません</td></tr>';
@@ -418,7 +426,7 @@ function renderPrep(){
   var html=viewTitle('準備', '初期設定と売上データの取り込み・加工・AI調査');
   html+='<div class="errstrip" id="err_prep"></div>';
 
-  html+='<div class="card"><h2>初期設定（A-1 相当）</h2><div class="sub">クライアント・年度・担当者を保存します。シートの全消去・再構築は Web では行いません（必要な場合はスプレッドシートのメニューから実行）。</div>'
+  html+='<div class="card"><div class="h2row"><h2>初期設定（A-1 相当）</h2>'+help('クライアント・年度・担当者を保存します。シートの全消去・再構築は Web では行いません。必要な場合はスプレッドシートのメニューから実行してください。')+'</div>'
     +'<div class="frow">'
     +'<div><label class="flabel">クライアント（メーカー名）</label><div class="sel"><select id="set_client"><option value="">候補を読み込み中…</option></select></div></div>'
     +'<div><label class="flabel">予測年度 FY</label><div class="sel"><select id="set_fy">'+fyOptions()+'</select></div></div>'
@@ -426,11 +434,11 @@ function renderPrep(){
     +'<div><button class="btn btn-navy" id="btn_setup">設定を保存</button></div>'
     +'</div></div>';
 
-  html+='<div class="rowcards">'
-    + actCard('A-2', '売上データ取り込み', '外部の実績集計シートから当クライアント分を取り込み、入力シートをFY向けに整えます。', 'step1_status', 'btn_import', '取り込み実行')
-    + actCard('A-3', '売上データ加工', '取り込んだ明細を FY の月次系列（SALES_MONTHLY）に集計します。A-2 完了後に実行。', 'step1a_status', 'btn_agg', '加工を実行')
-    + actCard('A-4', 'AI調査', 'Vertex AI で市場・競合・チャネル・DX の外部環境を調査し、スコアに反映します（数分かかります）。', 'step3_status', 'btn_ai', 'AI調査を実行')
-    +'</div>';
+  html+='<div class="card"><h2>データ準備</h2><div class="steplist">'
+    + stepRow('A-2', '売上データ取り込み', '外部の実績集計シートから当クライアント分を取り込み、入力シートをFY向けに整えます。', 'step1_status', 'btn_import', '取り込み実行')
+    + stepRow('A-3', '売上データ加工', '取り込んだ明細を FY の月次系列（SALES_MONTHLY）に集計します。A-2 完了後に実行します。', 'step1a_status', 'btn_agg', '加工を実行')
+    + stepRow('A-4', 'AI調査', 'Vertex AI で市場・競合・チャネル・DX の外部環境を調査し、スコアに反映します（数分かかります）。', 'step3_status', 'btn_ai', 'AI調査を実行')
+    +'</div></div>';
 
   if(!B.setup.aiEnabled){
     html+='<div class="warnbox">AI調査は現在オフです（CONFIG の AI_RESEARCH_ENABLED=0）。スコアなしでも予測は実行できます。有効化はスプレッドシートの CONFIG シートで行います。</div>';
@@ -444,16 +452,20 @@ function fyOptions(){
   for(var y=cur-2;y<=cur+3;y++) out+='<option value="'+y+'"'+(y===cur?' selected':'')+'>FY'+y+'</option>';
   return out;
 }
-function actCard(menu, ttl, desc, stepKey, btnId, btnLabel, btnDisabled){
-  // 全カード統一構造: 上段=[メニューbadge+タイトル … 状態チップ] / 中段=説明 / 下段=[ボタン … メタ]
+// ⓘポップオーバー（説明文はクリック時のみ表示。右寄せは qr）
+function help(text, right){
+  return '<details class="qh'+(right?' qr':'')+'"><summary aria-label="説明を開く">?</summary><div class="qh-pop">'+esc(text)+'</div></details>';
+}
+// 工程リストの1行: [menu chip] タイトル ⓘ …… [状態chip] [メタ] [ボタン]
+function stepRow(menu, ttl, desc, stepKey, btnId, btnLabel, btnDisabled){
   var st = stepKey ? stepOf(stepKey) : null;
   var chip = chipFor(st ? st.status : 'not_run');
   var meta = '';
   if(st && st.status==='success') meta='<span class="ac-meta">最終 '+esc(st.date)+'・'+fmtN(st.count||0)+'件</span>';
   else if(st && st.status==='error') meta='<span class="ac-err" title="'+esc(st.error||'')+'">'+esc(st.error||'エラー')+'</span>';
-  return '<div class="actcard"><div class="ac-top"><span class="chip chip-navy">'+menu+'</span><span class="ac-ttl">'+esc(ttl)+'</span>'+chip+'</div>'
-    +'<div class="desc">'+esc(desc)+'</div>'
-    +'<div class="foot"><button class="btn btn-primary" id="'+btnId+'"'+(btnDisabled?' disabled':'')+'>'+esc(btnLabel)+'</button>'+meta+'</div></div>';
+  return '<div class="stepitem"><div class="s-name"><span class="chip chip-navy">'+menu+'</span>'+esc(ttl)+(desc?help(desc):'')+'</div>'
+    +chip
+    +'<div class="s-act">'+meta+'<button class="btn btn-primary" id="'+btnId+'"'+(btnDisabled?' disabled':'')+'>'+esc(btnLabel)+'</button></div></div>';
 }
 
 /* ---------- input ---------- */
@@ -508,7 +520,7 @@ function renderInput(){
     opinions:'担当者の目線。増減率 × 確度で反映されます。情報源の信頼度は確度(0-1)で指定。',
     devspot:'決まっているスポット案件。金額×確度がそのまま対象月に加算されます（定性ルート）。'
   };
-  html+='<div class="card"><h2>'+tab.menu+' '+esc(tab.label)+'</h2><div class="sub">'+guides[kind]+'</div>';
+  html+='<div class="card"><div class="h2row"><h2>'+tab.menu+' '+esc(tab.label)+'</h2>'+help(guides[kind])+'</div>';
 
   if(!stepOk('step1_status')){
     html+=emptyBox('まず売上データを取り込んでください', 'A-2 の実行で入力シートの雛形ができます。', '準備へ', 'prep');
@@ -561,11 +573,9 @@ function renderForecast(){
   var html=viewTitle('予測と予算', 'A-9 予測実行 / A-10 月次予算の策定');
   html+='<div class="errstrip" id="err_fc"></div>';
 
-  var s4=stepOf('step4_status');
-  html+='<div class="card"><div style="display:flex;align-items:center;gap:14px">'
-    +'<button class="btn btn-navy" id="btn_runfc"'+(stepOk('step1_status')?'':' disabled')+'>予測を実行（A-9）</button>'
-    + chipFor(s4?s4.status:'not_run')
-    +'<span class="ac-meta">'+((s4&&s4.status==='success')?('最終 '+esc(s4.date)+'・'+fmtN(s4.count)+'ヶ月'):'A-2 取り込み後に実行できます')+'</span></div></div>';
+  html+='<div class="card"><h2>予測実行</h2><div class="steplist">'
+    + stepRow('A-9', '年間予測の実行', 'Ops統計＋主観入力＋AIスコア＋学習係数を統合し、P10/P50/P90 の月次予測を生成します（モンテカルロ1,000回）。', 'step4_status', 'btn_runfc', '予測を実行', !stepOk('step1_status'))
+    +'</div></div>';
 
   var O=B.output;
   if(!O || !O.sections || !O.sections.length){ html+='<div class="card">'+emptyBox('予測はまだありません','A-9 を実行すると、年間見通しと月次予測がここに表示されます。','',null)+'</div>'; return html; }
@@ -605,16 +615,18 @@ function renderForecast(){
   var mbKeys=Object.keys(L.monthBias||{}).map(Number).sort(function(a,b){return a-b;});
   var hasLearned=Math.abs((L.biasFactor||1)-1)>1e-9||mbKeys.length>0||(L.vertex&&L.vertex.hasLog)||(L.reliabilityNonDefault||0)>0;
   if(hasLearned){
-    var lparts=[];
-    lparts.push('<div class="learnitem"><div class="k">全体補正係数</div><div class="v">×'+(L.biasFactor||1).toFixed(3)+'</div></div>');
-    if(mbKeys.length) lparts.push('<div class="learnitem"><div class="k">暦月バイアス</div><div class="v">'+mbKeys.map(function(m){var b=L.monthBias[m];return m+'月 '+(b>0?'+':'')+(b*100).toFixed(1)+'%';}).join('　')+'</div></div>');
-    if(L.vertex&&L.vertex.hasLog) lparts.push('<div class="learnitem"><div class="k">Vertexアシスト</div><div class="v">confidence '+(L.vertex.confidence||0).toFixed(2)+'（'+esc(L.vertex.at)+' 取得 / 信頼度 '+(L.vertexReliability||1).toFixed(2)+'）</div></div>');
-    if((L.reliabilityNonDefault||0)>0) lparts.push('<div class="learnitem"><div class="k">ソース信頼度</div><div class="v">'+L.reliabilityNonDefault+'件に重み適用中</div></div>');
-    html+='<div class="card"><h2>学習パラメータ（この予測へ自動適用）</h2><div class="learngrid">'+lparts.join('')+'</div></div>';
+    var ldets=[];
+    if(mbKeys.length) ldets.push('<div class="learnitem"><div class="k">暦月バイアス</div><div class="v">'+mbKeys.map(function(m){var b=L.monthBias[m];return m+'月 '+(b>0?'+':'')+(b*100).toFixed(1)+'%';}).join('　')+'</div></div>');
+    if(L.vertex&&L.vertex.hasLog) ldets.push('<div class="learnitem"><div class="k">Vertexアシスト</div><div class="v">confidence '+(L.vertex.confidence||0).toFixed(2)+'（'+esc(L.vertex.at)+' 取得 / 信頼度 '+(L.vertexReliability||1).toFixed(2)+'）</div></div>');
+    if((L.reliabilityNonDefault||0)>0) ldets.push('<div class="learnitem"><div class="k">ソース信頼度</div><div class="v">'+L.reliabilityNonDefault+'件に重み適用中</div></div>');
+    html+='<div class="card"><div class="h2row"><h2>学習パラメータ（この予測へ自動適用）</h2>'+help('B-5 のベイズ学習で更新された係数です。全体補正係数と暦月バイアスが予測値へ自動で掛かります。')+'</div>'
+      +'<div class="learngrid"><div class="learnitem"><div class="k">全体補正係数</div><div class="v">×'+(L.biasFactor||1).toFixed(3)+'</div></div></div>'
+      +(ldets.length?'<details class="fold" style="margin-top:12px"><summary>係数の内訳</summary><div class="inner"><div class="learngrid" style="margin-top:0">'+ldets.join('')+'</div></div></details>':'')
+      +'</div>';
   }
 
   // 月次表（予算編集つき）
-  html+='<div class="card"><h2>月次予測と予算策定</h2><div class="sub">「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯（hard gate ではありません）。</div>'
+  html+='<div class="card"><div class="h2row"><h2>月次予測と予算策定</h2>'+help('「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯で、hard gate ではありません。')+'</div>'
     +'<div class="tblwrap"><table class="tbl stickyr" id="budgetTbl" style="min-width:980px">'
     +'<colgroup><col style="width:86px"><col><col><col><col><col style="width:150px"><col style="width:130px"><col></colgroup>'
     +'<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num" title="P90−P10。大きいほど不確実">幅(P90-P10)</th><th class="num" title="予算のベース予測値（P50の採用を推奨）">採用予測</th><th class="num" title="採用予測への加算額（+/-）">上積み</th><th class="num">最終予算</th></tr></thead><tbody>';
@@ -650,8 +662,8 @@ function renderForecast(){
 
   if(O.trendInsight||O.aiInsight){
     html+='<div class="secgrid">'
-      +(O.trendInsight?'<div class="card"><h2>過去数年の数値トレンド</h2><div class="insight">'+esc(O.trendInsight)+'</div></div>':'')
-      +(O.aiInsight?'<div class="card"><h2>AI調査レポート</h2><div class="insight">'+esc(O.aiInsight)+'</div></div>':'')
+      +(O.trendInsight?'<details class="fold card"><summary>過去数年の数値トレンド</summary><div class="inner insight">'+esc(O.trendInsight)+'</div></details>':'')
+      +(O.aiInsight?'<details class="fold card"><summary>AI調査レポート</summary><div class="inner insight">'+esc(O.aiInsight)+'</div></details>':'')
       +'</div>';
   }
 
@@ -681,12 +693,12 @@ function kpi(lbl,val){ return '<div class="kpi"><div class="lbl">'+esc(lbl)+'</d
 function renderEval(){
   var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト → B-5 自動学習');
   html+='<div class="errstrip" id="err_eval"></div>';
-  html+='<div class="rowcards cols4">'
-    + actCard('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
-    + actCard('B-2','検証レポート更新','予測と実績を突合し、月次の誤差・内訳を更新します。','step5_status','btn_b2','レポート更新')
-    + actCard('B-3','ダッシュボード更新','年間制約・半期 WAPE・過大率の判定を集計します。','step6_status','btn_b3','集計を実行')
-    + actCard('B-4','学習インサイト','誤差の大きい月に原因記入欄付きのインサイト行を生成します。','step7_status','btn_b4','インサイト生成')
-    +'</div>';
+  html+='<div class="card"><h2>検証工程</h2><div class="steplist">'
+    + stepRow('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
+    + stepRow('B-2','検証レポート更新','予測と実績を突合し、月次の誤差・内訳を更新します。','step5_status','btn_b2','レポート更新')
+    + stepRow('B-3','ダッシュボード更新','年間制約・半期 WAPE・過大率の判定を集計します。','step6_status','btn_b3','集計を実行')
+    + stepRow('B-4','学習インサイト','誤差の大きい月に原因記入欄付きのインサイト行を生成します。','step7_status','btn_b4','インサイト生成')
+    +'</div></div>';
 
   var L=B.learning||{};
   var mb=L.monthBias||{};
@@ -695,14 +707,19 @@ function renderEval(){
   var vtx=L.vertex||{};
   var vtxText=!vtx.enabled?'無効（設定で有効化できます）':(vtx.hasLog?('取得済 '+esc(vtx.at)+' / confidence '+(vtx.confidence||0).toFixed(2)):'有効・未取得（A-4 または右のボタンで生成）');
   var sLearn=stepOf('learn_status');
-  html+='<div class="card"><h2>自動学習（B-5：ベイズ補正 + Vertexハイブリッド）</h2>'
-    +'<div class="sub">中立シナリオの予実誤差から全体補正係数と暦月別バイアスをベイズ更新します。B-2 実行後にも自動で走り、次回 A-9 予測へ反映されます。</div>'
-    +'<div class="tblwrap"><table class="tbl" style="min-width:660px"><colgroup><col style="width:220px"><col><col style="width:230px"></colgroup><tbody>'
-    +'<tr><td>全体補正係数</td><td class="num">×'+(L.biasFactor||1).toFixed(3)+'</td><td class="locked">'+(L.autoUpdate?'自動更新 ON':'自動更新 OFF（CALIBRATION_STATE）')+'</td></tr>'
-    +'<tr><td>暦月別バイアス</td><td>'+mbText+'</td><td class="locked">'+(mbKeys2.length?('学習済み '+mbKeys2.length+' 暦月'):'—')+'</td></tr>'
-    +'<tr><td>Vertexアシスト</td><td>'+vtxText+'</td><td class="locked">weight '+(L.vertexWeight||0.5).toFixed(2)+' × 信頼度 '+(L.vertexReliability||1).toFixed(2)+'</td></tr>'
-    +'<tr><td>ソース信頼度の学習</td><td>'+((L.reliabilityNonDefault||0)>0?L.reliabilityNonDefault+'件のソースに重み適用中':'デフォルト（全ソース×1.0）')+'</td><td class="locked">'+(L.lastAppliedQuarter?('四半期適用 '+esc(L.lastAppliedQuarter)):'C-2 未適用')+'</td></tr>'
-    +'</tbody></table></div>'
+  html+='<div class="card"><div class="h2row"><h2>自動学習（B-5）</h2>'+help('中立シナリオの予実誤差から全体補正係数と暦月別バイアスをベイズ更新します。B-2 実行後にも自動で走り、次回 A-9 予測へ反映されます。Vertexアシストは設定で有効化できます。')+'</div>'
+    +'<div class="kpirow" style="grid-template-columns:repeat(4,1fr)">'
+    +kpi('全体補正係数','×'+(L.biasFactor||1).toFixed(3))
+    +kpi('暦月バイアス', mbKeys2.length?('学習済み '+mbKeys2.length+' 暦月'):'未学習')
+    +kpi('Vertexアシスト', vtx.enabled?('weight '+(L.vertexWeight||0.5).toFixed(2)+' × 信頼度 '+(L.vertexReliability||1).toFixed(2)):'無効')
+    +kpi('自動更新', L.autoUpdate?'ON':'OFF')
+    +'</div>'
+    +'<details class="fold"><summary>学習の詳細</summary><div class="inner">'
+    +'<div class="tblwrap"><table class="tbl" style="min-width:560px"><colgroup><col style="width:200px"><col></colgroup><tbody>'
+    +'<tr><td>暦月別バイアス</td><td>'+mbText+'</td></tr>'
+    +'<tr><td>Vertexアシスト</td><td>'+vtxText+'</td></tr>'
+    +'<tr><td>ソース信頼度の学習</td><td>'+((L.reliabilityNonDefault||0)>0?L.reliabilityNonDefault+'件のソースに重み適用中':'デフォルト（全ソース×1.0）')+(L.lastAppliedQuarter?('（四半期適用 '+esc(L.lastAppliedQuarter)+'）'):'（C-2 未適用）')+'</td></tr>'
+    +'</tbody></table></div></div></details>'
     +'<div class="inputfoot"><button class="btn btn-primary" id="btn_b5">自動学習を実行（B-5）</button>'
     +(sLearn?chipFor(sLearn.status):'')
     +'<button class="btn btn-ghost" id="btn_vassist"'+(vtx.enabled?'':' disabled')+'>Vertexアシスト実行</button>'
@@ -743,7 +760,7 @@ function renderEval(){
     evRows.forEach(function(c){ ((c.p50!=null)||(c.forecastTotal!=null)?withFc:noFc).push(c); });
     html+='<div class="card"><h2>月次の予実比較</h2>';
     if(withFc.length){
-      html+='<div class="sub">実績と予測P50の誤差率（APE）。帯の外に出た月は注意色です（バーは150%で頭打ち表示）。</div>'
+      html+='<div class="h2row" style="margin-bottom:12px"><div class="sub" style="margin-bottom:0">実績と予測P50の誤差率（月別APE）</div>'+help('棒は |実績−予測P50| ÷ 実績。P10〜P90 の帯を外れた月は注意色です。外れ値は150%で頭打ち表示（実値はバーの上に表示）。')+'</div>'
         +'<canvas id="apechart" style="width:100%;height:190px;display:block"></canvas>'
         +'<div class="legend"><span><i style="background:var(--primary)"></i>誤差率</span><span><i style="background:var(--warn-fg)"></i>P10〜P90外</span><span><i style="background:#8a94a6"></i>30% 基準線</span></div>'
         +'<div class="tblwrap tblscroll" style="margin-top:14px"><table class="tbl" style="min-width:840px"><colgroup><col style="width:86px"><col><col><col><col style="width:80px"><col style="width:100px"><col style="width:110px"></colgroup><thead><tr><th>月</th><th class="num">予測(P50)</th><th class="num">実績</th><th class="num" title="実績 − 予測P50">差分</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th title="実績がP10〜P90の帯の外側に出た月">範囲外</th><th>期</th></tr></thead><tbody>';
@@ -757,7 +774,7 @@ function renderEval(){
   }
 
   if(B.eval.insights.length){
-    html+='<div class="card"><h2>学習インサイト（原因の記録）</h2><div class="sub">誤差の大きい月について原因仮説と対応を記入します（次の前提更新に使われます）。</div><div class="tblwrap"><table class="tbl stickyr" style="min-width:1120px">'
+    html+='<div class="card"><div class="h2row"><h2>学習インサイト（原因の記録）</h2>'+help('誤差の大きい月について原因仮説と対応を記入します。記入内容は次の前提更新（四半期レビュー）に使われます。')+'</div><div class="tblwrap"><table class="tbl stickyr" style="min-width:1120px">'
       +'<colgroup><col style="width:80px"><col style="width:130px"><col style="width:130px"><col style="width:90px"><col style="width:160px"><col style="width:170px"><col style="width:130px"><col style="width:110px"><col style="width:110px"></colgroup>'
       +'<thead><tr><th>月</th><th class="num">予測P50</th><th class="num">実績</th><th class="num" title="|実績−予測| ÷ 実績（APE）">誤差率</th><th>インサイト</th><th>原因仮説</th><th title="次サイクルへの対応方針">対応種別</th><th>担当</th><th>状態</th></tr></thead><tbody>';
     B.eval.insights.forEach(function(r){
@@ -786,14 +803,14 @@ function insightStatusOpts(cur){ return ['','open','in_progress','done'].map(fun
 function renderQuarterly(){
   var html=viewTitle('四半期レビュー', 'C-1 提案生成 → 承認入力 → C-3 適用');
   html+='<div class="errstrip" id="err_q"></div>';
-  html+='<div class="rowcards">'
-    +actCard('C-1','レビュー提案の生成','直近で確定した四半期の予実を分析し、モデル調整の提案を生成します（3か月分の実績確定が必要）。','quarterly_review_status','btn_c1','提案を生成',!stepOk('step4_status'))
-    +'</div>';
+  html+='<div class="card"><h2>四半期工程</h2><div class="steplist">'
+    +stepRow('C-1','レビュー提案の生成','直近で確定した四半期の予実を分析し、モデル調整の提案を生成します（3か月分の実績確定が必要）。','quarterly_review_status','btn_c1','提案を生成',!stepOk('step4_status'))
+    +'</div></div>';
 
   var Q=B.quarterly;
   if(Q.applied) html+='<div class="warnbox">このレビューは適用済みです。新しい提案を作るには C-1 を再実行してください。</div>';
   if(Q.proposals.length){
-    html+='<div class="card"><h2>'+esc(Q.title||'レビュー提案')+'</h2><div class="sub">'+(Q.period?esc(Q.period)+' — ':'')+'承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。</div>'
+    html+='<div class="card"><div class="h2row"><h2>'+esc(Q.title||'レビュー提案')+'</h2>'+help((Q.period?Q.period+'。':'')+'承認列を入力して「承認を保存」→「適用（C-3）」の順に実行します。')+'</div>'
       +'<div class="tblwrap"><table class="tbl" style="min-width:880px"><colgroup><col style="width:120px"><col style="width:170px"><col style="width:110px"><col style="width:110px"><col style="width:80px"><col><col style="width:150px"><col style="width:110px"></colgroup>'
       +'<thead><tr><th>提案ID</th><th>対象</th><th>現在値</th><th>提案値</th><th class="num" title="提案内容の確信度（0〜100%）">自信度</th><th>根拠 / 影響</th><th>承認</th><th title="適用前の値への戻し方">ロールバック</th></tr></thead><tbody>';
     Q.proposals.forEach(function(p){
@@ -1080,6 +1097,10 @@ function setErr(id,msg){ var el=document.getElementById(id); if(el){el.textConte
     if(irow && ik){ var d=state.insightDirty[irow]||(state.insightDirty[irow]={}); d[ik]=ev.target.value; var itr=ev.target.closest('tr'); if(itr)itr.classList.add('dirty'); markDirty(); return; }
     var qrow=Number(ev.target.getAttribute('data-qrow'));
     if(qrow){ state.decisionDirty[qrow]=ev.target.value; var qtr=ev.target.closest('tr'); if(qtr)qtr.classList.add('dirty'); markDirty(); }
+  });
+  // ⓘポップオーバー: 外側クリックで全て閉じる
+  document.addEventListener('click',function(ev){
+    if(!ev.target.closest('.qh')) document.querySelectorAll('details.qh[open]').forEach(function(d){d.open=false;});
   });
   // モーダル: 背景クリック / Esc で閉じる
   var mb=document.getElementById('modalBack');
