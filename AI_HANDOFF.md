@@ -137,7 +137,17 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 - Webアプリ context の落とし穴: `SpreadsheetApp.getUi()` は例外になる（toast / setActiveSheet は例外にならない）。UIアラートを出す既存経路は `safeSpreadsheetUi_()` / `alertOrThrow_()` でラップ済み。確認ダイアログ（A-9 の48ヶ月未満・極端入力）は `forecastConfirmOrAbort_()` が `err.webConfirm` を投げ、`webRunForecast` が `{needConfirm}` 戻り値に変換して SPA のモーダルに繋ぐ。新しい alert/confirm を足す場合は必ずこの2関数を使う。
 - `VNEXT_ADMIN_RUNTIME_FILE_TYPES_`（runtime copyの allowlist）は 21ファイル。Forecast_WebApp 系の追加/削除時は件数と中身を一致させること（不一致だと `vNextAdminVerifyScriptContent_` が失敗する）。
 - 出力パースは OUTPUT のラベルアンカー走査（「年度合計（予測）」「Scenario Split」「（参考）内訳とメモ」「Diagnostics」）。行位置は出力レイアウトに依存するため固定行番号で読まない。
-- 検証: `~/.clasprc.json` の access_token を `Authorization: Bearer` で exec URL に付ければ、ブラウザに Google セッションがなくても Playwright 等で実描画を確認できる。内側 iframe（googleusercontent）内で `location.hash` / `B`（bootstrap）/ `google.script.run` を直接操作する。
+- 検証: `~/.clasprc.json` の access_token を `Authorization: Bearer` で exec URL に付ければ、ブラウザに Google セッションがなくても Playwright 等で実描画を確認できる。内側 iframe（googleusercontent）内で `location.hash` / `B`（bootstrap）/ `google.script.run` を直接操作する。token は `oauth2.googleapis.com/token` へ `.clasprc.json` の `tokens.default`（client_id/client_secret/refresh_token）を POST して再生成する。Playwright では `browser.new_context(extra_http_headers={'Authorization': 'Bearer ...'})` が必須（`page.route` パッチだけだと `google.script.run` POST が 401 になる）。
+
+### 自動学習レイヤー（B-5 / Vertexアシスト、2026-09-30 追加）
+
+設計全体は `DESIGN_bayesian_autolearn_vertex_JA.md`。要点:
+
+- `runMonthlyAutoLearn_(client)` が EVAL_LOG 中立シナリオ誤差を EWMA+ベイズ縮小し、`CALIBRATION_STATE` の `bias_correction_factor`（±0.05/回、係数0.75〜1.25）と `residual_month_bias_json`（暦月別、±0.20キャップ）を更新。B-2（`updatePhase1EvaluationReport`）末尾でも自動実行される。`auto_update_enabled=0` で no-op。
+- A-9 は `forecast_open` の月だけに `係数 × (1+暦月バイアス±0.25) × kVertex` を適用。closed 月（実実績上書き）は補正しない。
+- Vertexアシストは A-4 末尾で `VERTEX_FORECAST_LOG` へ記録、A-9 は最新一致行のみ読む。反映率は `VERTEX_ASSIST_WEIGHT × SOURCE_RELIABILITY(vertex_forecast) × confidence` で自動調整 — C-1 の hit-rate 機構が vertex_forecast の信頼度を実績から学習する。有効化は CONFIG `VERTEX_FORECAST_ENABLED=1`。
+- 検算 `runLearningBacktest_` は stored pred の再スケール簡易検算（モデル再推定なし、≥6か月必要）。
+- テスト: `node tests/forecast-autolearn.test.mjs`（純粋計算部を vm 抽出して検証）。
 
 ## 変更してはいけない境界
 

@@ -39,7 +39,9 @@ Adminコードを改修した後は、中央projectへclasp反映してからAdm
 
 ## 売上予測 Webアプリ（Legacy book の doGet）
 
-「クライアント別売上予測」スプレッドシートの bound script を `executeAs=USER_DEPLOYING` / `access=DOMAIN` の Webアプリとして公開しています。Legacy メニュー（A-2 取り込み → A-3 加工 → A-4 AI調査 → A-5〜A-8 主観入力 → A-9 予測 → A-10 予算入力 → B-1〜B-4 検証 → C-1〜C-3 四半期レビュー）を、スプレッドシートを開かずにブラウザだけで一巡できる SPA です。
+「クライアント別売上予測」スプレッドシートの bound script を `executeAs=USER_DEPLOYING` / `access=DOMAIN` の Webアプリとして公開しています。Legacy メニュー（A-2 取り込み → A-3 加工 → A-4 AI調査 → A-5〜A-8 主観入力 → A-9 予測 → A-10 予算入力 → B-1〜B-5 検証・自動学習 → C-1〜C-3 四半期レビュー）を、スプレッドシートを開かずにブラウザだけで一巡できる SPA です。
+
+B-5（月次ベイズ自動学習 + Vertexアシスト）により、B-1/B-2 で実績評価が蓄積されるたび補正係数が自動更新され、次回 A-9 予測へ反映されます。設計は [`DESIGN_bayesian_autolearn_vertex_JA.md`](./DESIGN_bayesian_autolearn_vertex_JA.md) を参照。
 
 - 実装: [`Forecast_WebApp.js`](./Forecast_WebApp.js)（`doGet` + `webGetBootstrap` + `webRun*/webSave*` RPC）と [`Forecast_WebAppUI.html`](./Forecast_WebAppUI.html)（SPA）
 - 反映: `clasp push` 後に `clasp deploy --deploymentId <id>` で exec URL の版を上げる（`/dev` は Google ログイン必須のため運用には使わない）

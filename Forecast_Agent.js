@@ -14,8 +14,8 @@
  * - 通年予測モード: FORECAST_CLOSED_MONTH_MODE（actual=実績上書き / forecast=通年予測）。既定 actual で従来挙動
  ***************************************/
 
-const VERSION = '2.3.49-dev';
-const BUILD_STAGE = 'output-nav-polish';
+const VERSION = '2.4.0-dev';
+const BUILD_STAGE = 'bayesian-autolearn-vertex-hybrid';
 const MENU_NAME = 'Forecast Agent';
 const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
@@ -95,7 +95,8 @@ const SHEETS = {
   POOL_AGGREGATION_LOG: 'POOL_AGGREGATION_LOG',
   LANDING_FORECAST: 'LANDING_FORECAST',
   BACKTEST_REPORT: 'BACKTEST_REPORT',
-  AI_RESEARCH_RAW: 'AI_RESEARCH_RAW'
+  AI_RESEARCH_RAW: 'AI_RESEARCH_RAW',
+  VERTEX_FORECAST_LOG: 'VERTEX_FORECAST_LOG'
 };
 
 // 入力セル背景
@@ -229,7 +230,21 @@ const AI_QUALITY_PARTIAL_THRESHOLD = 0.50;
 const QUARTERLY_APPROVAL_OPTIONS = ['承認', '却下', '保留'];
 const QUARTERLY_APPROVAL_PENDING = '保留';
 const POOL_MIN_CLIENTS_DEFAULT = 2;
-const RELIABILITY_POOL_SOURCE_TYPES = ['factor_product', 'factor_client', 'opinion', 'ai_topic'];
+const RELIABILITY_POOL_SOURCE_TYPES = ['factor_product', 'factor_client', 'opinion', 'ai_topic', 'vertex_forecast'];
+
+// ===== 月次ベイズ自動学習（B-5）のハイパーパラメータ =====
+const AUTOLEARN_MIN_EVAL_MONTHS = 3;        // 学習に必要な中立評価月数
+const AUTOLEARN_EWMA_HALFLIFE_MONTHS = 4;   // 直近月を重く見るEWMA半減期
+const AUTOLEARN_GLOBAL_SHRINK_K = 3;        // 全体バイアス事前精度（有効月単位）
+const AUTOLEARN_MONTH_SHRINK_K = 2;         // 暦月別バイアス事前精度
+const AUTOLEARN_MAX_GLOBAL_DELTA = 0.05;    // 1回の更新で全体係数が動ける最大幅
+const AUTOLEARN_MONTH_BIAS_CAP = 0.20;      // 暦月別バイアス保存上限
+const AUTOLEARN_GLOBAL_FACTOR_MIN = 0.75;   // 全体補正係数の下限
+const AUTOLEARN_GLOBAL_FACTOR_MAX = 1.25;   // 全体補正係数の上限
+const AUTOLEARN_FORECAST_BIAS_CAP = 0.25;   // 予測適用時の暦月バイアス上限
+const AUTOLEARN_BACKTEST_MIN_MONTHS = 6;    // カウンターファクト検算に必要な評価月数
+const VERTEX_ASSIST_WEIGHT_DEFAULT = 0.5;   // Vertexアシスト既定反映率
+const VERTEX_ASSIST_MAX_ADJ = 0.30;         // Vertexアシスト1月あたり調整上限
 
 // ===== v8 STEP2: DLM (log-space structural time series) =====
 const DLM_SEASONAL_PERIOD = 12;            // 月次季節
@@ -304,6 +319,7 @@ function onOpen() {
     .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
     .addItem('B-3 予測ダッシュボードを更新', 'updatePhase1Dashboard')
     .addItem('B-4 検証インサイトを更新', 'updatePhase1LearningInsights')
+    .addItem('B-5 自動学習（月次補正の更新）', 'runMonthlyAutoLearn')
     .addSeparator()
     .addItem('C-1 四半期レビューを実行（3か月に1回）', 'runQuarterlyReview')
     .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
@@ -1527,15 +1543,34 @@ function runForecastFYCore_(fy, clientName) {
     }
   }
 
+  // 学習系補正（全体係数・暦月バイアス・Vertexアシスト）は forecast_open 月だけに掛ける。
+  // closed 月は実績で上書き済みであり、実績値を補正係数で変形させない。
   const biasCorrectionFactor = isFinite(calibration && calibration.bias_correction_factor) ? Number(calibration.bias_correction_factor) : 1.0;
-  if (biasCorrectionFactor !== 1.0) {
-    mixed.p10 = mixed.p10.map(v => Number(v || 0) * biasCorrectionFactor);
-    mixed.p50 = mixed.p50.map(v => Number(v || 0) * biasCorrectionFactor);
-    mixed.p90 = mixed.p90.map(v => Number(v || 0) * biasCorrectionFactor);
+  const learnedMonthBias = parseResidualMonthBiasJson_(calibration && calibration.residual_month_bias_json);
+  const vertexForecastEnabled = readVertexForecastEnabled_();
+  const vertexAssist = vertexForecastEnabled ? readLatestVertexAssist_(clientName, months) : { ready: false };
+  const vertexRelR = getSourceReliability_(reliabilityMap, 'vertex_forecast', 'assist');
+  const vertexW = vertexAssist.ready
+    ? readVertexAssistWeight_(tuningApplied) * vertexRelR * (0.5 + 0.5 * vertexAssist.confidence)
+    : 0;
+  const monthBiasByMonth = new Array(12).fill(0);
+  const kVertexByMonth = new Array(12).fill(1);
+  for (let i = 0; i < months.length; i++) {
+    if (sourceByMonth[i] !== 'forecast_open') continue;
+    const mb = clamp_(Number(learnedMonthBias[String(months[i].getMonth() + 1)] || 0), -AUTOLEARN_FORECAST_BIAS_CAP, AUTOLEARN_FORECAST_BIAS_CAP);
+    monthBiasByMonth[i] = mb;
+    if (vertexAssist.ready) {
+      kVertexByMonth[i] = clamp_(1 + Number(vertexAssist.adj[i] || 0) * vertexW, 0.7, 1.3);
+    }
+    const k = biasCorrectionFactor * (1 + mb) * kVertexByMonth[i];
+    if (Math.abs(k - 1) < 1e-12) continue;
+    mixed.p10[i] = Number(mixed.p10[i] || 0) * k;
+    mixed.p50[i] = Number(mixed.p50[i] || 0) * k;
+    mixed.p90[i] = Number(mixed.p90[i] || 0) * k;
     if (mixed.raw) {
-      mixed.raw.p10 = (mixed.raw.p10 || []).map(v => Number(v || 0) * biasCorrectionFactor);
-      mixed.raw.p50 = (mixed.raw.p50 || []).map(v => Number(v || 0) * biasCorrectionFactor);
-      mixed.raw.p90 = (mixed.raw.p90 || []).map(v => Number(v || 0) * biasCorrectionFactor);
+      mixed.raw.p10[i] = Number((mixed.raw.p10 || [])[i] || 0) * k;
+      mixed.raw.p50[i] = Number((mixed.raw.p50 || [])[i] || 0) * k;
+      mixed.raw.p90[i] = Number((mixed.raw.p90 || [])[i] || 0) * k;
     }
   }
 
@@ -1599,7 +1634,18 @@ function runForecastFYCore_(fy, clientName) {
       opinions,
       aiScores,
       productWeights,
-      reliabilityMap
+      reliabilityMap,
+      vertexPushByMonth: kVertexByMonth.map(k => Number(k || 1) - 1)
+    },
+    learnedAdjustments: {
+      biasCorrectionFactor,
+      monthBiasByMonth,
+      kVertexByMonth,
+      vertexReady: !!vertexAssist.ready,
+      vertexWeight: vertexW,
+      vertexReliability: vertexRelR,
+      vertexConfidence: vertexAssist.ready ? vertexAssist.confidence : 0,
+      vertexAssistAt: vertexAssist.at || ''
     },
     aiScoreBasis
   };
@@ -2553,7 +2599,8 @@ function buildGUIDE_() {
     ['B-事後検証', 'B-1 検証用に実績データを取り込み', '実績を ACTUAL_EVAL_MONTHLY に取り込み（BASE/SPOT判定つき）。'],
     ['B-事後検証', 'B-2 検証レポートを更新', 'EVAL_LOG と EVAL_COMPARE_MONTHLY を更新。'],
     ['B-事後検証', 'B-3 予測ダッシュボードを更新', 'DASHBOARD を更新（B-2の比較結果からKPIを集計）。'],
-    ['B-事後検証', 'B-4 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。']
+    ['B-事後検証', 'B-4 検証インサイトを更新', 'EVAL_INSIGHTS に外れ要因と次アクションを整理。'],
+    ['B-事後検証', 'B-5 自動学習（月次補正の更新）', 'EVAL_LOG の誤差から全体補正係数と暦月バイアスをベイズ更新（次回A-9へ自動反映）。']
   ];
   sh.getRange(13, 1, bRows.length, 3).setValues(bRows).setBackground(C_B);
 
@@ -2562,9 +2609,9 @@ function buildGUIDE_() {
     ['C-四半期レビュー', 'C-2 承認済み提案を適用', '承認行だけCALIBRATION_STATEへ反映し履歴を更新。'],
     ['C-四半期レビュー', 'C-3 過去の提案履歴を開く', 'QUARTERLY_REVIEW_LOGを表示して履歴を閲覧。']
   ];
-  sh.getRange(17, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
+  sh.getRange(18, 1, cRows.length, 3).setValues(cRows).setBackground(C_C);
 
-  sh.getRange(21, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
+  sh.getRange(22, 1, 1, 3).setValues([['シート分類', 'シート名', 'シート説明']]).setBackground(COLOR_HEADER).setFontWeight('bold');
   const links = [
     ['自動入力用', SHEETS.CONFIG, '設定（クライアント/FY/担当者）'],
     ['自動入力用', SHEETS.SALES_INPUT, '予測入力（月次案件一覧）'],
@@ -2583,8 +2630,8 @@ function buildGUIDE_() {
     ['事後検証用', SHEETS.QUARTERLY_REVIEW, '四半期レビュー（最新）'],
     ['事後検証用', SHEETS.QUARTERLY_REVIEW_LOG, '四半期提案履歴（永続）']
   ];
-  setGuideLinkTable_(sh, 22, links);
-  applySectionGapRows_(sh, [20]);
+  setGuideLinkTable_(sh, 23, links);
+  applySectionGapRows_(sh, [21]);
 
   const guideLast = sh.getLastRow();
   const guideCols = Math.max(3, sh.getLastColumn());
@@ -2739,7 +2786,9 @@ function buildCONFIG_() {
     ['VERTEX_DATASTORE_ID（Vertex AI Search データストアID。レポート更新時はここを切替）', 'fujikeizai-portfolio-2025'],
     ['VERTEX_SEARCH_LOCATION（データストアのロケーション。global / us / eu）', 'global'],
     ['VERTEX_SERVING_CONFIG（検索サービング構成ID。通常 default_search。アプリにより default_config）', 'default_search'],
-    ['AI_RESEARCH_ENABLED（0/1。1でVertex AIリサーチを実行、0でAI調査をスキップ）', 1]
+    ['AI_RESEARCH_ENABLED（0/1。1でVertex AIリサーチを実行、0でAI調査をスキップ）', 1],
+    ['VERTEX_FORECAST_ENABLED（0/1。1でA-4時にVertex予測アシストを実行しA-9へ反映）', 0],
+    ['VERTEX_ASSIST_WEIGHT（Vertexアシスト反映率 0〜1。信頼度rとconfidenceで自動調整）', VERTEX_ASSIST_WEIGHT_DEFAULT]
   ];
   sh.getRange(tuneStart, 1, 1, 2).setValues(tuneHdr).setBackground(COLOR_HEADER).setFontWeight('bold');
   sh.getRange(tuneStart + 1, 1, tuneRows.length, 2).setValues(tuneRows);
@@ -3704,7 +3753,8 @@ function readModelTuningFromConfig_() {
     reliabilityShrinkageK: 4,
     reliabilityMinSamples: 2,
     reliabilityMinChange: 0.05,
-    poolMinClients: POOL_MIN_CLIENTS_DEFAULT
+    poolMinClients: POOL_MIN_CLIENTS_DEFAULT,
+    vertexAssistWeight: VERTEX_ASSIST_WEIGHT_DEFAULT
   };
 
   const labelMap = readConfigLabelMap_();
@@ -3752,6 +3802,7 @@ function readModelTuningFromConfig_() {
   out.reliabilityMinSamples = Math.round(Math.max(1, Math.min(12, getCfg('RELIABILITY_MIN_SAMPLES', out.reliabilityMinSamples))));
   out.reliabilityMinChange = Math.max(0, Math.min(1, getCfg('RELIABILITY_MIN_CHANGE', out.reliabilityMinChange)));
   out.poolMinClients = Math.round(Math.max(1, Math.min(50, getCfg('POOL_MIN_CLIENTS', out.poolMinClients))));
+  out.vertexAssistWeight = Math.max(0, Math.min(1, getCfg('VERTEX_ASSIST_WEIGHT', out.vertexAssistWeight)));
   return out;
 }
 
@@ -6319,6 +6370,7 @@ function buildPhase1Sheets_() {
   buildSimpleSheet_(ss, SHEETS.DASHBOARD, ['metric','value','note']);
   buildSimpleSheet_(ss, SHEETS.SOURCE_RELIABILITY, ['client','source_type','source_key','reliability_r','sample_count','last_eval_window','updated_at','updated_by','note']);
   buildSimpleSheet_(ss, SHEETS.RELIABILITY_EVIDENCE, ['client','source_type','source_key','quarter_label','quarter_end_month','n','hit','hit_rate','computed_at','run_id','note']);
+  buildSimpleSheet_(ss, SHEETS.VERTEX_FORECAST_LOG, ['run_id','run_at','client','fy','target_months_json','monthly_adj_json','confidence','rationale_ja','model','status','duration_sec','usage_json','note']);
   initializeProcessStatus_();
 }
 
@@ -6706,7 +6758,7 @@ function applyValueTypeAlignment_(sh, startRow, numRows, numCols) {
 
 function initializeProcessStatus_() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
-  const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status'];
+  const keys = ['step1_status','step2_status','step3_status','step3a_status','step4_status','step5_status','step6_status','step7_status','learn_status'];
   const rows = keys.map(k => [k,'','', 'not_run','','','']);
   sh.getRange(2,1,rows.length,7).setValues(rows);
 }
@@ -7144,6 +7196,20 @@ function runVertexAIResearch() {
     }
     writeAIResearchSummaryView_(ss, targetClient, asOf, outRows, summaryAiScores);
 
+    // Vertex予測アシスト（VERTEX_FORECAST_ENABLED=1 のとき12か月調整率を取得してログ化）
+    try {
+      const assistRes = runVertexForecastAssist_(targetClient, ss, vertex, null);
+      if (assistRes && assistRes.ok) {
+        safeLogRun_('runVertexForecastAssist_', targetClient, 'success', 12, started, `conf=${assistRes.confidence}`);
+      } else if (assistRes && assistRes.skipped && assistRes.skipped !== 'disabled') {
+        safeLogRun_('runVertexForecastAssist_', targetClient, 'warning', 0, started, String(assistRes.skipped || assistRes.error || ''));
+      } else if (assistRes && assistRes.error) {
+        safeLogRun_('runVertexForecastAssist_', targetClient, 'warning', 0, started, String(assistRes.error));
+      }
+    } catch (assistErr) {
+      safeLogRun_('runVertexForecastAssist_', targetClient, 'warning', 0, started, String(assistErr && assistErr.message || assistErr));
+    }
+
     const warnText = buildVertexWarningSummary_(stats, neutralTopics, outRows.length);
     updateProcessStatus_('step3_status', 'success', targetClient, outRows.length, 'Vertex AI research');
     updateProcessStatus_('step3a_status', 'success', targetClient, outRows.length, warnText);
@@ -7166,6 +7232,7 @@ function ensureAIResearchRuntimeSheets_(ss) {
   ensureSheetReady_(ss, SHEETS.AI_RESEARCH_STRUCTURED, ['client','as_of_date','topic','row_type','direction','impact_score','confidence','evidence','time_horizon','business_relevance_reason','market_size_ref','peer_universe','peer_basis','relative_position_label','relative_percentile','relative_confidence','benchmark_quality','relative_reason','report_text','event_score','benchmark_score','blended_score']);
   ensureSheetReady_(ss, SHEETS.AI_RESEARCH_TASK_LOG, ['run_id','run_at','run_by','client','topic','aspect','model','endpoint','status','duration_sec','prompt_tokens','candidates_tokens','total_tokens','low_confidence_flag','citations_json','error_summary','note']);
   ensureSheetReady_(ss, SHEETS.AI_RESEARCH_RAW, getAIResearchRawHeaders_());
+  ensureSheetReady_(ss, SHEETS.VERTEX_FORECAST_LOG, getVertexForecastLogHeaders_());
   migrateLegacyAIResearchRawSheets_(ss);
 }
 
@@ -8019,6 +8086,11 @@ function updatePhase1EvaluationReport() {
 
   updateProcessStatus_('step5_status','success','',evalRows.length,'');
   logRun_('updatePhase1EvaluationReport','', 'success', evalRows.length, new Date(), '');
+
+  // 評価蓄積→学習の閉ループ：B-2のたびに月次ベイズ補正を自動更新
+  const evalClient = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+  autoLearnAfterEvalReport_(evalClient);
+
   ss.setActiveSheet(compare || out);
 }
 
@@ -9256,6 +9328,418 @@ function applyCalibrationToTuning_(tuning, calibration) {
   return out;
 }
 
+// ============================================================
+// 月次ベイズ自動学習（B-5 / webRunMonthlyLearn）
+// EVAL_LOG の中立シナリオ誤差を事前分布+縮小推定で処理し、
+// 全体補正係数（bias_correction_factor）と暦月別残差バイアス
+// （residual_month_bias_json）を CALIBRATION_STATE へ書き戻す。
+// 計算部（autoLearnComputeState_）は sheet 非依存の純粋関数として
+// 切り出し、Node 側の単体テスト（tests/forecast-autolearn.test.mjs）
+// で不変条件を検証する。
+// ============================================================
+
+function autoLearnComputeState_(pairs, opts) {
+  const o = opts || {};
+  const minMonths = isFinite(o.minMonths) ? o.minMonths : AUTOLEARN_MIN_EVAL_MONTHS;
+  const halfLife = isFinite(o.halfLife) && o.halfLife > 0 ? o.halfLife : AUTOLEARN_EWMA_HALFLIFE_MONTHS;
+  const kG = isFinite(o.kG) ? o.kG : AUTOLEARN_GLOBAL_SHRINK_K;
+  const kM = isFinite(o.kM) ? o.kM : AUTOLEARN_MONTH_SHRINK_K;
+  const maxDelta = isFinite(o.maxDelta) ? o.maxDelta : AUTOLEARN_MAX_GLOBAL_DELTA;
+  const monthCap = isFinite(o.monthCap) ? o.monthCap : AUTOLEARN_MONTH_BIAS_CAP;
+  const fMin = isFinite(o.fMin) ? o.fMin : AUTOLEARN_GLOBAL_FACTOR_MIN;
+  const fMax = isFinite(o.fMax) ? o.fMax : AUTOLEARN_GLOBAL_FACTOR_MAX;
+  const curFactor = isFinite(o.curFactor) ? o.curFactor : 1.0;
+
+  const usable = (pairs || [])
+    .map(p => {
+      const a = Number(p.actual); const pr = Number(p.pred);
+      if (!isFinite(a) || a === 0 || !isFinite(pr)) return null;
+      return { ym: String(p.ym || ''), e: (pr - a) / Math.abs(a) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.ym < b.ym ? 1 : -1)); // 新しい月から順に
+  if (usable.length < minMonths) {
+    return { ready: false, reason: 'insufficient_eval_months', n: usable.length };
+  }
+  const wByIdx = usable.map((_, i) => Math.pow(0.5, i / halfLife));
+  let wSum = 0; let weSum = 0;
+  usable.forEach((p, i) => { wSum += wByIdx[i]; weSum += wByIdx[i] * p.e; });
+  // e>0 は過剰予測 → 補正係数は 1 - 事後平均（事前平均0・精度kGで縮小）
+  const postBias = weSum / Math.max(1e-9, wSum + kG);
+  const targetFactor = clamp_(1 - postBias, fMin, fMax);
+  const newFactor = clamp_(curFactor + clamp_(targetFactor - curFactor, -maxDelta, maxDelta), fMin, fMax);
+
+  const byMonth = {};
+  usable.forEach((p, i) => {
+    const dt = parseYM_(p.ym);
+    if (!dt) return;
+    const key = String(dt.getMonth() + 1);
+    if (!byMonth[key]) byMonth[key] = { n: 0, w: 0, we: 0 };
+    byMonth[key].n += 1;
+    byMonth[key].w += wByIdx[i];
+    byMonth[key].we += wByIdx[i] * p.e;
+  });
+  const monthBias = {};
+  Object.keys(byMonth).forEach(k => {
+    const g = byMonth[k];
+    const b = clamp_(-(g.we / Math.max(1e-9, g.w + kM)), -monthCap, monthCap);
+    if (Math.abs(b) >= 0.005) monthBias[k] = Number(b.toFixed(4));
+  });
+  return {
+    ready: true,
+    n: usable.length,
+    postBias: postBias,
+    factor: newFactor,
+    targetFactor: targetFactor,
+    curFactor: curFactor,
+    monthBias: monthBias
+  };
+}
+
+function parseResidualMonthBiasJson_(raw) {
+  const out = {};
+  try {
+    const j = JSON.parse(String(raw || ''));
+    if (j && typeof j === 'object' && !Array.isArray(j)) {
+      Object.keys(j).forEach(k => {
+        const m = Number(k); const v = Number(j[k]);
+        if (m >= 1 && m <= 12 && isFinite(v)) out[String(m)] = v;
+      });
+    }
+  } catch (e) { /* 空・壊れたJSONは空で扱う */ }
+  return out;
+}
+
+function canonicalMonthBiasJson_(obj) {
+  const o = obj || {};
+  const keys = Object.keys(o).filter(k => isFinite(Number(o[k]))).map(Number).sort((a, b) => a - b);
+  const parts = {};
+  keys.forEach(m => { parts[String(m)] = Number(o[String(m)]); });
+  return JSON.stringify(parts);
+}
+
+function collectNeutralEvalPairs_(ss, client) {
+  const sh = ss.getSheetByName(SHEETS.EVAL_LOG);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const vals = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(vals[0] || []);
+  if (!hasHeaderIndexes_(idx, ['client', 'scenario', 'target_month', 'pred', 'actual'])) return [];
+  const latest = new Map();
+  for (let i = 1; i < vals.length; i++) {
+    const r = vals[i];
+    if (!isSameClient_(r[idx.client], client)) continue;
+    if (String(r[idx.scenario] || '') !== 'neutral') continue;
+    if (idx.constraint_relevant_flag !== undefined && String(r[idx.constraint_relevant_flag] || '') !== '1') continue;
+    const ym = String(r[idx.target_month] || '');
+    if (!ym) continue;
+    const rawAt = idx.evaluated_at !== undefined ? r[idx.evaluated_at] : '';
+    const at = rawAt instanceof Date ? rawAt.getTime() : new Date(rawAt).getTime();
+    const atKey = isFinite(at) ? at : 0;
+    const prev = latest.get(ym);
+    if (!prev || atKey > prev.at || (atKey === prev.at && i > prev.seq)) {
+      latest.set(ym, { seq: i, at: atKey, ym: ym, pred: Number(r[idx.pred] || 0), actual: Number(r[idx.actual] || 0) });
+    }
+  }
+  return Array.from(latest.values()).map(x => ({ ym: x.ym, pred: x.pred, actual: x.actual }));
+}
+
+function runMonthlyAutoLearn_(client, opts) {
+  const o = opts || {};
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const target = String(client || '').trim();
+  if (!target) throw new Error('client が未指定です。');
+  const cal = readCalibrationState_(target);
+  if (Number(cal.auto_update_enabled || 1) !== 1 && !o.force) {
+    return { ready: false, skipped: 'auto_update_disabled', client: target };
+  }
+  const pairs = collectNeutralEvalPairs_(ss, target);
+  const cur = isFinite(Number(cal.bias_correction_factor)) ? Number(cal.bias_correction_factor) : 1.0;
+  const res = autoLearnComputeState_(pairs, { curFactor: cur });
+  if (!res.ready) return { ready: false, skipped: res.reason, n: res.n, client: target };
+
+  const newMonthJson = canonicalMonthBiasJson_(res.monthBias);
+  const oldMonthJson = canonicalMonthBiasJson_(parseResidualMonthBiasJson_(cal.residual_month_bias_json));
+  const qLabel = quarterLabelFromYm_(Utilities.formatDate(new Date(), TZ, 'yyyy/MM'));
+  const patch = {
+    bias_correction_factor: res.factor,
+    residual_month_bias_json: newMonthJson === '{}' ? '' : newMonthJson,
+    note: `auto-learned ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm')} (n=${res.n})`
+  };
+  writeCalibrationState_(target, patch);
+  const changed = [];
+  if (Math.abs(res.factor - cur) > 1e-9) {
+    changed.push('bias_correction_factor');
+    appendCalibrationHistory_(target, qLabel, 'AUTO-MONTHLY', 'bias_correction_factor', cur, res.factor, 'CALIBRATION_STATEのbias_correction_factorを手動で旧値へ戻す');
+  }
+  if (newMonthJson !== oldMonthJson) {
+    changed.push('residual_month_bias_json');
+    appendCalibrationHistory_(target, qLabel, 'AUTO-MONTHLY', 'residual_month_bias_json', oldMonthJson, patch.residual_month_bias_json, 'CALIBRATION_STATEのresidual_month_bias_jsonを手動で旧値へ戻す');
+  }
+  return {
+    ready: true,
+    client: target,
+    n: res.n,
+    prevFactor: cur,
+    factor: res.factor,
+    postBias: res.postBias,
+    monthBias: res.monthBias,
+    changed: changed
+  };
+}
+
+/** B-5 メニュー/Webからの公開入口。 */
+function runMonthlyAutoLearn() {
+  const started = new Date();
+  let client = '';
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+    const res = runMonthlyAutoLearn_(client, {});
+    if (!res.ready) {
+      const msg = res.skipped === 'auto_update_disabled'
+        ? 'auto_update_enabled=0 のため自動学習は無効です。'
+        : `中立シナリオの評価月が不足しています（${res.n || 0}/${AUTOLEARN_MIN_EVAL_MONTHS}）。B-1/B-2で実績評価を3か月分蓄積してから実行してください。`;
+      logRun_('runMonthlyAutoLearn', client, 'success', res.n || 0, started, `skipped:${res.skipped}`);
+      updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`);
+      alertOrThrow_('自動学習をスキップ', msg);
+      return;
+    }
+    updateProcessStatus_('learn_status', 'success', client, res.n, '');
+    logRun_('runMonthlyAutoLearn', client, 'success', res.n, started, '');
+    alertOrThrow_(
+      '自動学習 完了',
+      `全体補正係数: ${res.prevFactor.toFixed(4)} → ${res.factor.toFixed(4)}\n暦月バイアス: ${Object.keys(res.monthBias).length} 件\n評価月数: ${res.n}\n（次回 A-9 予測から反映）`
+    );
+  } catch (e) {
+    try { updateProcessStatus_('learn_status', 'error', client, 0, String(e && e.message || e)); } catch (ignore) {}
+    logRun_('runMonthlyAutoLearn', client, 'error', 0, started, String(e && e.message || e));
+    alertOrThrow_('自動学習エラー', String(e && e.message || e));
+  }
+}
+
+/**
+ * B-2 の末尾から自動呼び出し（評価蓄積→学習の閉ループ）。
+ * 失敗しても B-2 本体は成功扱いのまま残す。
+ */
+function autoLearnAfterEvalReport_(client) {
+  try {
+    const res = runMonthlyAutoLearn_(client, {});
+    if (res && res.ready) {
+      safeLogRun_('runMonthlyAutoLearn_', client, 'success', res.n, new Date(), `auto:${res.changed.join(',') || 'no-change'}`);
+    } else if (res) {
+      safeLogRun_('runMonthlyAutoLearn_', client, 'success', res.n || 0, new Date(), `skipped:${res.skipped}`);
+    }
+    return res;
+  } catch (e) {
+    safeLogRun_('runMonthlyAutoLearn_', client, 'warning', 0, new Date(), String(e && e.message || e));
+    return { ready: false, skipped: 'exception' };
+  }
+}
+
+// ============================================================
+// カウンターファクト学習バックテスト
+// 「その時点までの誤差だけで自動学習した場合、補正後の誤差は
+//  補正前より小さかったか」を EVAL_LOG 上で walk-forward 検算する。
+// 既存予測値を再学習係数でスケールする簡易検算であり、モデル
+// 再フィットの完全再現ではない（その旨を結果に明記）。
+// ============================================================
+
+function runLearningBacktest_(client, opts) {
+  const o = opts || {};
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const target = String(client || '').trim();
+  const pairs = collectNeutralEvalPairs_(ss, target)
+    .sort((a, b) => (a.ym < b.ym ? -1 : 1));
+  const res = {
+    ready: false,
+    client: target,
+    n: pairs.length,
+    months: [],
+    wapeBefore: null,
+    wapeAfter: null,
+    note: 'final_predを当月までの学習係数で再スケールする簡易検算（モデル再フィットではない）'
+  };
+  if (pairs.length < AUTOLEARN_BACKTEST_MIN_MONTHS) {
+    res.reason = 'insufficient_eval_months';
+    return res;
+  }
+  let absBefore = 0; let absAfter = 0; let den = 0;
+  for (let t = AUTOLEARN_MIN_EVAL_MONTHS; t < pairs.length; t++) {
+    const hist = pairs.slice(0, t);
+    const st = autoLearnComputeState_(hist, { curFactor: 1.0 });
+    if (!st.ready) continue;
+    const cur = pairs[t];
+    const dt = parseYM_(cur.ym);
+    const mb = dt ? Number(st.monthBias[String(dt.getMonth() + 1)] || 0) : 0;
+    const k = st.factor * (1 + clamp_(mb, -AUTOLEARN_FORECAST_BIAS_CAP, AUTOLEARN_FORECAST_BIAS_CAP));
+    const errBefore = Math.abs(cur.pred - cur.actual);
+    const errAfter = Math.abs(cur.pred * k - cur.actual);
+    absBefore += errBefore;
+    absAfter += errAfter;
+    den += Math.abs(cur.actual);
+    res.months.push({
+      ym: cur.ym,
+      factor: Number(st.factor.toFixed(4)),
+      monthBias: Number(mb.toFixed(4)),
+      errBefore: Math.round(errBefore),
+      errAfter: Math.round(errAfter)
+    });
+  }
+  if (!res.months.length || den <= 0) {
+    res.reason = 'no_evaluable_months';
+    return res;
+  }
+  res.ready = true;
+  res.wapeBefore = absBefore / den;
+  res.wapeAfter = absAfter / den;
+  return res;
+}
+
+// ============================================================
+// Vertex AI 予測アシスト（ルールベース定量 + AI のハイブリッド）
+// A-4 末尾で Gemini へ 12か月の相対調整率を問い合わせ、
+// A-9 で reliability 学習付きの反映率で掛け合わせる。
+// ============================================================
+
+function readVertexForecastEnabled_() {
+  const labelMap = readConfigLabelMap_();
+  return Number(labelMap.VERTEX_FORECAST_ENABLED || 0) > 0;
+}
+
+function readVertexAssistWeight_(tuning) {
+  const t = tuning || readModelTuningFromConfig_();
+  const w = isFinite(t.vertexAssistWeight) ? Number(t.vertexAssistWeight) : VERTEX_ASSIST_WEIGHT_DEFAULT;
+  return Math.max(0, Math.min(1, w));
+}
+
+function buildVertexForecastAssistContent_(targetClient, months, ctx) {
+  const monthsYm = (months || []).map(m => fmtYM_(m));
+  const lines = [];
+  lines.push(`Client_Name: ${targetClient}`);
+  lines.push(`Target_Months: ${monthsYm.join(', ')}`);
+  lines.push(`Last12_Actual_Total: ${ctx.last12Ym.map((ym, i) => `${ym}=${Math.round(ctx.last12[i] || 0)}`).join(', ')}`);
+  lines.push(`Trend_Slope_Pct_PerMonth: ${ctx.slopePct.toFixed(3)}`);
+  lines.push(`Seasonal_Strong_Months: ${ctx.strongMonths.join(', ')}`);
+  lines.push(`Seasonal_Weak_Months: ${ctx.weakMonths.join(', ')}`);
+  if (ctx.knownSpot.length) lines.push(`Known_Spot_Expected: ${ctx.knownSpot.join(', ')}`);
+  if (ctx.opinionLines.length) lines.push(`Subjective_Pushes: ${ctx.opinionLines.join(' | ')}`);
+  if (ctx.aiLines.length) lines.push(`AI_Topic_Scores: ${ctx.aiLines.join(', ')}`);
+  if (ctx.evalLines.length) lines.push(`Recent_Forecast_Misses: ${ctx.evalLines.join(' | ')}`);
+  lines.push('');
+  lines.push('上記の文脈から、各対象月の売上予測（ルールベース定量モデル）に掛けるべき相対調整率を推定してください。');
+  lines.push('返却JSONのみ: {"monthly_adj":[数値×12], "confidence":0〜1, "rationale_ja":"300字以内"}');
+  lines.push('制約: monthly_adj は -0.30〜+0.30、Target_Months と同じ順・同じ数。根拠の弱い月は 0。大型案件の開始/終了・市場イベント等の明示的根拠がある月のみ非ゼロを推奨。確信が持てない場合は全て0とし confidence を下げる。');
+  return lines.join('\n');
+}
+
+function runVertexForecastAssist_(targetClient, ss, vertex, months) {
+  const started = new Date();
+  const out = { ok: false, skipped: '', months: [], adj: [], confidence: 0, rationale: '', error: '' };
+  try {
+    if (!readVertexForecastEnabled_()) { out.skipped = 'disabled'; return out; }
+    if (!vertex || !vertex.geminiReady) { out.skipped = 'gemini_not_ready'; return out; }
+    const cfgSh = ss.getSheetByName(SHEETS.CONFIG);
+    const fy = Number(cfgSh.getRange('B3').getValue() || 0) || getDefaultFY_();
+    const sales = ss.getSheetByName(SHEETS.SALES_MONTHLY);
+    if (!sales) { out.skipped = 'no_sales_monthly'; return out; }
+    const salesData = readSales48Months_(sales);
+    const fctx = getForecastContext_(fy, new Date(), salesData.headerMonths || []);
+    const targetMonths = (months && months.length === 12) ? months : fctx.forecastMonths;
+
+    const total48 = (salesData.baseSeries48 || []).map((v, i) => Number(v || 0) + Number((salesData.spotSeries48 || [])[i] || 0));
+    const last12 = total48.slice(-12);
+    const headerYm = (salesData.headerMonths || []).map(d => fmtYM_(d));
+    const last12Ym = headerYm.slice(-12);
+    const baseSeries = salesData.baseSeries48 || [];
+    const model = baseSeries.length >= 24 ? fitOpsModelTrendSeason_(baseSeries.slice()) : null;
+    const meanY = meanArr_(last12) || 1;
+    const slopePct = model ? (12 * Number(model.slope || 0)) / meanY : 0;
+    let strongMonths = []; let weakMonths = [];
+    if (model && model.seasonalIndex) {
+      const pairs = model.seasonalIndex.map((s, i) => ({ m: i + 1, s: Number(s || 1) })).sort((a, b) => b.s - a.s);
+      strongMonths = pairs.slice(0, 3).map(x => `${x.m}月(${x.s.toFixed(2)})`);
+      weakMonths = pairs.slice(-3).map(x => `${x.m}月(${x.s.toFixed(2)})`);
+    }
+    const devProjects = readDevSpotProjects12Months_(fy);
+    const knownByMonth = computeKnownSpotExpectedByMonth_(devProjects);
+    const knownSpot = targetMonths.map((m, i) => Number(knownByMonth[i] || 0) > 0 ? `${fmtYM_(m)}≈${Math.round(knownByMonth[i])}` : '').filter(Boolean);
+    const opinions = readOpinions_(fy);
+    const opinionLines = summarizeOpinionsByMonth_(opinions, targetMonths).map((s, i) => s ? `${fmtYM_(targetMonths[i])}:${s}` : '').filter(Boolean);
+    const aiScores = readAIResearchScores_(null, { basis: readAiScoreBasis_(), clientName: targetClient, tuning: readModelTuningFromConfig_() }) || {};
+    const aiLines = AI_TOPICS.map(t => `${t}=${Number(aiScores[t] || 0).toFixed(3)}`);
+    const evalPairs = collectNeutralEvalPairs_(ss, targetClient)
+      .sort((a, b) => (a.ym < b.ym ? 1 : -1)).slice(0, 6);
+    const evalLines = evalPairs.map(p => `${p.ym}:pred=${Math.round(p.pred)}/act=${Math.round(p.actual)}`);
+
+    const userContent = buildVertexForecastAssistContent_(targetClient, targetMonths, {
+      last12, last12Ym, slopePct, strongMonths, weakMonths,
+      knownSpot, opinionLines, aiLines, evalLines
+    });
+    const system = [
+      'あなたは製薬マーケティング支援会社の売上予測アシスタントです。',
+      '統計モデルへの相対調整率をJSONのみで返してください。説明文・コードブロック・前置きは禁止。'
+    ].join('\n');
+    const r = callVertexGeminiStructured_(system, userContent, { config: vertex });
+    if (!r.ok || !r.json) { out.error = String(r.error || 'no_json'); out.skipped = ''; return out; }
+    const adj = Array.isArray(r.json.monthly_adj) ? r.json.monthly_adj.map(v => clamp_(Number(v || 0), -VERTEX_ASSIST_MAX_ADJ, VERTEX_ASSIST_MAX_ADJ)) : null;
+    if (!adj || adj.length !== 12 || adj.some(v => !isFinite(v))) { out.error = 'invalid_monthly_adj'; return out; }
+    const conf = Math.max(0, Math.min(1, Number(r.json.confidence || 0)));
+    const rationale = String(r.json.rationale_ja || '').slice(0, 500);
+    const sh = ensureSheetReady_(ss, SHEETS.VERTEX_FORECAST_LOG, getVertexForecastLogHeaders_());
+    const runId = Utilities.getUuid();
+    sh.appendRow([
+      runId, new Date(), targetClient, fy,
+      JSON.stringify(targetMonths.map(m => fmtYM_(m))),
+      JSON.stringify(adj.map(v => Number(v.toFixed(4)))),
+      conf, rationale, vertex.geminiModel, 'ok',
+      durationSec_(started), JSON.stringify(r.usage || {}), ''
+    ]);
+    out.ok = true;
+    out.months = targetMonths.map(m => fmtYM_(m));
+    out.adj = adj;
+    out.confidence = conf;
+    out.rationale = rationale;
+    out.runId = runId;
+    return out;
+  } catch (e) {
+    out.error = String(e && e.message || e);
+    return out;
+  }
+}
+
+function getVertexForecastLogHeaders_() {
+  return ['run_id', 'run_at', 'client', 'fy', 'target_months_json', 'monthly_adj_json', 'confidence', 'rationale_ja', 'model', 'status', 'duration_sec', 'usage_json', 'note'];
+}
+
+function readLatestVertexAssist_(client, months) {
+  const out = { ready: false, adj: new Array(12).fill(0), confidence: 0, at: '', rationale: '', runId: '' };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(SHEETS.VERTEX_FORECAST_LOG);
+  if (!sh || sh.getLastRow() < 2) return out;
+  const vals = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(vals[0] || []);
+  if (!hasHeaderIndexes_(idx, ['client', 'status', 'target_months_json', 'monthly_adj_json'])) return out;
+  const monthsKey = (months || []).map(m => fmtYM_(m)).join(',');
+  for (let i = vals.length - 1; i >= 1; i--) {
+    const r = vals[i];
+    if (!isSameClient_(r[idx.client], client)) continue;
+    if (String(r[idx.status] || '') !== 'ok') continue;
+    let arr; try { arr = JSON.parse(String(r[idx.target_months_json] || '')); } catch (e) { continue; }
+    if (!Array.isArray(arr) || arr.join(',') !== monthsKey) continue;
+    let adj; try { adj = JSON.parse(String(r[idx.monthly_adj_json] || '')); } catch (e) { continue; }
+    if (!Array.isArray(adj) || adj.length !== 12 || adj.some(v => !isFinite(Number(v)))) continue;
+    for (let j = 0; j < 12; j++) out.adj[j] = clamp_(Number(adj[j] || 0), -VERTEX_ASSIST_MAX_ADJ, VERTEX_ASSIST_MAX_ADJ);
+    out.confidence = Math.max(0, Math.min(1, Number(r[idx.confidence] || 0)));
+    const rawAt = r[idx.run_at];
+    out.at = rawAt instanceof Date ? Utilities.formatDate(rawAt, TZ, 'yyyy-MM-dd') : String(rawAt || '');
+    out.rationale = String(r[idx.rationale_ja] || '');
+    out.runId = String(r[idx.run_id] || '');
+    out.ready = true;
+    return out;
+  }
+  return out;
+}
+
 function buildCalibrationAppliedPayload_(result) {
   const cal = (result && result.calibration) || createDefaultCalibrationState_('');
   return {
@@ -9321,7 +9805,7 @@ function writeAIHistoriesForRun_(result, runId) {
   }
 }
 
-function computeSourcePushByMonth_(factorsProduct, factorsClient, opinions, aiScores, months, productWeights, reliabilityMap) {
+function computeSourcePushByMonth_(factorsProduct, factorsClient, opinions, aiScores, months, productWeights, reliabilityMap, vertexPushByMonth) {
   const rows = [];
   const relMap = reliabilityMap || new Map();
   (months || []).forEach(targetMonth => {
@@ -9402,6 +9886,20 @@ function computeSourcePushByMonth_(factorsProduct, factorsClient, opinions, aiSc
       });
     });
   });
+
+  // Vertexアシスト寄与も同じ信頼度学習の枠組みに乗せる（source_type='vertex_forecast'）
+  (vertexPushByMonth || []).forEach((push, i) => {
+    const s = Number(push || 0);
+    if (!s || !months[i]) return;
+    rows.push({
+      target_month: fmtYM_(months[i]),
+      source_type: 'vertex_forecast',
+      source_key: 'assist',
+      push_step: s,
+      push_direction: Math.sign(s),
+      applied_reliability_r: getSourceReliability_(relMap, 'vertex_forecast', 'assist')
+    });
+  });
   return rows;
 }
 
@@ -9419,7 +9917,8 @@ function writeSubjectiveImpactHistory_(result, runId) {
       inputs.aiScores || {},
       (result && result.months) || [],
       inputs.productWeights || new Map(),
-      inputs.reliabilityMap || new Map()
+      inputs.reliabilityMap || new Map(),
+      inputs.vertexPushByMonth || []
     );
     if (!impacts.length) return;
     const runAt = result && result.runAt ? result.runAt : new Date();

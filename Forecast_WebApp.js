@@ -67,7 +67,8 @@ function webGetBootstrap_() {
     output: webParseOutput_(ss),
     eval: webParseEval_(ss),
     quarterly: webParseQuarterly_(ss),
-    runLog: webParseRunLog_(ss)
+    runLog: webParseRunLog_(ss),
+    learning: webParseLearning_(ss, client)
   };
 
   try {
@@ -104,6 +105,7 @@ function webParseSteps_(ss) {
     ['step5_status', 'B-2', '検証レポート'],
     ['step6_status', 'B-3', 'ダッシュボード'],
     ['step7_status', 'B-4', '学習インサイト'],
+    ['learn_status', 'B-5', '自動学習'],
     ['quarterly_review_status', 'C-1', '四半期レビュー']
   ];
   const sh = ss.getSheetByName(SHEETS.PROCESS_STATUS);
@@ -672,4 +674,92 @@ function webSaveQuarterlyDecisions(rows) {
 function webApplyQuarterly() {
   const res = applyQuarterlyProposals();
   return { result: res || null, quarterly: webParseQuarterly_(SpreadsheetApp.getActiveSpreadsheet()) };
+}
+
+// ===== 自動学習（B-5）/ Vertexアシスト / 学習バックテスト =====
+
+/** CALIBRATION_STATE + VERTEX_FORECAST_LOG + SOURCE_RELIABILITY を1か所に集約して返す。 */
+function webParseLearning_(ss, client) {
+  const res = {
+    autoUpdate: true,
+    biasFactor: 1.0,
+    monthBias: {},
+    vertex: { enabled: false, hasLog: false, at: '', confidence: 0, rationale: '', adj: [], months: [] },
+    vertexReliability: 1.0,
+    vertexWeight: 0.5,
+    reliabilityNonDefault: 0,
+    lastAppliedQuarter: '',
+    note: ''
+  };
+  try {
+    const cal = readCalibrationState_(client);
+    res.autoUpdate = Number(cal.auto_update_enabled || 1) === 1;
+    res.biasFactor = isFinite(Number(cal.bias_correction_factor)) ? Number(cal.bias_correction_factor) : 1.0;
+    res.monthBias = parseResidualMonthBiasJson_(cal.residual_month_bias_json);
+    res.lastAppliedQuarter = String(cal.last_applied_quarter || '');
+    res.note = String(cal.note || '');
+    res.vertex.enabled = readVertexForecastEnabled_();
+    res.vertexWeight = readVertexAssistWeight_(readModelTuningFromConfig_());
+    const relMap = readSourceReliability_(client);
+    res.reliabilityNonDefault = Array.from(relMap.values()).filter(v => Math.abs(Number(v || 1) - 1) > 1e-9).length;
+    res.vertexReliability = getSourceReliability_(relMap, 'vertex_forecast', 'assist');
+    const sh = ss.getSheetByName(SHEETS.VERTEX_FORECAST_LOG);
+    if (sh && sh.getLastRow() >= 2) {
+      const vals = sh.getDataRange().getValues();
+      const idx = headerIndexMap_(vals[0] || []);
+      for (let i = vals.length - 1; i >= 1; i--) {
+        const r = vals[i];
+        if (client && !isSameClient_(r[idx.client], client)) continue;
+        if (String(r[idx.status] || '') !== 'ok') continue;
+        res.vertex.hasLog = true;
+        const at = r[idx.run_at];
+        res.vertex.at = at instanceof Date ? Utilities.formatDate(at, TZ, 'yyyy-MM-dd') : String(at || '');
+        res.vertex.confidence = Number(r[idx.confidence] || 0);
+        res.vertex.rationale = String(r[idx.rationale_ja] || '').slice(0, 300);
+        try { res.vertex.adj = JSON.parse(String(r[idx.monthly_adj_json] || '[]')); } catch (e) { res.vertex.adj = []; }
+        try { res.vertex.months = JSON.parse(String(r[idx.target_months_json] || '[]')); } catch (e) { res.vertex.months = []; }
+        break;
+      }
+    }
+  } catch (e) {
+    res.error = String(e && e.message || e);
+  }
+  return res;
+}
+
+/** B-5 相当：月次ベイズ自動学習を実行。 */
+function webRunMonthlyLearn() {
+  ensureSetupDone_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+  const res = runMonthlyAutoLearn_(client, {});
+  if (res && res.ready) {
+    updateProcessStatus_('learn_status', 'success', client, res.n, '');
+  } else if (res) {
+    updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`);
+  }
+  return { result: res || null, boot: webGetBootstrap_() };
+}
+
+/** Vertexアシスト単体実行（A-4と同じログを残し、A-9は次回実行時に自動反映）。 */
+function webRunVertexAssist() {
+  ensureSetupDone_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+  const vertex = readVertexConfig_();
+  if (!vertex.geminiReady) throw new Error('Vertex の必須設定が未入力です（CONFIG: VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL）。');
+  ensureAIResearchRuntimeSheets_(ss);
+  const res = runVertexForecastAssist_(client, ss, vertex, null);
+  if (res.skipped === 'disabled') throw new Error('CONFIG の VERTEX_FORECAST_ENABLED を 1 にしてください。');
+  if (!res.ok) throw new Error('Vertexアシスト失敗: ' + (res.error || res.skipped || 'unknown'));
+  safeLogRun_('runVertexForecastAssist_', client, 'success', 12, new Date(), `manual conf=${res.confidence}`);
+  return { result: res, boot: webGetBootstrap_() };
+}
+
+/** カウンターファクト学習バックテスト（EVAL_LOG walk-forward 簡易検算）。 */
+function webRunLearningBacktest() {
+  ensureSetupDone_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+  return { result: runLearningBacktest_(client, {}) };
 }

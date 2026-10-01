@@ -165,6 +165,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .aiscore .s{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .aiscore .bar{height:6px;border-radius:3px;background:#EDF1F5;margin-top:6px;overflow:hidden}
 .aiscore .bar i{display:block;height:100%;background:var(--primary)}
+.learngrid{display:flex;flex-wrap:wrap;gap:8px 32px;margin-top:6px}
+.learnitem .k{font-size:12px;color:var(--muted)}
+.learnitem .v{font-size:15px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
 details.fold{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);margin-bottom:20px}
 details.fold summary{cursor:pointer;list-style:none;padding:14px 20px;font-weight:700;color:var(--navy);font-size:15px;display:flex;align-items:center;gap:8px}
 details.fold summary::-webkit-details-marker{display:none}
@@ -240,7 +243,7 @@ var CHAR_ARROW = '<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><p
 
 var state = { view: 'home', inputTab: 'product', busy: false, confirms: [],
   inputDraft: null, inputDirty: {}, budgetDirty: {}, candidates: null, candidatesLoading: false,
-  decisionDirty: {}, insightDirty: {} };
+  decisionDirty: {}, insightDirty: {}, backtest: null };
 
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtY(v){ if(v==null||!isFinite(v))return '—'; var a=Math.abs(v); if(a>=1e8)return '¥'+(v/1e8).toFixed(2)+'億'; if(a>=1e4)return '¥'+Math.round(v/1e4).toLocaleString()+'万'; return '¥'+Math.round(v).toLocaleString(); }
@@ -310,7 +313,7 @@ var NAV = [
   {id:'quarterly',label:'四半期',     icon:'<rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'}
 ];
 // ビューごとのエラードット対象ステップ
-var NAV_ERR_STEPS = { prep:['step1_status','step3_status','step3a_status'], forecast:['step4_status'], eval:['step2_status','step5_status','step6_status','step7_status'], quarterly:['quarterly_review_status'] };
+var NAV_ERR_STEPS = { prep:['step1_status','step3_status','step3a_status'], forecast:['step4_status'], eval:['step2_status','step5_status','step6_status','step7_status','learn_status'], quarterly:['quarterly_review_status'] };
 function renderNav(){
   var html='';
   NAV.forEach(function(n){
@@ -573,6 +576,19 @@ function renderForecast(){
       +'</div>';
   }
 
+  // 学習パラメータが効いているときだけ、適用中の係数を見せる（未学習では何も出さない）
+  var L=B.learning||{};
+  var mbKeys=Object.keys(L.monthBias||{}).map(Number).sort(function(a,b){return a-b;});
+  var hasLearned=Math.abs((L.biasFactor||1)-1)>1e-9||mbKeys.length>0||(L.vertex&&L.vertex.hasLog)||(L.reliabilityNonDefault||0)>0;
+  if(hasLearned){
+    var lparts=[];
+    lparts.push('<div class="learnitem"><div class="k">全体補正係数</div><div class="v">×'+(L.biasFactor||1).toFixed(3)+'</div></div>');
+    if(mbKeys.length) lparts.push('<div class="learnitem"><div class="k">暦月バイアス</div><div class="v">'+mbKeys.map(function(m){var b=L.monthBias[m];return m+'月 '+(b>0?'+':'')+(b*100).toFixed(1)+'%';}).join('　')+'</div></div>');
+    if(L.vertex&&L.vertex.hasLog) lparts.push('<div class="learnitem"><div class="k">Vertexアシスト</div><div class="v">confidence '+(L.vertex.confidence||0).toFixed(2)+'（'+esc(L.vertex.at)+' 取得 / 信頼度 '+(L.vertexReliability||1).toFixed(2)+'）</div></div>');
+    if((L.reliabilityNonDefault||0)>0) lparts.push('<div class="learnitem"><div class="k">ソース信頼度</div><div class="v">'+L.reliabilityNonDefault+'件に重み適用中</div></div>');
+    html+='<div class="card"><h2>学習パラメータ（この予測へ自動適用）</h2><div class="learngrid">'+lparts.join('')+'</div></div>';
+  }
+
   // 月次表（予算編集つき）
   html+='<div class="card"><h2>月次予測と予算策定</h2><div class="sub">「採用予測」「上積み」を入力すると最終予算が確定します（A-10 相当）。P10〜P90 は説明帯（hard gate ではありません）。</div>'
     +'<div class="tblwrap"><table class="tbl stickyr" id="budgetTbl" style="min-width:980px">'
@@ -639,7 +655,7 @@ function kpi(lbl,val){ return '<div class="kpi"><div class="lbl">'+esc(lbl)+'</d
 
 /* ---------- eval ---------- */
 function renderEval(){
-  var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト');
+  var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト → B-5 自動学習');
   html+='<div class="errstrip" id="err_eval"></div>';
   html+='<div class="rowcards">'
     + actCard('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
@@ -647,6 +663,49 @@ function renderEval(){
     + actCard('B-3','ダッシュボード更新','年間制約・半期 WAPE・過大率の判定を集計します。','step6_status','btn_b3','集計を実行')
     + actCard('B-4','学習インサイト','誤差の大きい月に原因記入欄付きのインサイト行を生成します。','step7_status','btn_b4','インサイト生成')
     +'</div>';
+
+  var L=B.learning||{};
+  var mb=L.monthBias||{};
+  var mbKeys2=Object.keys(mb).map(Number).sort(function(a,b){return a-b;});
+  var mbText=mbKeys2.length?mbKeys2.map(function(m){var b=mb[m];return m+'月 '+(b>0?'+':'')+(b*100).toFixed(1)+'%';}).join('　'):'なし';
+  var vtx=L.vertex||{};
+  var vtxText=!vtx.enabled?'無効（CONFIG: VERTEX_FORECAST_ENABLED=0）':(vtx.hasLog?('取得済 '+esc(vtx.at)+' / confidence '+(vtx.confidence||0).toFixed(2)):'有効・未取得（A-4 または右のボタンで生成）');
+  var sLearn=stepOf('learn_status');
+  html+='<div class="card"><h2>自動学習（B-5：ベイズ補正 + Vertexハイブリッド）</h2>'
+    +'<div class="sub">中立シナリオの予実誤差から全体補正係数と暦月別バイアスをベイズ更新します。B-2 実行後にも自動で走り、次回 A-9 予測へ反映されます。</div>'
+    +'<div class="tblwrap"><table class="tbl" style="min-width:660px"><colgroup><col style="width:220px"><col><col style="width:230px"></colgroup><tbody>'
+    +'<tr><td>全体補正係数</td><td class="num">×'+(L.biasFactor||1).toFixed(4)+'</td><td class="locked">'+(L.autoUpdate?'自動更新 ON':'自動更新 OFF（CALIBRATION_STATE）')+'</td></tr>'
+    +'<tr><td>暦月別バイアス</td><td>'+mbText+'</td><td class="locked">'+(mbKeys2.length?('学習済み '+mbKeys2.length+' 暦月'):'—')+'</td></tr>'
+    +'<tr><td>Vertexアシスト</td><td>'+vtxText+'</td><td class="locked">weight '+(L.vertexWeight||0.5).toFixed(2)+' × 信頼度 '+(L.vertexReliability||1).toFixed(2)+'</td></tr>'
+    +'<tr><td>ソース信頼度の学習</td><td>'+((L.reliabilityNonDefault||0)>0?L.reliabilityNonDefault+'件のソースに重み適用中':'デフォルト（全ソース×1.0）')+'</td><td class="locked">'+(L.lastAppliedQuarter?('四半期適用 '+esc(L.lastAppliedQuarter)):'C-2 未適用')+'</td></tr>'
+    +'</tbody></table></div>'
+    +'<div class="inputfoot"><button class="btn btn-primary" id="btn_b5">自動学習を実行（B-5）</button>'
+    +(sLearn?chipFor(sLearn.status):'')
+    +'<button class="btn btn-ghost" id="btn_vassist"'+(vtx.enabled?'':' disabled')+'>Vertexアシスト実行</button>'
+    +'<button class="btn btn-ghost" id="btn_backtest">学習効果を検算</button>'
+    +(sLearn&&sLearn.error?'<span class="note">'+esc(sLearn.error)+'</span>':'')
+    +'</div></div>';
+
+  if(state.backtest){
+    var bt=state.backtest;
+    html+='<div class="card"><h2>学習効果の検算（walk-forward）</h2>';
+    if(!bt.ready){
+      html+='<div class="note">'+esc(bt.reason==='insufficient_eval_months'?('中立シナリオの評価が '+bt.n+' か月。検算には6か月必要です。'):'検算できる評価月がありません。')+'</div>';
+    }else{
+      var improved=bt.wapeAfter<bt.wapeBefore;
+      html+='<div class="kpirow" style="grid-template-columns:repeat(3,1fr)">'
+        +kpi('補正なし WAPE',fmtPct(bt.wapeBefore))
+        +kpi('補正あり WAPE',fmtPct(bt.wapeAfter))
+        +kpi('改善幅',(improved?'':'△ ')+fmtPct(bt.wapeBefore-bt.wapeAfter,1))
+        +'</div>'
+        +'<div class="tblwrap"><table class="tbl" style="min-width:720px"><thead><tr><th>月</th><th class="num">学習係数</th><th class="num" title="当月の暦月バイアス">暦月バイアス</th><th class="num">誤差（補正なし）</th><th class="num">誤差（補正あり）</th></tr></thead><tbody>';
+      bt.months.forEach(function(m){
+        html+='<tr><td>'+esc(m.ym)+'</td><td class="num">×'+m.factor.toFixed(3)+'</td><td class="num">'+fmtPct(m.monthBias)+'</td><td class="num">'+fmtN(m.errBefore)+'</td><td class="num"'+(m.errAfter>m.errBefore?' style="color:var(--error)"':'')+'>'+fmtN(m.errAfter)+'</td></tr>';
+      });
+      html+='</tbody></table></div><div class="note" style="margin-top:10px">'+esc(bt.note||'')+'</div>';
+    }
+    html+='</div>';
+  }
 
   if(B.eval.metrics.length){
     html+='<div class="card"><h2>精度KPI（DASHBOARD）</h2><div class="tblwrap"><table class="tbl" style="min-width:620px"><colgroup><col style="width:280px"><col style="width:180px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>判定 / 備考</th></tr></thead><tbody>';
@@ -875,6 +934,9 @@ function bindView(){
     $('btn_b2').onclick=function(e){ rpc('webRunEvalReport',[],{btn:e.target,onOk:function(){showToast('検証レポートを更新しました');}}); };
     $('btn_b3').onclick=function(e){ rpc('webRunDashboard',[],{btn:e.target,onOk:function(){showToast('ダッシュボードを更新しました');}}); };
     $('btn_b4').onclick=function(e){ rpc('webRunInsights',[],{btn:e.target,onOk:function(){showToast('インサイトを更新しました');}}); };
+    if($('btn_b5')) $('btn_b5').onclick=function(e){ rpc('webRunMonthlyLearn',[],{btn:e.target,onOk:function(r){ var res=r&&r.result; if(res&&res.ready)showToast('自動学習を更新しました: 係数 ×'+res.prevFactor.toFixed(3)+' → ×'+res.factor.toFixed(3)+'（暦月 '+Object.keys(res.monthBias||{}).length+'件）'); else showToast(res&&res.skipped==='auto_update_disabled'?'自動更新が無効です（CALIBRATION_STATE auto_update_enabled=0）':'中立シナリオの評価月が不足しています');}}); };
+    if($('btn_vassist')) $('btn_vassist').onclick=function(e){ rpc('webRunVertexAssist',[],{btn:e.target,onOk:function(r){ var a=r&&r.result; showToast('Vertexアシストを取得しました（confidence '+((a&&a.confidence)||0).toFixed(2)+'）。次回 A-9 で反映されます。');}}); };
+    if($('btn_backtest')) $('btn_backtest').onclick=function(e){ rpc('webRunLearningBacktest',[],{btn:e.target,onOk:function(r){ state.backtest=(r&&r.result)||null;}}); };
     if($('btn_saveinsights')) $('btn_saveinsights').onclick=function(e){
       var rows=Object.keys(state.insightDirty).map(function(r){
         var d=state.insightDirty[r];
