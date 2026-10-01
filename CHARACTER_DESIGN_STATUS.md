@@ -18,7 +18,7 @@ Forecast_Agent 売上予測Webアプリの案内役「よみ」と天気キャ�
 | 素材の整理 | `assets/characters/README.md` にファイル名・サイズ・用途。旧 v7 は `assets/characters/archive/v7/` |
 | 図鑑登録 | 済み。`shared/character-library/gen.py` にシリーズ「天気予報 (Forecast_Agent)」9 体＋目の部品 2 種（`half` 半目・`swirl` ぐるぐる目）。図鑑 485 体／ERROR は登録前と同じ 29 件（既存キャラ分。追加 9 体の ERROR/WARN は 0） |
 | Forecast_Agent への同期 | 済み。`characters.config.json` → `assets/characters/Characters.html`（GAS には上げない。下の「注意」） |
-| タブのアイコン（ファビコン） | **実装・テスト済み、本番未反映**。`doGet` → `webSetFavicon_` → `HtmlOutput.setFaviconUrl(FORECAST_FAVICON_URL)` |
+| タブのアイコン（ファビコン） | **本番反映済み（2026-10-01、公開 @29）**。`doGet` → `webSetFavicon_` → `HtmlOutput.setFaviconUrl(FORECAST_FAVICON_URL)`。HEAD と公開版 29 の 21 ファイルがローカルと一致。タブでの見え方は利用者のブラウザで確認（アプリ内ブラウザは社内 SSO で未ログイン） |
 | 表示条件・画面への配置 | **未実装（ユーザー確認待ち）**。下の提案 |
 
 ## v8 デザインの要点
@@ -51,11 +51,16 @@ PNG 化は Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-pla
 - **GAS のファイルを増やさない。** 管理ハブの複製は、プロジェクトのファイルが `VNEXT_ADMIN_RUNTIME_FILE_TYPES_`（`VNext_ClientRuntimeProvisioning.js`）の 21 ファイルと完全に一致することを本番でも検査する。新しい `.js` / `.html` を足すと複製が「exactly the 21 clasp-target files」で止まる。タブのアイコンは `Forecast_WebApp.js` の中の自動生成区間に置き、`Characters.html` は `assets/characters/`（GAS 対象外）に出している。画面に組み込むときは既存の HTML に埋め込むか、許可リストの変更とあわせて行う。
 - `.claspignore` に `assets/**` を追加した（以前は `!**/*.html` で `assets/characters/chars_v7.html` が GAS 対象に入っていた。本番には上がっていなかった）。
 - タブのアイコンは `HtmlOutput.setFaviconUrl` で渡す。ページ内の `<link rel="icon">` は Apps Script に無視される。URL の末尾は `#favicon.png`（拡張子の無い URL・素の data URI は黙って捨てられる。Tanka の 2026-09-30 の記録と同じ）。
-- 既存テストのうち 4 件（`vnext-admin-runtime-copy` / `vnext-empty-pilot-upgrade` / `vnext-integration` / `vnext-uat-feedback`）は今回の変更前（3554fdf）から失敗している（許可リストの期待が 19 ファイルのまま・`VNEXT_NAMING` 未読込・HTML テンプレートの評価）。今回の変更とは無関係。
+- 既存テストのうち 4 件（`vnext-admin-runtime-copy` / `vnext-empty-pilot-upgrade` / `vnext-integration` / `vnext-uat-feedback`）は 3554fdf の時点で古いまま失敗していたが、4008318（別セッション、テストのみ）で現行コードに合わせて直り、2026-10-01 時点で全 11 件 PASS。
 
-## 本番反映（ファビコン）の手順 — ユーザーの最終確認後に実施
+## 本番反映（ファビコン）— 2026-10-01 実施済み（公開 @29）
 
-2026-10-01 時点で、本番 HEAD とローカルの差分は `Forecast_WebApp.js`（アイコン）と `Forecast_WebAppUI.html`（ページ内アイコン 1 行）だけだった（`clasp clone` で照合）。
+ユーザーの「デプロイして」で実施。push 前の照合で、本番 HEAD とローカルの差分は `Forecast_WebApp.js`（アイコン）と `Forecast_WebAppUI.html`（ページ内アイコン 1 行）だけだった。
+`clasp push`（21 ファイル）→ 再取得して 21/21 一致 → `clasp deploy -i AKfycbzKsq… -d "クライアント別売上予測 Webアプリ（タブのアイコンをよみに f0595e4）"` で @28 → @29 → 版 29 を取得して 21/21 一致。
+**push の直前に `clasp status` が 66 ファイルになっていた。** 別セッションが `.claude/worktrees/<name>/`（リポジトリの中）に作業用ワークツリーを作り、その .js/.html が `!**/*.js` で拾われていた。
+`.claspignore` に `.claude/**` を足して 21 ファイル（許可リストと完全一致）に戻してから push した（f0595e4）。push 前は必ず件数と中身（21 件・許可リスト一致）を確かめる。
+
+以降、同じ手順で反映するとき:
 
 1. `clasp status`（21 ファイル）→ `clasp push`（HEAD に反映）。
 2. HEAD のデプロイ（`clasp deployments` の `@HEAD`: `AKfycby2pARjKmxoBcOC8-qFjG9QTYieqJ5MtE-yI7-h4BiW`）の `/dev` を開き、外枠の HTML に `link[rel~=icon]` と PNG の base64（`iVBORw0KGgo`）・`#favicon.png` があることを確かめる。
