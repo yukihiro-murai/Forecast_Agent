@@ -19,7 +19,7 @@ Forecast_Agent 売上予測Webアプリの案内役「よみ」と天気キャ�
 | 図鑑登録 | 済み。`shared/character-library/gen.py` にシリーズ「天気予報 (Forecast_Agent)」9 体＋目の部品 2 種（`half` 半目・`swirl` ぐるぐる目）。図鑑 485 体／ERROR は登録前と同じ 29 件（既存キャラ分。追加 9 体の ERROR/WARN は 0） |
 | Forecast_Agent への同期 | 済み。`characters.config.json` → `assets/characters/Characters.html`（GAS には上げない。下の「注意」） |
 | タブのアイコン（ファビコン） | **本番反映済み（2026-10-01、公開 @29）**。`doGet` → `webSetFavicon_` → `HtmlOutput.setFaviconUrl(FORECAST_FAVICON_URL)`。HEAD と公開版 29 の 21 ファイルがローカルと一致。タブでの見え方は利用者のブラウザで確認（アプリ内ブラウザは社内 SSO で未ログイン） |
-| 表示条件・画面への配置 | **未実装（ユーザー確認待ち）**。下の提案 |
+| 表示条件・画面への配置 | **実装・テスト済み、本番未反映**（2026-10-01、ユーザー「案のとおりで実装して」）。`Forecast_WebAppUI.html` の画面側だけで判定（下の「表示条件」「画面への配置」）。`tests/forecast-weather.test.mjs` |
 
 ## v8 デザインの要点
 
@@ -66,30 +66,38 @@ PNG 化は Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-pla
 2. HEAD のデプロイ（`clasp deployments` の `@HEAD`: `AKfycby2pARjKmxoBcOC8-qFjG9QTYieqJ5MtE-yI7-h4BiW`）の `/dev` を開き、外枠の HTML に `link[rel~=icon]` と PNG の base64（`iVBORw0KGgo`）・`#favicon.png` があることを確かめる。
 3. 公開デプロイ `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`（現行 @28）を `clasp deploy -i <id> -d "<説明>"` で同じ URL のまま版上げし、`/exec` でも同じ確認をする。タブのアイコンは Chrome が覚えているので、変わらなければタブを閉じて開き直す。
 
-## 表示条件の提案（未確定・ユーザー確認待ち）
+## 表示条件（2026-10-01 実装。案のとおり）
 
-検証画面が既に持っている値（`webParseEval_` の `insights[]` の制約超過フラグ `annualBreach` / `halfBreach` / `overBreach` / `rangeBreach`、`compare[]` の `ape` / `signedErr`、`hasActuals`）を**読むだけ**で決める。計算・判定ロジックは変えない。最新月で判定し、上から順に当てはまったものを出す。
+`Forecast_WebAppUI.html` の `forecastWeather(ev, upto)` が、検証データ（`webParseEval_` の `compare[]` の `ape` / `signedErr`、`insights[]` の制約超過フラグ `annualBreach` / `halfBreach` / `overBreach` / `rangeBreach`、`hasActuals`）を**読むだけ**で決める。計算・保存・判定ロジックは変えていない。
+「最新月」は予測と実績がそろった最後の月。上から順に、当てはまった最初のキャラを出す。数値は `WX_MIN_MONTHS` / `WX_TENPEN_APE` / `WX_TAIFUU_APE`。
 
-| 優先 | キャラ | 条件（案） |
+| 優先 | キャラ | 条件 |
 |---|---|---|
-| 1 | 未確認・霧 | 実績が未取込、または実績のある月が 3 か月未満 |
-| 2 | 天変地異 | 最新月の APE が 150% 以上（ごくまれ） |
-| 3 | 台風 | 直近 3 か月で誤差の向き（上振れ・下振れ）が入れ替わり、かつ APE 30% 以上が 2 か月以上 |
-| 4 | 雪 | 過大（予測が実績を上回る）の超過がある（数字の冷え込み） |
-| 5 | 雨 | 制約超過が 2 つ以上 |
-| 6 | 曇り | 制約超過が 1 つ |
-| 7 | 晴れのち曇り | 超過は無いが、APE が 2 か月続けて悪化している（崩れの兆し） |
+| 1 | 未確認・霧 | 実績が未取込、予測と実績がそろった月が 3 か月未満、または最新月の検証インサイト（B-4）がまだ無い |
+| 2 | 天変地異 | 最新月の APE が 150% 以上 |
+| 3 | 台風 | 直近 3 か月で誤差の向き（signedErr の符号）が入れ替わり、かつ APE 30% 以上が 2 か月以上 |
+| 4 | 雪 | 最新月の `overBreach`（過大予測の超過） |
+| 5 | 雨 | 最新月の制約超過が 2 つ以上 |
+| 6 | 曇り | 最新月の制約超過が 1 つ |
+| 7 | 晴れのち曇り | 超過なしで、APE が 2 か月続けて悪化（3 か月の単調増加。横ばいは数えない） |
 | 8 | 快晴 | 超過なし |
 
-未回答の確認事項：上の条件と数値（3 か月・150%・30%）、天変地異を通常運用で出すか、画面への配置。
+注: B-4 の `annualBreach` / `halfBreach` は B-4 実行時点の年間・半期の累計判定で、全月の行に同じ値が入る。`overBreach` / `rangeBreach` は月ごと（`overBreach` は年間の過大超過も含む）。
+「B-4 がまだ無い」を霧に含めたのは、案の「データ不足で判定できない」の範囲（超過フラグが無いと判定できないため）。
 
-## 画面への配置の提案（未確定）
+## 画面への配置（2026-10-01 実装。案のとおり）
 
-- タブのアイコン：よみ（実装済み・本番未反映）
-- ホーム「次の一手」：今の矢印キャラ（`CHAR_ARROW`）を よみ（通常案内）に。前回から天気が変わった月は よみ（変化発見）
-- 検証画面の上部：最新月の天気キャラ＋ひとこと（判定の理由になったフラグを添える）
-- データが無いときの空の表示（今の歯車キャラ `CHAR_GEAR`）：未確認・霧 または よみ（観測中）
-- 実行中の待ち表示：よみ（観測中）／完了の通知：よみ（確認完了）
+| 場所 | キャラ | 実装 |
+|---|---|---|
+| タブのアイコン | よみ（頭） | `doGet` → `webSetFavicon_`（公開 @29 で反映済み） |
+| ホーム「次の一手」 | よみ（通常案内）。前の月から空模様が変わった月は よみ（変化発見）＋「空模様が変わりました：A → B（月）」 | `renderHome` / `wxChange`（旧 `CHAR_ARROW` を置き換え、矢印の口癖「こっちこっち」も外した） |
+| 検証画面の上部 | 最新月の天気キャラ＋理由＋制約のチップ（年間・半期・過大・範囲外の OK/超過）＋口癖 | `renderEval` → `wxCardHtml(forecastWeather(B.eval))` |
+| データが無いときの空の表示（入力・予測・検証・四半期） | 未確認・霧 | `emptyBox`（旧 `CHAR_GEAR` を置き換え） |
+| 処理中 | よみ（観測中）「観測中… 処理しています」を右下に。0.6 秒以上かかる処理だけ | `rpc` → `busyChar` |
+| 完了の通知 | よみ（確認完了）を通知の左に。エラーの通知は文字だけ | `showToast` |
+
+絵は `Forecast_WebAppUI.html` の「キャラの絵」自動生成区間（`CHAR_SVG` 9 体・`YOMI_POSE` 5 ポーズ）。`assets/characters/src/build.py` が書き換える（GAS のファイルを増やさないため別ファイルにしない）。
+確認用の画面写真（見本データで実際の画面を描画）: `assets/characters/review/placement_impl.png`。
 
 ## 参考資料
 

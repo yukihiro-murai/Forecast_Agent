@@ -177,6 +177,16 @@ table.tbl{width:100%;border-collapse:collapse;font-size:15px;table-layout:fixed}
 .bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:14px 18px;flex:1;font-size:14px;color:var(--navy)}
 .bubble::before{content:"";position:absolute;left:-8px;top:20px;border:8px solid transparent;border-right-color:var(--primary-soft);border-left:none}
 .bubble .act{margin-top:10px}
+/* 空模様（案内役 よみ と天気キャラ。表示だけの判定） */
+.wxchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.wxline{margin-top:8px;font-size:12.5px;color:var(--muted)}
+.wxchg{font-size:13px;font-weight:700;color:var(--warn-fg);margin-bottom:6px}
+.busychar{position:fixed;right:24px;bottom:24px;width:210px;height:64px;display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);font-size:13px;font-weight:700;line-height:1.35;color:var(--navy);z-index:94;opacity:0;pointer-events:none;transition:opacity .2s}
+.busychar.on{opacity:1}
+.busychar small{font-size:12px;font-weight:600;color:var(--muted)}
+.busychar .bc{width:48px;height:48px;flex:0 0 48px}
+.toastchar{width:34px;height:34px;flex:0 0 34px;background:#fff;border-radius:50%;padding:2px}
+.busychar svg,.toastchar svg,.charbox svg{width:100%;height:100%;display:block}
 
 /* ===== forecast ===== */
 .chartcard{padding:18px 22px}
@@ -266,8 +276,10 @@ window.__BOOT__ = <?!= bootJson ?>;
 
 /* ================= helpers ================= */
 var B = window.__BOOT__;
-var CHAR_GEAR = '<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M40 6l6 6 8-2 3 8 8 3-2 8 6 6-6 6 2 8-8 3-3 8-8-2-6 6-6-6-8 2-3-8-8-3 2-8-6-6 6-6-2-8 8-3 3-8 8 2z" fill="#8a94a6"/><circle cx="40" cy="40" r="14" fill="#f6f7f9"/><circle cx="34" cy="38" r="2.2" fill="#1f2530"/><circle cx="46" cy="38" r="2.2" fill="#1f2530"/><path d="M36 45h8" stroke="#1f2530" stroke-width="3" stroke-linecap="round"/></svg>';
-var CHAR_ARROW = '<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><path d="M8 32h34V16l30 24-30 24V48H8z" fill="#f28c28" stroke="#f28c28" stroke-width="5" stroke-linejoin="round"/><circle cx="20" cy="38" r="2.4" fill="#5a2a00"/><circle cx="32" cy="38" r="2.4" fill="#5a2a00"/><circle cx="26" cy="47" r="2.6" fill="none" stroke="#5a2a00" stroke-width="2.5"/></svg>';
+/* ===== キャラの絵（自動生成: assets/characters/src/build.py。この区間は手で編集しない） ===== */
+var CHAR_SVG = {"yomi":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","kaisei":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 18L40 7M56.3 24.7L61.2 19.8M63 41L74 41M56.3 57.3L61.2 62.2M40 64L40 75M23.7 57.3L18.8 62.2M17 41L6 41M23.7 24.7L18.8 19.8\" stroke=\"#F39A1E\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"41\" r=\"19\" fill=\"#F7B52C\"/><path d=\"M28.1 38.5h8.7\" stroke=\"#1f3a5f\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M29.5 38.5a3 3 0 0 0 6 0z\" fill=\"#1f3a5f\"/><path d=\"M43.1 38.5h8.7\" stroke=\"#1f3a5f\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M44.5 38.5a3 3 0 0 0 6 0z\" fill=\"#1f3a5f\"/><path d=\"M33.5 49q7.8 5 13 -2.6\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M46.5 46.4l1.9 -1.6\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","harenochi":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M26 9L26 2M37.3 13.7L40.9 10.2M14.7 36.3L11.2 39.9M10 25L3 25M14.7 13.7L11.2 10.2\" stroke=\"#F39A1E\" stroke-width=\"3.8\" stroke-linecap=\"round\"/><circle cx=\"26\" cy=\"25\" r=\"14\" fill=\"#F7B52C\"/><path d=\"M20.4 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M21.4 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M30 21.5h6.7\" stroke=\"#1f3a5f\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M31 21.5a2.3 2.3 0 0 0 4.6 0z\" fill=\"#1f3a5f\"/><path d=\"M25.2 29.5q3.2 -2.7 6.5 0\" stroke=\"#1f3a5f\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M25 66c-7 0-11-5-11-10.5S18 45 25 45c.6-8 7.2-14 15.2-14 6.4 0 11.8 3.8 14 9.4C61.2 40.2 67 45.6 67 52.6c3.4 1.6 5.5 4.6 5.5 8 0 3-2.4 5.4-6.5 5.4z\" fill=\"#A8BBCF\"/><path d=\"M35.4 51h7.3M49.4 51h7.3\" stroke=\"#1f3a5f\" stroke-width=\"2.6\" stroke-linecap=\"round\"/><path d=\"M40.1 60q7 4.5 11.7 -2.3\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51.9 57.7l1.7 -1.5\" stroke=\"#1f3a5f\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","kumori":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M15 59c-6.5 0-10-4.4-10-9.4s3.8-9.2 9.6-9.6C15.4 33 21 28 28 28c2.8 0 5.4.8 7.6 2.3C38.4 24.6 44.4 21 51.2 21c9.2 0 16.6 7 17.2 15.9 4.8 1.4 8.1 5.6 8.1 10.8 0 6.4-4.8 11.3-11 11.3z\" fill=\"#8FA4BA\"/><path d=\"M26.3 43h10.4\" stroke=\"#33465a\" stroke-width=\"2.9\" stroke-linecap=\"round\"/><path d=\"M27.9 43a3.6 3.6 0 0 0 7.2 0z\" fill=\"#33465a\"/><path d=\"M45.3 43h10.4\" stroke=\"#33465a\" stroke-width=\"2.9\" stroke-linecap=\"round\"/><path d=\"M46.9 43a3.6 3.6 0 0 0 7.2 0z\" fill=\"#33465a\"/><path d=\"M35.5 52h11\" stroke=\"#33465a\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>","ame":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M19 50c-7 0-11.5-5-11.5-11S12 28 19.5 28c.6-9.5 8.4-17 18-17 7.4 0 13.6 4.4 16.4 10.7C61.6 21.9 69 28.4 69 37.2c3.2 1.9 4.5 5.2 4.5 8.1 0 2.7-2 4.7-6 4.7z\" fill=\"#3F74D6\"/><path d=\"M24 58.8C25.3 61.1 27.6 63.3 27.6 65.3a3.6 3.6 0 0 1 -7.2 0C20.4 63.3 22.7 61.1 24 58.8z\" fill=\"#3F74D6\"/><path d=\"M40 64.8C41.3 67.1 43.6 69.3 43.6 71.3a3.6 3.6 0 0 1 -7.2 0C36.4 69.3 38.7 67.1 40 64.8z\" fill=\"#3F74D6\"/><path d=\"M56 58.8C57.3 61.1 59.6 63.3 59.6 65.3a3.6 3.6 0 0 1 -7.2 0C52.4 63.3 54.7 61.1 56 58.8z\" fill=\"#3F74D6\"/><path d=\"M30.2 38.5C30.9 39.9 32.3 41.2 32.3 42.3a2.1 2.1 0 0 1 -4.2 0C28.1 41.2 29.5 39.9 30.2 38.5z\" fill=\"#BFE0FF\"/><path d=\"M49.8 38.5C50.5 39.9 51.9 41.2 51.9 42.3a2.1 2.1 0 0 1 -4.2 0C47.7 41.2 49.1 39.9 49.8 38.5z\" fill=\"#BFE0FF\"/><path d=\"M25 28l7 5-7 5M55 28l-7 5 7 5\" stroke=\"#ffffff\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><ellipse cx=\"40\" cy=\"42\" rx=\"2.4\" ry=\"2.8\" fill=\"#ffffff\"/></svg>","sekka":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(0 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(60 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(120 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(180 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(240 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><g transform=\"rotate(300 40 40)\"><path d=\"M40 30.5V8.5 M40 23l-5.5-5.2M40 23l5.5-5.2 M40 15.5l-4-3.8M40 15.5l4-3.8\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/></g><polygon points=\"40,26.5 51.7,33.2 51.7,46.8 40,53.5 28.3,46.8 28.3,33.2\" fill=\"#E3F0FB\" stroke=\"#6EA9DF\" stroke-width=\"3.2\" stroke-linejoin=\"round\"/><path d=\"M31.4 39.5q3 -3.6 6 0M42.6 39.5q3 -3.6 6 0\" stroke=\"#2F5D8A\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M36.5 45q3.5 2.3 7 0\" stroke=\"#2F5D8A\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","taifuu":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M6 33c-3-2-3.5-5.5-1-8M74 28c3 1.5 3.6 5 1.2 7.8M14 55c-3-1.2-4-4-2.4-6.6\" stroke=\"#9DB0DA\" stroke-width=\"2.6\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M37 69.6C39.2 67.2 43.8 67.2 46 70.6C43.5 74.4 39.5 74.4 37 69.6z\" fill=\"#5674BD\"/><path d=\"M29.5 61.2C33.8 58 42.2 58 46.5 63.2C41.7 68.4 34.3 68.4 29.5 61.2z\" fill=\"#3B5BA5\"/><path d=\"M29.5 51.6C36 47.4 49 47.4 55.5 54C48.2 61 36.8 61 29.5 51.6z\" fill=\"#5674BD\"/><path d=\"M19.5 40.5C28.5 35.4 46.5 35.4 55.5 43.5C45.4 51.8 29.6 51.8 19.5 40.5z\" fill=\"#3B5BA5\"/><path d=\"M18.5 27.8C30.2 21.9 53.8 21.9 65.5 31.4C52.3 41.1 31.7 41.1 18.5 27.8z\" fill=\"#5674BD\"/><path d=\"M10 15.8C25 5.3 55 5.3 70 15.8C53.2 31.4 26.8 31.4 10 15.8z\" fill=\"#3B5BA5\"/><circle cx=\"32\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><circle cx=\"48\" cy=\"17\" r=\"2.7\" fill=\"#ffffff\"/><path d=\"M35.5 23q2.2 -3 4.5 0t4.5 0\" stroke=\"#ffffff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","tenpen":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M47 36C35 33 20 23 7 7c15 13 29 18 41 20z\" fill=\"#F08A24\"/><path d=\"M45 45C36 42 24 34 13 21c12 10 24 15 33 16z\" fill=\"#F7B52C\"/><path d=\"M46.5 33.5l15.5 1.8 9 10.2-1.6 13.4-11.8 7.6-14.6-1.9-8.2-11 2.4-13.8z\" fill=\"#6C7E96\" stroke=\"#6C7E96\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M73.5 33l3.5-5M76 41.5l4.2-1.6M70 27.5l1-5\" stroke=\"#F08A24\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M48.7 47 L48.7 47.2 L48.7 47.5 L48.6 47.8 L48.4 48 L48.1 48.2 L47.8 48.3 L47.3 48.2 L46.9 48.1 L46.6 47.8 L46.3 47.3 L46.2 46.8 L46.2 46.3 L46.5 45.7 L46.8 45.2 L47.4 44.9 L48 44.7 L48.7 44.7 L49.4 44.9 L50 45.3 L50.5 46 L50.8 46.7 L50.9 47.6 L50.7 48.4 L50.2 49.2 L49.5 49.9 L48.6 50.3 L47.7 50.4 L46.6 50.3 L45.7 49.8 L44.9 49.1 L44.3 48.1 L44 47 L44.1 45.8 L44.5 44.7 L45.3 43.7 L46.3 43 L47.6 42.5 L48.9 42.5 L50.2 42.9 L51.4 43.6 L52.3 44.7 L52.9 46 L53.1 47.5 L52.8 49 L52.1 50.4 L51 51.5 L49.6 52.3 L48 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M62.7 47 L62.7 47.2 L62.7 47.5 L62.6 47.8 L62.4 48 L62.1 48.2 L61.8 48.3 L61.3 48.2 L60.9 48.1 L60.6 47.8 L60.3 47.3 L60.2 46.8 L60.2 46.3 L60.5 45.7 L60.8 45.2 L61.4 44.9 L62 44.7 L62.7 44.7 L63.4 44.9 L64 45.3 L64.5 46 L64.8 46.7 L64.9 47.6 L64.7 48.4 L64.2 49.2 L63.5 49.9 L62.6 50.3 L61.7 50.4 L60.6 50.3 L59.7 49.8 L58.9 49.1 L58.3 48.1 L58 47 L58.1 45.8 L58.5 44.7 L59.3 43.7 L60.3 43 L61.6 42.5 L62.9 42.5 L64.2 42.9 L65.4 43.6 L66.3 44.7 L66.9 46 L67.1 47.5 L66.8 49 L66.1 50.4 L65 51.5 L63.6 52.3 L62 52.6\" stroke=\"#ffffff\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"55\" cy=\"57\" r=\"2.4\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2.5\"/></svg>","mikakunin":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M24 14c6-3 12-3 18 0s12 3 18 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M8 26c7-3.6 14-3.6 21 0s14 3.6 21 0 10-3 14-1\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M10 40h60\" stroke=\"#E1E8EF\" stroke-width=\"13\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M12 54c7-3.6 14-3.6 21 0s14 3.6 21 0s9-3 14-1.5\" stroke=\"#A9BACB\" stroke-width=\"7.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0\" stroke=\"#C6D2DE\" stroke-width=\"6.5\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"32.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/><circle cx=\"47.5\" cy=\"40\" r=\"3.2\" fill=\"#33465a\"/></svg>"};
+var YOMI_POSE = {"guide":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L70.8 38.8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"70.8\" cy=\"38.8\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","observe":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M58 9a5 5 0 0 1 0 8\" stroke=\"#7FC8F0\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M61.6 6a9 9 0 0 1 0 14\" stroke=\"#7FC8F0\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><path d=\"M64 50l6-8\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"71.5\" cy=\"35.5\" r=\"5.6\" fill=\"#E5F4FD\" stroke=\"#0F3557\" stroke-width=\"2.6\"/><path d=\"M68.3 39.8l-2.8 3.6\" stroke=\"#0F3557\" stroke-width=\"3\" stroke-linecap=\"round\"/><circle cx=\"34.5\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"50.5\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M39 53h7\" stroke=\"#8FE3FF\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>","discover":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"rotate(-14 40 24)\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/></g><path d=\"M17 50L8.5 41\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"8.5\" cy=\"41\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M63 50L71.5 41\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"71.5\" cy=\"41\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><path d=\"M72 6v11\" stroke=\"#F39A1E\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><circle cx=\"72\" cy=\"24.4\" r=\"2.5\" fill=\"#F39A1E\"/><circle cx=\"32\" cy=\"45\" r=\"4\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"4\" fill=\"#8FE3FF\"/><circle cx=\"40\" cy=\"53.5\" r=\"2.4\" fill=\"none\" stroke=\"#8FE3FF\" stroke-width=\"2.5\"/></svg>","explain":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><rect x=\"58.5\" y=\"23\" width=\"20\" height=\"16\" rx=\"3.5\" fill=\"#ffffff\" stroke=\"#0F3557\" stroke-width=\"2.2\"/><path d=\"M62.2 34.6l4-4.2 3.2 2.6 5.2-6.2\" stroke=\"#29A0E2\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M63 54l6-4\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"69.5\" cy=\"49.5\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M69.5 49.5L64 39.5\" stroke=\"#0F3557\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"32\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><circle cx=\"48\" cy=\"45\" r=\"3.5\" fill=\"#8FE3FF\"/><path d=\"M35 52.5q5 3.3 10 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>","done":"<svg viewBox=\"0 0 80 80\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M40 24V16\" stroke=\"#0F3557\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><path d=\"M30 13a3.2 3.2 0 0 1 3.2-3.2h13l5 3.2-5 3.2h-13a3.2 3.2 0 0 1-3.2-3.2z\" fill=\"#0F3557\"/><path d=\"M47 10.4l5.5-8.4h4.2l-2.4 8.4zM47 15.6l5.5 8.4h4.2l-2.4-8.4z\" fill=\"#0F3557\"/><rect x=\"25.4\" y=\"4.5\" width=\"3.4\" height=\"17\" rx=\"1.7\" fill=\"#7FC8F0\"/><circle cx=\"29\" cy=\"13\" r=\"2.6\" fill=\"#0F3557\"/><path d=\"M16 52L9.4 61\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"9.4\" cy=\"61\" r=\"3.6\" fill=\"#0F3557\"/><path d=\"M64 49L69 40\" stroke=\"#0F3557\" stroke-width=\"3.4\" stroke-linecap=\"round\"/><circle cx=\"69\" cy=\"40\" r=\"3.6\" fill=\"#0F3557\"/><rect x=\"27\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><rect x=\"45\" y=\"63\" width=\"8\" height=\"10\" rx=\"3\" fill=\"#0F3557\"/><path d=\"M14 47a26 24 0 0 1 52 0v5a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14z\" fill=\"#29A0E2\"/><rect x=\"21\" y=\"35\" width=\"38\" height=\"24\" rx=\"10\" fill=\"#0F3557\"/><circle cx=\"70\" cy=\"31\" r=\"8.6\" fill=\"#29A0E2\" stroke=\"#ffffff\" stroke-width=\"2\"/><path d=\"M66 31.2l3 3 5.4-6\" stroke=\"#ffffff\" stroke-width=\"2.8\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M27.4 46q4.5 -5.5 9.1 0M43.5 46q4.5 -5.5 9.1 0\" stroke=\"#8FE3FF\" stroke-width=\"3.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M34.1 51.5q5.9 6.5 11.7 0\" stroke=\"#8FE3FF\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></svg>"};
+/* ===== /キャラの絵 ===== */
 
 var state = { view: 'home', inputTab: 'product', busy: false, confirms: [],
   inputDraft: null, inputDirty: {}, budgetDirty: {}, candidates: null, candidatesLoading: false,
@@ -293,23 +305,93 @@ var FN_LABELS={
 function fnLabel(fn){ var k=String(fn||''); return FN_LABELS[k]||FN_LABELS[k.replace(/_+$/,'')]||k; }
 function ym2label(v){ var m=B.months.filter(function(x){return x.value===v;}); return m.length?m[0].label:v; }
 
+/* ================= 空模様（表示だけの判定） =================
+ * 既存の検証データ（B-2 の月別誤差率 compare[].ape / signedErr、B-4 の制約超過フラグ insights[]）を読むだけで、
+ * 最新月の天気キャラを決める。予測・保存・判定の計算は変えない。上から順に当てはまった最初のキャラを出す
+ * （assets/characters/README.md・CHARACTER_DESIGN_STATUS.md の「表示条件」）。 */
+var WX = {
+  mikakunin:{name:'未確認・霧', line:'まだ、霧の中です'},
+  tenpen:{name:'天変地異', line:'め、目が回る〜！'},
+  taifuu:{name:'台風', line:'わわわ、荒れてきたぁ！'},
+  sekka:{name:'雪', line:'しん……と、冷えてきました'},
+  ame:{name:'雨', line:'ぐすっ……次は、晴らそうね'},
+  kumori:{name:'曇り', line:'まあ、見直そっかぁ'},
+  harenochi:{name:'晴れのち曇り', line:'ちょっと前、失礼しますね'},
+  kaisei:{name:'快晴', line:'予報どおり。当然だろう？'}
+};
+var WX_FLAGS = [['annualBreach','年間'],['halfBreach','半期'],['overBreach','過大'],['rangeBreach','範囲外']];
+var WX_MIN_MONTHS = 3, WX_TENPEN_APE = 1.5, WX_TAIFUU_APE = 0.3;
+/** 予測と実績がそろった月（月順）。upto を渡すとその月まで。 */
+function wxEvalMonths(ev, upto){
+  var rows=((ev&&ev.compare)||[]).filter(function(c){
+    return (c.p50!=null||c.forecastTotal!=null) && c.actualTotal!=null && c.ape!=null && isFinite(c.ape) && (!upto||c.month<=upto);
+  });
+  return rows.sort(function(a,b){ return a.month<b.month?-1:(a.month>b.month?1:0); });
+}
+/** 最新月（upto を渡すとその月）の空模様 {id, month, reason, flags}。 */
+function forecastWeather(ev, upto){
+  var rows=wxEvalMonths(ev, upto);
+  if(!ev||!ev.hasActuals||!rows.length) return {id:'mikakunin', month:'', flags:null, reason:'実績がまだ取り込まれていません。'};
+  var last=rows[rows.length-1];
+  var out=function(id, reason, flags){ return {id:id, month:last.month, reason:reason, flags:flags||null}; };
+  if(rows.length<WX_MIN_MONTHS) return out('mikakunin', '実績のある月が '+rows.length+' か月です（'+WX_MIN_MONTHS+' か月そろうと判定できます）。');
+  var ins=((ev.insights)||[]).filter(function(r){ return r.month===last.month; })[0];
+  if(!ins) return out('mikakunin', '検証インサイト（B-4）がまだありません。');
+  var flags=WX_FLAGS.filter(function(f){ return !!ins[f[0]]; }).map(function(f){ return f[1]; });
+  if(last.ape>=WX_TENPEN_APE) return out('tenpen', last.month+' の誤差率が '+fmtPct(last.ape,0)+' です（150% 以上のまれな外れ）。', flags);
+  var r3=rows.slice(-3);
+  var signs=r3.map(function(c){ return c.signedErr>0?1:(c.signedErr<0?-1:0); }).filter(function(x){ return x!==0; });
+  var flip=signs.some(function(x,i){ return i>0 && x!==signs[i-1]; });
+  var big=r3.filter(function(c){ return c.ape>=WX_TAIFUU_APE; }).length;
+  if(flip&&big>=2) return out('taifuu', '直近 3 か月で上振れと下振れが入れ替わり、誤差率 30% 以上が '+big+' か月あります。', flags);
+  if(ins.overBreach) return out('sekka', '過大予測（予測が実績を上回る）の制約を超えています。', flags);
+  if(flags.length>=2) return out('ame', '制約を '+flags.length+' つ超えています（'+flags.join('・')+'）。', flags);
+  if(flags.length===1) return out('kumori', flags[0]+'の制約を 1 つ超えています。', flags);
+  if(r3[2].ape>r3[1].ape && r3[1].ape>r3[0].ape) return out('harenochi', '制約の超過はありませんが、誤差率が 2 か月続けて悪化しています。', flags);
+  return out('kaisei', '制約の超過はありません。', flags);
+}
+/** 1 か月前（予測と実績がそろった前の月）からの空模様の変化。変わっていなければ null。 */
+function wxChange(ev){
+  var rows=wxEvalMonths(ev);
+  if(rows.length<2) return null;
+  var now=forecastWeather(ev), prev=forecastWeather(ev, rows[rows.length-2].month);
+  return (now.id!=='mikakunin' && prev.id!==now.id) ? {from:prev, to:now} : null;
+}
+function wxCardHtml(w){
+  var c=WX[w.id];
+  var chips=w.flags?WX_FLAGS.map(function(f){ var on=w.flags.indexOf(f[1])>=0; return '<span class="chip '+(on?'chip-warn':'chip-ok')+'">'+f[1]+(on?' 超過':' OK')+'</span>'; }).join(''):'';
+  return '<div class="card"><div class="h2row"><h2>'+esc(w.month?w.month+' の空模様':'空模様')+'</h2>'+help('最新月の制約超過（B-4）と誤差率（B-2）を読み、表示用に空模様を決めます。予測や判定の計算は変えません。')+'</div>'
+    +'<div class="guide"><button type="button" class="charbox" onclick="replayChar(this)" title="'+esc(c.name)+'" aria-label="空模様: '+esc(c.name)+'">'+CHAR_SVG[w.id]+'</button>'
+    +'<div class="bubble"><b>'+esc(c.name)+'</b> — '+esc(w.reason)+(chips?'<div class="wxchips">'+chips+'</div>':'')+'<div class="wxline">「'+esc(c.line)+'」</div></div></div></div>';
+}
+/** 処理中の表示（よみ・観測中）。すぐ終わる処理でちらつかないよう 0.6 秒たってから出す。 */
+var busyTimer=null;
+function busyChar(on){
+  var el=document.getElementById('busychar');
+  if(!el){ el=document.createElement('div'); el.id='busychar'; el.className='busychar'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
+    el.innerHTML='<span class="bc">'+YOMI_POSE.observe+'</span><span>観測中…<br><small>処理しています</small></span>'; document.body.appendChild(el); }
+  clearTimeout(busyTimer);
+  if(on){ busyTimer=setTimeout(function(){ el.classList.add('on'); },600); } else { el.classList.remove('on'); }
+}
+
 /* ================= RPC ================= */
 function rpc(fn, args, opts){
   opts = opts || {};
   if(state.busy) return;
   state.busy = true;
   document.getElementById('progressbar').classList.add('on');
+  busyChar(true);
   if(opts.btn){ opts.btn.disabled = true; }
   var runner = google.script.run
     .withSuccessHandler(function(res){
-      state.busy=false; document.getElementById('progressbar').classList.remove('on');
+      state.busy=false; document.getElementById('progressbar').classList.remove('on'); busyChar(false);
       if(res && res.boot){ B = res.boot; }
       if(res && res.needConfirm){ openConfirm(res.needConfirm); return; }
       if(opts.onOk) opts.onOk(res);
       if(opts.rerender!==false) render();
     })
     .withFailureHandler(function(err){
-      state.busy=false; document.getElementById('progressbar').classList.remove('on');
+      state.busy=false; document.getElementById('progressbar').classList.remove('on'); busyChar(false);
       var msg = (err && err.message) ? err.message : String(err);
       if(opts.onErr){ opts.onErr(msg); } else { showToast(msg, true); }
       render();
@@ -333,8 +415,10 @@ function openConfirm(c){
 var toastTimer=null;
 function showToast(msg, isErr){
   var el=document.getElementById('toast');
-  if(!el){ el=document.createElement('div'); el.id='toast'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite'); el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 22px;border-radius:10px;font-size:14px;font-weight:700;z-index:95;box-shadow:0 8px 30px rgba(0,0,0,.18)'; document.body.appendChild(el); }
-  el.textContent=msg;
+  if(!el){ el=document.createElement('div'); el.id='toast'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite'); el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:700;z-index:95;box-shadow:0 8px 30px rgba(0,0,0,.18)'; document.body.appendChild(el); }
+  // 完了の通知には よみ（確認完了）を添える。エラーは文字だけ
+  el.innerHTML=(isErr?'':'<span class="toastchar">'+YOMI_POSE.done+'</span>')+'<span>'+esc(msg)+'</span>';
+  el.style.padding=isErr?'12px 22px':'8px 22px 8px 12px';
   el.style.background = isErr?'var(--error)':'var(--navy)';
   el.style.color='#fff'; el.style.opacity='1';
   clearTimeout(toastTimer);
@@ -371,7 +455,7 @@ function viewTitle(t, sub){
   return '<div class="viewtitle"><h1>'+esc(t)+'</h1><span class="vsub">'+esc(sub||'')+'</span></div>';
 }
 function emptyBox(title, desc, btnLabel, view){
-  return '<div class="empty"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_GEAR+'</button><div class="t">'+esc(title)+'</div><div class="d">'+esc(desc)+'</div>'+
+  return '<div class="empty"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_SVG.mikakunin+'</button><div class="t">'+esc(title)+'</div><div class="d">'+esc(desc)+'</div>'+
     (btnLabel?'<button class="btn btn-primary" onclick="goView(\''+view+'\')">'+esc(btnLabel)+'</button>':'')+'</div>';
 }
 function goView(v){ state.view=v; location.hash=v; render(); }
@@ -397,7 +481,10 @@ function renderHome(){
     +'<div class="kpi"><div class="lbl">年間予測（Baseline P50）</div><div class="val">'+(s?fmtY(s.annual.p50):'—')+'</div></div>'
     +'<div class="kpi"><div class="lbl">最終予算（合計）</div><div class="val">'+(s&&s.annual.final!=null?fmtY(s.annual.final):'—')+'</div></div></div>';
 
-  html+='<div class="card"><h2>次の一手</h2><div class="guide"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+CHAR_ARROW+'</button><div class="bubble">'+nextStepHtml()+'</div></div></div>';
+  var wxc=wxChange(B.eval);
+  html+='<div class="card"><h2>次の一手</h2><div class="guide"><button type="button" class="charbox" onclick="replayChar(this)" title="クリックで再生" aria-label="アニメーションを再生">'+(wxc?YOMI_POSE.discover:YOMI_POSE.guide)+'</button><div class="bubble">'
+    +(wxc?'<div class="wxchg">空模様が変わりました：'+esc(WX[wxc.from.id].name)+' → '+esc(WX[wxc.to.id].name)+'（'+esc(wxc.to.month)+'）</div>':'')
+    +nextStepHtml()+'</div></div></div>';
 
   html+='<div class="card"><h2>プロセス進捗</h2><div class="tblwrap" style="margin-top:12px"><table class="tbl" style="min-width:780px">'
     +'<colgroup><col style="width:90px"><col style="width:200px"><col style="width:100px"><col style="width:90px"><col style="width:140px"><col></colgroup>'
@@ -421,7 +508,7 @@ function renderHome(){
 
 function nextStepHtml(){
   var s1=stepOf('step1_status'), s4=stepOf('step4_status');
-  if(!B.setup.client) return 'まず「準備」タブでクライアントとFYを設定してください。こっちこっち。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'prep\')">準備へ</button></div>';
+  if(!B.setup.client) return 'まず「準備」タブでクライアントとFYを設定してください。観測の準備から始めましょう。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'prep\')">準備へ</button></div>';
   if(!s1||s1.status!=='success') return '外部シートから売上データを取り込みます（A-2）。これが全部の土台です。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'prep\')">取り込みへ</button></div>';
   if(!s4||s4.status!=='success') return '入力（製品・クライアント要因・見解・Spot）を整えて、予測を実行します（A-9）。<div class="act"><button class="btn btn-sm btn-navy" onclick="goView(\'input\')">入力へ</button></div><div class="act" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="goView(\'forecast\')">予測へ</button></div>';
   var s2=stepOf('step2_status'), s5=stepOf('step5_status');
@@ -710,6 +797,7 @@ function kpi(lbl,val){ return '<div class="kpi"><div class="lbl">'+esc(lbl)+'</d
 function renderEval(){
   var html=viewTitle('検証', 'B-1 実績取込 → B-2 レポート → B-3 ダッシュボード → B-4 インサイト → B-5 自動学習');
   html+='<div class="errstrip" id="err_eval"></div>';
+  html+=wxCardHtml(forecastWeather(B.eval));
   html+='<div class="card"><h2>検証工程</h2><div class="steplist">'
     + stepRow('B-1','検証実績取り込み','外部の実績集計から検証用実績を取り込みます（A-2 と同じソース）。','step2_status','btn_b1','取り込み実行')
     + stepRow('B-2','検証レポート更新','予測と実績を突合し、月次の誤差・内訳を更新します。','step5_status','btn_b2','レポート更新')

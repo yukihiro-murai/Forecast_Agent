@@ -14,11 +14,11 @@ python3 build.py
 ```
 
 Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`）で PNG にする。確認用 HTML は一時ディレクトリに作り、ここには残さない。
-`build.py` は `Forecast_WebApp.js` の「タブのアイコン」区間（`FORECAST_FAVICON_URL`）も書き換える。
+`build.py` は `Forecast_WebApp.js` の「タブのアイコン」区間（`FORECAST_FAVICON_URL`）と `Forecast_WebAppUI.html` の「キャラの絵」区間（`CHAR_SVG` / `YOMI_POSE`）も書き換える。
 
 ## キャラ一覧
 
-| id | 名前 | 意味（案） | SVG 正本 | 透過 PNG |
+| id | 名前 | 意味 | SVG 正本 | 透過 PNG |
 |---|---|---|---|---|
 | yomi | よみ | 案内役（天気を伝える側） | `svg/yomi.svg` | `png/yomi_160.png` / `_512.png` |
 | kaisei | 快晴（かいせい） | 予測がよく当たっている | `svg/kaisei.svg` | `png/kaisei_*.png` |
@@ -30,7 +30,7 @@ Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`�
 | tenpen | 天変地異（てんぺんちい） | ごくまれな桁違いの外れ | `svg/tenpen.svg` | `png/tenpen_*.png` |
 | mikakunin | 未確認・霧（みかくにん） | データ不足でまだ判定できない（悪い予測とは別系統） | `svg/mikakunin.svg` | `png/mikakunin_*.png` |
 
-意味（案）は表示条件が決まるまでの仮の位置づけ。表示条件そのものはまだ実装していない（`CHARACTER_DESIGN_STATUS.md`）。
+意味の詳しい条件（どの指標で、どの順で決めるか）は `CHARACTER_DESIGN_STATUS.md` の「表示条件」。2026-10-01 に画面へ実装した。
 雪の id が `sekka` なのは、図鑑に `yuki`（ゆき）が既にいるため。
 
 ## よみ 5 ポーズ
@@ -55,7 +55,13 @@ Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`�
 | `favicon/yomi_favicon.svg` | 32×32 viewBox | 0.8 KB | タブのアイコンの原図（頭と顔を枠いっぱいに描いた専用の絵。16px でつぶれない） |
 | `favicon/yomi_favicon_64.png` | 64×64 px | 2.7 KB | タブのアイコン。`Forecast_WebApp.js` の `FORECAST_FAVICON_URL` に data URI で埋め込み（末尾 `#favicon.png`） |
 | `Characters.html` | — | 約 100 KB | 図鑑からの抜粋（`characters.config.json` → `sync.mjs`）。9 体 + 表情違い + 補助関数 |
-| `review/*.png` | 2300px 幅 | 200〜330 KB | 確認用の一覧（`chars_v8.png` 確定版・`yomi_poses.png` ポーズとタブ・`chars_v8_r1.png` 第1回の確認・`placement_mock.png` 画面配置と表示条件の案。配置案は手書きの見本で build.py では作らない） |
+| `review/*.png` | 2300px 幅 | 200〜330 KB | 確認用の一覧（`chars_v8.png` 確定版・`yomi_poses.png` ポーズとタブ・`chars_v8_r1.png` 第1回の確認・`placement_mock.png` 画面配置と表示条件の案・`placement_impl.png` 実装後の実際の画面。配置案と画面写真は build.py では作らない） |
+
+## 画面での使われ方（2026-10-01）
+
+タブのアイコン＝よみ、ホーム「次の一手」＝よみ（通常案内／空模様が変わった月は変化発見）、検証画面の上部＝最新月の天気キャラ、
+データが無いときの空の表示＝未確認・霧、処理中＝よみ（観測中）、完了の通知＝よみ（確認完了）。
+表示条件と実装場所は `CHARACTER_DESIGN_STATUS.md` の「表示条件」「画面への配置」。絵は `Forecast_WebAppUI.html` の「キャラの絵」区間（`build.py` が書き換える）。
 
 ## 画面で使うときの注意
 

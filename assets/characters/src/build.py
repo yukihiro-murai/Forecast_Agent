@@ -13,6 +13,7 @@
   review/chars_v8.png / review/yomi_poses.png      確認用の一覧 (白背景)
   ../../Forecast_WebApp.js        「タブのアイコン」区間の FORECAST_FAVICON_URL (64×64 PNG の data URI + #favicon.png) を書き換える
                                   (別ファイルにすると管理ハブ runtime の許可リスト 21 ファイルが崩れるため、既存ファイルの中に置く)
+  ../../Forecast_WebAppUI.html    「キャラの絵」区間の CHAR_SVG (9 体) / YOMI_POSE (5 ポーズ) を書き換える (同じ理由で既存の HTML の中)
 
 PNG 化はヘッドレス Chromium (Playwright 同梱の chrome-headless-shell) で行う。
 確認用の HTML は一時ディレクトリに作り、リポジトリには残さない。
@@ -27,6 +28,7 @@ V7_HTML = os.path.join(ASSETS, 'archive', 'v7', 'chars_v7.html')
 PNG_SIZES = (160, 512)
 FAVICON_PX = 64
 WEBAPP_JS = os.path.join(REPO, 'Forecast_WebApp.js')
+WEBAPP_UI = os.path.join(REPO, 'Forecast_WebAppUI.html')
 DATA_URL_PREFIX = 'data:image/png;base64,'
 # Apps Script の setFaviconUrl は末尾が画像の拡張子でない URL を黙って捨てる。# 以降は URL の断片で画像データではない
 DATA_URL_SUFFIX = '#favicon.png'
@@ -184,6 +186,26 @@ def write_favicon_url(data_url):
         open(WEBAPP_JS, 'w', encoding='utf-8').write(new)
 
 
+UI_RE = re.compile(r"(/\* ===== キャラの絵（自動生成: assets/characters/src/build\.py。この区間は手で編集しない） ===== \*/\n)var CHAR_SVG = .*;\nvar YOMI_POSE = .*;\n(/\* ===== /キャラの絵 ===== \*/)")
+
+
+def write_ui_chars():
+    """Forecast_WebAppUI.html の「キャラの絵」区間だけを書き換える (区間が無ければ止める)"""
+    import json
+    chars = {c[0]: cast.svg_of(c) for c in cast.CAST}
+    poses = {p[0]: cast.pose_svg(p) for p in cast.YOMI_POSES}
+    for k, v in list(chars.items()) + list(poses.items()):
+        if '<?' in v or '</script' in v.lower():
+            raise SystemExit(f'{k}: GAS テンプレートや script を壊す文字列を含む')
+    js = lambda d: json.dumps(d, ensure_ascii=False, separators=(',', ':'))
+    src = open(WEBAPP_UI, encoding='utf-8').read()
+    new, n = UI_RE.subn(lambda m: m.group(1) + 'var CHAR_SVG = ' + js(chars) + ';\nvar YOMI_POSE = ' + js(poses) + ';\n' + m.group(2), src)
+    if n != 1:
+        raise SystemExit('Forecast_WebAppUI.html に「キャラの絵」区間が無い (または 2 つ以上ある)')
+    if new != src:
+        open(WEBAPP_UI, 'w', encoding='utf-8').write(new)
+
+
 def main():
     out = []
     for c in cast.CAST:
@@ -200,6 +222,7 @@ def main():
     fav_png = transparent_png(cast.FAVICON_SVG, os.path.join(ASSETS, 'favicon', f'yomi_favicon_{FAVICON_PX}.png'), FAVICON_PX)
     data_url = DATA_URL_PREFIX + base64.b64encode(open(fav_png, 'rb').read()).decode('ascii') + DATA_URL_SUFFIX
     write_favicon_url(data_url)
+    write_ui_chars()
     os.makedirs(os.path.join(ASSETS, 'review'), exist_ok=True)
     shoot(review_page('売上予測キャラクター v8（よみ＋天気8種）',
                       'フラット・単純図形・テカリなし。顔はキャラクター図鑑の共通部品（目2点＋口1本）で統一しています。'),
