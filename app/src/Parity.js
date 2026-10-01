@@ -41,12 +41,13 @@ function appParityA_(ctx, p, job) {
     const scratch = appParityScratch_(pl.plan);
     const copied = appScratchCopyLegacy_(scratch, legacy);
     const previous = appForecastHeadline_(scratch);   // 旧ブックで前回に実行した結果（写した OUTPUT）
+    const pre = appScratchDigest_(scratch);            // 計算の前の控え（組み立ての違いか、計算での違いかを分けるため）
     const t1 = new Date().getTime();
     const run = appRunLegacyForecast_(scratch, { asOfMs: asOfMs, seed: seed, confirms: ['extreme'] });
     if (!run.ok) throw new Error('旧来の計算が確認を求めて止まりました（' + JSON.stringify(run.needConfirm) + '）。');
     const t2 = new Date().getTime();
     const headline = appForecastHeadline_(scratch);
-    appJobPutResult_(job.id + '_A', { digest: appScratchDigest_(scratch) });
+    appJobPutResult_(job.id + '_A', { pre: pre, digest: appScratchDigest_(scratch) });
     const t3 = new Date().getTime();
     return {
       __next: { kind: 'FORECAST.PARITY_B', payload: {
@@ -66,6 +67,7 @@ function appParityB_(ctx, p) {
   return appWithLock_(() => {
     const scratch = appParityScratch_(pl.plan);
     const build = appScratchFromStore_(scratch, pl.plan.plan_id);
+    const pre = appScratchDigest_(scratch);
     const t1 = new Date().getTime();
     const run = appRunLegacyForecast_(scratch, { asOfMs: p.asOfMs, seed: p.seed, confirms: ['extreme'] });
     if (!run.ok) throw new Error('旧来の計算が確認を求めて止まりました（' + JSON.stringify(run.needConfirm) + '）。');
@@ -74,10 +76,12 @@ function appParityB_(ctx, p) {
     const a = appJobGetResult_(p.parentJobId + '_A');
     if (!a.found) throw new Error('旧ブックの写しでの結果の控えが見つかりません（保存期間が過ぎた）。もう一度始めてください。');
     const diff = appDigestDiff_(a.value.digest, appScratchDigest_(scratch));
+    const preDiff = a.value.pre ? appDigestDiff_(a.value.pre, pre) : null;
     const t3 = new Date().getTime();
     return {
       planId: pl.plan.plan_id, asOf: Utilities.formatDate(new Date(p.asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), seed: p.seed,
-      same: diff.length === 0, diff: diff, sheets: p.copied, engine: p.engine, legacyChangedAfterImport: p.legacyChangedAfterImport,
+      same: diff.length === 0, diff: diff, preSame: preDiff ? preDiff.length === 0 : null, preDiff: preDiff,
+      sheets: p.copied, engine: p.engine, legacyChangedAfterImport: p.legacyChangedAfterImport,
       legacy: p.legacy, store: headline, previous: p.previous,
       build: build.filter(x => x.mismatch || x.forcedText),
       timing: { a: p.timingA, b: { buildMs: t1 - t0, runMs: t2 - t1, compareMs: t3 - t2 } },

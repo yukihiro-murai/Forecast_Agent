@@ -47,7 +47,8 @@ function appJobExecute_(ctx, job) {
           timing: res.__next.payload.timingA }) }, () => appParityA_(ctx, p, job));
     case 'FORECAST.PARITY_B':
       return appAudited_(ctx, 'FORECAST.PARITY.B', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id, parentJobId: p.parentJobId },
-        after: res => ({ same: res.same, diffSheets: res.diff.length, seed: res.seed, asOf: res.asOf, storeAnnual: res.store && res.store.annual,
+        after: res => ({ same: res.same, diffSheets: res.diff.length, preSame: res.preSame, diff: res.diff.map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })),
+          preDiff: (res.preDiff || []).map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })), seed: res.seed, asOf: res.asOf, storeAnnual: res.store && res.store.annual,
           legacyAnnual: res.legacy && res.legacy.annual, timing: res.timing }) }, () => appParityB_(ctx, p));
     default:
       throw new Error('未定義の処理です: ' + job.kind);

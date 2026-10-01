@@ -196,4 +196,30 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   ]);
 }
 
+// ==== 5. 表示形式の違いをセルで示す・計算の前から違うのか計算で違ったのかを分ける ====
+{
+  const env = makeEnv();
+  const a = { 1: [[1, 10, 'General']], 2: [[1, 10, '@']] };
+  const b = { 1: [[1, 4, 'General'], [5, 6, '0.0%'], [7, 10, 'General']], 2: [[1, 10, '@']] };
+  assert.deepEqual(J(env.run('appFormatCellsDiff_(__a, __b, 8)', { __a: a, __b: b })), { count: 2, samples: [{ cells: 'A5:A6', a: 'General', b: '0.0%' }] });
+  assert.deepEqual(J(env.run('appFormatCellsDiff_(__a, __a, 8)', { __a: a })), { count: 0, samples: [] });
+  // データ本体の表示形式が旧ブックと違えば、計算の前の違いとして、そのセルと両方の形式を示す
+  const env2 = setUpEnv();
+  const book = legacyBook(env2);
+  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
+  const dry = env2.runJob('MIGRATION.DRYRUN', { bookUrl: url });
+  const imp = env2.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
+  env2.run(STUB_ENGINE);
+  const fm = env2.data().getSheetByName('ENG_FORMATS');
+  const H = fm.rows[0];
+  const row = fm.rows.findIndex((r, i) => i > 0 && r[H.indexOf('sheet')] === 'CALIBRATION_STATE' && r[H.indexOf('col')] === '7');
+  fm.rows[row][H.indexOf('runs_json')] = JSON.stringify([[1, 1, 'General'], [2, 2, '0.00'], [3, 1000, 'General']]);
+  const st = env2.runJob('FORECAST.PARITY', { planId: imp.result.planId });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.equal(st.result.preSame, false);
+  const pre = st.result.preDiff.find((d) => d.sheet === 'CALIBRATION_STATE');
+  assert.deepEqual(pre.formatCells.samples[0], { cells: 'G2', a: 'General', b: '0.00' });
+  assert.equal(pre.rowCount, 0, '値は同じで表示形式だけが違う');
+}
+
 console.log('app-engine: all tests passed');

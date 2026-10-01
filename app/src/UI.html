@@ -321,14 +321,20 @@ function viewParity(){
   if (r) {
     var verdict = r.same ? '<span class="chip">完全に一致</span>' : '<span class="chip ng">違いあり（' + r.diff.length + ' シート）</span>';
     var row = function(label, h){ return '<tr><td>' + label + '</td><td>' + yen(h && h.annual.p10) + '</td><td>' + yen(h && h.annual.p50) + '</td><td>' + yen(h && h.annual.p90) + '</td></tr>'; };
-    var diffs = (r.diff || []).map(function(d){ return esc(d.sheet) + (d.missing ? '（片方にない）' : '（' + d.rowCount + ' 行' + (d.size ? '・大きさ ' + esc(d.size) : '') + (d.formats ? '・表示形式' : '') + '）'); }).join('、');
+    var diffText = function(list){ return (list || []).map(function(d){
+      var cells = d.formatCells && d.formatCells.samples.length ? '：' + d.formatCells.samples.map(function(x){ return x.cells + ' 「' + x.a + '」/「' + x.b + '」'; }).join('、') + (d.formatCells.count > d.formatCells.samples.length ? ' ほか' : '') : '';
+      return esc(d.sheet) + (d.missing ? '（片方にない）' : '（値の違う行 ' + d.rowCount + (d.size ? '・大きさ ' + esc(d.size) : '') + (d.formats ? '・表示形式' + esc(cells) : '') + '）');
+    }).join('<br>'); };
+    var diffs = diffText(r.diff);
+    var preDiffs = r.preDiff ? diffText(r.preDiff) : '';
     var sec = r.timing ? Math.round((r.timing.a.copyMs + r.timing.a.runMs + r.timing.a.digestMs + r.timing.b.buildMs + r.timing.b.runMs + r.timing.b.compareMs) / 1000) : 0;
     html += '<div class="card"><h2>計算の一致の確認</h2><div class="row" style="margin-top:0;align-items:center">' + verdict
       + (r.legacyChangedAfterImport ? '<span class="chip warn">取り込みの後に旧ブックが変わっています（取り込み直してから確かめてください）</span>' : '') + '</div>'
       + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（シミュレーション予測）</th><th>Downside（P10）</th><th>Baseline（P50）</th><th>Upside（P90）</th></tr></thead><tbody>'
       + row('旧ブックの写しで実行', r.legacy) + row('データ本体から組み立てて実行', r.store)
       + row('<span class="note">参考: 旧ブックで前回に実行した結果</span>', r.previous) + '</tbody></table>'
-      + (diffs ? '<p class="note" style="margin-top:8px;color:var(--error)">違いのあったシート: ' + diffs + '</p>' : '')
+      + (diffs ? '<p class="note" style="margin-top:8px;color:var(--error)">計算の後に違いのあったシート（左が旧ブックの写し、右がデータ本体）:<br>' + diffs + '</p>' : '')
+      + (r.preDiff ? (r.preSame ? '<p class="note">計算の前の状態: 全シート一致</p>' : '<p class="note" style="color:var(--error)">計算の前から違っていたシート:<br>' + preDiffs + '</p>') : '')
       + '<p class="note" style="margin-top:8px">上の 2 行は同じ乱数・同じ時刻（' + esc(String(r.asOf || '').replace('T', ' ').slice(0, 16)) + '）で動かした結果です。前回の結果は乱数と実行日が違うので、少し違って正常です'
       + (r.previous && r.legacy ? '（P50 の差 ' + pct(r.legacy.annual.p50, r.previous.annual.p50) + '）' : '') + '。かかった時間: ' + sec + ' 秒。</p></div>';
   }
