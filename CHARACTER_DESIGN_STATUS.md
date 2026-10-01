@@ -55,7 +55,11 @@ PNG 化は Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-pla
 
 ## 本番反映（ファビコン）— 2026-10-01 実施済み（公開 @29）
 
-ユーザーの「デプロイして」で実施。push 前の照合で、本番 HEAD とローカルの差分は `Forecast_WebApp.js`（アイコン）と `Forecast_WebAppUI.html`（ページ内アイコン 1 行）だけだった。
+ユーザーの「デプロイして」で実施。
+反映先（Apps Script API の projects.get で確認）: Forecast_Agent の `.clasp.json` のプロジェクト（AI_HANDOFF.md の「中央clasp source」、Apps Script 上の名前は「無題のプロジェクト」）＝スプレッドシート「クライアント別売上予測」（`1fNTaJEHoNCBmkto5vvhcVYY5tA1Y4YASDwnqCRgauUk`）のコンテナ バインド スクリプト。
+「年度予算策定 管理ハブ」の bound script（Admin Runtime）・社員ポータル・クライアント年度ブックには反映していない（管理ハブ側の更新日時は 2026-09-19 のまま）。
+ただしこのプロジェクトは管理ハブの「保守 → 最新版に更新」のコピー元なので、そのメニューを実行すると今回の Webアプリ 2 ファイルの変更も管理ハブ側へ写る（Webアプリ画面だけの変更で、管理ハブの動作には影響しない）。
+push 前の照合で、本番 HEAD とローカルの差分は `Forecast_WebApp.js`（アイコン）と `Forecast_WebAppUI.html`（ページ内アイコン 1 行）だけだった。
 `clasp push`（21 ファイル）→ 再取得して 21/21 一致 → `clasp deploy -i AKfycbzKsq… -d "クライアント別売上予測 Webアプリ（タブのアイコンをよみに f0595e4）"` で @28 → @29 → 版 29 を取得して 21/21 一致。
 **push の直前に `clasp status` が 66 ファイルになっていた。** 別セッションが `.claude/worktrees/<name>/`（リポジトリの中）に作業用ワークツリーを作り、その .js/.html が `!**/*.js` で拾われていた。
 `.claspignore` に `.claude/**` を足して 21 ファイル（許可リストと完全一致）に戻してから push した（f0595e4）。push 前は必ず件数と中身（21 件・許可リスト一致）を確かめる。
