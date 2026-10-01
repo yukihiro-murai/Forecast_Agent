@@ -9546,8 +9546,10 @@ function autoLearnAfterEvalReport_(client) {
     const res = runMonthlyAutoLearn_(client, {});
     if (res && res.ready) {
       safeLogRun_('runMonthlyAutoLearn_', client, 'success', res.n, new Date(), `auto:${res.changed.join(',') || 'no-change'}`);
+      try { updateProcessStatus_('learn_status', 'success', client, res.n, `auto:${res.changed.join(',') || 'no-change'}`); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
     } else if (res) {
       safeLogRun_('runMonthlyAutoLearn_', client, 'success', res.n || 0, new Date(), `skipped:${res.skipped}`);
+      try { updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`); } catch (e2) { /* 同上 */ }
     }
     return res;
   } catch (e) {
