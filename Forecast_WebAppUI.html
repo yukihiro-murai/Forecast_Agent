@@ -60,14 +60,25 @@ input,select,textarea{font-family:inherit;font-size:15px}
 .h2row h2{margin-bottom:0}
 .card .sub{font-size:13px;color:var(--muted);margin-bottom:14px}
 .card .sub:empty{display:none}
-/* ===== 工程リスト（1列・行構造） ===== */
+/* ===== 工程リスト（1列・厳格グリッド） ===== */
 .steplist{display:flex;flex-direction:column}
-.stepitem{display:flex;align-items:center;gap:14px;padding:15px 4px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+/* 全行同一グリッド: [accent 3][badge][title 1fr][help ?][status 96][meta 200][button 156] */
+.stepitem{display:flex;align-items:center;gap:12px;padding:15px 4px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
 .stepitem:last-child{border-bottom:none;padding-bottom:4px}
 .stepitem:first-child{padding-top:2px}
-.stepitem .s-name{flex:1 1 340px;min-width:0;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;color:var(--navy)}
-.stepitem .s-name .chip{flex:none}
-.stepitem .s-act{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.stepitem::before{content:'';width:3px;height:26px;border-radius:2px;background:transparent;flex:none}
+.stepitem.st-pend::before{background:var(--primary)}
+.stepitem.st-err::before{background:var(--error)}
+.stepitem>.s-badge{flex:none}
+.stepitem>.s-ttl{flex:1 1 auto;min-width:0;font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepitem>.s-chip{flex:0 0 96px;text-align:right}
+.stepitem>.s-meta{flex:0 0 200px;text-align:right;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepitem>.s-meta.s-err{color:var(--error)}
+.stepitem>.btn{flex:0 0 156px;width:156px;padding:0}
+@media(max-width:720px){
+ .stepitem>.s-ttl{flex:1 1 200px}
+ .stepitem>.s-meta{flex:1 1 auto}
+}
 .ac-meta{font-size:12.5px;color:var(--muted);white-space:nowrap}
 .ac-err{font-size:12.5px;color:var(--error);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* ⓘヘルプ: 押すと開くポップオーバー */
@@ -456,16 +467,22 @@ function fyOptions(){
 function help(text, right){
   return '<details class="qh'+(right?' qr':'')+'"><summary aria-label="説明を開く">?</summary><div class="qh-pop">'+esc(text)+'</div></details>';
 }
-// 工程リストの1行: [menu chip] タイトル ⓘ …… [状態chip] [メタ] [ボタン]
+// 工程リストの1行（全行同一グリッド）: [accent][badge] タイトル ⓘ …… [状態chip 96px] [メタ 200px] [ボタン 156px]
+// メリハリ: 完了=ゴーストボタン（再実行は副次）、未実行/要対応=プライマリ＋青アクセントバー、エラー=赤アクセント＋エラーメタ
 function stepRow(menu, ttl, desc, stepKey, btnId, btnLabel, btnDisabled){
   var st = stepKey ? stepOf(stepKey) : null;
-  var chip = chipFor(st ? st.status : 'not_run');
+  var stt = st ? st.status : 'not_run';
+  var chip = chipFor(stt);
+  var cls = stt==='error' ? ' st-err' : (stt==='success' ? ' st-ok' : ' st-pend');
   var meta = '';
-  if(st && st.status==='success') meta='<span class="ac-meta">最終 '+esc(st.date)+'・'+fmtN(st.count||0)+'件</span>';
-  else if(st && st.status==='error') meta='<span class="ac-err" title="'+esc(st.error||'')+'">'+esc(st.error||'エラー')+'</span>';
-  return '<div class="stepitem"><div class="s-name"><span class="chip chip-navy">'+menu+'</span>'+esc(ttl)+(desc?help(desc):'')+'</div>'
-    +chip
-    +'<div class="s-act">'+meta+'<button class="btn btn-primary" id="'+btnId+'"'+(btnDisabled?' disabled':'')+'>'+esc(btnLabel)+'</button></div></div>';
+  if(stt==='success') meta='<span class="s-meta">最終 '+esc(st.date)+'・'+fmtN(st.count||0)+'件</span>';
+  else if(stt==='error') meta='<span class="s-meta s-err" title="'+esc(st.error||'')+'">'+esc(st.error||'エラー')+'</span>';
+  else meta='<span class="s-meta"></span>';
+  var btnCls = stt==='success' ? 'btn-ghost' : 'btn-primary';
+  return '<div class="stepitem'+cls+'"><span class="s-badge chip chip-navy">'+menu+'</span>'
+    +'<span class="s-ttl">'+esc(ttl)+'</span>'+(desc?help(desc):'')
+    +'<span class="s-chip">'+chip+'</span>'+meta
+    +'<button class="btn '+btnCls+'" id="'+btnId+'"'+(btnDisabled?' disabled':'')+'>'+esc(btnLabel)+'</button></div>';
 }
 
 /* ---------- input ---------- */
