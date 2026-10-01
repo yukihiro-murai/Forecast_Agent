@@ -223,6 +223,24 @@ function appScratchFromStore_(scratch, planId) {
   return report;
 }
 
+/**
+ * 文字列の速いハッシュ（cyrb53。53 ビットを 14 桁の 16 進で）。行ごとの控えに使う（暗号用ではない）。
+ * 行ごとに Utilities.computeDigest を呼ぶと、1 万行で 1 分以上かかったため（2026-10-01）。
+ */
+function appFastHash_(str) {
+  let h1 = 0xdeadbeef ^ 0;
+  let h2 = 0x41c6ce57 ^ 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return ('00000000000000' + n.toString(16)).slice(-14);
+}
+
 /** 計算用ブックの計算に使うシートの控え（シートごとのハッシュと行ごとの短いハッシュ）。2 つの実行の結果を比べる */
 function appScratchDigest_(scratch) {
   const out = {};
@@ -234,7 +252,7 @@ function appScratchDigest_(scratch) {
     for (let r = 0; r < snap.lastRow; r++) {
       const cells = [];
       for (let c = 0; c < snap.lastCol; c++) cells.push(appCellEncode_(snap.values[r][c], snap.formulas[r] && snap.formulas[r][c]).join(''));
-      rows.push(appSha256Hex_(JSON.stringify(cells)).slice(0, 16));
+      rows.push(appFastHash_(JSON.stringify(cells)));
     }
     const fmt = appSha256Hex_(JSON.stringify(snap.formats));
     // 表示形式は列ごとの続いた範囲で持つ（違ったときにセルと形式を示すため）
