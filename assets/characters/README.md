@@ -55,7 +55,7 @@ Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`�
 | `favicon/yomi_favicon.svg` | 32×32 viewBox | 0.8 KB | タブのアイコンの原図（頭と顔を枠いっぱいに描いた専用の絵。16px でつぶれない） |
 | `favicon/yomi_favicon_64.png` | 64×64 px | 2.7 KB | タブのアイコン。`Forecast_WebApp.js` の `FORECAST_FAVICON_URL` に data URI で埋め込み（末尾 `#favicon.png`） |
 | `Characters.html` | — | 約 100 KB | 図鑑からの抜粋（`characters.config.json` → `sync.mjs`）。9 体 + 表情違い + 補助関数 |
-| `review/*.png` | 2300px 幅 | 200〜330 KB | 確認用の一覧（`chars_v8.png` 確定版・`yomi_poses.png` ポーズとタブ・`chars_v8_r1.png` 第1回の確認） |
+| `review/*.png` | 2300px 幅 | 200〜330 KB | 確認用の一覧（`chars_v8.png` 確定版・`yomi_poses.png` ポーズとタブ・`chars_v8_r1.png` 第1回の確認・`placement_mock.png` 画面配置と表示条件の案。配置案は手書きの見本で build.py では作らない） |
 
 ## 画面で使うときの注意
 
