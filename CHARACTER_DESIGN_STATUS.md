@@ -19,7 +19,7 @@ Forecast_Agent 売上予測Webアプリの案内役「よみ」と天気キャ�
 | 図鑑登録 | 済み。`shared/character-library/gen.py` にシリーズ「天気予報 (Forecast_Agent)」9 体＋目の部品 2 種（`half` 半目・`swirl` ぐるぐる目）。図鑑 485 体／ERROR は登録前と同じ 29 件（既存キャラ分。追加 9 体の ERROR/WARN は 0） |
 | Forecast_Agent への同期 | 済み。`characters.config.json` → `assets/characters/Characters.html`（GAS には上げない。下の「注意」） |
 | タブのアイコン（ファビコン） | **本番反映済み（2026-10-01、公開 @29）**。`doGet` → `webSetFavicon_` → `HtmlOutput.setFaviconUrl(FORECAST_FAVICON_URL)`。HEAD と公開版 29 の 21 ファイルがローカルと一致。タブでの見え方は利用者のブラウザで確認（アプリ内ブラウザは社内 SSO で未ログイン） |
-| 表示条件・画面への配置 | **実装・テスト済み、本番未反映**（2026-10-01、ユーザー「案のとおりで実装して」）。`Forecast_WebAppUI.html` の画面側だけで判定（下の「表示条件」「画面への配置」）。`tests/forecast-weather.test.mjs` |
+| 表示条件・画面への配置 | **本番反映済み（公開 @30、2026-10-01）**（ユーザー「案のとおりで実装して」）。同じ版で段階0（旧 Web アプリを所有者のみ・操作の記録）も反映。`Forecast_WebAppUI.html` の画面側だけで判定（下の「表示条件」「画面への配置」）。`tests/forecast-weather.test.mjs` |
 
 ## v8 デザインの要点
 

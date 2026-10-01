@@ -299,8 +299,8 @@ PLAN.CREATE / INPUT.CREATE・UPDATE・DELETE / IMPORT.SALES・ACTUALS / FORECAST
 
 | 項目 | 状態 |
 |---|---|
-| 旧 Web アプリの公開範囲を所有者のみ（`appsscript.json` の `access=MYSELF`） | 実装済み・本番反映は記録を参照 |
-| Web からの書き込み・実行 17 関数の操作の記録（`webAudited_`、ログ用スプレッドシート、ハッシュの鎖、fail-closed） | 実装済み（`tests/forecast-webaudit.test.mjs`） |
+| 旧 Web アプリの公開範囲を所有者のみ（`appsscript.json` の `access=MYSELF`） | **本番反映済み（公開 @30、2026-10-01）**。Apps Script API で公開範囲 MYSELF・版 30 の 21 ファイル一致を確認 |
+| Web からの書き込み・実行 17 関数の操作の記録（`webAudited_`、ログ用スプレッドシート、ハッシュの鎖、fail-closed） | **本番反映済み（@30）**。ログのファイルは最初の書き込み操作のときに作られる（`tests/forecast-webaudit.test.mjs`） |
 | 申請入口「クライアント年度予算の管理表」の社内全員の編集権限を外す | 共有設定の変更（ユーザー操作） |
 | 年度ブックの新規作成・テンプレートの版の発行の停止 | 申請入口を閉じて新しい申請が来ない状態にし、README_VNEXT_JA.md と AI_HANDOFF.md に凍結を明記 |
 
