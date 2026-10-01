@@ -1,0 +1,132 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{background:transparent;margin:0;padding:28px;font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
+.row{display:flex;gap:26px;flex-wrap:wrap;justify-content:flex-start}
+.cell{text-align:center}
+.cell .c{width:118px;height:118px}
+.cell .lbl{font-size:15px;margin-top:6px;color:#1f3a5f;font-weight:700}
+svg{display:block;margin:0 auto}
+</style></head><body>
+<div class="row" id="row"></div>
+<script>
+var CHARS={};
+
+/* よみ：陽気な観測士。ベレー帽のように傾いた大きな受信皿＋ウィンク */
+CHARS.yomi='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<ellipse cx="46" cy="16" rx="16" ry="5.5" fill="#7fb0dd" transform="rotate(-18 46 16)"/>'
++'<line x1="36" y1="14" x2="30" y2="4" stroke="#1f3a5f" stroke-width="2.4" stroke-linecap="round"/>'
++'<circle cx="29" cy="3.5" r="3" fill="#00A0E9"/>'
++'<g stroke="#1f3a5f" stroke-width="2" stroke-linecap="round" fill="none">'
++'<path d="M14 30 v-8"/><path d="M10 22 h8"/></g>'
++'<circle cx="14" cy="20" r="2.6" fill="#7fb0dd"/>'
++'<circle cx="42" cy="46" r="21" fill="#f2f7fb" stroke="#1f3a5f" stroke-width="2.6"/>'
++'<circle cx="42" cy="46" r="13.5" fill="#0f3557"/>'
++'<rect x="33.8" y="40" width="5.4" height="7.6" rx="2.7" fill="#7fd4f5"/>'
++'<path d="M44 41.5 q2.7 -2.7 5.4 0" stroke="#7fd4f5" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
++'<path d="M36.5 51 q4.5 4.2 9 0" stroke="#7fd4f5" stroke-width="2.4" fill="none" stroke-linecap="round"/>'
++'<circle cx="65" cy="36" r="2" fill="#7fb0dd"/><circle cx="68" cy="40" r="1.4" fill="#7fb0dd"/>'
++'</svg>';
+
+/* 快晴：標準の太陽に戻し傲慢な表情（半目＋片側にやり） */
+CHARS.kaisei='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<g stroke="#F5A623" stroke-width="4" stroke-linecap="round">'
++'<line x1="40" y1="8" x2="40" y2="16"/><line x1="40" y1="56" x2="40" y2="64"/>'
++'<line x1="8" y1="36" x2="16" y2="36"/><line x1="64" y1="36" x2="72" y2="36"/>'
++'<line x1="17" y1="13" x2="22.5" y2="18.5"/><line x1="57.5" y1="53.5" x2="63" y2="59"/>'
++'<line x1="63" y1="13" x2="57.5" y2="18.5"/><line x1="22.5" y1="53.5" x2="17" y2="59"/></g>'
++'<circle cx="40" cy="36" r="16" fill="#F5B93C"/>'
++'<path d="M30 33 h7 M45 33 h7" stroke="#7A4E00" stroke-width="2.6" stroke-linecap="round"/>'
++'<circle cx="33.5" cy="35.5" r="2" fill="#7A4E00"/><circle cx="48.5" cy="35.5" r="2" fill="#7A4E00"/>'
++'<path d="M35 43 q7 4 13 -1" stroke="#7A4E00" stroke-width="2.7" fill="none" stroke-linecap="round"/>'
++'</svg>';
+
+/* 晴れのち曇り：ムッとした太陽が雲に押されてる・雲はしれっと満足顔 */
+CHARS.harenchi='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<circle cx="26" cy="30" r="12" fill="#F5B93C"/>'
++'<g stroke="#F5A623" stroke-width="3.4" stroke-linecap="round">'
++'<line x1="26" y1="12" x2="26" y2="17"/><line x1="8" y1="30" x2="13" y2="30"/><line x1="13" y1="17" x2="16.5" y2="20.5"/>'
++'<line x1="39" y1="17" x2="35.5" y2="20.5"/><line x1="12" y1="43" x2="17" y2="40"/></g>'
++'<path d="M24 27 l5 -3 M24 33.5 l5 3" stroke="#7A4E00" stroke-width="2.2" stroke-linecap="round"/>'
++'<circle cx="26.5" cy="30" r="2" fill="#7A4E00"/>'
++'<path d="M23 39 q3 -2.4 6 0" stroke="#7A4E00" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
++'<path d="M36 56 C26 56 24.5 44 34 41.5 C32.5 30 46 23 56 29 C65.5 20.5 77 27 74.5 38.5 C82.5 40.5 81 56 71 56 Z" fill="#9db1c5" transform="translate(-8 0)"/>'
++'<circle cx="46" cy="45" r="2.7" fill="#fff"/><circle cx="58" cy="45" r="2.7" fill="#fff"/>'
++'<circle cx="44.9" cy="45" r="1.4" fill="#33465a"/><circle cx="56.9" cy="45" r="1.4" fill="#33465a"/>'
++'<path d="M47 51 q5 3.8 10 0" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/>'
++'</svg>';
+
+/* 曇り：表情を大きく。ぐっすり半目＋大きな口 */
+CHARS.kumori='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<path d="M16 50 C8 50 6 41 13 38 C11 29 21 22 30 25 C33 16 47 14 54 20 C63 17 70 23 68.5 31 C74 34 72.5 50 62 50 Z" fill="#8ba0b5"/>'
++'<path d="M30 37 h9 M43 37 h9" stroke="#4A5F70" stroke-width="3" stroke-linecap="round"/>'
++'<path d="M30 37 q4.5 3.5 9 0 M43 37 q4.5 3.5 9 0" stroke="#4A5F70" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
++'<path d="M34 45.5 h14" stroke="#4A5F70" stroke-width="3.4" stroke-linecap="round"/>'
++'</svg>';
+
+/* 雨：青色を強く。泣き顔＋大きな涙 */
+CHARS.ame='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<path d="M24 44 C14 44 12.5 33 20.5 30 C19.5 19.5 32 13 41 19 C50 11 62.5 17 60 28 C68.5 30 67.5 44 58 44 Z" fill="#5b7fc4"/>'
++'<g stroke="#4a7fd0" stroke-width="4" stroke-linecap="round">'
++'<line x1="28" y1="52" x2="24.5" y2="60"/><line x1="41" y1="54" x2="37.5" y2="62"/><line x1="54" y1="52" x2="50.5" y2="60"/></g>'
++'<path d="M30.5 33.5 q2.6 -2.6 5.4 -0.6 M44.1 33.5 q2.6 -2.6 5.4 -0.6" stroke="#fff" stroke-width="2.3" fill="none" stroke-linecap="round" opacity=".95"/>'
++'<circle cx="34" cy="37.5" r="2.6" fill="#fff"/><circle cx="47" cy="37.5" r="2.6" fill="#fff"/>'
++'<circle cx="34.8" cy="36.8" r=".9" fill="#5b7fc4"/><circle cx="47.8" cy="36.8" r=".9" fill="#5b7fc4"/>'
++'<path d="M31.5 41.5 c-2 2.6 -2 4.6 0 5.4 c2 -.8 2 -2.8 0 -5.4z" fill="#bcd9f5"/>'
++'<path d="M49.5 41.5 c-2 2.6 -2 4.6 0 5.4 c2 -.8 2 -2.8 0 -5.4z" fill="#bcd9f5"/>'
++'<path d="M36.5 44 q4 -4.2 8 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
++'</svg>';
+
+/* 雪：正しい六梢の結晶（枝分かれ対称）＋中心の顔 */
+CHARS.yuki='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<g stroke="#7fa8d0" stroke-width="2.8" stroke-linecap="round" fill="none">'
++'<line x1="40" y1="12" x2="40" y2="60"/>'
++'<path d="M33 16 l7 6 7 -6 M33 56 l7 -6 7 6"/>'
++'<line x1="16" y1="26" x2="64" y2="54"/>'
++'<path d="M19.5 19.5 l8.5 3.5 M15 32 l9 -1 M60.5 60.5 l-8.5 -3.5 M65 48 l-9 1"/>'
++'<line x1="16" y1="54" x2="64" y2="26"/>'
++'<path d="M15 48 l9 1 M19.5 60.5 l8.5 -3.5 M65 32 l-9 -1 M60.5 19.5 l-8.5 3.5"/></g>'
++'<circle cx="40" cy="36" r="11" fill="#dcebf7"/>'
++'<path d="M33.5 34 q2.6 -2.6 5.2 0 M41.3 34 q2.6 -2.6 5.2 0" stroke="#3f5a73" stroke-width="2.3" fill="none" stroke-linecap="round"/>'
++'<path d="M36 40.5 q4 3.4 8 0" stroke="#3f5a73" stroke-width="2.3" fill="none" stroke-linecap="round"/>'
++'<circle cx="31.5" cy="38.5" r="1.9" fill="#a9c8e8"/><circle cx="48.5" cy="38.5" r="1.9" fill="#a9c8e8"/>'
++'</svg>';
+
+/* 台台風：竜巻型を改善。滑らかな縮小＋渦巻き線＋不安顔 */
+CHARS.taifuu='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<path d="M18 20 q22 -10 44 0 q-10 8 -22 8 t-22 -8z" fill="#3d5a99"/>'
++'<path d="M26 33 q14 -7 28 0 q-7 7 -14 7 t-14 -7z" fill="#3d5a99"/>'
++'<path d="M31 45 q9 -5 18 0 q-4.5 5 -9 5 t-9 -5z" fill="#3d5a99"/>'
++'<path d="M35 56 q5 -3 10 0 q-2.5 3 -5 3 t-5 -3z" fill="#3d5a99"/>'
++'<path d="M38 64 q2 -1.5 4 0 q-1 1.8 -2 1.8 t-2 -1.8z" fill="#3d5a99"/>'
++'<path d="M22 24 q-8 2 -10 -4 M58 26 q9 1 10 -5 M30 39 q-6 1 -8 -3" stroke="#7b93c4" stroke-width="2" fill="none" stroke-linecap="round"/>'
++'<circle cx="34.5" cy="21.5" r="2.6" fill="#fff"/><circle cx="46.5" cy="21.5" r="2.6" fill="#fff"/>'
++'<circle cx="35.3" cy="20.8" r=".9" fill="#3d5a99"/><circle cx="47.3" cy="20.8" r=".9" fill="#3d5a99"/>'
++'<path d="M36.5 26.5 q1.8 -2.2 3.6 0 t3.6 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
++'</svg>';
+
+/* 天変地異：維持 */
+CHARS.tenpen='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<path d="M50 40 C38 38 20 28 6 8 C24 26 40 31 52 32 Z" fill="#F08A24"/>'
++'<path d="M49 44 C40 41 27 33 15 18 C29 30 41 35 51 36 Z" fill="#F5B93C"/>'
++'<path d="M47 39 l16 3 7 11 -7 11 -16 3 -10 -8 1 -14z" fill="#8D7B6B"/>'
++'<circle cx="52" cy="52" r="3.6" fill="#fff"/><circle cx="62" cy="54" r="3.6" fill="#fff"/>'
++'<path d="M51 52 a1.6 1.6 0 1 1 1.6 -1.6 a.9.9 0 1 0 .9.9" stroke="#3A2E24" stroke-width="1.1" fill="none"/>'
++'<path d="M61 54 a1.6 1.6 0 1 1 1.6 -1.6 a.9.9 0 1 0 .9.9" stroke="#3A2E24" stroke-width="1.1" fill="none"/>'
++'<circle cx="55.5" cy="61" r="3" fill="#3A2E24"/><circle cx="56.2" cy="60.2" r=".9" fill="#8D7B6B"/>'
++'<path d="M70 38 l4 -5 M72 44 l5 -2" stroke="#F08A24" stroke-width="2.2" stroke-linecap="round"/>'
++'</svg>';
+
+/* 霧：改善。長短・位置の異なる波線が多層に。目だけ覗く */
+CHARS.mikakunin='<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">'
++'<g stroke="#b7c6d4" stroke-width="7" stroke-linecap="round" fill="none">'
++'<path d="M20 18 q10 -6 20 0 t20 0"/>'
++'<path d="M12 30 q14 -8 28 0 t28 0"/>'
++'<path d="M18 42 q12 -7 24 0 t24 0"/>'
++'<path d="M14 54 q10 -6 20 0 t20 0"/>'
++'<path d="M26 64 q7 -4 14 0 t14 0"/></g>'
++'<circle cx="33" cy="39" r="2.8" fill="#4A5F70"/><circle cx="47" cy="39" r="2.8" fill="#4A5F70"/>'
++'<path d="M36.5 45.5 q3.5 2.8 7 0" stroke="#4A5F70" stroke-width="2.4" fill="none" stroke-linecap="round"/>'
++'</svg>';
+
+var order=[['yomi','よみ'],['kaisei','快晴'],['harenchi','晴れのち曇り'],['kumori','曇り'],['ame','雨'],['yuki','雪'],['taifuu','台風'],['tenpen','天変地異'],['mikakunin','未確認・霧']];
+document.getElementById('row').innerHTML=order.map(function(n){return '<div class="cell"><div class="c">'+CHARS[n[0]]+'</div><div class="lbl">'+n[1]+'</div></div>'}).join('');
+</script></body></html>
