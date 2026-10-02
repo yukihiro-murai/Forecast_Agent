@@ -22,8 +22,12 @@ const APP_PLAN_ACTIONS = {
   // A-1 の担当者（クライアントと年度は計画で決まるので変えない）。旧来の saveInitialSetupSettings と同じく CONFIG!B4 に書く
   'SETUP.PEOPLE': { kind: 'edit', minRole: 'ADMIN', local: 'appPlanSetPeople_', label: '担当者の保存', sheets: ['CONFIG'], args: a => [a.peopleCsv] },
   // A-2・B-1: 設定の「ZAC の実績のスプレッドシート」から読む（旧来と同じ関数）。取り込みは管理者（設計 6 章）
-  'IMPORT.SALES': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportSales', label: 'A-2 売上データの取り込み' },
-  'IMPORT.ACTUALS': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportActuals', label: 'B-1 検証用の実績の取り込み' },
+  // 使うシートだけを組み立てる（全部を組み立てると、外部の読み込みと合わせて 1 回の上限 6 分を超えた。2026-10-03）。
+  // シートは旧来の関数から呼ぶ関数をたどって洗い出した（画面の読み取り webGetBootstrap_ と、表示/非表示だけの hideNonUserSheets_ は除く）
+  'IMPORT.SALES': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportSales', label: 'A-2 売上データの取り込み',
+    sheets: ['CONFIG', 'SALES_INPUT', 'PROCESS_STATUS', 'RUN_LOG', 'PRODUCT', 'CLIENT', 'OPINIONS', 'DEV_SPOT'] },
+  'IMPORT.ACTUALS': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportActuals', label: 'B-1 検証用の実績の取り込み',
+    sheets: ['CONFIG', 'ACTUAL_EVAL_MONTHLY', 'PROCESS_STATUS', 'RUN_LOG'] },
   'SALES.AGGREGATE': { kind: 'run', minRole: 'PLANNER', fn: 'webRunAggregate', label: 'A-3 売上データの加工' },
   'EVAL.REPORT': { kind: 'run', minRole: 'PLANNER', fn: 'webRunEvalReport', label: 'B-2 検証レポートの更新' },
   'EVAL.DASHBOARD': { kind: 'run', minRole: 'PLANNER', fn: 'webRunDashboard', label: 'B-3 ダッシュボードの更新' },
@@ -295,11 +299,11 @@ function appPlanRunCalc_(ctx, p, job) {
   const stored = appStoredHashes_(plan.plan_id);
   return appWithLock_(() => {
     const scratch = appParityScratch_(plan);
-    const build = appScratchFromStore_(scratch, plan.plan_id);
+    const build = appScratchFromStore_(scratch, plan.plan_id, act.sheets);   // sheets を決めた操作は、そのシートだけ
     const t1 = new Date().getTime();
     const call = appLegacyCall_(scratch, { asOfMs: t0, seed: actionId, actor: ctx.actor }, act.fn, []);
     const t2 = new Date().getTime();
-    const cap = appCaptureChanged_(scratch, plan.plan_id, stored);
+    const cap = appCaptureChanged_(scratch, plan.plan_id, stored, act.sheets);
     appJobPutResult_(job.id + '_SAVE', { changed: cap.changed });
     const t3 = new Date().getTime();
     return {

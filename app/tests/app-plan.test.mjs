@@ -239,6 +239,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const sales = engRows(env, 'SALES_INPUT', planId);
   assert.deepEqual(sales.map((r) => [r.product, r.target_month, r.input_amount]), [['製品A', '2025/05', '1200000'], ['製品B', '2025/06', '300000']], 'そのクライアントの分だけ、旧来と同じ形で');
   assert.equal(st.result.result.count, 2);
+  const calc = env.audit().filter((a) => a.action === 'PLAN.IMPORT.SALES.CALC' && a.phase === 'END').slice(-1)[0];
+  assert.ok(calc, '計算の記録');
+  const scratchBook = env.sheetsById[env.props.APP_SCRATCH_SPREADSHEET_ID];
+  assert.deepEqual(scratchBook.getSheets().map((x) => x.getName()).filter((n) => !/^_/.test(n)).sort(),
+    ['CLIENT', 'CONFIG', 'DEV_SPOT', 'OPINIONS', 'PROCESS_STATUS', 'PRODUCT', 'RUN_LOG', 'SALES_INPUT'], '使うシートだけを組み立てる（6 分の上限）');
   const steps = env.call('apiPlanView(__in)', { __in: { planId } }).boot.steps;
   assert.equal(steps.find((x) => x.key === 'step1_status').status, 'success');
   // 担当者（管理者）。クライアントと年度は変えない
