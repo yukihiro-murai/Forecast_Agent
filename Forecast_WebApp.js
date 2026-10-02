@@ -849,7 +849,7 @@ function webRunLearningBacktest() {
 const WEB_AUDIT_HEADERS_ = ['audit_id', 'occurred_at', 'actor_email', 'action', 'phase', 'result', 'client', 'fy',
   'detail_json', 'before_json', 'after_json', 'error', 'request_id', 'app_version', 'prev_hash', 'row_hash'];
 const WEB_AUDIT_JSON_MAX_ = 40000;
-const WEB_AUDIT_PROP_FILES_ = 'FORECAST_LOG_SPREADSHEETS_JSON';  // {"FY2027": "<spreadsheetId>"}
+const WEB_AUDIT_PROP_FILES_ = 'FORECAST_LOG_SPREADSHEETS_JSON';  // {"FY2026": "<spreadsheetId>"}
 const WEB_AUDIT_PROP_FOLDER_ = 'FORECAST_LOG_FOLDER_ID';          // 任意: ログのファイルを置くフォルダ
 const WEB_AUDIT_PROP_LAST_HASH_ = 'FORECAST_AUDIT_LAST_HASH';
 const WEB_ADMIN_PROP_ = 'FORECAST_WEB_ADMIN_EMAILS';
@@ -866,9 +866,32 @@ function webActor_() {
   return { email: email, isAdmin: !!email && admins.indexOf(email) >= 0 };
 }
 
-/** このアプリの年度（4月〜翌3月。終わる年で呼ぶ: 2026-10 → FY2027）。 */
+/** このアプリの年度（4月〜翌3月。始まりの年で呼ぶ: 2026-10 → FY2026。getForecastFYStart_・vNextFiscalYearForDate_ と同じ）。 */
 function webAuditFy_(d) {
-  return d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+}
+
+const WEB_AUDIT_PROP_FY_NAMING_ = 'FORECAST_LOG_FY_NAMING';  // 'start' = 始まりの年で呼ぶ（ずらし済み）
+
+/**
+ * ログのファイルを「始まりの年で呼ぶ年度」にそろえる（一度だけ。webAuditAppend_ のロックの中で呼ぶ）。
+ * 2026-10-01 まではログを終わりの年で名付けていた（FY2027 = 2026/04〜2027/03）ので、キーとファイル名を 1 年ずらす。
+ */
+function webAuditEnsureFyNaming_(props) {
+  if (props.getProperty(WEB_AUDIT_PROP_FY_NAMING_) === 'start') return;
+  let files = {};
+  try { files = JSON.parse(props.getProperty(WEB_AUDIT_PROP_FILES_) || '{}') || {}; } catch (e) { files = {}; }
+  const next = {};
+  Object.keys(files).forEach(k => {
+    const m = /^FY(\d{4})$/.exec(k);
+    const nk = m ? 'FY' + (Number(m[1]) - 1) : k;
+    next[nk] = files[k];
+    try { DriveApp.getFileById(files[k]).setName('売上予測 ログ ' + nk); } catch (e) {
+      Logger.log('ログのファイル名を直せません: ' + (e && e.message ? e.message : e));
+    }
+  });
+  props.setProperty(WEB_AUDIT_PROP_FILES_, JSON.stringify(next));
+  props.setProperty(WEB_AUDIT_PROP_FY_NAMING_, 'start');
 }
 
 /** 長い JSON はハッシュと先頭だけにする（セルの上限 5 万字に対し 4 万字まで）。 */
@@ -882,6 +905,7 @@ function webAuditJson_(v) {
 /** その月の監査シート。ログのファイルと月のシートが無ければ作る。列が想定と違えば止める。 */
 function webAuditSheet_(now) {
   const props = PropertiesService.getScriptProperties();
+  webAuditEnsureFyNaming_(props);
   const fyKey = 'FY' + webAuditFy_(now);
   let files = {};
   try { files = JSON.parse(props.getProperty(WEB_AUDIT_PROP_FILES_) || '{}') || {}; } catch (e) { files = {}; }

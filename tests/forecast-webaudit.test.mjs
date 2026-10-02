@@ -127,7 +127,9 @@ const logOf = (ctx) => {
   assert.match(log.title, /^売上予測 ログ FY\d{4}$/);
   const fyKey = Object.keys(JSON.parse(ctx.store.FORECAST_LOG_SPREADSHEETS_JSON))[0];
   const now = new Date();
-  assert.equal(fyKey, 'FY' + (now.getMonth() >= 3 ? now.getFullYear() + 1 : now.getFullYear()), '年度は 4 月始まり・終わる年で呼ぶ');
+  assert.equal(fyKey, 'FY' + (now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1), '年度は 4 月始まり・始まりの年で呼ぶ（getForecastFYStart_ と同じ）');
+  assert.equal(log.title, '売上予測 ログ ' + fyKey);
+  assert.equal(ctx.store.FORECAST_LOG_FY_NAMING, 'start', '新しい環境では印だけ付ける');
   assert.equal(log.sheets.length, 1, '最初からある空のシートは消す');
   const sh = log.getSheetByName('AUDIT_2026_10');
   assert.ok(sh, '月ごとのシート');
@@ -195,6 +197,21 @@ const logOf = (ctx) => {
   const j = JSON.parse(vm.runInContext(`webAuditJson_(__big)`, Object.assign(ctx, { __big: { big } })));
   assert.equal(j.truncated, true); assert.equal(j.sha256, sha(JSON.stringify({ big }))); assert.equal(j.head.length, 2000);
   assert.equal(vm.runInContext(`webAuditJson_('')`, ctx), '');
+}
+
+// ---- 1b. 終わりの年で名付けていたログを、一度だけ始まりの年へずらす ----
+{
+  const renamed = {};
+  const ctx = makeEnv();
+  const oldId = ctx.SpreadsheetApp.create('売上予測 ログ FY2027').getId();   // 2026-10-01 までの名付け（終わりの年）
+  ctx.store.FORECAST_LOG_SPREADSHEETS_JSON = JSON.stringify({ FY2027: oldId });
+  ctx.DriveApp.getFileById = (id) => ({ moveTo() {}, setName: (n) => { renamed[id] = n; } });
+  vm.runInContext(`webAudited_('TEST.RUN', () => 1)`, ctx);
+  assert.deepEqual(JSON.parse(ctx.store.FORECAST_LOG_SPREADSHEETS_JSON), { FY2026: oldId }, 'キーを 1 年ずらし、同じファイルに書き続ける');
+  assert.equal(renamed[oldId], '売上予測 ログ FY2026');
+  assert.equal(ctx.created(), 1, '新しいログのファイルは作らない');
+  vm.runInContext(`webAudited_('TEST.RUN', () => 1)`, ctx);
+  assert.deepEqual(JSON.parse(ctx.store.FORECAST_LOG_SPREADSHEETS_JSON), { FY2026: oldId }, '二度はずらさない');
 }
 
 // ---- 6. 列が想定と違うシートには書かない ----
