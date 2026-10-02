@@ -19,6 +19,11 @@ const APP_PLAN_ACTIONS = {
   'INSIGHT.SAVE': { kind: 'edit', minRole: 'PLANNER', fn: 'webSaveEvalInsights', label: 'インサイトの記入の保存', sheets: ['EVAL_INSIGHTS'], args: a => [a.rows] },
   'REVIEW.DECIDE': { kind: 'edit', minRole: 'APPROVER', fn: 'webSaveQuarterlyDecisions', label: '四半期レビューの承認の保存',
     sheets: ['QUARTERLY_REVIEW'], args: a => [a.rows] },
+  // A-1 の担当者（クライアントと年度は計画で決まるので変えない）。旧来の saveInitialSetupSettings と同じく CONFIG!B4 に書く
+  'SETUP.PEOPLE': { kind: 'edit', minRole: 'ADMIN', local: 'appPlanSetPeople_', label: '担当者の保存', sheets: ['CONFIG'], args: a => [a.peopleCsv] },
+  // A-2・B-1: 設定の「ZAC の実績のスプレッドシート」から読む（旧来と同じ関数）。取り込みは管理者（設計 6 章）
+  'IMPORT.SALES': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportSales', label: 'A-2 売上データの取り込み' },
+  'IMPORT.ACTUALS': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportActuals', label: 'B-1 検証用の実績の取り込み' },
   'SALES.AGGREGATE': { kind: 'run', minRole: 'PLANNER', fn: 'webRunAggregate', label: 'A-3 売上データの加工' },
   'EVAL.REPORT': { kind: 'run', minRole: 'PLANNER', fn: 'webRunEvalReport', label: 'B-2 検証レポートの更新' },
   'EVAL.DASHBOARD': { kind: 'run', minRole: 'PLANNER', fn: 'webRunDashboard', label: 'B-3 ダッシュボードの更新' },
@@ -186,8 +191,10 @@ function appPlanView_(ctx, planId) {
     inputHash: inputHash,
     can: {
       plan: appHasRole_(roles, 'PLANNER', plan.client_id),
-      approve: appHasRole_(roles, 'APPROVER', plan.client_id)
+      approve: appHasRole_(roles, 'APPROVER', plan.client_id),
+      admin: appHasRole_(roles, 'ADMIN')
     },
+    sourceReady: !!appSettingValue_('source.zac_spreadsheet'),
     actions: Object.keys(APP_PLAN_ACTIONS).map(k => ({ action: k, kind: APP_PLAN_ACTIONS[k].kind, label: APP_PLAN_ACTIONS[k].label,
       minRole: APP_PLAN_ACTIONS[k].minRole })),
     recent: appReadTable_('PLAN_ACTIONS').filter(r => r.plan_id === plan.plan_id).map(appStripRow_)
@@ -198,6 +205,24 @@ function appPlanView_(ctx, planId) {
 }
 
 // ---- 保存・実行（裏の処理） ----
+
+/** 新アプリの側で行う保存（旧来に同じ関数が無いもの）。返り値の形は appLegacyCall_ と同じ */
+function appPlanLocalCall_(book, name, args) {
+  const fns = { appPlanSetPeople_: appPlanSetPeople_ };
+  return { value: fns[name].apply(null, [book].concat(args)), version: 'app-' + APP_VERSION, sourceSha256: '', webSha256: '' };
+}
+
+/** 担当者（カンマ区切り）を CONFIG!B4 に書く（旧来の saveInitialSetupSettings の担当者の行と同じ） */
+function appPlanSetPeople_(book, peopleCsv) {
+  const people = String(peopleCsv || '').split(/[,、，]/).map(s => s.trim()).filter(Boolean);
+  if (!people.length) throw new Error('担当者を 1 人以上入れてください。');
+  if (people.some(p => p.length > 40)) throw new Error('担当者の名前が長すぎます。');
+  const cfg = book.getSheetByName('CONFIG');
+  if (!cfg) throw new Error('CONFIG がありません。');
+  const csv = people.join(',');
+  cfg.getRange('B4').setValue(csv);
+  return { peopleCsv: csv, people: people };
+}
 
 /** 旧来の関数の返り値のうち、記録に残す小さいもの（画面の中身そのものは除く） */
 function appPlanResultSummary_(value) {
@@ -233,12 +258,16 @@ function appPlanEdit_(ctx, p) {
     const scratch = appParityScratch_(plan);
     const build = appScratchFromStore_(scratch, plan.plan_id, act.sheets);
     const t1 = new Date().getTime();
-    const call = appLegacyCall_(scratch, { asOfMs: t0, seed: actionId, actor: ctx.actor }, act.fn, act.args(args || {}));
+    const call = act.local ? appPlanLocalCall_(scratch, act.local, act.args(args || {}))
+      : appLegacyCall_(scratch, { asOfMs: t0, seed: actionId, actor: ctx.actor }, act.fn, act.args(args || {}));
     const t2 = new Date().getTime();
     const cap = appCaptureChanged_(scratch, plan.plan_id, stored, act.sheets);
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const written = names.length ? appWriteChanged_(ctx, plan.plan_id, cap.changed, actionId) : {};
     const result = appPlanResultSummary_(call.value);
+    if (act.local === 'appPlanSetPeople_' && names.length) {
+      appUpdateByKey_('PLANS', { plan_id: plan.plan_id }, { people_csv: call.value.peopleCsv }, undefined, ctx.actor);
+    }
     appInsertRows_('PLAN_ACTIONS', [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
       inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })]);
     return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: result,

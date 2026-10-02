@@ -11581,6 +11581,8 @@ function webAuditLogUrl_() {
     webRunMonthlyLearn: typeof webRunMonthlyLearn === 'undefined' ? undefined : webRunMonthlyLearn,
     webRunQuarterly: typeof webRunQuarterly === 'undefined' ? undefined : webRunQuarterly,
     webApplyQuarterly: typeof webApplyQuarterly === 'undefined' ? undefined : webApplyQuarterly,
+    webRunImportSales: typeof webRunImportSales === 'undefined' ? undefined : webRunImportSales,
+    webRunImportActuals: typeof webRunImportActuals === 'undefined' ? undefined : webRunImportActuals,
     SOURCE_SHA256: 'e4f0d25651d6de43524cdf33ed407c7e783f53109d86b320c365527bcf36c5db',
     WEB_SOURCE_SHA256: 'b2d7faeef72c6b8064a0cf384a912a74169448b1cfbdbd55225cc70a52bdef03'
   };

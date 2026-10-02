@@ -228,7 +228,7 @@ function viewHome(){
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
-  return '<h1>ホーム</h1>' + guide('guide', '左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを見られます（旧アプリと同じ中身）。売上・実績の取り込みと AI 調査は、まだ旧アプリで行います。<div class="row" style="align-items:center"><span class="note">あなたの役割</span>' + roles + '</div>');
+  return '<h1>ホーム</h1>' + guide('guide', '左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを見られます（旧アプリと同じ中身）。AI 調査は、まだ旧アプリで行います。<div class="row" style="align-items:center"><span class="note">あなたの役割</span>' + roles + '</div>');
 }
 
 function viewMembers(){
@@ -275,13 +275,14 @@ function viewSettings(){
   var s = S.settings;
   if (!s) return '<h1>設定</h1><div class="card note">読み込み中…</div>';
   var rows = s.map(function(x, i){
-    var val = x.type === 'bool' ? (x.value ? 'する' : 'しない') : x.value;
+    var val = x.type === 'bool' ? esc(x.value ? 'する' : 'しない') : x.type === 'sheet' ? (x.value ? '<a target="_blank" href="' + esc(x.url) + '">' + esc(x.display || x.value) + '</a>' : '<span class="chip warn">未設定</span>') : esc(x.value);
     var input = x.type === 'bool' ? '<select class="inp sm" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
+      : x.type === 'sheet' ? '<input class="inp" style="width:300px" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
       : '<input class="inp sm" id="s_' + i + '" value="' + esc(x.value) + '">';
-    return '<tr><td>' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? '・既定値' : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td>' + esc(val) + '</td><td>' + input
+    return '<tr><td>' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td style="white-space:normal">' + val + '</td><td>' + input
       + ' <button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></td></tr>';
   }).join('');
-  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl" style="margin-top:10px"><colgroup><col style="width:340px"><col style="width:120px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl" style="margin-top:10px"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
 
@@ -388,14 +389,17 @@ function viewForecast(){
   return html + body(d, v);
 }
 function fcTab(t){ S.fc.tab = t; render(); }
-function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : v.can.plan)); }
+function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
+var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
 /** 実行のボタン（裏の処理。計算用ブックで旧来と同じに動かす） */
-function fcRunBtn(action, note, approve){
-  var ok = fcCan(approve ? 'approve' : 'plan');
+function fcRunBtn(action, note, role){
+  role = role === true ? 'approve' : role || 'plan';
+  var ok = fcCan(role);
   return '<div class="row" style="align-items:center"><button class="btn btn-sm" ' + (S.job || !ok ? 'disabled ' : '') + 'onclick="fcRun(\'' + action + '\')">' + esc(fcActionLabel(action)) + '</button>'
-    + '<span class="note">' + esc(note || '') + (ok ? '' : '（' + (approve ? '承認者' : '予算策定担当') + 'が実行できます）') + '</span></div>';
+    + '<span class="note">' + esc(note || '') + (ok ? '' : '（' + FC_ROLE_NAME[role] + 'が実行できます）') + '</span></div>';
 }
+function fcSourceNote(){ return S.fc.view && !S.fc.view.sourceReady ? '「設定」の「ZAC の実績のスプレッドシート」を入れると使えます。' : ''; }
 function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（3〜6 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
 function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, action: action, args: args, inputHash: S.fc.view.inputHash }); }
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
@@ -473,9 +477,9 @@ function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: 
 
 function fcEvalTab(d, v){
   var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = '';
-  html += '<div class="card"><h2>検証の更新</h2>' + fcRunBtn('EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。') + fcRunBtn('EVAL.DASHBOARD', '精度の指標をまとめ直します。')
+  html += '<div class="card"><h2>検証の更新</h2>' + fcRunBtn('IMPORT.ACTUALS', '確定した月の実績を ZAC の実績から取り込み直します。' + fcSourceNote(), 'admin') + fcRunBtn('EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。') + fcRunBtn('EVAL.DASHBOARD', '精度の指標をまとめ直します。')
     + fcRunBtn('EVAL.INSIGHTS', '外れた月の原因の見立てを作り直します。') + fcRunBtn('LEARN.MONTHLY', '実績から補正の係数を学び直します（次の予測に反映）。')
-    + '<p class="note" style="margin-top:8px">検証用の実績の取り込み（B-1）は、まだ旧アプリで行います。</p></div>';
+    + '</div>';
   if (e.metrics && e.metrics.length) html += '<div class="card"><h2>精度の指標</h2><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>メモ</th></tr></thead><tbody>'
     + e.metrics.map(function(m){ return '<tr><td>' + esc(m.name) + '</td><td class="num">' + esc(typeof m.value === 'number' ? (Math.abs(m.value) < 3 ? fcPct(m.value) : yen(m.value)) : m.value) + '</td><td>' + esc(m.note) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   if (e.compare && e.compare.length) html += '<div class="card"><h2>月ごとの予測と実績（円）</h2><table class="tbl"><thead><tr><th>月</th><th class="num">予測</th><th class="num">実績</th><th class="num">差</th><th class="num">誤差率</th><th>帯の外</th></tr></thead><tbody>'
@@ -529,7 +533,12 @@ function fcStepsTab(d, v){
   var label = { success: '<span class="chip">済み</span>', error: '<span class="chip ng">エラー</span>', not_run: '<span class="chip off">未実行</span>' };
   var html = '<div class="card"><h2>手順の進み</h2><table class="tbl"><colgroup><col style="width:70px"><col style="width:220px"><col style="width:110px"><col style="width:90px"><col style="width:120px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
     + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td title="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
-    + '</tbody></table>' + fcRunBtn('SALES.AGGREGATE', '取り込んだ売上を月ごとに集計し直します。売上の取り込み（A-2）は、まだ旧アプリで行います。') + '</div>';
+    + '</tbody></table>' + fcRunBtn('IMPORT.SALES', 'ZAC の実績から、過去 4 年分の売上を取り込み直します（入力の雛形も整えます）。' + fcSourceNote(), 'admin')
+    + fcRunBtn('SALES.AGGREGATE', '取り込んだ売上を月ごとに集計し直します。') + '</div>';
+  var people = (v.boot.setup.people || []).join(', ');
+  html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
+    ? '<div class="row" style="margin-top:0;align-items:center"><input class="inp" style="width:420px" id="fc_people" value="' + esc(people) + '"><button class="btn btn-sm" ' + (S.job ? 'disabled ' : '') + 'onclick="fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })">担当者を保存</button></div><p class="note" style="margin-top:6px">カンマ区切り。入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</p>'
+    : '<p>' + esc(people || '（なし）') + '</p><p class="note">変えるのは管理者です。</p>') + '</div>';
   if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><table class="tbl"><colgroup><col style="width:150px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
     + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td>' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   return html;

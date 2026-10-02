@@ -147,7 +147,13 @@ function appLegacyServices_(book, opts) {
     moveActiveSheet: i => { try { return book.moveActiveSheet(i); } catch (e) { return null; } }
   });
   const props = {
-    getProperty: k => (k === 'FORECAST_SOURCE_SPREADSHEET_ID' ? appProps_().getProperty('APP_ZAC_SOURCE_SPREADSHEET_ID') : null),
+    // 売上・実績の取り込み（A-2・B-1）の元は、設定の「ZAC の実績のスプレッドシート」。未設定のまま旧来の既定に頼らない
+    getProperty: k => {
+      if (k !== 'FORECAST_SOURCE_SPREADSHEET_ID') return null;
+      const id = appSettingValue_('source.zac_spreadsheet');
+      if (!id) throw new Error('「設定」の「ZAC の実績のスプレッドシート」を入れてください（売上・実績の取り込みの元）。');
+      return id;
+    },
     getProperties: () => ({}),
     getKeys: () => [],
     setProperty: () => { throw new Error('旧来の計算からは Script Properties に書きません。'); },

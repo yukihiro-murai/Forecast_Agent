@@ -11,13 +11,25 @@ const APP_SETTING_DEFS = {
   'weather.tenpen_ape': { label: '天変地異にする誤差率', type: 'number', min: 0.5, max: 10, def: 1.5, unit: '割合（1.5 = 150%）' },
   'weather.taifuu_ape': { label: '台風で数える大きな誤差率', type: 'number', min: 0, max: 5, def: 0.3, unit: '割合' },
   'audit.retention_years': { label: '操作の記録を残す年数', type: 'int', min: 1, max: 20, def: 7, unit: '年' },
-  'audit.log_views': { label: '閲覧も記録する', type: 'bool', def: false, unit: 'する / しない' }
+  'audit.log_views': { label: '閲覧も記録する', type: 'bool', def: false, unit: 'する / しない' },
+  // 売上・検証用実績の取り込み（A-2・B-1）の元。旧アプリの Admin Hub の「実績ソース」（FORECAST_SOURCE_SPREADSHEET_ID）と同じもの
+  'source.zac_spreadsheet': { label: 'ZAC の実績のスプレッドシート', type: 'sheet', def: '', unit: 'スプレッドシートの URL（売上・実績の取り込みの元）' }
 };
 
 /** 文字列や数値を設定の型に直し、範囲を確かめる。だめなら例外 */
 function appParseSettingValue_(key, raw) {
   const d = APP_SETTING_DEFS[key];
   if (!d) throw new Error('未定義の設定です: ' + key);
+  if (d.type === 'sheet') {
+    // URL か ID。開けるスプレッドシートであることを確かめ、ID で持つ
+    let id = '';
+    try { id = appParseBookId_(String(raw || '')); } catch (e) { id = ''; }
+    if (!id) throw new Error(d.label + ' は、スプレッドシートの URL で入力してください。');
+    let file;
+    try { file = DriveApp.getFileById(id); } catch (e) { throw new Error(d.label + ' を開けません（URL と共有を確かめてください）。'); }
+    if (file.getMimeType() !== MimeType.GOOGLE_SHEETS || file.isTrashed()) throw new Error(d.label + ' は、スプレッドシートを指定してください。');
+    return id;
+  }
   if (d.type === 'bool') {
     if (raw === true || raw === 'true' || raw === 'TRUE' || raw === 1 || raw === '1') return true;
     if (raw === false || raw === 'false' || raw === 'FALSE' || raw === 0 || raw === '0') return false;
@@ -41,7 +53,8 @@ function appSettingsCurrent_() {
       .sort((a, b) => (a.effective_from < b.effective_from ? -1 : a.effective_from > b.effective_from ? 1 : a._row - b._row));
     const live = hist.filter(r => r.effective_from <= today).pop();
     let value = d.def;
-    try { if (live) value = appParseSettingValue_(key, live.value); } catch (e) { value = d.def; }
+    // スプレッドシートの指定は、保存のときに確かめた ID をそのまま使う（読むたびに Drive を開かない）
+    try { if (live) value = d.type === 'sheet' ? String(live.value) : appParseSettingValue_(key, live.value); } catch (e) { value = d.def; }
     return {
       key: key, label: d.label, type: d.type, unit: d.unit, min: d.min === undefined ? null : d.min, max: d.max === undefined ? null : d.max,
       def: d.def, value: value, isDefault: !live, effectiveFrom: live ? live.effective_from : '',

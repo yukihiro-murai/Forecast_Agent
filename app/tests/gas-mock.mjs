@@ -50,12 +50,16 @@ export const FY = (() => { const d = new Date(); return 'FY' + (d.getMonth() >= 
 export const MONTH = fmtDate(new Date(), 'Asia/Tokyo', 'yyyy_MM');
 
 const colOf = (letters) => [...letters].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
-function parseA1(a1) {
-  const m = /^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/.exec(a1);
+function parseA1(a1, maxRows) {
+  const whole = /^([A-Z]+):([A-Z]+)$/.exec(a1);   // 'D:D' は列全体
+  if (whole && maxRows) return [1, colOf(whole[1]), maxRows, colOf(whole[2]) - colOf(whole[1]) + 1];
+  const m = /^([A-Z]+)(\d+)(?::([A-Z]+)(\d+)?)?$/.exec(a1);
   if (!m) throw new Error('A1 形式が読めない: ' + a1);
   const r = Number(m[2]); const c = colOf(m[1]);
   if (!m[3]) return [r, c, 1, 1];
-  return [r, c, Number(m[4]) - r + 1, colOf(m[3]) - c + 1];
+  const r2 = m[4] ? Number(m[4]) : maxRows;   // 'C2:C' は最後の行まで
+  if (!r2) throw new Error('A1 形式が読めない: ' + a1);
+  return [r, c, r2 - r + 1, colOf(m[3]) - c + 1];
 }
 const empty = (v) => v === '' || v === null || v === undefined;
 const serialOf = (d) => (d.getTime() - new Date(1899, 11, 30).getTime()) / 86400000;
@@ -65,6 +69,19 @@ let SHEET_SEQ = 0;
  * シートのモック。strict（データ本体・ログ）は文字列だけ・書式なしテキストだけを受け付ける。
  * strict でないシートは、書式が '@' でないセルに書いた文字列を本物のように変換する。
  */
+/** 見た目だけの操作（色・幅・入力規則・枠線・表示/非表示など）は何もしない（計算の結果に関係しない）。値と表示形式は本物のとおりに扱う */
+const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations)$/;
+function looks(obj) {
+  const p = new Proxy(obj, { get(t, k) {
+    if (k in t || typeof k === 'symbol') return t[k];
+    if (LOOKS.test(String(k))) return () => p;
+    if (k === 'getFilter' || k === 'getDataValidation') return () => null;
+    if (k === 'isSheetHidden') return () => false;
+    if (k === 'getFrozenRows' || k === 'getFrozenColumns') return () => 0;
+    return undefined;
+  } });
+  return p;
+}
 export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC = 26 } = {}) {
   const rows = [];
   const fmls = [];
@@ -141,6 +158,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
     deleteColumns: (start, n) => { assert.ok(start + n - 1 <= maxCols); [rows, fmls, fmts].forEach((a) => a.forEach((row) => row && row.splice(start - 1, n))); maxCols -= n; },
     setFrozenRows: () => {},
     getDataRange: () => sh.getRange(1, 1, Math.max(1, sh.getLastRow()), Math.max(1, sh.getLastColumn())),
+    appendRow: (vals) => { sh.getRange(sh.getLastRow() + 1, 1, 1, vals.length).setValues([vals]); return sh; },
     clear: () => { rows.length = 0; fmls.length = 0; fmts.length = 0; return sh; },   // シート全体を消すと、形式を付けていない状態に戻る
     /** 別のスプレッドシートへ写す（本物と同じく「（名前）のコピー」という名前で足す） */
     copyTo(dest) {
@@ -163,13 +181,13 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
     },
     getRange(a, b, c, d) {
       let r, col, nr, nc;
-      if (typeof a === 'string') [r, col, nr, nc] = parseA1(a); else [r, col, nr, nc] = [a, b, c === undefined ? 1 : c, d === undefined ? 1 : d];
+      if (typeof a === 'string') [r, col, nr, nc] = parseA1(a, maxRows); else [r, col, nr, nc] = [a, b, c === undefined ? 1 : c, d === undefined ? 1 : d];
       if (r < 1 || col < 1 || nr < 1 || nc < 1 || r + nr - 1 > maxRows || col + nc - 1 > maxCols) {
         throw new Error('The coordinates of the range are outside the dimensions of the sheet. ' + sh.name + ' ' + [r, col, nr, nc].join(','));
       }
       const each = (fn) => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) fn(r - 1 + i, col - 1 + j, i, j); };
       const grid = (fn) => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => fn(r - 1 + i, col - 1 + j)));
-      const range = {
+      let range = {
         getValues: () => grid((y, x) => at(rows, y, x, '')),
         getValue: () => at(rows, r - 1, col - 1, ''),
         getFormulas: () => grid((y, x) => at(fmls, y, x, '') || ''),
@@ -196,10 +214,11 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         setValue(v) { if (sh.failWrites) throw new Error('write failed'); each((y, x) => writeCell(y, x, v)); return range; },
         setFormula(f) { assert.ok(!sh.strict); each((y, x) => { put(fmls, y, x, f); put(rows, y, x, evalFormula(f)); }); return range; },
       };
+      range = looks(range);   // 値・形式の操作の続き（.setNumberFormat(..).setHorizontalAlignment(..)）でも見た目の操作を受ける
       return range;
     },
   };
-  return sh;
+  return looks(sh);
 }
 
 export function makeSpreadsheet(id, name, { strict = false } = {}) {
@@ -265,7 +284,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   function makeFile(id, name, parent) {
     const f = { kind: 'file', id, name, mime: SHEETS_MIME, parent, trashed: false, created: new Date(state.clock += 60000) };
     Object.assign(f, {
-      getId: () => f.id, getName: () => f.name, setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed,
+      getId: () => f.id, getName: () => f.name, setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed, getMimeType: () => f.mime,
       getLastUpdated: () => f.updated || f.created,
       setTrashed: (b) => { f.trashed = !!b; return f; },
       moveTo: (folder) => { f.parent = folder.getId(); return f; },
@@ -318,6 +337,10 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       create(name) { const ss = newSpreadsheet(name); makeFile(ss.id, name, 'ROOT'); return ss; },
       openById(id) { if (!sheetsById[id]) throw new Error('not found ' + id); return sheetsById[id]; },
       flush() {},
+      // 入力規則・枠線などの見た目の部品（何もしない）
+      newDataValidation() { const b = new Proxy({}, { get: (t, k) => (k === 'build' ? () => ({}) : () => b) }); return b; },
+      BorderStyle: { SOLID: 'SOLID', SOLID_MEDIUM: 'SOLID_MEDIUM', DOTTED: 'DOTTED', DASHED: 'DASHED' },
+      WrapStrategy: { WRAP: 'WRAP', CLIP: 'CLIP', OVERFLOW: 'OVERFLOW' },
     },
     DriveApp: {
       createFolder: (name) => makeFolder(name, 'ROOT'),
@@ -359,10 +382,13 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     Utilities: {
       getUuid: () => (++state.uuid).toString(16).padStart(8, '0') + '-0000-4000-8000-000000000000',
       formatDate: fmtDate,
-      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      DigestAlgorithm: { SHA_256: 'sha256', MD5: 'md5', SHA_1: 'sha1' }, Charset: { UTF_8: 'utf8' },
+      base64Encode: (b) => Buffer.from(typeof b === 'string' ? b : b.map((x) => x & 255)).toString('base64'),
+      base64EncodeWebSafe: (b) => Buffer.from(typeof b === 'string' ? b : b.map((x) => x & 255)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
       computeDigest: (alg, s, cs) => {
-        assert.equal(alg, 'sha256'); assert.equal(cs, 'utf8');
-        return Array.from(createHash('sha256').update(String(s), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b));
+        // 新アプリは必ず SHA-256 と UTF-8 を指定する。旧来の計算は文字コードを省くことがある（そのときも UTF-8 として扱う）
+        assert.ok(['sha256', 'md5', 'sha1'].includes(alg)); assert.ok(cs === 'utf8' || cs === undefined);
+        return Array.from(createHash(alg).update(String(s), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b));
       },
     },
   };

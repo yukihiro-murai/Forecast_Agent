@@ -47,7 +47,12 @@ function apiSaveClient(input) {
 }
 
 function apiListSettings() {
-  return api_('SETTINGS.LIST', { minRole: 'ADMIN', audit: false }, () => ({ settings: appSettingsCurrent_() }));
+  return api_('SETTINGS.LIST', { minRole: 'ADMIN', audit: false }, () => ({ settings: appSettingsCurrent_().map(x => {
+    if (x.type !== 'sheet' || !x.value) return x;
+    let name = '';
+    try { name = DriveApp.getFileById(x.value).getName(); } catch (e) { name = '（開けません）'; }
+    return Object.assign({}, x, { display: name, url: 'https://docs.google.com/spreadsheets/d/' + x.value + '/edit' });
+  }) }));
 }
 
 function apiSaveSetting(input) {

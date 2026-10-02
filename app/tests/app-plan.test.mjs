@@ -36,6 +36,9 @@ function legacyBook(env) {
       values: [['step_key', 'last_run_date', 'last_run_by', 'status', 'target_client', 'record_count', 'error_summary'],
         ['step4_status', D(2026, 9, 1), 'owner', 'success', 'テスト製薬', 12, '']],
     },
+    SALES_INPUT: { values: [['client', 'service_type', 'product', 'target_month', 'input_amount', 'status', 'source_updated_at'],
+      ['テスト製薬', 'BASE', '製品A', '2025/04', 1000000, 'closed', D(2026, 9, 1)]], formats: { D: '@' } },
+    RUN_LOG: { values: [['run_id', 'run_at', 'run_by', 'function_name', 'client', 'status', 'count', 'model_version', 'parameters_snapshot_json', 'input_data_hash', 'execution_duration_sec', 'error_summary']] },
     QUARTERLY_REVIEW: {
       values: [['四半期レビュー（テスト製薬）'], ['2026/04〜2026/06'], [], [], [], [], ['proposal_id', 'target', 'current', 'proposed', 'conf', 'rationale', 'impact', '承認', 'rollback', 'review_id'],
         ['P1', 'bias_correction_factor', 1, 0.98, 0.7, '過大', '-2%', '', 1, 'R-1'],
@@ -210,6 +213,45 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const bad = env.runJob('PLAN.EDIT', { planId, action: 'REVIEW.DECIDE', args: { rows: [{ row: 8, decision: 'OK' }] } });
   assert.equal(bad.status, 'FAILED');
   assert.match(bad.error, /承認 \/ 却下 \/ 保留/, '旧来と同じ確かめ方');
+}
+
+// ==== 6. A-2 売上の取り込み（旧来の関数を本物のまま。元は設定の「ZAC の実績のスプレッドシート」）と担当者の保存 ====
+{
+  const { env, planId } = imported();
+  const ext = Array.from({ length: 70 }, () => '');
+  const rec = (client, cat, product, month, amount) => { const r = ext.slice(); r[40] = client; r[45] = cat; r[49] = product; r[56] = month; r[65] = amount; return r; };
+  const zac = env.makeBook('Veeva 売上分析ツール', { '*2025_actual_value': { cols: 70, values: [ext.map((_, i) => 'c' + (i + 1)),
+    rec('テスト製薬', 'ベース', '製品A', D(2025, 5, 15), 1200000), rec('テスト製薬', 'スポット', '製品B', D(2025, 6, 10), 300000),
+    rec('別の製薬', 'ベース', '製品X', D(2025, 5, 15), 999)] } });
+  const noSource = env.runJob('PLAN.RUN', { planId, action: 'IMPORT.SALES' });
+  assert.equal(noSource.status, 'FAILED');
+  assert.match(noSource.error, /ZAC の実績のスプレッドシート/, '元を決めていなければ取り込まない（旧来の既定に頼らない）');
+  assert.equal(env.call('apiPlanView(__in)', { __in: { planId } }).sourceReady, false);
+  env.call('apiSaveSetting(__in)', { __in: { key: 'source.zac_spreadsheet', value: 'https://docs.google.com/spreadsheets/d/' + zac.getId() + '/edit' } });
+  const st = env.runJob('PLAN.RUN', { planId, action: 'IMPORT.SALES' });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.ok(st.result.changed.includes('SALES_INPUT'));
+  const sales = engRows(env, 'SALES_INPUT', planId);
+  assert.deepEqual(sales.map((r) => [r.product, r.target_month, r.input_amount]), [['製品A', '2025/05', '1200000'], ['製品B', '2025/06', '300000']], 'そのクライアントの分だけ、旧来と同じ形で');
+  assert.equal(st.result.result.count, 2);
+  const steps = env.call('apiPlanView(__in)', { __in: { planId } }).boot.steps;
+  assert.equal(steps.find((x) => x.key === 'step1_status').status, 'success');
+  // 担当者（管理者）。クライアントと年度は変えない
+  const v = env.call('apiPlanView(__in)', { __in: { planId } });
+  const pe = env.runJob('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', args: { peopleCsv: '鷹野、佐藤 , 田中' }, inputHash: v.inputHash });
+  assert.equal(pe.status, 'DONE', pe.error);
+  assert.deepEqual(pe.result.changed, ['CONFIG']);
+  const v2 = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.deepEqual(v2.boot.setup.people, ['鷹野', '佐藤', '田中']);
+  assert.equal(v2.boot.setup.client, 'テスト製薬');
+  assert.equal(env.table('PLANS')[0].people_csv, '鷹野,佐藤,田中', '計画の表にも残す');
+  const empty = env.runJob('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', args: { peopleCsv: ' , ' } });
+  assert.match(empty.error, /1 人以上/);
+  env.call(`apiSaveMember({ email: '${MEMBER}', displayName: 'M' })`);
+  env.call('apiGrantRole(__in)', { __in: { email: MEMBER, role: 'PLANNER', scopeType: 'ALL' } });
+  env.as(MEMBER);
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action: 'IMPORT.SALES' } } }), /権限がありません/, '取り込みは管理者');
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.EDIT', payload: { planId, action: 'SETUP.PEOPLE', args: { peopleCsv: 'x' } } } }), /権限がありません/);
 }
 
 console.log('app-plan: all tests passed');
