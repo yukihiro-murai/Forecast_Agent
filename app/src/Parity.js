@@ -83,7 +83,7 @@ function appParityB_(ctx, p) {
       same: diff.length === 0, diff: diff, preSame: preDiff ? preDiff.length === 0 : null, preDiff: preDiff,
       sheets: p.copied, engine: p.engine, legacyChangedAfterImport: p.legacyChangedAfterImport,
       legacy: p.legacy, store: headline, previous: p.previous,
-      build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches),
+      build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches || x.formatFixed || x.blankMethod),
       timing: { a: p.timingA, b: { buildMs: t1 - t0, runMs: t2 - t1, compareMs: t3 - t2 } },
       audit: { entityId: pl.plan.plan_id, clientId: pl.plan.client_id }
     };

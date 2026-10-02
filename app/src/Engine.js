@@ -218,7 +218,7 @@ function appScratchFromStore_(scratch, planId) {
     if (!dec) return;
     const w = appEngWriteSheet_(scratch, dec, null);
     report.push({ sheet: name, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples,
-      formatMismatches: w.formatMismatches, formatSamples: w.formatSamples });
+      formatMismatches: w.formatMismatches, formatFixed: w.formatFixed, formatSamples: w.formatSamples, blankMethod: w.blankMethod });
   });
   if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
   return report;

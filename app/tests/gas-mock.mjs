@@ -74,9 +74,19 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
   const sheetId = ++SHEET_SEQ;
   const at = (arr, r, c, d) => (arr[r] && arr[r][c] !== undefined ? arr[r][c] : d);
   const put = (arr, r, c, v) => { (arr[r] = arr[r] || [])[c] = v; };
-  const AUTO = '0.###############';   // 本物は「自動」の形式をこう返す
-  const fmtAt = (r, c) => at(fmts, r, c, AUTO);
-  const normFmt = (f) => { assert.notEqual(f, '', '空の表示形式は設定できない（形式を消すには clearFormat）'); return f === 'General' ? AUTO : f; };
+  // 表示形式（2026-10-02 に本物で確かめた振る舞いに合わせる）:
+  //   形式を付けていないセル（undefined）… 日付なら空、それ以外は「自動」（0.###############）と返す
+  //   「自動」を明示したセル（General）… 何が入っていても 0.############### と返す
+  //   clearFormat … 「自動」を明示したのと同じになる（形式を付けていないセルには戻らない）
+  //   空の形式は設定できない（setNumberFormat('') は止まる）
+  const AUTO = '0.###############';
+  const storedFmt = (r, c) => at(fmts, r, c, undefined);
+  const fmtAt = (r, c) => {   // 本物の getNumberFormats が返す形式
+    const f = storedFmt(r, c);
+    if (f === undefined) return isDate(at(rows, r, c, '')) ? '' : AUTO;
+    return f === 'General' ? AUTO : f;
+  };
+  const normFmt = (f) => { if (f === '') throw new Error('Invalid number format pattern: (empty)'); return f; };
   const evalFormula = (f) => {
     const expr = f.slice(1).replace(/[A-Z]+\d+/g, (a1) => { const [r, c] = parseA1(a1); const v = at(rows, r - 1, c - 1, ''); return typeof v === 'number' ? String(v) : '0'; });
     if (!/^[\d+\-*/().\s]+$/.test(expr)) return '#ERROR!';
@@ -85,11 +95,11 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
   function writeCell(r, c, v) {
     if (sh.strict) {
       assert.equal(typeof v, 'string', 'データ本体とログには文字列だけを書く');
-      assert.equal(fmtAt(r, c), '@', 'データ本体とログは書式なしテキストにしてから書く');
+      assert.equal(storedFmt(r, c), '@', 'データ本体とログは書式なしテキストにしてから書く');
       put(rows, r, c, v);
       return;
     }
-    const fmt = fmtAt(r, c);
+    const fmt = storedFmt(r, c);
     put(fmls, r, c, '');
     if (typeof v === 'string') {
       let m;
@@ -128,7 +138,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
     deleteRows: (start, n) => { assert.ok(start + n - 1 <= maxRows); [rows, fmls, fmts].forEach((a) => a.splice(start - 1, n)); maxRows -= n; },
     deleteColumns: (start, n) => { assert.ok(start + n - 1 <= maxCols); [rows, fmls, fmts].forEach((a) => a.forEach((row) => row && row.splice(start - 1, n))); maxCols -= n; },
     setFrozenRows: () => {},
-    clear: () => { rows.length = 0; fmls.length = 0; fmts.length = 0; return sh; },
+    clear: () => { rows.length = 0; fmls.length = 0; fmts.length = 0; return sh; },   // シート全体を消すと、形式を付けていない状態に戻る
     /** 別のスプレッドシートへ写す（本物と同じく「（名前）のコピー」という名前で足す） */
     copyTo(dest) {
       const c = dest.insertSheet(sh.name + ' のコピー', { rows: maxRows, cols: maxCols, strict: dest.strict });
@@ -144,7 +154,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         const c = /^\d+$/.test(key) ? Number(key) - 1 : colOf(key) - 1;
         for (let r = 0; r < maxRows; r++) put(fmts, r, c, f);
       });
-      Object.entries(cellFormats).forEach(([a1, f]) => { const [r, c] = parseA1(a1); put(fmts, r - 1, c - 1, f); });   // 形式を消したセルは ''
+      Object.entries(cellFormats).forEach(([a1, f]) => { const [r, c] = parseA1(a1); put(fmts, r - 1, c - 1, f === null ? undefined : f); });   // null = 形式を付けていないセル
       Object.entries(formulas).forEach(([a1, f]) => { const [r, c] = parseA1(a1); put(fmls, r - 1, c - 1, f); put(rows, r - 1, c - 1, evalFormula(f)); });
       return sh;
     },
@@ -163,7 +173,16 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         getNumberFormats: () => grid((y, x) => fmtAt(y, x)),
         setNumberFormat: (f) => { if (sh.strict) assert.equal(f, '@', 'データ本体とログは書式なしテキスト'); each((y, x) => put(fmts, y, x, normFmt(f))); return range; },
         setNumberFormats: (fs) => { assert.equal(fs.length, nr); each((y, x, i, j) => put(fmts, y, x, normFmt(fs[i][j]))); return range; },
-        clearFormat: () => { each((y, x) => put(fmts, y, x, '')); return range; },
+        clearFormat: () => { each((y, x) => put(fmts, y, x, 'General')); return range; },
+        /** 形式だけを写す（PASTE_FORMAT）。形式を付けていないセルから写すと、付けていない状態になる */
+        copyTo(dest, type) {
+          assert.equal(type, 'PASTE_FORMAT', 'モックは形式だけの写しに対応');
+          const f = storedFmt(r - 1, col - 1);
+          dest.__each((y, x) => { if (f === undefined) { if (dest.__sheet.fmts[y]) dest.__sheet.fmts[y][x] = undefined; } else put(dest.__sheet.fmts, y, x, f); });
+          return range;
+        },
+        __each: (fn) => each((y, x) => fn(y, x)),
+        __sheet: sh,
         clearContent: () => { each((y, x) => { put(rows, y, x, ''); put(fmls, y, x, ''); }); return range; },
         setValues(vals) {
           if (sh.failWrites) throw new Error('write failed');
@@ -292,6 +311,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       }),
     },
     SpreadsheetApp: {
+      CopyPasteType: { PASTE_FORMAT: 'PASTE_FORMAT', PASTE_VALUES: 'PASTE_VALUES', PASTE_NORMAL: 'PASTE_NORMAL' },
       create(name) { const ss = newSpreadsheet(name); makeFile(ss.id, name, 'ROOT'); return ss; },
       openById(id) { if (!sheetsById[id]) throw new Error('not found ' + id); return sheetsById[id]; },
       flush() {},

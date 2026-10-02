@@ -240,7 +240,7 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
         ['step1_status', D(2026, 9, 30), 'owner', 'success', 'テスト製薬', 10, ''],
         ['step5_status', D(2026, 9, 30), 'owner', 'success', 'テスト製薬', 3, '']],
       formats: { B: 'yyyy/MM/dd H:mm:ss' },
-      cellFormats: { B3: '' },   // 形式を消した後に日付を書いたセル
+      cellFormats: { B3: null },   // 形式を付けていないセルに日付を書いた（旧来がシートを消してから書いた）セル。本物は空の形式と返す
     },
   });
   const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
@@ -249,9 +249,16 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   const ps = dry.result.sheets.find((x) => x.sheet === 'PROCESS_STATUS');
   assert.deepEqual([ps.mismatch, ps.formatMismatches], [0, 0], '形式を消したセルも組み立て直すと同じ（値も表示形式も）');
   assert.equal(dry.result.faithful, true);
-  // 「自動」で書いてしまうと違いが出ることも確かめる（直す前のやり方）
   const scratch = env.scratch();
-  assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(3, 2).getNumberFormats()[0][0], '');
+  assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(3, 2).getNumberFormats()[0][0], '', '組み立てでも空の形式になる');
+  assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(2, 2).getNumberFormats()[0][0], 'yyyy/MM/dd H:mm:ss');
+  // 直す前のやり方（「自動」を明示してから書く・形式を消してから書く）では空にならないことも確かめる
+  const t = scratch.insertSheet('T');
+  t.getRange(1, 1).setNumberFormat('General'); t.getRange(1, 1).setValues([[new Date(2026, 8, 30)]]);
+  t.getRange(2, 1).setNumberFormat('General'); t.getRange(2, 1).clearFormat(); t.getRange(2, 1).setValues([[new Date(2026, 8, 30)]]);
+  t.getRange(3, 1).setValues([[new Date(2026, 8, 30)]]);
+  assert.deepEqual(t.getRange(1, 1, 3, 1).getNumberFormats().map((r) => r[0]), ['0.###############', '0.###############', '']);
+  scratch.deleteSheet(t);
   const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
   assert.equal(imp.status, 'DONE', imp.error);
   env.run(STUB_ENGINE);

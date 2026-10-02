@@ -228,37 +228,41 @@ function appFitGrid_(sh, rows, cols) {
   if (mc < cols) sh.insertColumnsAfter(mc, cols - mc); else if (mc > cols) sh.deleteColumns(cols + 1, mc - cols);
 }
 
+/** Sheets が「自動」（形式を付けていない）セルの表示形式として返す文字列 */
+const APP_AUTO_FORMAT = '0.###############';
+
 /**
  * 組み立てたシートを計算用ブックに書く。表示形式 → 値 → 数式 の順（旧ブックと同じ自動変換になるように）。
- * 空の表示形式（旧ブックで形式を消した後に値を書いたセル。2026-10-02 に DASHBOARD!B17 などで確認）は設定できないので、
- * いったん「自動」にしてから形式を消し、旧来と同じ「消してから書く」順にする（「自動」のままだと 0.############### になる）。
+ * 表示形式は、旧ブックで形式が付いていたセル（「自動」でも空でもないもの）にだけ付け、ほかは新しいシートのままにする。
+ * 形式の付いていないセルに日付を書くと Sheets は空の形式にし（旧来の DASHBOARD!B17 など）、「自動」を明示すると
+ * 0.############### になるため（2026-10-02 に本物で確認）。
  * 書いた後に値と表示形式を読み戻し、元と違うセルは書き方を変えて直す:
  *   値) 1. 表示形式をいったん外して値を書き、元の表示形式に戻す（旧来が「書いてから形式を付けた」セル）
  *       2. それでも違う文字列のセルは、書式なしテキストにして書く（forcedText に数える）
- *   形式) 空の形式は形式を消し、ほかは形式を付け直す
- * 返り値: { mismatches, repaired, forcedText, samples, formatMismatches, formatFixed, formatSamples }
+ *   形式) 「自動」は「自動」を明示する。空は形式を消して書き直す → 形式を付けていないセルの形式を写して書き直す → 空の形式を付けて書き直す、の順に試す
+ * 返り値: { mismatches, repaired, forcedText, samples, formatMismatches, formatFixed, formatSamples, blankMethod }
  */
 function appEngWriteSheet_(ss, dec, expected) {
   let sh = ss.getSheetByName(dec.name);
   if (!sh) sh = ss.insertSheet(dec.name);
   appFitGrid_(sh, Math.max(1, dec.maxRows), Math.max(1, dec.maxCols));
-  const applyFormats = (r0, r1, c) => {   // 0 始まりの行 r0〜r1・列 c に、元の表示形式を付ける（空の形式は消す）
-    const want = dec.formats.slice(r0, r1 + 1).map(row => row[c]);
-    sh.getRange(r0 + 1, c + 1, r1 - r0 + 1, 1).setNumberFormats(want.map(f => [f || 'General']));
-    appCellRuns_(want.map((f, i) => [r0 + i, c, f]).filter(x => x[2] === '')).forEach(run => {
-      sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).clearFormat();
-    });
-  };
-  if (dec.fmtCols) {
-    sh.getRange(1, 1, dec.maxRows, dec.fmtCols).setNumberFormats(dec.formats.map(row => row.map(f => f || 'General')));
-    const blank = [];
-    for (let r = 0; r < dec.maxRows; r++) for (let c = 0; c < dec.fmtCols; c++) if (dec.formats[r][c] === '') blank.push([r, c]);
-    appCellRuns_(blank).forEach(run => sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).clearFormat());
+  const explicit = f => f !== '' && f !== APP_AUTO_FORMAT;
+  // 1) 形式の付いていたセルにだけ形式を付ける（列ごとの続いた範囲で）
+  for (let c = 0; c < dec.fmtCols; c++) {
+    let r0 = 0;
+    for (let r = 1; r <= dec.maxRows; r++) {
+      if (r < dec.maxRows && dec.formats[r][c] === dec.formats[r0][c]) continue;
+      const f = dec.formats[r0][c];
+      if (explicit(f)) sh.getRange(r0 + 1, c + 1, r - r0, 1).setNumberFormat(f);
+      r0 = r;
+    }
   }
   let bad = [];
   let repaired = 0;
   let forced = 0;
   const forcedCells = {};   // 文字列に固定したセル（表示形式は '@' になるので、形式の照合から除く）
+  const rewrite = run => sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1)
+    .setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [run.c < dec.lastCol ? row[run.c] : '']));
   if (dec.lastRow && dec.lastCol) {
     sh.getRange(1, 1, dec.lastRow, dec.lastCol).setValues(dec.values);
     for (let r = 0; r < dec.lastRow; r++) {
@@ -276,28 +280,30 @@ function appEngWriteSheet_(ss, dec, expected) {
     bad = diff();
     if (bad.length) {
       const before = bad.length;
-      // 1) 列ごとの続いた範囲に分けて、形式を外して書き、元の形式に戻す
+      // 値 1) 列ごとの続いた範囲に分けて、形式を外して書き、元の形式に戻す
       appCellRuns_(bad.filter(x => !dec.formulas[x[0]][x[1]])).forEach(run => {
         const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
         rg.clearFormat();
-        rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
-        if (run.c < dec.fmtCols) applyFormats(run.r0, run.r1, run.c);
+        rewrite(run);
+        if (run.c < dec.fmtCols) {
+          const fs = dec.formats.slice(run.r0, run.r1 + 1).map(row => row[run.c]);
+          if (fs.every(explicit)) rg.setNumberFormats(fs.map(f => [f]));
+        }
       });
       bad = diff();
       repaired = before - bad.length;
-      // 2) 残った文字列のセルは書式なしテキストにして書く
+      // 値 2) 残った文字列のセルは書式なしテキストにして書く
       const strs = bad.filter(x => typeof dec.values[x[0]][x[1]] === 'string' && !dec.formulas[x[0]][x[1]]);
       appCellRuns_(strs).forEach(run => {
-        const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
-        rg.setNumberFormat('@');
-        rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
+        sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).setNumberFormat('@');
+        rewrite(run);
         forced += run.r1 - run.r0 + 1;
         for (let r = run.r0; r <= run.r1; r++) forcedCells[r + ':' + run.c] = true;
       });
       if (strs.length) bad = diff();
     }
   }
-  // 表示形式も読み戻して確かめる（文字列に固定したセルは除く）
+  // 2) 表示形式を読み戻して確かめる（文字列に固定したセルは除く）
   const fdiff = () => {
     if (!dec.fmtCols) return [];
     const back = sh.getRange(1, 1, dec.maxRows, dec.fmtCols).getNumberFormats();
@@ -312,14 +318,41 @@ function appEngWriteSheet_(ss, dec, expected) {
   };
   let fbad = fdiff();
   let formatFixed = 0;
+  let blankMethod = '';
   if (fbad.length) {
     const before = fbad.length;
-    appCellRuns_(fbad).forEach(run => applyFormats(run.r0, run.r1, run.c));
+    const runsOf = (pred) => appCellRuns_(fbad.filter(x => pred(dec.formats[x[0]][x[1]])));
+    // 「自動」・形式の付いたセル: その形式を付け直す
+    runsOf(f => f !== '').forEach(run => {
+      const f = dec.formats[run.r0][run.c];
+      const fs = dec.formats.slice(run.r0, run.r1 + 1).map(row => row[run.c]);
+      sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).setNumberFormats(fs.map(x => [x === APP_AUTO_FORMAT ? 'General' : x || f]));
+    });
+    // 空の形式のセル: 書き方を順に試す（最初に元どおりになったものを残りにも使う）
+    let blanks = runsOf(f => f === '');
+    let pristine = null;
+    const methods = [
+      ['形式を消して書き直す', run => { sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).clearFormat(); rewrite(run); }],
+      ['形式のないセルの形式を写して書き直す', run => {
+        if (!pristine) pristine = ss.insertSheet('_FMT_' + Utilities.getUuid().slice(0, 8));
+        pristine.getRange(1, 1).copyTo(sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+        rewrite(run);
+      }],
+      ['空の形式を付けて書き直す', run => { sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).setNumberFormat(''); rewrite(run); }]
+    ];
+    for (let i = 0; i < methods.length && blanks.length; i++) {
+      try { blanks.forEach(methods[i][1]); } catch (e) { Logger.log('空の形式の直し方「' + methods[i][0] + '」: ' + (e && e.message ? e.message : e)); continue; }
+      fbad = fdiff();
+      const left = runsOf(f => f === '');
+      if (left.length < blanks.length || !left.length) blankMethod = methods[i][0];
+      blanks = left;
+    }
+    if (pristine) ss.deleteSheet(pristine);
     fbad = fdiff();
     formatFixed = before - fbad.length;
   }
   return { sheet: sh, mismatches: bad.length, repaired: repaired, forcedText: forced, samples: bad.slice(0, 5).map(x => appA1_(x[0], x[1])),
-    formatMismatches: fbad.length, formatFixed: formatFixed,
+    formatMismatches: fbad.length, formatFixed: formatFixed, blankMethod: blankMethod,
     formatSamples: fbad.slice(0, 5).map(x => appA1_(x[0], x[1]) + ' 「' + dec.formats[x[0]][x[1]] + '」/「' + x[2] + '」') };
 }
 
