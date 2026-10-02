@@ -137,7 +137,7 @@ Client/Portalのsourceを変更した場合はbundle再生成を省略しない�
 
 ## Webアプリ（Legacy book doGet）
 
-「クライアント別売上予測」book の bound script を Webアプリとして公開済み（`executeAs=USER_DEPLOYING` / **`access=MYSELF`（2026-10-01 から。それ以前は DOMAIN）**、deployment `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`）。Legacy メニュー全般をブラウザ上で一巡できる。
+「クライアント別売上予測」book の bound script を Webアプリとして公開済み（`executeAs=USER_DEPLOYING` / **`access=MYSELF`（2026-10-01 から。それ以前は DOMAIN）**、deployment `AKfycbzKsqTkHbiOS96tG9WHO1rveH8TOOJIchm9EzSeJNPCu2Z5rLEKxWoCzl3JoSWSemogmg`、最新は @31 = 2026-10-02 ログの年度名の修正）。Legacy メニュー全般をブラウザ上で一巡できる。
 
 - **公開範囲を DOMAIN に戻さない。** Web アプリでは末尾が `_` でない関数（178個）をブラウザから `google.script.run` で呼べ、`USER_DEPLOYING` ではデプロイした人の権限で動く。DOMAIN だと社内の誰でも初期化や vNext の管理機能を実行できた（2026-10-01 に発見し、所有者のみに変更。README「売上予測 Webアプリ」）。社内向けの画面は新アプリ（DESIGN_data_platform_JA.md）で用意する。
 - **Web からの書き込み・実行は必ず `webAudited_` を通す**（開始を記録できなければ処理しない。`tests/forecast-webaudit.test.mjs` が 17 関数と公開範囲を見張る）。
