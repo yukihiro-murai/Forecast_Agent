@@ -76,6 +76,28 @@ function imported() {
 const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
 const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').filter((r) => r.plan_id === planId).map((r) => [r.sheet, r]));
 
+// ==== 0. 版を上げて足した表は、最初の操作で自動で作る（2026-10-02「表がありません（FORECAST_RUNS）」） ====
+{
+  const { env, planId } = imported();
+  // 版 2 のころの状態にする（FORECAST_RUNS / FORECAST_MONTHLY が無い）
+  for (const n of ['FORECAST_RUNS', 'FORECAST_MONTHLY']) env.data().deleteSheet(env.data().getSheetByName(n));
+  env.props.APP_TABLES_VERSION = '2';
+  const l = env.call('apiForecastLatest(__in)', { __in: { planId } });
+  assert.equal(l.latest, null, '表が無くても画面を開ける');
+  assert.ok(env.data().getSheetByName('FORECAST_RUNS') && env.data().getSheetByName('FORECAST_MONTHLY'), '足りない表を作った');
+  assert.equal(env.props.APP_TABLES_VERSION, String(env.run('APP_SCHEMA_VERSION')));
+  assert.ok(env.runLog().some((r) => r.kind === 'SCHEMA.ENSURE' && JSON.parse(r.detail_json).made.includes('FORECAST_RUNS')));
+  // 社外の人の操作では作らない
+  env.data().deleteSheet(env.data().getSheetByName('FORECAST_MONTHLY'));
+  env.props.APP_TABLES_VERSION = '2';
+  env.as('someone@gmail.com');
+  env.call('apiBootstrap()');
+  assert.equal(env.data().getSheetByName('FORECAST_MONTHLY'), null);
+  env.as(OWNER);
+  env.call('apiBootstrap()');
+  assert.ok(env.data().getSheetByName('FORECAST_MONTHLY'));
+}
+
 // ==== 1. 実行の前: 旧ブックで最後に実行した結果を見せる ====
 {
   const { env, planId } = imported();

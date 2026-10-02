@@ -5,7 +5,7 @@
  * それ以外の関数は名前の末尾を _ にする（Web アプリでは _ でない関数をブラウザから呼べるため）。
  */
 const APP_NAME = '売上予測アプリ';
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.4.1';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {
@@ -28,7 +28,8 @@ const APP_PROP = {
   auditLastHash: 'APP_AUDIT_LAST_HASH',
   internalDomain: 'APP_INTERNAL_DOMAIN',
   scratchId: 'APP_SCRATCH_SPREADSHEET_ID',
-  fyNaming: 'APP_FY_NAMING'   // 'start' = 年度を始まりの年で呼ぶ（ログのファイル名を直し終えた印）
+  fyNaming: 'APP_FY_NAMING',   // 'start' = 年度を始まりの年で呼ぶ（ログのファイル名を直し終えた印）
+  tablesVersion: 'APP_TABLES_VERSION'   // データ本体の表をそろえた版（APP_SCHEMA_VERSION と違えば、最初の操作で足りない表を作る）
 };
 
 /** 役割（弱い → 強い）。閲覧と情報提供は社内全員が持つ。予測と予算の提出は担当者、承認は承認者（2026-10-01 決定） */

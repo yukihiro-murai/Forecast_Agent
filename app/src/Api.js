@@ -127,6 +127,7 @@ function api_(action, opts, fn) {
   }
   const roles = appRolesOf_(user);
   const ctx = { user: user, roles: roles, actor: user.email || '(unknown)', requestId: Utilities.getUuid() };
+  if (roles.length) appAutoEnsureTables_(ctx);   // 社内の人の最初の操作で、版を上げて足した表を作る
   const allowed = opts.ownerOnly ? user.isOwner : appHasRole_(roles, opts.minRole || 'ADMIN', opts.clientId);
   try {
     if (!allowed) {

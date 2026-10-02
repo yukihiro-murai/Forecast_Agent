@@ -78,8 +78,25 @@ function appEnsureTables_(ctx) {
     const missing = Object.keys(APP_TABLES).filter(n => !schemaRows.some(r => r.table === n));
     appInsertRows_('_SCHEMA', missing.map(n => ({ table: n, schema_version: APP_SCHEMA_VERSION, columns_hash: appColumnsHash_(n),
       migrated_at: appNowIso_(), migrated_by: ctx.actor })));
+    appProps_().setProperty(APP_PROP.tablesVersion, String(APP_SCHEMA_VERSION));
     return made;
   });
+}
+
+/**
+ * 版を上げて表を足したとき、最初の操作（画面を開く・裏の処理を含む）で足りない表を作る。「初期設定」をもう一度実行しなくてよい。
+ * 2026-10-02 に版 3 の表（FORECAST_RUNS）が無くて「予測」の画面が開けなかったため。
+ * 作った表は実行ログに残す。失敗しても操作は止めずエラーのログに残す（その表を使う操作がそこで止まる）。
+ */
+function appAutoEnsureTables_(ctx) {
+  try {
+    if (!appIsSetUp_()) return;
+    if (appProps_().getProperty(APP_PROP.tablesVersion) === String(APP_SCHEMA_VERSION)) return;
+    const made = appEnsureTables_(ctx);
+    if (made.length) appRunLog_({ requestId: ctx.requestId, kind: 'SCHEMA.ENSURE', status: 'OK', detail: { version: APP_SCHEMA_VERSION, made: made } });
+  } catch (e) {
+    appLogError_('SCHEMA.ENSURE', e, ctx);
+  }
 }
 
 /** 状態の点検（表の列・_SCHEMA・監査の鎖・バックアップ・定期処理）。管理画面の「状態」 */
