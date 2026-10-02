@@ -183,7 +183,9 @@ function appPlanView_(ctx, planId) {
     delete boot.user; delete boot.bookUrl; delete boot.access;   // 旧ブックの URL・旧来の管理者の判定は出さない
     view = { boot: boot, engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
       builtMs: new Date().getTime() - t0 };
-    appJobPutResult_(key, view);
+    // 覚えておけなくても画面は出す（次の表示がまた組み立てになるだけ）
+    try { appJobPutResult_(key, view); } catch (e) { Logger.log('画面の中身を覚えておけません: ' + (e && e.message ? e.message : e)); }
+    if (view.builtMs > 20000) appRunLog_({ requestId: ctx.requestId, kind: 'PLAN.VIEW', status: 'SLOW', durationMs: view.builtMs, detail: { planId: plan.plan_id } });
   }
   const roles = ctx.roles || [];
   return Object.assign({

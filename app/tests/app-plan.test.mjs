@@ -104,6 +104,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.equal(env.props.APP_SCRATCH_SPREADSHEET_ID, scratchBefore, '計算用ブックは使わない');
   const again = env.call('apiPlanView(__in)', { __in: { planId } });
   assert.deepEqual(again.boot, view.boot, '入力が同じなら覚えておいたものを返す');
+  // 日本語の多い大きな結果も覚えておける（CacheService の上限はバイト数。2026-10-02 画面が読み込み中のまま）
+  env.run(`appJobPutResult_('BIG', { t: '日本語'.repeat(40000) })`);
+  assert.equal(J(env.run(`appJobGetResult_('BIG')`)).value.t.length, 120000);
   // 所有者の確認: 計算用ブックに組み立てて読んだものと同じ
   const chk = env.runJob('PLAN.VIEW_CHECK', { planId });
   assert.equal(chk.status, 'DONE', chk.error);

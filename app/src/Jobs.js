@@ -140,10 +140,10 @@ function appJobList_() {
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
-/** 結果を置く（1 つ 100KB までなので分けて置く） */
+/** 結果を置く（1 つ 100KB までなので分けて置く。上限はバイト数なので、日本語（1 文字 3 バイト）でも超えない 30,000 文字ずつ） */
 function appJobPutResult_(id, result) {
   const text = JSON.stringify(result === undefined ? null : result);
-  const CHUNK = 90000;
+  const CHUNK = 30000;
   const cache = CacheService.getScriptCache();
   const n = Math.max(1, Math.ceil(text.length / CHUNK));
   for (let i = 0; i < n; i++) cache.put(APP_JOB_RESULT_PREFIX + id + '_' + i, text.slice(i * CHUNK, (i + 1) * CHUNK), 21600);

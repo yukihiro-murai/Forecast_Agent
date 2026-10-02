@@ -321,7 +321,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     },
     CacheService: {
       getScriptCache: () => ({
-        put: (k, v, ttl) => { assert.ok(String(v).length <= 100 * 1024, 'CacheService の値は 100KB まで'); assert.ok(ttl <= 21600); cache[k] = String(v); },
+        put: (k, v, ttl) => { assert.ok(Buffer.byteLength(String(v), 'utf8') <= 100 * 1024, 'CacheService の値は 100KB（バイト）まで'); assert.ok(ttl <= 21600); cache[k] = String(v); },
         get: (k) => (k in cache ? cache[k] : null),
         remove: (k) => { delete cache[k]; },
       }),

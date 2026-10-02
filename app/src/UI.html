@@ -357,12 +357,15 @@ function viewMigrate(){
   }
   return html;
 }
-function loadForecast(planId){
-  if (planId !== S.fc.planId) S.fc.view = null;
+function loadForecast(planId, force){
+  if (planId !== S.fc.planId || force) { S.fc.view = null; S.fc.data = null; }
   S.fc.planId = planId;
   S.fc.draft = {}; S.fc.inputDirty = {}; S.fc.budget = {}; S.fc.ins = {}; S.fc.dec = {};
-  call('apiForecastLatest', [{ planId: planId }], function(r){ S.fc.data = r; });
-  call('apiPlanView', [{ planId: planId }], function(r){ S.fc.view = r; });
+  var L = S.fc.load = { latest: { start: Date.now() }, view: { start: Date.now() } };
+  var fail = function(k){ return function(e){ if (S.fc.load === L) { L[k].error = (e && e.message) || String(e); render(); } }; };
+  call('apiForecastLatest', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.latest.done = Date.now(); S.fc.data = r; } }, fail('latest'));
+  call('apiPlanView', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.view.done = Date.now(); S.fc.view = r; } }, fail('view'));
+  setTimeout(fcWaitTick, 1000);
 }
 function fcTable(h, title){
   if (!h) return '';
@@ -384,9 +387,31 @@ function viewForecast(){
   var sel = f.plans.length > 1 ? '<select class="inp" onchange="loadForecast(this.value)">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
   var html = '<h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel;
   html += '<div class="row" style="margin:0 0 14px">' + FC_TABS.map(function(t){ return '<button class="btn btn-sm' + (f.tab === t[0] ? '' : ' btn-ghost') + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
-  if (!d || !v) return html + '<div class="card note">読み込み中…</div>';
+  var wait = fcWaitBox();
+  if (!d || !v) return html + wait;
   var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
   return html + body(d, v);
+}
+/** 読み込みの待ち（何を待っているか・何秒か。失敗したら理由と、もう一度読む）。待ち続けないように 1 秒ごとに表示を新しくする */
+function fcWaitBox(){
+  var L = S.fc.load || {}, now = Date.now();
+  var part = function(k, label){ var x = L[k]; if (!x) return '';
+    if (x.error) return '<li><b style="color:var(--error)">' + label + ': 読めませんでした</b>（' + esc(x.error) + '）</li>';
+    if (x.done) return '<li>' + label + ': 読めました（' + Math.round((x.done - x.start) / 1000) + ' 秒）</li>';
+    return '<li>' + label + ': 読み込み中…（' + Math.round((now - x.start) / 1000) + ' 秒）</li>'; };
+  var slow = Object.keys(L).some(function(k){ return !L[k].done && !L[k].error && now - L[k].start > 90000; });
+  var failed = Object.keys(L).some(function(k){ return L[k].error; });
+  return '<div class="card" id="fcWait"><ul class="note" style="margin-left:18px">' + part('latest', '予測の結果') + part('view', '画面の中身（入力・予算・検証など）') + '</ul>'
+    + (slow ? '<p class="note" style="margin-top:8px;color:var(--warn-fg)">時間がかかっています。データが変わった後の最初の表示は 1 分ほどかかることがあります。</p>' : '')
+    + (slow || failed ? '<div class="row"><button class="btn btn-sm" onclick="loadForecast(S.fc.planId, true)">もう一度読み込む</button></div>' : '') + '</div>';
+}
+var fcWaitT = null;
+function fcWaitTick(){
+  clearTimeout(fcWaitT);
+  var L = S.fc.load || {};
+  var busyNow = Object.keys(L).some(function(k){ return !L[k].done && !L[k].error; });
+  if (S.view === 'forecast' && $('fcWait')) $('fcWait').outerHTML = fcWaitBox();
+  if (busyNow) fcWaitT = setTimeout(fcWaitTick, 1000);
 }
 function fcTab(t){ S.fc.tab = t; render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
