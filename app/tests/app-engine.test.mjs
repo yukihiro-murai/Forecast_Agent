@@ -16,20 +16,28 @@ import { appDir, repoRoot, sources, sha, J, makeEnv, setUpEnv, OWNER } from './g
 import { buildEngine, ENGINE_EXPORTS, ENGINE_SERVICES } from '../tools/build-engine.mjs';
 
 const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
+const webSrc = await readFile(path.join(repoRoot, 'Forecast_WebApp.js'), 'utf8');
 
-// ==== 1. LegacyEngine.js は Forecast_Agent.js をそのまま包んだもの ====
+// ==== 1. LegacyEngine.js は Forecast_Agent.js と Forecast_WebApp.js をそのまま包んだもの ====
 {
-  const built = buildEngine(legacySrc);
+  const built = buildEngine(legacySrc, webSrc);
   assert.equal(sources['LegacyEngine.js'], built.text, 'LegacyEngine.js が古い（node app/tools/build-engine.mjs で作り直す）');
   const text = sources['LegacyEngine.js'];
   const begin = text.indexOf('// ===== Forecast_Agent.js ここから（変更しない） =====\n') + '// ===== Forecast_Agent.js ここから（変更しない） =====\n'.length;
   const end = text.lastIndexOf('\n  // ===== Forecast_Agent.js ここまで =====');
   assert.equal(text.slice(begin, end), legacySrc, '包んだ中身は元のファイルと 1 文字も違わない');
+  const wBegin = text.indexOf('// ===== Forecast_WebApp.js ここから（変更しない） =====\n') + '// ===== Forecast_WebApp.js ここから（変更しない） =====\n'.length;
+  const wEnd = text.lastIndexOf('\n  // ===== Forecast_WebApp.js ここまで =====');
+  assert.equal(text.slice(wBegin, wEnd), webSrc, '旧来の Web アプリも 1 文字も違わない');
   assert.ok(text.includes('SHA-256 ' + sha(legacySrc)));
+  assert.ok(text.includes('SHA-256 ' + sha(webSrc)));
+  // 差し替えるのは、操作の記録と本人の確認の 2 つだけ（新アプリが行う）
+  const tail = text.slice(wEnd);
+  assert.deepEqual([...tail.matchAll(/^  (\w+) = function/gm)].map(m => m[1]), ['webAudited_', 'webActor_']);
   assert.ok(text.startsWith('/**') && text.trimEnd().endsWith('}'));
   // 外に出るのは appLegacyEngine_ だけ（読み込んだ後のグローバルの関数で確かめる）
   const env = makeEnv();
-  const fromEngine = Object.keys(env.ctx).filter((k) => typeof env.ctx[k] === 'function' && /^(runPhase1Forecast|onOpen|onEdit|setupForecastBook)$/.test(k));
+  const fromEngine = Object.keys(env.ctx).filter((k) => typeof env.ctx[k] === 'function' && /^(runPhase1Forecast|onOpen|onEdit|setupForecastBook|webGetBootstrap|webGetBootstrap_|webSaveInputs|webRunForecast)$/.test(k));
   assert.deepEqual(fromEngine, [], '旧来の関数はグローバルにない');
   assert.equal(typeof env.ctx.appLegacyEngine_, 'function');
 }
@@ -80,7 +88,8 @@ const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8
   assert.equal(eng.SOURCE_SHA256, sha(legacySrc));
   assert.equal(eng.VERSION, /const VERSION = '([^']+)'/.exec(legacySrc)[1]);
   assert.deepEqual(Object.keys(J(eng.SHEETS)).length >= 30, true);
-  assert.deepEqual(ENGINE_SERVICES, ['SpreadsheetApp', 'Date', 'Utilities', 'PropertiesService', 'UrlFetchApp', 'HtmlService']);
+  assert.deepEqual(ENGINE_SERVICES, ['SpreadsheetApp', 'Date', 'Utilities', 'PropertiesService', 'UrlFetchApp', 'HtmlService', 'Session']);
+  assert.equal(eng.WEB_SOURCE_SHA256, sha(webSrc));
   // 旧来の年度の数え方（FY N = N 年 4 月〜）を、差し替えた Date のもとでも同じに使う
   assert.equal(J(eng.getForecastFYStart_(2026)), new Date(2026, 3, 1).toISOString());
   assert.equal(env.run('appParseIso_("2026-10-01T22:40:00+0900").toISOString()'), '2026-10-01T13:40:00.000Z');

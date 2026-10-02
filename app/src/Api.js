@@ -82,6 +82,11 @@ function apiForecastLatest(input) {
   return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appForecastLatest_(input && input.planId));
 }
 
+/** 計画の画面（旧来の Web アプリと同じ中身: 入力・予測と予算・検証・四半期レビュー・進み。閲覧は社内全員） */
+function apiPlanView(input) {
+  return api_('PLAN.VIEW', { minRole: 'VIEWER', audit: false }, ctx => appPlanView_(ctx, input && input.planId));
+}
+
 /** 時間のかかる処理を始める（裏で動かす。種類ごとに権限が違う: 旧ブックの試し読み・取り込みは所有者だけ） */
 function apiStartJob(input) {
   return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJob_(ctx, input));

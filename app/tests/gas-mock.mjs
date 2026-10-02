@@ -88,6 +88,8 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
   };
   const normFmt = (f) => { if (f === '') throw new Error('Invalid number format pattern: (empty)'); return f; };
   const evalFormula = (f) => {
+    // 縦の SUM（=SUM(H29:H40)）だけを足し算に開く（旧来の OUTPUT の予算の数式）
+    f = f.replace(/SUM\(([A-Z]+)(\d+):\1(\d+)\)/g, (_, col, a, b) => '(' + Array.from({ length: +b - +a + 1 }, (x, i) => col + (+a + i)).join('+') + ')');
     const expr = f.slice(1).replace(/[A-Z]+\d+/g, (a1) => { const [r, c] = parseA1(a1); const v = at(rows, r - 1, c - 1, ''); return typeof v === 'number' ? String(v) : '0'; });
     if (!/^[\d+\-*/().\s]+$/.test(expr)) return '#ERROR!';
     return Function('return (' + expr + ')')();
@@ -138,6 +140,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
     deleteRows: (start, n) => { assert.ok(start + n - 1 <= maxRows); [rows, fmls, fmts].forEach((a) => a.splice(start - 1, n)); maxRows -= n; },
     deleteColumns: (start, n) => { assert.ok(start + n - 1 <= maxCols); [rows, fmls, fmts].forEach((a) => a.forEach((row) => row && row.splice(start - 1, n))); maxCols -= n; },
     setFrozenRows: () => {},
+    getDataRange: () => sh.getRange(1, 1, Math.max(1, sh.getLastRow()), Math.max(1, sh.getLastColumn())),
     clear: () => { rows.length = 0; fmls.length = 0; fmts.length = 0; return sh; },   // シート全体を消すと、形式を付けていない状態に戻る
     /** 別のスプレッドシートへ写す（本物と同じく「（名前）のコピー」という名前で足す） */
     copyTo(dest) {

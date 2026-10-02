@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+/*
+ * app-plan.test.mjs — 計画の画面（段階2-3）の契約テスト。
+ * - 読むだけのブック（データ本体から組み立てる）が、旧来の画面の読み取りに Sheet と同じ値を返すこと（OUTPUT の予算の数式も）
+ * - 画面の中身は旧来の webGetBootstrap_ を本物のまま動かしたもの（入力・予測・四半期レビュー）
+ * - 保存（入力・予算・四半期レビューの承認）は旧来の webSave* を本物のまま動かし、変わったシートだけをデータ本体へ戻すこと
+ * - 実行（B-3 など）は計算 → 保存の 2 段で戻すこと（旧来の計算の代わりで確かめる）
+ * - 権限（予算策定担当・承認者）・画面を開いた後にデータが変わったときの止め方・記録（PLAN_ACTIONS・監査）
+ *
+ *   node app/tests/app-plan.test.mjs
+ */
+
+import assert from 'node:assert/strict';
+import { J, MEMBER, OWNER, setUpEnv } from './gas-mock.mjs';
+
+const D = (y, m, d = 1) => new Date(y, m - 1, d);
+function legacyBook(env) {
+  const output = [['FY2026 売上予測（テスト製薬）']];
+  for (let r = 2; r <= 23; r++) output.push([]);
+  output.push([' 混合（主要）']);   // 24 行目（年度合計の 2 行上）
+  output.push([]);
+  output.push(['年度合計（予測）', 900, 1000, 1100, '', '', '', '', '', '']);   // 26 行目
+  output.push([], []);
+  const months = ['2026/04', '2026/05', '2026/06', '2026/07', '2026/08', '2026/09', '2026/10', '2026/11', '2026/12', '2027/01', '2027/02', '2027/03'];
+  months.forEach((m) => output.push([m, 70, 80, 90, '', '', '', '', '', '']));
+  const formulas = { H26: '=SUM(H29:H40)', I26: '=SUM(I29:I40)', J26: '=SUM(J29:J40)' };
+  for (let i = 0; i < 12; i++) formulas['J' + (29 + i)] = `=H${29 + i}+I${29 + i}`;
+  return env.makeBook('クライアント別売上予測', {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', 'テスト製薬'], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野,佐藤']] },
+    OUTPUT: { values: output, formulas, formats: { A: '@' } },
+    PRODUCT: { values: [['Person', 'ProductName', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Reason'], ['鷹野', '製品A', D(2026, 5), 5, '新規']] },
+    CLIENT: { values: [['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Reason']] },
+    OPINIONS: { values: [['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Confidence(0..1)', 'Note']] },
+    DEV_SPOT: { values: [['Person', 'Month(yyyy/mm/dd)', 'Project', 'Amount(JPY)', 'Confidence(0..1)']] },
+    PROCESS_STATUS: {
+      values: [['step_key', 'last_run_date', 'last_run_by', 'status', 'target_client', 'record_count', 'error_summary'],
+        ['step4_status', D(2026, 9, 1), 'owner', 'success', 'テスト製薬', 12, '']],
+    },
+    QUARTERLY_REVIEW: {
+      values: [['四半期レビュー（テスト製薬）'], ['2026/04〜2026/06'], [], [], [], [], ['proposal_id', 'target', 'current', 'proposed', 'conf', 'rationale', 'impact', '承認', 'rollback', 'review_id'],
+        ['P1', 'bias_correction_factor', 1, 0.98, 0.7, '過大', '-2%', '', 1, 'R-1'],
+        ['P2', 'ai_weight_override', '', 0.4, 0.5, '外れ', '-1%', '', '', '']],
+      formats: { G: '@' },
+    },
+  });
+}
+function imported() {
+  const env = setUpEnv();
+  const book = legacyBook(env);
+  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
+  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
+  assert.equal(dry.status, 'DONE', dry.error);
+  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
+  assert.equal(imp.status, 'DONE', imp.error);
+  return { env, book, url, planId: imp.result.planId };
+}
+const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
+
+// ==== 1. 読むだけのブック: Sheet と同じ値（数式は予算の列の SUM と足し算だけ）、書き込みは止める ====
+{
+  const { env, book, planId } = imported();
+  env.ctx.__plan = env.run(`appPlanOf_('${planId}')`);
+  const v = (expr) => J(env.run(`(() => { const b = appStoreBook_(__plan); return ${expr}; })()`));
+  const real = book.getSheetByName('OUTPUT');
+  assert.deepEqual(v(`b.getSheetByName('OUTPUT').getDataRange().getValues().length`), real.getLastRow());
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange(26, 3).getValue()`), 1000);
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange('C26').getValue()`), 1000, 'A1 でも読める');
+  assert.deepEqual(v(`b.getSheetByName('OUTPUT').getRange('A29:B30').getValues()`), [['2026/04', 70], ['2026/05', 70]]);
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange(29, 10).getValue()`), 0, '空の H+I は 0（Sheets と同じ）');
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange(26, 10).getValue()`), 0);
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange(29, 10).getFormula()`), '=H29+I29');
+  assert.equal(v(`b.getSheetByName('OUTPUT').getRange(500, 30).getValue()`), '', '範囲の外は空');
+  assert.equal(v(`b.getSheetByName('NOPE')`), null);
+  assert.equal(v(`b.getSheetByName('PRODUCT').getRange(2, 3).getValue() instanceof Date`), true, '日付は日付のまま');
+  assert.throws(() => env.run(`appStoreBook_(__plan).getSheetByName('OUTPUT').getRange(1, 1).setValue('x')`), /画面の表示では使えない操作です（Range\.setValue）/);
+  assert.throws(() => env.run(`appStoreBook_(__plan).insertSheet('X')`), /Spreadsheet\.insertSheet/);
+  assert.throws(() => env.run(`appStoreBook_(__plan).getSheetByName('OUTPUT').getRange(1, 1, 0, 1)`), /at least 1/);
+  assert.equal(env.run(`appEvalFormula_('=AVERAGE(B1:B2)', () => 1)`), '', 'ほかの数式は空として読む');
+}
+
+// ==== 2. 画面の中身: 旧来の webGetBootstrap_ を本物のまま動かす（データ本体から・計算用ブックなし） ====
+{
+  const { env, planId } = imported();
+  const scratchBefore = env.props.APP_SCRATCH_SPREADSHEET_ID;
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.equal(view.plan.planId, planId);
+  assert.equal(view.boot.setup.client, 'テスト製薬');
+  assert.equal(view.boot.setup.fy, 2026);
+  assert.deepEqual(view.boot.setup.people, ['鷹野', '佐藤']);
+  assert.equal(view.boot.input.product.length, 1);
+  assert.deepEqual(view.boot.input.product[0], { person: '鷹野', product: '製品A', ym: '2026-05', step: view.boot.input.product[0].step, reason: '新規' });
+  assert.equal(view.boot.output.sections[0].annual.p50, 1000);
+  assert.equal(view.boot.output.sections[0].monthly.length, 12);
+  assert.equal(view.boot.output.sections[0].monthly[0].row, 29, '予算を書く行番号');
+  assert.equal(view.boot.quarterly.proposals.length, 2);
+  assert.equal(view.boot.quarterly.reviewId, 'R-1');
+  assert.equal(view.boot.steps.find((s) => s.key === 'step4_status').status, 'success');
+  assert.equal(view.boot.bookUrl, undefined, '旧ブックの URL は出さない');
+  assert.equal(view.boot.access, undefined);
+  assert.equal(view.can.plan, true);
+  assert.equal(env.props.APP_SCRATCH_SPREADSHEET_ID, scratchBefore, '計算用ブックは使わない');
+  const again = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.deepEqual(again.boot, view.boot, '入力が同じなら覚えておいたものを返す');
+  // 所有者の確認: 計算用ブックに組み立てて読んだものと同じ
+  const chk = env.runJob('PLAN.VIEW_CHECK', { planId });
+  assert.equal(chk.status, 'DONE', chk.error);
+  assert.deepEqual(chk.result.diffs, []);
+  assert.equal(chk.result.same, true);
+  assert.deepEqual(J(env.run(`appJsonDiff_({ a: [1, 2], b: 'x' }, { a: [1, 3, 4], c: 1 }, '', [], 10)`)).map((d) => d.path), ['a.length', 'a[1]', 'b', 'c']);
+}
+
+// ==== 3. 保存: 旧来の webSave* を本物のまま動かし、変わったシートだけを戻す ====
+{
+  const { env, planId } = imported();
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  const before = Object.fromEntries(env.table('ENG_SHEETS').filter((r) => r.plan_id === planId).map((r) => [r.sheet, r.content_hash]));
+  // 入力（製品）を全面書き換え
+  const rows = [{ person: '鷹野', product: '製品A', ym: '2026-06', step: '10', reason: '増産' }, { person: '佐藤', product: '製品B', ym: '2026-07', step: '-5', reason: '' }];
+  const st = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', args: { kind: 'product', rows }, inputHash: view.inputHash });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.deepEqual(st.result.changed, ['PRODUCT'], '変わったシートだけ');
+  assert.equal(st.result.result.saved, 2);
+  const prod = engRows(env, 'PRODUCT', planId);
+  assert.equal(prod.length, 2);
+  assert.equal(prod[0].ProductName, '製品A');
+  assert.equal(prod[0]._types.charAt(2), 'd', '月は日付で持つ（旧来と同じ）');
+  assert.equal(prod[0]._types.charAt(3), 'n', '増減率は数値に変わる（Sheets の自動変換と同じ）');
+  const after = Object.fromEntries(env.table('ENG_SHEETS').filter((r) => r.plan_id === planId).map((r) => [r.sheet, r.content_hash]));
+  Object.keys(before).filter((k) => k !== 'PRODUCT').forEach((k) => assert.equal(after[k], before[k], k + ' は変えない'));
+  const row = env.table('PLAN_ACTIONS').slice(-1)[0];
+  assert.equal(row.action, 'INPUT.SAVE'); assert.equal(row.actor_email, OWNER); assert.equal(row.changed_sheets_json, '["PRODUCT"]');
+  const audit = env.audit().filter((a) => a.action === 'PLAN.INPUT.SAVE');
+  assert.equal(audit.length, 2, '開始と終了');
+  assert.match(audit[0].detail_json, /製品B/, '保存した中身を記録に残す');
+  const v2 = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.equal(v2.boot.input.product.length, 2, '画面にすぐ出る');
+  assert.equal(v2.recent[0].action, 'INPUT.SAVE');
+  // 画面を開いた後にデータが変わったら止める（古い画面のまま上書きしない）
+  const stale = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', args: { kind: 'product', rows: [] }, inputHash: view.inputHash });
+  assert.equal(stale.status, 'FAILED');
+  assert.match(stale.error, /画面を開き直して/);
+  assert.equal(engRows(env, 'PRODUCT', planId).length, 2);
+  // 予算（OUTPUT の H/I 列）
+  const b = env.runJob('PLAN.EDIT', { planId, action: 'BUDGET.SAVE', args: { rows: [{ row: 29, adopted: 85, uplift: 5 }, { row: 3, adopted: 1 }] }, inputHash: v2.inputHash });
+  assert.equal(b.status, 'DONE', b.error);
+  assert.deepEqual(b.result.changed, ['OUTPUT']);
+  const v3 = env.call('apiPlanView(__in)', { __in: { planId } });
+  const m = v3.boot.output.sections[0].monthly[0];
+  assert.deepEqual([m.adopted, m.uplift, m.final], [85, 5, 90], 'J 列（数式）は H+I');
+  assert.equal(v3.boot.output.sections[0].annual.final, 90, '年度合計は SUM');
+  // 大きい入力（処理の記録の上限を超える）も保存できる
+  const many = Array.from({ length: 120 }, (_, i) => ({ person: '鷹野', product: '製品' + i, ym: '2026-08', step: '1', reason: '理由'.repeat(10) }));
+  const big = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', args: { kind: 'product', rows: many }, inputHash: v3.inputHash });
+  assert.equal(big.status, 'DONE', big.error);
+  assert.equal(engRows(env, 'PRODUCT', planId).length, 120);
+}
+
+// ==== 4. 実行: 計算 → 保存の 2 段（旧来の計算の代わりで確かめる） ====
+{
+  const { env, planId } = imported();
+  env.run(`appLegacyEngine_ = function (svc) {
+    return { VERSION: 'stub-1', SOURCE_SHA256: 'stub', WEB_SOURCE_SHA256: 'stub-web',
+      webRunDashboard() {
+        const ss = svc.SpreadsheetApp.getActiveSpreadsheet();
+        let sh = ss.getSheetByName('DASHBOARD');
+        if (!sh) sh = ss.insertSheet('DASHBOARD');
+        sh.getRange(1, 1, 2, 3).setValues([['metric', 'value', 'note'], ['sMAPE', 0.12, svc.Session.getActiveUser().getEmail()]]);
+        return { boot: { big: 'x'.repeat(100000) } };
+      } };
+  };`);
+  const st = env.runJob('PLAN.RUN', { planId, action: 'EVAL.DASHBOARD' });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.deepEqual(st.result.changed, ['DASHBOARD']);
+  assert.deepEqual(st.result.result, {}, '画面の中身（boot）は記録に残さない');
+  const dash = engRows(env, 'DASHBOARD', planId);
+  assert.equal(dash.length, 1);
+  assert.equal(dash[0].note, OWNER, '頼んだ人を「操作した人」として見せる');
+  const row = env.table('PLAN_ACTIONS').slice(-1)[0];
+  assert.equal(row.action, 'EVAL.DASHBOARD'); assert.equal(row.web_sha256, 'stub-web');
+  assert.ok(env.audit().some((a) => a.action === 'PLAN.EVAL.DASHBOARD.CALC') && env.audit().some((a) => a.action === 'PLAN.EVAL.DASHBOARD.SAVE'));
+}
+
+// ==== 5. 権限: 保存・実行は予算策定担当（その計画のクライアント）以上、承認は承認者。未定義の操作は止める ====
+{
+  const { env, planId } = imported();
+  const clientId = env.table('PLANS')[0].client_id;
+  env.call(`apiSaveMember({ email: '${MEMBER}', displayName: 'M' })`);
+  env.as(MEMBER);
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.equal(view.can.plan, false, '見るのは社内全員');
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.EDIT', payload: { planId, action: 'INPUT.SAVE', args: { kind: 'product', rows: [] } } } }), /権限がありません/);
+  env.as(OWNER);
+  env.call('apiGrantRole(__in)', { __in: { email: MEMBER, role: 'PLANNER', scopeType: 'CLIENT', clientId } });
+  env.as(MEMBER);
+  const v = env.call('apiPlanView(__in)', { __in: { planId } });
+  assert.deepEqual([v.can.plan, v.can.approve], [true, false]);
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.EDIT', payload: { planId, action: 'REVIEW.DECIDE', args: { rows: [{ row: 8, decision: '承認' }] } } } }), /権限がありません/, '承認は承認者だけ');
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action: 'REVIEW.APPLY' } } }), /権限がありません/);
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.EDIT', payload: { planId, action: 'EVAL.REPORT' } } }), /未定義の操作です/, '実行の操作を保存として始められない');
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action: 'FORECAST.RUN' } } }), /未定義の操作です/);
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN_SAVE', payload: { planId, action: 'EVAL.REPORT' } } }), /画面から始められません/);
+  env.as(OWNER);
+  env.call('apiGrantRole(__in)', { __in: { email: MEMBER, role: 'APPROVER', scopeType: 'ALL' } });
+  env.as(MEMBER);
+  const st = env.runJob('PLAN.EDIT', { planId, action: 'REVIEW.DECIDE', args: { rows: [{ row: 8, decision: '承認' }, { row: 9, decision: '保留' }] }, inputHash: v.inputHash });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.deepEqual(st.result.changed, ['QUARTERLY_REVIEW']);
+  const q = env.call('apiPlanView(__in)', { __in: { planId } }).boot.quarterly.proposals;
+  assert.deepEqual(q.map((x) => x.decision), ['承認', '保留']);
+  const bad = env.runJob('PLAN.EDIT', { planId, action: 'REVIEW.DECIDE', args: { rows: [{ row: 8, decision: 'OK' }] } });
+  assert.equal(bad.status, 'FAILED');
+  assert.match(bad.error, /承認 \/ 却下 \/ 保留/, '旧来と同じ確かめ方');
+}
+
+console.log('app-plan: all tests passed');

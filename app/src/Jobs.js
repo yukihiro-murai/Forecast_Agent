@@ -18,7 +18,12 @@ function appJobSpec_(kind) {
     'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true },   // 続きの処理（画面からは始めない）
     // 予測の実行: 予算策定担当（その計画のクライアントの担当でもよい）以上
     'FORECAST.RUN': { minRole: 'PLANNER', planScoped: true, label: '予測の実行' },
-    'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true }
+    'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
+    // 計画への保存・実行（Plan.js）: 操作ごとの役割（予算策定担当・承認者）。その計画のクライアントの担当でもよい
+    'PLAN.VIEW_CHECK': { ownerOnly: true, label: '画面の中身の確認' },
+    'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存' },
+    'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
+    'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true }
   };
   const s = specs[String(kind || '')];
   if (!s) throw new Error('未定義の処理です: ' + kind);
@@ -30,8 +35,33 @@ function appJobStartOpts_(input) {
   const spec = appJobSpec_(input && input.kind);
   if (spec.internal) throw new Error('この処理は画面から始められません: ' + input.kind);
   if (spec.ownerOnly) return { ownerOnly: true, audit: false, detail: { kind: input.kind } };
-  return { minRole: spec.minRole || 'ADMIN', clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
-    detail: { kind: input.kind, planId: input.payload && input.payload.planId } };
+  return { minRole: appJobMinRole_(spec, input.payload), clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
+    detail: { kind: input.kind, planId: input.payload && input.payload.planId, action: input.payload && input.payload.action } };
+}
+
+/** 処理に要る役割（操作ごとに決まる処理は、頼んだ中身から） */
+function appJobMinRole_(spec, payload) {
+  return (spec.minRoleOf ? spec.minRoleOf(payload || {}) : spec.minRole) || 'ADMIN';
+}
+
+/**
+ * 画面から渡された大きい中身（入力の行など）は、処理の記録（Script Properties、8KB まで）ではなく CacheService に置く。
+ * 処理は数分以内に動くので、6 時間の保存期間で足りる
+ */
+function appJobStashArgs_(payload) {
+  if (!payload || payload.args === undefined || JSON.stringify(payload).length <= 4000) return payload;
+  const ref = 'ARGS_' + Utilities.getUuid().replace(/-/g, '');
+  appJobPutResult_(ref, payload.args);
+  const out = Object.assign({}, payload, { argsRef: ref });
+  delete out.args;
+  return out;
+}
+
+function appJobArgs_(payload) {
+  if (!payload.argsRef) return payload.args;
+  const r = appJobGetResult_(payload.argsRef);
+  if (!r.found) throw new Error('保存する内容が見つかりません（保存期間が過ぎた）。もう一度保存してください。');
+  return r.value;
 }
 
 /** 計画ごとの処理の、その計画のクライアント（クライアント単位の役割で判定するため） */
@@ -71,6 +101,22 @@ function appJobExecute_(ctx, job) {
         after: res => ({ same: res.same, diffSheets: res.diff.length, preSame: res.preSame, diff: res.diff.map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })),
           preDiff: (res.preDiff || []).map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })), seed: res.seed, asOf: res.asOf, storeAnnual: res.store && res.store.annual,
           legacyAnnual: res.legacy && res.legacy.annual, timing: res.timing }) }, () => appParityB_(ctx, p));
+    case 'PLAN.VIEW_CHECK':
+      return appAudited_(ctx, 'PLAN.VIEW_CHECK', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
+        after: res => ({ same: res.same, diffs: res.diffs.length, timing: res.timing }) }, () => appPlanViewCheck_(ctx, p));
+    case 'PLAN.EDIT':
+      return appAudited_(ctx, 'PLAN.' + p.action, { entityType: 'PLAN', entityId: p.planId,
+        detail: { planId: p.planId, action: p.action, args: appJobArgs_(p), jobId: job.id },
+        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, result: res.result, timing: res.timing }) },
+        () => appPlanEdit_(ctx, p));
+    case 'PLAN.RUN':
+      return appAudited_(ctx, 'PLAN.' + p.action + '.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, action: p.action, jobId: job.id },
+        after: res => ({ actionId: res.__next.payload.actionId, changed: res.__next.payload.changed, result: res.__next.payload.result, timing: res.__next.payload.timing }) },
+        () => appPlanRunCalc_(ctx, p, job));
+    case 'PLAN.RUN_SAVE':
+      return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
+        detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
+        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written }) }, () => appPlanRunSave_(ctx, p));
     default:
       throw new Error('未定義の処理です: ' + job.kind);
   }
@@ -151,7 +197,7 @@ function appStartJob_(ctx, input) {
     appCleanupJobs_();
     const busy = appJobList_().filter(j => j.status === 'QUEUED' || (j.status === 'RUNNING' && !appJobIsStale_(j)));
     if (busy.length) throw new Error('ほかの処理（' + appJobSpec_(busy[0].kind).label + '）が終わるまでお待ちください。');
-    const job = appEnqueueJob_(kind, (input && input.payload) || {}, ctx.actor, '');
+    const job = appEnqueueJob_(kind, appJobStashArgs_((input && input.payload) || {}), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
 }
@@ -212,7 +258,7 @@ function appRunJob_(id) {
     const ctx = appJobContext_(job);
     const spec = appJobSpec_(job.kind);
     const clientId = spec.planScoped ? appJobPlanClient_(job.payload) : undefined;
-    const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, spec.minRole || 'ADMIN', clientId);
+    const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId);
     if (!allowed) throw new Error('この操作をする権限がありません。');
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {

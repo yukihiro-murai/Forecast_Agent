@@ -199,10 +199,10 @@ function appEngCompare_(snap, dec) {
   return bad;
 }
 
-/** データ本体から、計画 1 つ分の旧来のシートをすべて組み立てる（{ シート名: 組み立てた中身 }） */
-function appEngLoadPlanSheets_(planId) {
+/** データ本体から、計画 1 つ分の旧来のシートをすべて（only を渡すとそのシートだけ）組み立てる（{ シート名: 組み立てた中身 }） */
+function appEngLoadPlanSheets_(planId, only) {
   const mine = r => r.plan_id === planId;
-  const sheets = appReadTable_('ENG_SHEETS').filter(mine);
+  const sheets = appReadTable_('ENG_SHEETS').filter(r => mine(r) && (!only || only.indexOf(r.sheet) >= 0));
   const group = (name) => {
     const by = {};
     appReadTable_(name).filter(mine).forEach(r => { (by[r.sheet] = by[r.sheet] || []).push(r); });

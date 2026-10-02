@@ -28,25 +28,18 @@ function appForecastRunCalc_(ctx, p, job) {
   const seed = runId;
   const confirms = (p.confirms || []).map(String);
   const inputHash = appPlanInputHash_(plan.plan_id);
-  const stored = {};
-  appReadTable_('ENG_SHEETS').filter(r => r.plan_id === plan.plan_id).forEach(r => { stored[r.sheet] = r.content_hash; });
+  const stored = appStoredHashes_(plan.plan_id);
   return appWithLock_(() => {
     const scratch = appParityScratch_(plan);
     const build = appScratchFromStore_(scratch, plan.plan_id);
     const t1 = new Date().getTime();
-    const run = appRunLegacyForecast_(scratch, { asOfMs: t0, seed: seed, confirms: confirms });
+    const run = appRunLegacyForecast_(scratch, { asOfMs: t0, seed: seed, confirms: confirms, actor: ctx.actor });
     if (!run.ok) return { needConfirm: run.needConfirm, planId: plan.plan_id, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
     const t2 = new Date().getTime();
     const headline = appForecastHeadline_(scratch);
-    const changed = [];
-    const unknown = [];
-    scratch.getSheets().forEach(sh => {
-      const name = sh.getName();
-      const reg = APP_ENGINE_SHEETS[name];
-      if (!reg) { unknown.push(name); return; }
-      const enc = appEngEncodeSheet_(plan.plan_id, appSheetSnapshot_(sh, reg.header ? reg.header.length : 0));
-      if (stored[name] !== enc.sheetRow.content_hash) changed.push(enc);
-    });
+    const cap = appCaptureChanged_(scratch, plan.plan_id, stored);
+    const changed = cap.changed;
+    const unknown = cap.unknown;
     appJobPutResult_(job.id + '_SAVE', { changed: changed });
     const t3 = new Date().getTime();
     return {
@@ -71,21 +64,7 @@ function appForecastRunSave_(ctx, p) {
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
     const now = appNowIso_();
     const names = changed.map(e => e.sheetRow.sheet);
-    const mine = r => r.plan_id === plan.plan_id;
-    const inChanged = r => mine(r) && names.indexOf(r.sheet) >= 0;
-    const written = {};
-    changed.forEach(enc => {
-      const name = enc.sheetRow.sheet;
-      if (APP_ENGINE_SHEETS[name].mode !== 'table') return;
-      const rows = enc.sheetRow.mode === 'table' ? enc.tableRows : [];   // 見出しが違えば ENG_ROWS 側に持つ
-      written['ENG_' + name] = appReplaceOrAppend_('ENG_' + name, plan.plan_id, rows);
-    });
-    const segs = [].concat.apply([], changed.map(e => e.rowSegs));
-    const fmts = [].concat.apply([], changed.map(e => e.formatRows));
-    written.ENG_ROWS = appReplaceRows_('ENG_ROWS', r => !inChanged(r), segs);
-    written.ENG_FORMATS = appReplaceRows_('ENG_FORMATS', r => !inChanged(r), fmts);
-    written.ENG_SHEETS = appReplaceRows_('ENG_SHEETS', r => !inChanged(r),
-      changed.map(e => Object.assign({}, e.sheetRow, { import_batch_id: p.runId, updated_at: now, updated_by: ctx.actor })));
+    const written = appWriteChanged_(ctx, plan.plan_id, changed, p.runId);
     const h = p.headline || { annual: {}, objective: {}, monthly: [], objectiveMonthly: [] };
     const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
     appInsertRows_('FORECAST_RUNS', [{
@@ -104,6 +83,52 @@ function appForecastRunSave_(ctx, p) {
     return { runId: p.runId, planId: plan.plan_id, changed: names, written: written, headline: h, unknown: p.unknown || [],
       audit: { entityId: p.runId, clientId: plan.client_id } };
   });
+}
+
+/**
+ * 計算用ブックの各シートを控えの形にし、データ本体と中身（ハッシュ）が違うものだけを返す。
+ * only を渡すと、そのシートだけを見る（一部だけを組み立てた計算用ブックのとき）
+ */
+function appCaptureChanged_(scratch, planId, stored, only) {
+  const changed = [];
+  const unknown = [];
+  scratch.getSheets().forEach(sh => {
+    const name = sh.getName();
+    if (only && only.indexOf(name) < 0) return;
+    const reg = APP_ENGINE_SHEETS[name];
+    if (!reg) { unknown.push(name); return; }
+    const enc = appEngEncodeSheet_(planId, appSheetSnapshot_(sh, reg.header ? reg.header.length : 0));
+    if (stored[name] !== enc.sheetRow.content_hash) changed.push(enc);
+  });
+  return { changed: changed, unknown: unknown };
+}
+
+/** 計画のシートごとの中身のハッシュ（{ シート名: content_hash }） */
+function appStoredHashes_(planId) {
+  const stored = {};
+  appReadTable_('ENG_SHEETS').filter(r => r.plan_id === planId).forEach(r => { stored[r.sheet] = r.content_hash; });
+  return stored;
+}
+
+/** 控えの形にしたシートを、データ本体の計画 planId の行と入れ替える（ロックの中で呼ぶ）。履歴の表は足された行だけを書く */
+function appWriteChanged_(ctx, planId, changed, batchId) {
+  const now = appNowIso_();
+  const names = changed.map(e => e.sheetRow.sheet);
+  const inChanged = r => r.plan_id === planId && names.indexOf(r.sheet) >= 0;
+  const written = {};
+  changed.forEach(enc => {
+    const name = enc.sheetRow.sheet;
+    if (APP_ENGINE_SHEETS[name].mode !== 'table') return;
+    const rows = enc.sheetRow.mode === 'table' ? enc.tableRows : [];   // 見出しが違えば ENG_ROWS 側に持つ
+    written['ENG_' + name] = appReplaceOrAppend_('ENG_' + name, planId, rows);
+  });
+  const segs = [].concat.apply([], changed.map(e => e.rowSegs));
+  const fmts = [].concat.apply([], changed.map(e => e.formatRows));
+  written.ENG_ROWS = appReplaceRows_('ENG_ROWS', r => !inChanged(r), segs);
+  written.ENG_FORMATS = appReplaceRows_('ENG_FORMATS', r => !inChanged(r), fmts);
+  written.ENG_SHEETS = appReplaceRows_('ENG_SHEETS', r => !inChanged(r),
+    changed.map(e => Object.assign({}, e.sheetRow, { import_batch_id: batchId, updated_at: now, updated_by: ctx.actor })));
+  return written;
 }
 
 /** データ本体の OUTPUT（取り込んだ旧ブック、または最後の予測）から、主な結果を読む */

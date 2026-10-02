@@ -168,7 +168,9 @@ function appLegacyServices_(book, opts) {
       getDocumentProperties: () => { throw new Error('旧来の計算からは Document Properties を使いません。'); }
     },
     UrlFetchApp: appBlockedService_('UrlFetchApp'),
-    HtmlService: appBlockedService_('HtmlService')
+    HtmlService: appBlockedService_('HtmlService'),
+    // 裏の処理（トリガー）では操作した人のメールが取れないので、頼んだ人を「操作した人」として見せる（PROCESS_STATUS の実行者など）
+    Session: pass(Session, { getActiveUser: () => ({ getEmail: () => String(opts.actor || '') }) })
   };
 }
 
@@ -192,6 +194,20 @@ function appRunLegacyForecast_(book, opts) {
   });
 }
 
+/**
+ * 旧来の関数（計算・Web アプリの保存や実行）を 1 つ、差し替えのもとで呼ぶ。種と「今」を固定する。
+ * opts: { asOfMs, seed, actor }。返り値: { value, version, sourceSha256, webSha256 }
+ */
+function appLegacyCall_(book, opts, fnName, args) {
+  const svc = appLegacyServices_(book, opts);
+  return appWithSeededRandom_(opts.seed, () => {
+    const eng = appLegacyEngine_(svc);
+    if (typeof eng[fnName] !== 'function') throw new Error('旧来の関数がありません: ' + fnName);
+    const value = eng[fnName].apply(null, args || []);
+    return { value: value, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256, webSha256: eng.WEB_SOURCE_SHA256 };
+  });
+}
+
 // ---- 計算用ブックの準備と、計算後の中身の控え ----
 
 /** 旧ブックの計算に使うシートを、そのまま（書式・数式・注記ごと）計算用ブックに写す（一致の確認の「元」側） */
@@ -208,9 +224,9 @@ function appScratchCopyLegacy_(scratch, legacy) {
   return copied;
 }
 
-/** データ本体の計画 1 つ分から、計算用ブックを組み立てる（一致の確認の「新」側・新アプリでの予測の実行） */
-function appScratchFromStore_(scratch, planId) {
-  const sheets = appEngLoadPlanSheets_(planId);
+/** データ本体の計画 1 つ分から、計算用ブックを組み立てる（一致の確認の「新」側・新アプリでの予測の実行）。only を渡すとそのシートだけ */
+function appScratchFromStore_(scratch, planId, only) {
+  const sheets = appEngLoadPlanSheets_(planId, only);
   const placeholder = appScratchReset_(scratch);
   const report = [];
   Object.keys(APP_ENGINE_SHEETS).forEach(name => {

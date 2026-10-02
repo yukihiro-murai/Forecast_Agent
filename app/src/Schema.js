@@ -3,9 +3,10 @@
  * 1 表 = 1 シート、1 行目に英字の列名、2 行目から値だけ（数式・タイトル・説明・色は置かない）。
  * 段階1 はマスタと設定の表。段階2 で計画（PLANS）・取り込みの記録（IMPORT_BATCHES）と、旧来の計算が使う表（ENG_*）を足した。
  * 版 3（段階2-2b）で、新アプリで動かした予測の記録（FORECAST_RUNS / FORECAST_MONTHLY）を足した。types = 数値の列（num）。
+ * 版 4（段階2-3）で、予測のほかの保存・実行（入力・予算・検証・四半期レビューなど）の記録（PLAN_ACTIONS）を足した。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  */
-const APP_SCHEMA_VERSION = 3;
+const APP_SCHEMA_VERSION = 4;
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -66,6 +67,12 @@ const APP_TABLES = {
       'annual_p10', 'annual_p50', 'annual_p90', 'objective_p10', 'objective_p50', 'objective_p90',
       'changed_sheets_json', 'confirms_json', 'started_at', 'finished_at', 'actor_email'],
     types: { annual_p10: 'num', annual_p50: 'num', annual_p90: 'num', objective_p10: 'num', objective_p50: 'num', objective_p90: 'num' }
+  },
+  PLAN_ACTIONS: {
+    // 計画への保存・実行 1 回（追記のみ。予測の実行は FORECAST_RUNS）。旧来の Web アプリの同じ名前の操作を、データ本体の上で動かした記録
+    key: ['action_id'],
+    columns: ['action_id', 'plan_id', 'action', 'status', 'engine_version', 'engine_sha256', 'web_sha256', 'seed', 'as_of', 'input_hash',
+      'changed_sheets_json', 'result_json', 'started_at', 'finished_at', 'actor_email']
   },
   FORECAST_MONTHLY: {
     // 予測 1 回の月ごとの P10/P50/P90（混合と、過去売上のみ）。旧来の OUTPUT の行から取る
