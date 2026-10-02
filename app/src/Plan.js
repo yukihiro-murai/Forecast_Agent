@@ -202,8 +202,14 @@ function appPlanView_(ctx, planId) {
     recent: appReadTable_('PLAN_ACTIONS').filter(r => r.plan_id === plan.plan_id).map(appStripRow_)
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
-        changed: r.changed_sheets_json }))
+        changed: appParseJsonList_(r.changed_sheets_json) }))
   }, view);
+}
+
+/** 表の *_json の列（文字列で持つ）を一覧に戻す。読めなければ空 */
+function appParseJsonList_(v) {
+  if (Array.isArray(v)) return v;
+  try { const x = JSON.parse(String(v || '[]')); return Array.isArray(x) ? x : []; } catch (e) { return []; }
 }
 
 // ---- 保存・実行（裏の処理） ----

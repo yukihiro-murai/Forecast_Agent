@@ -390,7 +390,10 @@ function viewForecast(){
   var wait = fcWaitBox();
   if (!d || !v) return html + wait;
   var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
-  return html + body(d, v);
+  // タブの表示で失敗しても、前の画面のまま止まらずに理由を出す（2026-10-02「進み」が表示されなかった）
+  try { return html + body(d, v); } catch (e) {
+    return html + '<div class="card" style="border-color:var(--error);background:var(--error-bg)"><b style="color:var(--error)">このタブを表示できませんでした</b><p class="note" style="margin-top:6px">' + esc((e && e.message) || e) + '</p><p class="note">この文を管理者に伝えてください。ほかのタブは使えます。</p></div>';
+  }
 }
 /** 読み込みの待ち（何を待っているか・何秒か。失敗したら理由と、もう一度読む）。待ち続けないように 1 秒ごとに表示を新しくする */
 function fcWaitBox(){

@@ -11,7 +11,8 @@
  */
 
 import assert from 'node:assert/strict';
-import { J, MEMBER, OWNER, setUpEnv } from './gas-mock.mjs';
+import vm from 'node:vm';
+import { J, MEMBER, OWNER, setUpEnv, uiHtml } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 function legacyBook(env) {
@@ -141,6 +142,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const v2 = env.call('apiPlanView(__in)', { __in: { planId } });
   assert.equal(v2.boot.input.product.length, 2, '画面にすぐ出る');
   assert.equal(v2.recent[0].action, 'INPUT.SAVE');
+  assert.deepEqual(v2.recent[0].changed, ['PRODUCT'], '変わったシートは一覧で渡す（文字列のままだと「進み」が表示できない）');
   // 画面を開いた後にデータが変わったら止める（古い画面のまま上書きしない）
   const stale = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', args: { kind: 'product', rows: [] }, inputHash: view.inputHash });
   assert.equal(stale.status, 'FAILED');
@@ -255,6 +257,28 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   env.as(MEMBER);
   assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action: 'IMPORT.SALES' } } }), /権限がありません/, '取り込みは管理者');
   assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.EDIT', payload: { planId, action: 'SETUP.PEOPLE', args: { peopleCsv: 'x' } } } }), /権限がありません/);
+}
+
+// ==== 7. 画面: 実際の中身で 5 つのタブをすべて描ける（描く途中で止まらない） ====
+{
+  const { env, planId } = imported();
+  env.runJob('PLAN.EDIT', { planId, action: 'BUDGET.SAVE', args: { rows: [{ row: 29, adopted: 85, uplift: 5 }] }, inputHash: env.call('apiPlanView(__in)', { __in: { planId } }).inputHash });
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  const latest = env.call('apiForecastLatest(__in)', { __in: { planId } });
+  const js = uiHtml.slice(uiHtml.indexOf('<script>') + 8, uiHtml.lastIndexOf('</script>'))
+    .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" });')
+    .replace('<?!= bootJson ?>', JSON.stringify({ app: { name: 'T', version: 'x' }, user: { email: OWNER, isOwner: true, isAdmin: true, roles: [] }, setUp: true, allowed: true }));
+  const el = () => ({ innerHTML: '', classList: { add() {}, remove() {} }, set outerHTML(v) {} });
+  const ui = vm.createContext({ document: { getElementById: el, querySelector: () => null }, setTimeout: () => 0, clearTimeout() {}, confirm: () => false, window: {},
+    google: { script: { run: new Proxy({}, { get: (t, k) => (k === 'withSuccessHandler' || k === 'withFailureHandler' ? () => ui.google.script.run : () => {}) }) } } });
+  vm.runInContext(js, ui);
+  ui.__v = view; ui.__d = latest;
+  vm.runInContext(`S.view = 'forecast'; S.fc.plans = [{ planId: __v.plan.planId, clientName: 'x', fy: '2026' }]; S.fc.planId = __v.plan.planId; S.fc.view = __v; S.fc.data = __d;`, ui);
+  for (const tab of ['forecast', 'input', 'eval', 'quarterly', 'steps']) {
+    const html = vm.runInContext(`S.fc.tab = '${tab}'; viewForecast()`, ui);
+    assert.ok(!/このタブを表示できませんでした/.test(html), tab + ' タブを描ける: ' + (html.match(/<p class="note" style="margin-top:6px">([^<]*)/) || [])[1]);
+  }
+  assert.match(vm.runInContext(`S.fc.tab = 'steps'; viewForecast()`, ui), /予算の保存[\s\S]*OUTPUT/, '最近の操作に変わったシートが出る');
 }
 
 console.log('app-plan: all tests passed');
