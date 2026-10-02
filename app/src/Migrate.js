@@ -75,7 +75,8 @@ function appMigrationDryRun_(ctx, input) {
         sheet: snap.name, mode: enc.sheetRow.mode, rows: snap.lastRow, cols: snap.lastCol, records: enc.tableRows.length,
         rowSegments: enc.rowSegs.length, formulas: enc.formulaCount, warnings: enc.warnings,
         losslessMismatch: lossless.length, losslessSamples: lossless.slice(0, 5),
-        mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples
+        mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples,
+        formatMismatches: w.formatMismatches, formatFixed: w.formatFixed, formatSamples: w.formatSamples
       };
     });
     if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
@@ -89,7 +90,7 @@ function appMigrationDryRun_(ctx, input) {
       client: src.client, fy: src.fy, peopleCount: src.people.split(',').map(x => x.trim()).filter(Boolean).length,
       sheets: sheets, missing: src.missing, notMigrated: src.notMigrated, unknown: src.unknown,
       lossless: sheets.every(x => x.losslessMismatch === 0),
-      faithful: sheets.every(x => x.mismatch === 0 && x.forcedText === 0),
+      faithful: sheets.every(x => x.mismatch === 0 && x.forcedText === 0 && x.formatMismatches === 0),
       contentHash: contentHash,
       existingPlan: plan ? { planId: plan.plan_id, lastImportedAt: lastBatch ? lastBatch.finished_at : '', unchanged: !!(lastBatch && lastBatch.content_hash === contentHash) } : null,
       audit: { entityId: plan ? plan.plan_id : '' }

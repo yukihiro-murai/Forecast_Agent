@@ -213,13 +213,52 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   const fm = env2.data().getSheetByName('ENG_FORMATS');
   const H = fm.rows[0];
   const row = fm.rows.findIndex((r, i) => i > 0 && r[H.indexOf('sheet')] === 'CALIBRATION_STATE' && r[H.indexOf('col')] === '7');
-  fm.rows[row][H.indexOf('runs_json')] = JSON.stringify([[1, 1, 'General'], [2, 2, '0.00'], [3, 1000, 'General']]);
+  const orig = JSON.parse(fm.rows[row][H.indexOf('runs_json')]);
+  assert.deepEqual(orig, [[1, 1000, '0.###############']], '何もしていない列は「自動」（本物は 0.############### と返す）');
+  fm.rows[row][H.indexOf('runs_json')] = JSON.stringify([[1, 1, '0.###############'], [2, 2, '0.00'], [3, 1000, '0.###############']]);
   const st = env2.runJob('FORECAST.PARITY', { planId: imp.result.planId });
   assert.equal(st.status, 'DONE', st.error);
   assert.equal(st.result.preSame, false);
   const pre = st.result.preDiff.find((d) => d.sheet === 'CALIBRATION_STATE');
-  assert.deepEqual(pre.formatCells.samples[0], { cells: 'G2', a: 'General', b: '0.00' });
+  assert.deepEqual(pre.formatCells.samples[0], { cells: 'G2', a: '0.###############', b: '0.00' });
   assert.equal(pre.rowCount, 0, '値は同じで表示形式だけが違う');
+}
+
+// ==== 6. 形式を消したセル（空の表示形式）も、組み立て直すと同じになる（2026-10-02 DASHBOARD!B17・PROCESS_STATUS!B8） ====
+{
+  const env = setUpEnv();
+  const book = env.makeBook('クライアント別売上予測', {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', 'テスト製薬'], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    OUTPUT: { values: [['FY2026 売上予測（テスト製薬）']] },
+    CALIBRATION_STATE: {
+      values: [['client', 'updated_at', 'updated_by', 'ai_weight_override', 'ai_max_abs_effect_override', 'ai_topic_disable_json', 'bias_correction_factor',
+        'qual_scale_override', 'residual_month_bias_json', 'last_applied_quarter', 'last_applied_review_id', 'auto_update_enabled', 'note'],
+      ['テスト製薬', D(2026, 9, 1), 'auto', '', '', '[]', 0.98, '', '{}', '', '', 1, '']],
+    },
+    PROCESS_STATUS: {
+      values: [['step_key', 'last_run_date', 'last_run_by', 'status', 'target_client', 'record_count', 'error_summary'],
+        ['step1_status', D(2026, 9, 30), 'owner', 'success', 'テスト製薬', 10, ''],
+        ['step5_status', D(2026, 9, 30), 'owner', 'success', 'テスト製薬', 3, '']],
+      formats: { B: 'yyyy/MM/dd H:mm:ss' },
+      cellFormats: { B3: '' },   // 形式を消した後に日付を書いたセル
+    },
+  });
+  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
+  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
+  assert.equal(dry.status, 'DONE', dry.error);
+  const ps = dry.result.sheets.find((x) => x.sheet === 'PROCESS_STATUS');
+  assert.deepEqual([ps.mismatch, ps.formatMismatches], [0, 0], '形式を消したセルも組み立て直すと同じ（値も表示形式も）');
+  assert.equal(dry.result.faithful, true);
+  // 「自動」で書いてしまうと違いが出ることも確かめる（直す前のやり方）
+  const scratch = env.scratch();
+  assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(3, 2).getNumberFormats()[0][0], '');
+  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
+  assert.equal(imp.status, 'DONE', imp.error);
+  env.run(STUB_ENGINE);
+  const st = env.runJob('FORECAST.PARITY', { planId: imp.result.planId });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.deepEqual([st.result.preSame, st.result.same], [true, true], JSON.stringify(st.result.preDiff));
+  assert.deepEqual(st.result.build, [], '組み立てで直せなかったセルはない');
 }
 
 console.log('app-engine: all tests passed');

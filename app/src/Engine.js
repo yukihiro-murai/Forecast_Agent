@@ -217,7 +217,8 @@ function appScratchFromStore_(scratch, planId) {
     const dec = sheets[name];
     if (!dec) return;
     const w = appEngWriteSheet_(scratch, dec, null);
-    report.push({ sheet: name, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples });
+    report.push({ sheet: name, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples,
+      formatMismatches: w.formatMismatches, formatSamples: w.formatSamples });
   });
   if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
   return report;

@@ -295,6 +295,7 @@ function migChip(x){
   var out = '<span class="chip">一致</span>';
   if (x.repaired) out += '<span class="chip warn">書き方を変えて一致 ' + x.repaired + '</span>';
   if (x.forcedText) out += '<span class="chip warn">文字列に固定 ' + x.forcedText + '</span>';
+  if (x.formatMismatches) out += '<span class="chip warn">表示形式が違う ' + x.formatMismatches + '</span>';
   return out;
 }
 function viewMigrate(){

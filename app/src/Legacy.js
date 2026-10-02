@@ -230,57 +230,97 @@ function appFitGrid_(sh, rows, cols) {
 
 /**
  * 組み立てたシートを計算用ブックに書く。表示形式 → 値 → 数式 の順（旧ブックと同じ自動変換になるように）。
- * 書いた後に読み戻し、元の値（expected。数式のセルは計算後の値）と違うセルは書き方を変えて直す:
- *   1) 表示形式をいったん外して値を書き、元の表示形式に戻す（旧来が「書いてから形式を付けた」セル）
- *   2) それでも違う文字列のセルは、書式なしテキストにして書く（forcedText に数える）
- * 返り値: { mismatches, repaired, forcedText, samples }
+ * 空の表示形式（旧ブックで形式を消した後に値を書いたセル。2026-10-02 に DASHBOARD!B17 などで確認）は設定できないので、
+ * いったん「自動」にしてから形式を消し、旧来と同じ「消してから書く」順にする（「自動」のままだと 0.############### になる）。
+ * 書いた後に値と表示形式を読み戻し、元と違うセルは書き方を変えて直す:
+ *   値) 1. 表示形式をいったん外して値を書き、元の表示形式に戻す（旧来が「書いてから形式を付けた」セル）
+ *       2. それでも違う文字列のセルは、書式なしテキストにして書く（forcedText に数える）
+ *   形式) 空の形式は形式を消し、ほかは形式を付け直す
+ * 返り値: { mismatches, repaired, forcedText, samples, formatMismatches, formatFixed, formatSamples }
  */
 function appEngWriteSheet_(ss, dec, expected) {
   let sh = ss.getSheetByName(dec.name);
   if (!sh) sh = ss.insertSheet(dec.name);
   appFitGrid_(sh, Math.max(1, dec.maxRows), Math.max(1, dec.maxCols));
-  // 空の形式は「自動」として書く（本物が空で返すことがあっても書けるように）
-  if (dec.fmtCols) sh.getRange(1, 1, dec.maxRows, dec.fmtCols).setNumberFormats(dec.formats.map(row => row.map(f => f || 'General')));
-  if (!dec.lastRow || !dec.lastCol) return { sheet: sh, mismatches: 0, repaired: 0, forcedText: 0, samples: [] };
-  sh.getRange(1, 1, dec.lastRow, dec.lastCol).setValues(dec.values);
-  for (let r = 0; r < dec.lastRow; r++) {
-    for (let c = 0; c < dec.lastCol; c++) if (dec.formulas[r][c]) sh.getRange(r + 1, c + 1).setFormula(dec.formulas[r][c]);
+  const applyFormats = (r0, r1, c) => {   // 0 始まりの行 r0〜r1・列 c に、元の表示形式を付ける（空の形式は消す）
+    const want = dec.formats.slice(r0, r1 + 1).map(row => row[c]);
+    sh.getRange(r0 + 1, c + 1, r1 - r0 + 1, 1).setNumberFormats(want.map(f => [f || 'General']));
+    appCellRuns_(want.map((f, i) => [r0 + i, c, f]).filter(x => x[2] === '')).forEach(run => {
+      sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).clearFormat();
+    });
+  };
+  if (dec.fmtCols) {
+    sh.getRange(1, 1, dec.maxRows, dec.fmtCols).setNumberFormats(dec.formats.map(row => row.map(f => f || 'General')));
+    const blank = [];
+    for (let r = 0; r < dec.maxRows; r++) for (let c = 0; c < dec.fmtCols; c++) if (dec.formats[r][c] === '') blank.push([r, c]);
+    appCellRuns_(blank).forEach(run => sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1).clearFormat());
   }
-  const want = expected || dec.values;
-  const diff = () => {
-    const back = sh.getRange(1, 1, dec.lastRow, dec.lastCol).getValues();
-    const out = [];
+  let bad = [];
+  let repaired = 0;
+  let forced = 0;
+  const forcedCells = {};   // 文字列に固定したセル（表示形式は '@' になるので、形式の照合から除く）
+  if (dec.lastRow && dec.lastCol) {
+    sh.getRange(1, 1, dec.lastRow, dec.lastCol).setValues(dec.values);
     for (let r = 0; r < dec.lastRow; r++) {
-      for (let c = 0; c < dec.lastCol; c++) if (!appCellSame_(want[r][c], back[r][c])) out.push([r, c]);
+      for (let c = 0; c < dec.lastCol; c++) if (dec.formulas[r][c]) sh.getRange(r + 1, c + 1).setFormula(dec.formulas[r][c]);
+    }
+    const want = expected || dec.values;
+    const diff = () => {
+      const back = sh.getRange(1, 1, dec.lastRow, dec.lastCol).getValues();
+      const out = [];
+      for (let r = 0; r < dec.lastRow; r++) {
+        for (let c = 0; c < dec.lastCol; c++) if (!appCellSame_(want[r][c], back[r][c])) out.push([r, c]);
+      }
+      return out;
+    };
+    bad = diff();
+    if (bad.length) {
+      const before = bad.length;
+      // 1) 列ごとの続いた範囲に分けて、形式を外して書き、元の形式に戻す
+      appCellRuns_(bad.filter(x => !dec.formulas[x[0]][x[1]])).forEach(run => {
+        const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
+        rg.clearFormat();
+        rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
+        if (run.c < dec.fmtCols) applyFormats(run.r0, run.r1, run.c);
+      });
+      bad = diff();
+      repaired = before - bad.length;
+      // 2) 残った文字列のセルは書式なしテキストにして書く
+      const strs = bad.filter(x => typeof dec.values[x[0]][x[1]] === 'string' && !dec.formulas[x[0]][x[1]]);
+      appCellRuns_(strs).forEach(run => {
+        const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
+        rg.setNumberFormat('@');
+        rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
+        forced += run.r1 - run.r0 + 1;
+        for (let r = run.r0; r <= run.r1; r++) forcedCells[r + ':' + run.c] = true;
+      });
+      if (strs.length) bad = diff();
+    }
+  }
+  // 表示形式も読み戻して確かめる（文字列に固定したセルは除く）
+  const fdiff = () => {
+    if (!dec.fmtCols) return [];
+    const back = sh.getRange(1, 1, dec.maxRows, dec.fmtCols).getNumberFormats();
+    const out = [];
+    for (let r = 0; r < dec.maxRows; r++) {
+      for (let c = 0; c < dec.fmtCols; c++) {
+        const got = String((back[r] || [])[c] || '');
+        if (got !== dec.formats[r][c] && !(got === '@' && forcedCells[r + ':' + c])) out.push([r, c, got]);
+      }
     }
     return out;
   };
-  let bad = diff();
-  let repaired = 0;
-  let forced = 0;
-  if (bad.length) {
-    const before = bad.length;
-    // 1) 列ごとの続いた範囲に分けて、形式を外して書き、元の形式に戻す
-    appCellRuns_(bad.filter(x => !dec.formulas[x[0]][x[1]])).forEach(run => {
-      const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
-      rg.clearFormat();
-      rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
-      if (run.c < dec.fmtCols) rg.setNumberFormats(dec.formats.slice(run.r0, run.r1 + 1).map(row => [row[run.c] || 'General']));
-    });
-    bad = diff();
-    repaired = before - bad.length;
-    // 2) 残った文字列のセルは書式なしテキストにして書く
-    const strs = bad.filter(x => typeof dec.values[x[0]][x[1]] === 'string' && !dec.formulas[x[0]][x[1]]);
-    appCellRuns_(strs).forEach(run => {
-      const rg = sh.getRange(run.r0 + 1, run.c + 1, run.r1 - run.r0 + 1, 1);
-      rg.setNumberFormat('@');
-      rg.setValues(dec.values.slice(run.r0, run.r1 + 1).map(row => [row[run.c]]));
-      forced += run.r1 - run.r0 + 1;
-    });
-    if (strs.length) bad = diff();
+  let fbad = fdiff();
+  let formatFixed = 0;
+  if (fbad.length) {
+    const before = fbad.length;
+    appCellRuns_(fbad).forEach(run => applyFormats(run.r0, run.r1, run.c));
+    fbad = fdiff();
+    formatFixed = before - fbad.length;
   }
-  return { sheet: sh, mismatches: bad.length, repaired: repaired, forcedText: forced,
-    samples: bad.slice(0, 5).map(x => appA1_(x[0], x[1])) };
+  return { sheet: sh, mismatches: bad.length, repaired: repaired, forcedText: forced, samples: bad.slice(0, 5).map(x => appA1_(x[0], x[1])),
+    formatMismatches: fbad.length, formatFixed: formatFixed,
+    formatSamples: fbad.slice(0, 5).map(x => appA1_(x[0], x[1]) + ' 「' + dec.formats[x[0]][x[1]] + '」/「' + x[2] + '」') };
 }
 
 /** セルの一覧を、列ごとに続いた行の範囲にまとめる */

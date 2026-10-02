@@ -74,7 +74,9 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
   const sheetId = ++SHEET_SEQ;
   const at = (arr, r, c, d) => (arr[r] && arr[r][c] !== undefined ? arr[r][c] : d);
   const put = (arr, r, c, v) => { (arr[r] = arr[r] || [])[c] = v; };
-  const fmtAt = (r, c) => at(fmts, r, c, 'General');
+  const AUTO = '0.###############';   // 本物は「自動」の形式をこう返す
+  const fmtAt = (r, c) => at(fmts, r, c, AUTO);
+  const normFmt = (f) => { assert.notEqual(f, '', '空の表示形式は設定できない（形式を消すには clearFormat）'); return f === 'General' ? AUTO : f; };
   const evalFormula = (f) => {
     const expr = f.slice(1).replace(/[A-Z]+\d+/g, (a1) => { const [r, c] = parseA1(a1); const v = at(rows, r - 1, c - 1, ''); return typeof v === 'number' ? String(v) : '0'; });
     if (!/^[\d+\-*/().\s]+$/.test(expr)) return '#ERROR!';
@@ -136,12 +138,13 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
       return c;
     },
     /** テスト用: 変換なしでそのまま中身を置く（旧ブックの今の状態を作る） */
-    load({ values = [], formats = {}, formulas = {} } = {}) {
+    load({ values = [], formats = {}, cellFormats = {}, formulas = {} } = {}) {
       values.forEach((row, r) => row.forEach((v, c) => put(rows, r, c, v)));
       Object.entries(formats).forEach(([key, f]) => {
         const c = /^\d+$/.test(key) ? Number(key) - 1 : colOf(key) - 1;
         for (let r = 0; r < maxRows; r++) put(fmts, r, c, f);
       });
+      Object.entries(cellFormats).forEach(([a1, f]) => { const [r, c] = parseA1(a1); put(fmts, r - 1, c - 1, f); });   // 形式を消したセルは ''
       Object.entries(formulas).forEach(([a1, f]) => { const [r, c] = parseA1(a1); put(fmls, r - 1, c - 1, f); put(rows, r - 1, c - 1, evalFormula(f)); });
       return sh;
     },
@@ -158,9 +161,9 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         getValue: () => at(rows, r - 1, col - 1, ''),
         getFormulas: () => grid((y, x) => at(fmls, y, x, '') || ''),
         getNumberFormats: () => grid((y, x) => fmtAt(y, x)),
-        setNumberFormat: (f) => { if (sh.strict) assert.equal(f, '@', 'データ本体とログは書式なしテキスト'); each((y, x) => put(fmts, y, x, f)); return range; },
-        setNumberFormats: (fs) => { assert.equal(fs.length, nr); each((y, x, i, j) => put(fmts, y, x, fs[i][j])); return range; },
-        clearFormat: () => { each((y, x) => put(fmts, y, x, 'General')); return range; },
+        setNumberFormat: (f) => { if (sh.strict) assert.equal(f, '@', 'データ本体とログは書式なしテキスト'); each((y, x) => put(fmts, y, x, normFmt(f))); return range; },
+        setNumberFormats: (fs) => { assert.equal(fs.length, nr); each((y, x, i, j) => put(fmts, y, x, normFmt(fs[i][j]))); return range; },
+        clearFormat: () => { each((y, x) => put(fmts, y, x, '')); return range; },
         clearContent: () => { each((y, x) => { put(rows, y, x, ''); put(fmls, y, x, ''); }); return range; },
         setValues(vals) {
           if (sh.failWrites) throw new Error('write failed');
