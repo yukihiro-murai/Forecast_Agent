@@ -173,7 +173,7 @@ function appSerialize_(v) {
 function appBootstrap_(ctx) {
   const isAdmin = appHasRole_(ctx.roles, 'ADMIN');
   return {
-    app: { name: APP_NAME, version: APP_VERSION },
+    app: { name: APP_NAME, nameJa: APP_NAME_JA, version: APP_VERSION },
     user: { email: ctx.user.email, isOwner: ctx.user.isOwner, isAdmin: isAdmin,
       roles: ctx.roles.map(r => ({ role: r.role, label: APP_ROLE_LABELS[r.role], scopeType: r.scope_type, clientId: r.client_id })) },
     setUp: appIsSetUp_(),
@@ -183,6 +183,6 @@ function appBootstrap_(ctx) {
 }
 
 function appDeniedBootstrap_(ctx) {
-  return { app: { name: APP_NAME, version: APP_VERSION }, user: { email: ctx.user.email, isOwner: false, isAdmin: false, roles: [] },
+  return { app: { name: APP_NAME, nameJa: APP_NAME_JA, version: APP_VERSION }, user: { email: ctx.user.email, isOwner: false, isAdmin: false, roles: [] },
     setUp: appIsSetUp_(), allowed: false };
 }

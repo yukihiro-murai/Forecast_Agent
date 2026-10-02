@@ -508,11 +508,11 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
 {
   const env = setUpEnv();
   const out = env.run('doGet({})');
-  assert.equal(out.title, '売上予測アプリ');
+  assert.equal(out.title, 'Trends2Targets', 'タブは英語の名前だけ');
   assert.match(out.favicon, /^data:image\/png;base64,.+#favicon\.png$/);
   const html = out.getContent();
   const boot = JSON.parse(/var B = (.*);\n/.exec(html)[1]);
-  assert.deepEqual([boot.allowed, boot.setUp, boot.user.isAdmin, boot.app.name], [true, true, true, '売上予測アプリ']);
+  assert.deepEqual([boot.allowed, boot.setUp, boot.user.isAdmin, boot.app.name], [true, true, true, 'Trends2Targets']);
   assert.match(html, /var CHAR_SVG = \{/);
   assert.match(html, /var YOMI_POSE = \{/);
   assert.doesNotMatch(html, /<\?/);

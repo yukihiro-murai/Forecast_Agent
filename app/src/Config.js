@@ -4,8 +4,10 @@
  * 公開する関数は doGet・api*・trigger* だけにし、すべて api_（本人確認・役割・記録）を通す（app/tests が見張る）。
  * それ以外の関数は名前の末尾を _ にする（Web アプリでは _ でない関数をブラウザから呼べるため）。
  */
-const APP_NAME = '売上予測アプリ';
-const APP_VERSION = '0.5.0';
+/** アプリの名前（社内の Web アプリと同じく英語 + 日本語。ブラウザのタブは英語だけ。2026-10-02 村井さん決定） */
+const APP_NAME = 'Trends2Targets';
+const APP_NAME_JA = '売上予測と予算策定';
+const APP_VERSION = '0.5.1';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {

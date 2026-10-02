@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <base target="_top">
-<title>売上予測アプリ</title>
+<title>Trends2Targets</title>
 <style>
 :root{
   --bg:#F4F7FB; --card:#FFFFFF;
@@ -19,6 +19,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 input,select,textarea{font-family:inherit;font-size:14px}
 .topbar{position:fixed;top:0;left:0;right:0;height:60px;background:var(--navy);display:flex;align-items:center;padding:0 24px;color:#fff;z-index:60}
 .topbar .ttl{font-size:17px;font-weight:700}
+.topbar .ttl-ja{font-size:14px;font-weight:600;color:#B8CFE3;margin-left:12px}
 .topbar .spacer{flex:1}
 .topbar .meta{font-size:13px;color:#B8CFE3;margin-left:14px}
 .topbar .meta b{color:#fff}
@@ -68,7 +69,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 </style>
 </head>
 <body>
-<div class="topbar"><div class="ttl">売上予測アプリ</div><div class="spacer"></div><div class="meta" id="hdrUser"></div><div class="meta" id="hdrVer"></div></div>
+<div class="topbar"><div class="ttl">Trends2Targets<span class="ttl-ja">売上予測と予算策定</span></div><div class="spacer"></div><div class="meta" id="hdrUser"></div><div class="meta" id="hdrVer"></div></div>
 <div class="layout"><nav class="sidenav" id="nav"></nav><main class="main" id="main"></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="busy" id="busy" role="status" aria-live="polite"></div>
@@ -220,11 +221,11 @@ function go(v){
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
 
 function viewHome(){
-  if (!B.allowed) return '<h1>売上予測アプリ</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
+  if (!B.allowed) return '<h1>Trends2Targets</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
   if (!B.setUp) {
     if (B.user.isOwner) return '<h1>はじめに</h1>' + guide('explain', 'データ本体・操作の記録・バックアップの置き場所を作ります。所有者だけが実行できます。何度実行しても同じ結果になります。'
       + '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(r){ B.setUp = true; toast(\'初期設定が終わりました\'); go(\'health\'); })">初期設定を実行</button></div>');
-    return '<h1>売上予測アプリ</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
+    return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
   return '<h1>ホーム</h1>' + guide('guide', '左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを見られます（旧アプリと同じ中身）。売上・実績の取り込みと AI 調査は、まだ旧アプリで行います。<div class="row" style="align-items:center"><span class="note">あなたの役割</span>' + roles + '</div>');
