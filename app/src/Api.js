@@ -74,7 +74,12 @@ function apiRunBackup() {
 
 /** 計画の一覧（取り込み・計算の一致の確認の対象） */
 function apiListPlans() {
-  return api_('PLANS.LIST', { minRole: 'ADMIN', audit: false }, () => ({ plans: appListPlans_() }));
+  return api_('PLANS.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appListPlans_() }));
+}
+
+/** 計画の最新の予測（閲覧は社内全員） */
+function apiForecastLatest(input) {
+  return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appForecastLatest_(input && input.planId));
 }
 
 /** 時間のかかる処理を始める（裏で動かす。種類ごとに権限が違う: 旧ブックの試し読み・取り込みは所有者だけ） */

@@ -117,7 +117,7 @@ function appRowToObject_(def, r) {
   def.columns.forEach((c, j) => {
     const v = r[j] === null || r[j] === undefined ? '' : String(r[j]);
     const t = appColumnType_(c, def);
-    o[c] = t === 'bool' ? v === 'TRUE' : t === 'int' ? (v === '' ? 0 : Number(v)) : v;
+    o[c] = t === 'bool' ? v === 'TRUE' : t === 'int' ? (v === '' ? 0 : Number(v)) : t === 'num' ? (v === '' ? null : Number(v)) : v;
   });
   return o;
 }
@@ -127,6 +127,7 @@ function appObjectToRow_(def, o) {
     const v = o[c];
     const t = appColumnType_(c, def);
     if (v === undefined || v === null) return t === 'bool' ? 'FALSE' : t === 'int' ? '0' : '';
+    if (t === 'num' && (typeof v !== 'number' || !isFinite(v))) throw new Error('数値の列に数値でない値: ' + c);
     if (t === 'bool') return v ? 'TRUE' : 'FALSE';
     if (t === 'json' && typeof v !== 'string') return appJson_(v);
     return String(v);
@@ -187,6 +188,26 @@ function appReplaceRows_(name, keep, objs) {
   const newLast = all.length + 1;
   if (oldLast > newLast) sh.getRange(newLast + 1, 1, oldLast - newLast, def.columns.length).clearContent();
   return { removed: cur.length - kept.length, kept: kept.length, added: objs.length };
+}
+
+/**
+ * 計画 1 つ分の行を入れ替える。前の行がそのまま残り、後ろに行が足されただけなら、足された行だけを書く（履歴の表を毎回書き直さない）。
+ * 返り値: { appended } か { replaced: true, removed, kept, added }
+ */
+function appReplaceOrAppend_(name, planId, objs) {
+  const def = APP_TABLES[name];
+  const key = o => def.columns.map(c => String(o[c] === undefined || o[c] === null ? '' : o[c])).join('\u0001');
+  const cur = appReadTable_(name).filter(r => r.plan_id === planId).map(appStripRow_);
+  const next = {};
+  objs.forEach(o => { next[o.seq] = o; });
+  if (cur.every(o => next[o.seq] && key(next[o.seq]) === key(o))) {
+    const have = {};
+    cur.forEach(o => { have[o.seq] = true; });
+    const add = objs.filter(o => !have[o.seq]);
+    appInsertRows_(name, add);
+    return { appended: add.length };
+  }
+  return Object.assign({ replaced: true }, appReplaceRows_(name, r => r.plan_id !== planId, objs));
 }
 
 function appStripRow_(o) {

@@ -15,7 +15,10 @@ function appJobSpec_(kind) {
     'MIGRATION.DRYRUN': { ownerOnly: true, label: '旧ブックの試し読み' },
     'MIGRATION.IMPORT': { ownerOnly: true, label: '旧ブックの取り込み' },
     'FORECAST.PARITY': { ownerOnly: true, label: '計算の一致の確認' },
-    'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true }   // 続きの処理（画面からは始めない）
+    'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true },   // 続きの処理（画面からは始めない）
+    // 予測の実行: 予算策定担当（その計画のクライアントの担当でもよい）以上
+    'FORECAST.RUN': { minRole: 'PLANNER', planScoped: true, label: '予測の実行' },
+    'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true }
   };
   const s = specs[String(kind || '')];
   if (!s) throw new Error('未定義の処理です: ' + kind);
@@ -26,7 +29,18 @@ function appJobSpec_(kind) {
 function appJobStartOpts_(input) {
   const spec = appJobSpec_(input && input.kind);
   if (spec.internal) throw new Error('この処理は画面から始められません: ' + input.kind);
-  return spec.ownerOnly ? { ownerOnly: true, audit: false, detail: { kind: input.kind } } : { minRole: spec.minRole || 'ADMIN', audit: false, detail: { kind: input.kind } };
+  if (spec.ownerOnly) return { ownerOnly: true, audit: false, detail: { kind: input.kind } };
+  return { minRole: spec.minRole || 'ADMIN', clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
+    detail: { kind: input.kind, planId: input.payload && input.payload.planId } };
+}
+
+/** 計画ごとの処理の、その計画のクライアント（クライアント単位の役割で判定するため） */
+function appJobPlanClient_(payload) {
+  const planId = String(payload && payload.planId || '');
+  if (!appIsSetUp_()) return '';
+  const plan = appReadTable_('PLANS').filter(x => x.plan_id === planId)[0];
+  if (!plan) throw new Error('計画が見つかりません。');
+  return plan.client_id;
 }
 
 /** 処理を実行する（裏で。ctx は頼んだ人） */
@@ -41,6 +55,13 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'MIGRATION.IMPORT', { entityType: 'PLAN', detail: { book: p.bookUrl, contentHash: p.contentHash, jobId: job.id },
         after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
         () => appMigrationImport_(ctx, p));
+    case 'FORECAST.RUN':
+      return appAudited_(ctx, 'FORECAST.RUN.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, confirms: p.confirms || [], jobId: job.id },
+        after: res => (res.needConfirm ? { needConfirm: res.needConfirm.key || true } : { runId: res.__next.payload.runId, changed: res.__next.payload.changed,
+          annual: res.__next.payload.headline && res.__next.payload.headline.annual, timing: res.__next.payload.timing }) }, () => appForecastRunCalc_(ctx, p, job));
+    case 'FORECAST.RUN_SAVE':
+      return appAudited_(ctx, 'FORECAST.RUN.SAVE', { entityType: 'FORECAST_RUN', entityId: p.runId, detail: { planId: p.planId, runId: p.runId, inputHash: p.inputHash, jobId: job.id },
+        after: res => ({ runId: res.runId, changed: res.changed, written: res.written, annual: res.headline && res.headline.annual }) }, () => appForecastRunSave_(ctx, p));
     case 'FORECAST.PARITY':
       return appAudited_(ctx, 'FORECAST.PARITY.A', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
         after: res => ({ next: res.__next.kind, seed: res.__next.payload.seed, legacyAnnual: res.__next.payload.legacy && res.__next.payload.legacy.annual,
@@ -190,7 +211,8 @@ function appRunJob_(id) {
     APP_STORE_CACHE_ = {};
     const ctx = appJobContext_(job);
     const spec = appJobSpec_(job.kind);
-    const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, spec.minRole || 'ADMIN');
+    const clientId = spec.planScoped ? appJobPlanClient_(job.payload) : undefined;
+    const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, spec.minRole || 'ADMIN', clientId);
     if (!allowed) throw new Error('この操作をする権限がありません。');
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {

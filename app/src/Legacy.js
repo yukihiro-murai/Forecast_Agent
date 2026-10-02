@@ -273,7 +273,11 @@ function appEngWriteSheet_(ss, dec, expected) {
       const back = sh.getRange(1, 1, dec.lastRow, dec.lastCol).getValues();
       const out = [];
       for (let r = 0; r < dec.lastRow; r++) {
-        for (let c = 0; c < dec.lastCol; c++) if (!appCellSame_(want[r][c], back[r][c])) out.push([r, c]);
+        for (let c = 0; c < dec.lastCol; c++) {
+          // 数式のセルは、計算後の値が分かっているとき（expected）だけ比べる（保存したのは数式で、値は計算でできる）
+          if (!expected && dec.formulas[r][c]) continue;
+          if (!appCellSame_(want[r][c], back[r][c])) out.push([r, c]);
+        }
       }
       return out;
     };

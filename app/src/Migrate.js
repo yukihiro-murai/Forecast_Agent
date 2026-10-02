@@ -92,10 +92,21 @@ function appMigrationDryRun_(ctx, input) {
       lossless: sheets.every(x => x.losslessMismatch === 0),
       faithful: sheets.every(x => x.mismatch === 0 && x.forcedText === 0 && x.formatMismatches === 0),
       contentHash: contentHash,
-      existingPlan: plan ? { planId: plan.plan_id, lastImportedAt: lastBatch ? lastBatch.finished_at : '', unchanged: !!(lastBatch && lastBatch.content_hash === contentHash) } : null,
+      existingPlan: plan ? { planId: plan.plan_id, lastImportedAt: lastBatch ? lastBatch.finished_at : '', unchanged: !!(lastBatch && lastBatch.content_hash === contentHash),
+        runsSinceImport: appRunsSinceImport_(plan.plan_id, lastBatch) } : null,
       audit: { entityId: plan ? plan.plan_id : '' }
     };
   });
+}
+
+/** 最後の取り込みの後に、新アプリで実行した予測の数（取り込み直すと、計算用の表はそれを旧ブックの内容で置き換える） */
+function appRunsSinceImport_(planId, lastBatch) {
+  try {
+    const after = lastBatch ? lastBatch.finished_at : '';
+    return appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === planId && r.finished_at >= after).length;   // 時刻は秒までなので同じ秒も数える
+  } catch (e) {
+    return 0;   // まだ表がない（版 3 の前）
+  }
 }
 
 /** 計画の最後の取り込み（成功したもの） */

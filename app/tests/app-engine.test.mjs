@@ -97,7 +97,7 @@ function legacyBook(env) {
         ['テスト製薬', 'BASE', '製品A', D(2023, 4), 1200000, 'closed', D(2026, 9, 30)]],
       formats: { D: '@' },
     },
-    OUTPUT: { values: [['FY2026 売上予測（テスト製薬）']] },
+    OUTPUT: { values: [['FY2026 売上予測（テスト製薬）']], formulas: { B2: '=1+1' } },
     CALIBRATION_STATE: {
       values: [['client', 'updated_at', 'updated_by', 'ai_weight_override', 'ai_max_abs_effect_override', 'ai_topic_disable_json', 'bias_correction_factor',
         'qual_scale_override', 'residual_month_bias_json', 'last_applied_quarter', 'last_applied_review_id', 'auto_update_enabled', 'note'],
@@ -151,6 +151,7 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   assert.equal(r.legacyChangedAfterImport, false);
   assert.match(r.seed, /^PARITY:/);
   assert.equal(r.store.monthly.length, 12);
+  assert.ok(!r.build.some((b) => b.sheet === 'OUTPUT' && b.mismatch), '数式のセルは、計算後の値を「空のはず」と比べない（2026-10-02 OUTPUT の 15 件）');
   assert.equal(r.store.monthly[0].month, '2026/04');
   // データ本体と旧ブックには書かない
   assert.deepEqual(env.data().getSheets().map((s) => [s.name, s.rows.length]), dataBefore);

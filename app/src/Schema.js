@@ -2,9 +2,10 @@
  * Schema.js — 表の定義（スキーマ登録）。表の列はここだけで決め、データ本体の 1 行目と一致しなければ書き込まない。
  * 1 表 = 1 シート、1 行目に英字の列名、2 行目から値だけ（数式・タイトル・説明・色は置かない）。
  * 段階1 はマスタと設定の表。段階2 で計画（PLANS）・取り込みの記録（IMPORT_BATCHES）と、旧来の計算が使う表（ENG_*）を足した。
+ * 版 3（段階2-2b）で、新アプリで動かした予測の記録（FORECAST_RUNS / FORECAST_MONTHLY）を足した。types = 数値の列（num）。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  */
-const APP_SCHEMA_VERSION = 2;
+const APP_SCHEMA_VERSION = 3;
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -57,6 +58,20 @@ const APP_TABLES = {
     // 列ごとの表示形式の並び（runs_json = [[始まりの行, 終わりの行, 形式], ...]）。シートの自動変換を旧ブックと同じにするため
     key: ['plan_id', 'sheet', 'col'], raw: true,
     columns: ['plan_id', 'sheet', 'col', 'runs_json']
+  },
+  FORECAST_RUNS: {
+    // 新アプリで動かした予測 1 回（追記のみ）。同じ入力（input_hash）・種（seed）・「今」（as_of）なら同じ結果になる
+    key: ['run_id'],
+    columns: ['run_id', 'plan_id', 'status', 'engine_version', 'engine_sha256', 'seed', 'as_of', 'input_hash',
+      'annual_p10', 'annual_p50', 'annual_p90', 'objective_p10', 'objective_p50', 'objective_p90',
+      'changed_sheets_json', 'confirms_json', 'started_at', 'finished_at', 'actor_email'],
+    types: { annual_p10: 'num', annual_p50: 'num', annual_p90: 'num', objective_p10: 'num', objective_p50: 'num', objective_p90: 'num' }
+  },
+  FORECAST_MONTHLY: {
+    // 予測 1 回の月ごとの P10/P50/P90（混合と、過去売上のみ）。旧来の OUTPUT の行から取る
+    key: ['run_id', 'ym'],
+    columns: ['run_id', 'plan_id', 'ym', 'p10', 'p50', 'p90', 'obj_p10', 'obj_p50', 'obj_p90'],
+    types: { p10: 'num', p50: 'num', p90: 'num', obj_p10: 'num', obj_p50: 'num', obj_p90: 'num' }
   }
 };
 
@@ -120,6 +135,7 @@ const APP_LOG_TABLES = {
 /** 列の型（保存はすべて書式なしテキスト。読むときにここで戻す）。raw の表はすべて文字列のまま */
 function appColumnType_(col, def) {
   if (def && def.raw) return 'text';
+  if (def && def.types && def.types[col]) return def.types[col];
   if (/_json$/.test(col)) return 'json';
   if (col === 'is_active') return 'bool';
   if (col === 'row_version' || col === 'schema_version') return 'int';

@@ -50,6 +50,7 @@ h1{font-size:22px;color:var(--navy);margin-bottom:16px}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
 .tbl th{background:#F1F5F9;color:var(--navy);font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
 .tbl td{padding:8px 10px;border-bottom:1px solid #EEF2F6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl td.num,.tbl th.num{text-align:right;font-variant-numeric:tabular-nums}
 .chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;margin:0 4px 2px 0;background:var(--primary-soft);color:var(--primary-dark)}
 .chip.off{background:#EDF1F5;color:var(--muted)}
 .chip.ng{background:var(--error-bg);color:var(--error)}
@@ -75,7 +76,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
 var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false,
-  mig: { url: '', dry: null, result: null, plans: null, parity: null } };
+  mig: { url: '', dry: null, result: null, plans: null, parity: null }, fc: { plans: null, planId: '', data: null } };
 
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function $(id){ return document.getElementById(id); }
@@ -112,15 +113,26 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1 };
+var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
-  'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）' };
+  'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）',
+  'FORECAST.RUN': '予測を計算しています（1/2）', 'FORECAST.RUN_SAVE': '予測を保存しています（2/2）' };
 var JOB_DONE = {
   'MIGRATION.DRYRUN': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.dry = r; },
   'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); loadPlans(); },
-  'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); }
+  'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); },
+  // 旧来の計算が入力の確認を求めたとき（極端な入力値など）は、内容を見せて、続けるときだけもう一度動かす
+  'FORECAST.RUN': function(r, payload){
+    S.view = 'forecast';
+    if (!r || !r.needConfirm) return;
+    var c = r.needConfirm;
+    if (confirm((c.title || '確認') + '\n\n' + (c.message || '') + '\n\nこのまま予測を実行しますか？')) {
+      setTimeout(function(){ startJob('FORECAST.RUN', { planId: payload.planId, confirms: (payload.confirms || []).concat([c.key]) }); }, 0);
+    } else toast('予測の実行をやめました');
+  },
+  'FORECAST.RUN_SAVE': function(r){ S.view = 'forecast'; toast('予測を保存しました'); loadForecast(r.planId); }
 };
 function startJob(kind, payload){
   if (S.job || S.starting) return;   // すでに動いている・始めている途中なら何もしない
@@ -165,14 +177,14 @@ function call(fn, args, ok, fail){
   r[fn].apply(r, args || []);
 }
 
-var NAV_ADMIN = [['home','ホーム'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
+var NAV_ADMIN = [['home','ホーム'],['forecast','予測'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
 var NAV_OWNER = [['migrate','旧ブックから移す']];
 function render(){
   $('hdrUser').innerHTML = B.user && B.user.email ? '<b>' + esc(B.user.email.split('@')[0]) + '</b>' : '';
   $('hdrVer').textContent = B.user && B.user.isAdmin && B.app ? 'v' + B.app.version : '';
   var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
-  var v = { home: viewHome, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
+  var v = { home: viewHome, forecast: viewForecast, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
   $('main').innerHTML = errorBanner() + '<div id="jobBox">' + jobBanner() + '</div>' + v();
 }
 /** 裏で動いている処理の進み（画面の上にも出す） */
@@ -190,6 +202,7 @@ function go(v){
   else if (v === 'audit') loadAudit();
   else if (v === 'health') call('apiHealth', [], function(r){ S.health = r; });
   else if (v === 'migrate') loadPlans();
+  else if (v === 'forecast') call('apiListPlans', [], function(r){ S.fc.plans = r.plans; if (!S.fc.planId && r.plans.length) S.fc.planId = r.plans[0].planId; if (S.fc.planId) loadForecast(S.fc.planId); });
   render();
 }
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
@@ -263,7 +276,8 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'CLIENT.SAVE': 'クライアントの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
   'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る',
   'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行',
-  'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る' };
+  'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る',
+  'FORECAST.RUN.CALC': '予測の計算', 'FORECAST.RUN.SAVE': '予測の保存', 'FORECAST.LATEST': '予測を見る' };
 var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
@@ -312,6 +326,7 @@ function viewMigrate(){
     html += '<div class="card"><h2>試しに読んだ結果</h2><div class="row" style="margin-top:0;align-items:center">'
       + '<span class="chip">' + esc(d.client) + '</span><span class="chip">FY' + esc(d.fy) + '</span><span class="chip">担当者 ' + d.peopleCount + ' 人</span>' + verdict + '</div>'
       + (d.existingPlan ? '<p class="note" style="margin-top:8px">前に取り込んだ計画があります（' + esc((d.existingPlan.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '）。' + (d.existingPlan.unchanged ? '内容は前回と同じです。' : '取り込むと、この計画の中身を入れ替えます。') + '</p>' : '')
+      + (d.existingPlan && d.existingPlan.runsSinceImport ? '<p class="note" style="color:var(--warn-fg)">前回の取り込みの後に、新アプリで予測を ' + d.existingPlan.runsSinceImport + ' 回実行しています。取り込むと、計算用の表は旧ブックの内容に戻ります（予測の記録は残ります）。</p>' : '')
       + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
       + (d.missing.length ? '<p class="note" style="margin-top:8px">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
       + (d.notMigrated.length || d.unknown.length ? '<p class="note">移さないシート（計算で使わない）: ' + esc(d.notMigrated.concat(d.unknown).join('、')) + '</p>' : '')
@@ -326,6 +341,36 @@ function viewMigrate(){
       : '<p><span class="chip ng">読み戻すと旧ブックと違うシートがあります</span></p><p class="note">' + esc((r.verify || []).map(function(x){ return x.sheet + '（' + x.mismatch + '）'; }).join('、')) + '</p>');
     html += '<div class="card"><h2>取り込みの結果</h2>' + (r.unchanged ? '<p>前回と同じ内容なので、書き込みませんでした。</p>' : '<p>データ本体に ' + total + ' 行を書きました。</p>') + verifyHtml + '</div>';
   }
+  return html;
+}
+function loadForecast(planId){ S.fc.planId = planId; call('apiForecastLatest', [{ planId: planId }], function(r){ S.fc.data = r; }); }
+function fcTable(h, title){
+  if (!h) return '';
+  var row = function(label, a){ return '<tr><td>' + label + '</td><td class="num">' + yen(a && a.p10) + '</td><td class="num">' + yen(a && a.p50) + '</td><td class="num">' + yen(a && a.p90) + '</td></tr>'; };
+  var months = (h.monthly || []).map(function(m){ return '<tr><td>' + esc(m.month || m.ym) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td></tr>'; }).join('');
+  return '<div class="card"><h2>' + title + '</h2>'
+    + '<table class="tbl"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（円）</th><th class="num">Downside（P10）</th><th class="num">Baseline（P50）</th><th class="num">Upside（P90）</th></tr></thead><tbody>'
+    + row('シミュレーション予測（混合）', h.annual) + row('<span class="note">過去売上のみ（客観）</span>', h.objective) + '</tbody></table>'
+    + (months ? '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>月（円）</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th></tr></thead><tbody>' + months + '</tbody></table>' : '')
+    + '</div>';
+}
+function viewForecast(){
+  var f = S.fc, d = f.data;
+  if (!f.plans) return '<h1>予測</h1><div class="card note">読み込み中…</div>';
+  if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。「旧ブックから移す」で旧ブックを取り込んでください。');
+  var sel = f.plans.length > 1 ? '<select class="inp" onchange="loadForecast(this.value)">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
+  var html = '<h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel;
+  if (!d) return html + '<div class="card note">読み込み中…</div>';
+  var l = d.latest;
+  if (l) {
+    html += fcTable({ annual: { p10: l.annual_p10, p50: l.annual_p50, p90: l.annual_p90 }, objective: { p10: l.objective_p10, p50: l.objective_p50, p90: l.objective_p90 }, monthly: d.monthly },
+      '最新の予測（' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0]) + '）');
+  } else {
+    html += guide('explain', 'まだ新アプリで予測を実行していません。下は、取り込んだ旧ブックで最後に実行した結果です。') + fcTable(d.stored, '旧ブックで最後に実行した結果');
+  }
+  html += '<div class="card"><div class="row" style="margin-top:0;align-items:center"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(f.planId) + '\' })">予測を実行</button>'
+    + '<span class="note">データ本体の内容で旧来の予測を動かし、結果を残します（4〜6 分ほど。旧ブックは変わりません）。</span></div>'
+    + (d.runs.length > 1 ? '<p class="note" style="margin-top:8px">これまでの実行: ' + d.runs.map(function(r){ return esc(String(r.finishedAt || '').replace('T', ' ').slice(5, 16)) + ' P50 ' + yen(r.p50); }).join('、') + '</p>' : '') + '</div>';
   return html;
 }
 function loadPlans(){ call('apiListPlans', [], function(r){ S.mig.plans = r.plans; }); }

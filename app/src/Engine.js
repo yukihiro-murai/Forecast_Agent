@@ -325,6 +325,8 @@ function appForecastHeadline_(book) {
   const objective = sh.getLastRow() >= 65 ? sh.getRange(65, 2, 1, 3).getValues()[0].map(num) : [null, null, null];
   const monthly = sh.getRange(29, 1, 12, 4).getValues().map(r => ({ month: appIsDate_(r[0]) ? Utilities.formatDate(r[0], APP_TZ, 'yyyy/MM') : String(r[0]),
     p10: num(r[1]), p50: num(r[2]), p90: num(r[3]) }));
+  const objectiveMonthly = sh.getLastRow() >= 79 ? sh.getRange(68, 1, 12, 4).getValues().map(r => ({
+    month: appIsDate_(r[0]) ? Utilities.formatDate(r[0], APP_TZ, 'yyyy/MM') : String(r[0]), p10: num(r[1]), p50: num(r[2]), p90: num(r[3]) })) : [];
   return { title: String(sh.getRange(1, 1).getValue() || ''), annual: { p10: annual[0], p50: annual[1], p90: annual[2] },
-    objective: { p10: objective[0], p50: objective[1], p90: objective[2] }, monthly: monthly };
+    objective: { p10: objective[0], p50: objective[1], p90: objective[2] }, monthly: monthly, objectiveMonthly: objectiveMonthly };
 }
