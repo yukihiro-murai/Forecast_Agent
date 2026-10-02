@@ -130,7 +130,9 @@ function appMigrationImport_(ctx, input) {
     throw new Error('保存の形にすると元に戻らないシートがあります。取り込みを止めました。');
   }
   return appWithLock_(() => {
+    appJournalRecover_(ctx);   // 前の保存が途中で止まっていれば、先に書き終える
     const now = appNowIso_();
+    const ops = [];
     // 計画とクライアント（無ければ作る。前に取り込んだ計画があれば、そのクライアントを使う）
     let plan = appPlanOfBook_(bookId);
     const clients = appReadTable_('CLIENTS');
@@ -139,7 +141,7 @@ function appMigrationImport_(ctx, input) {
     if (!client) {
       client = { client_id: appId_('CL'), client_name: src.client.slice(0, 100), zac_code: '', normalized_name: normalized, aliases_json: '[]',
         is_active: true, note: '旧ブックから取り込み', created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 };
-      appInsertRows_('CLIENTS', [client]);
+      ops.push({ table: 'CLIENTS', mode: 'ensure', rows: [client] });
     }
     const planId = plan ? plan.plan_id : appId_('PL');
     encoded.forEach(e => { [e.sheetRow].concat(e.tableRows, e.rowSegs, e.formatRows).forEach(o => { o.plan_id = planId; }); });
@@ -154,29 +156,29 @@ function appMigrationImport_(ctx, input) {
     Object.keys(APP_ENGINE_SHEETS).filter(n => APP_ENGINE_SHEETS[n].mode === 'table').forEach(name => {
       const enc = encoded.filter(e => e.sheetRow.sheet === name)[0];
       const rows = enc && enc.sheetRow.mode === 'table' ? enc.tableRows : [];
-      appReplaceRows_('ENG_' + name, mine, rows);
+      ops.push(appOpReplaceRows_('ENG_' + name, mine, rows));
       written['ENG_' + name] = rows.length;
     });
     const segs = [].concat.apply([], encoded.map(e => e.rowSegs));
     const fmts = [].concat.apply([], encoded.map(e => e.formatRows));
     const sheetRows = encoded.map(e => Object.assign({}, e.sheetRow, { import_batch_id: batchId, updated_at: now, updated_by: ctx.actor }));
-    appReplaceRows_('ENG_ROWS', mine, segs);
-    appReplaceRows_('ENG_FORMATS', mine, fmts);
-    appReplaceRows_('ENG_SHEETS', mine, sheetRows);
+    ops.push(appOpReplaceRows_('ENG_ROWS', mine, segs));
+    ops.push(appOpReplaceRows_('ENG_FORMATS', mine, fmts));
+    ops.push(appOpReplaceRows_('ENG_SHEETS', mine, sheetRows));
     written.ENG_ROWS = segs.length;
     written.ENG_FORMATS = fmts.length;
     written.ENG_SHEETS = sheetRows.length;
     const planPatch = { client_id: client.client_id, fy: String(src.fy), client_label: src.client, people_csv: src.people, source_book_id: bookId,
       locale: src.locale, time_zone: src.timeZone, state: 'ACTIVE', note: '' };
-    let before = null;
+    const before = plan ? appStripRow_(plan) : null;
     if (plan) {
-      const r = appUpdateByKey_('PLANS', { plan_id: planId }, planPatch, null, ctx.actor);
-      before = r.before;
-      plan = r.after;
+      ops.push({ table: 'PLANS', mode: 'patch', key: { plan_id: planId }, patch: planPatch, actor: ctx.actor });
     } else {
-      plan = Object.assign({ plan_id: planId, created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }, planPatch);
-      appInsertRows_('PLANS', [plan]);
+      ops.push({ table: 'PLANS', mode: 'ensure', rows: [Object.assign({ plan_id: planId, created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor,
+        row_version: 1 }, planPatch)] });
     }
+    appJournalRun_(ctx, '旧ブックの取り込み（' + batchId + '）', planId, ops);
+    plan = appPlanOf_(planId);
     // 書いた後にデータ本体から読み戻して、旧ブックと同じに戻るかを確かめる（本物のシートでしか分からない差を拾う）
     const loaded = appEngLoadPlanSheets_(planId);
     const verify = src.snaps.map(snap => {

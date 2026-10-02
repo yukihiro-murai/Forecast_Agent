@@ -17,13 +17,18 @@ function appJobSpec_(kind) {
     'FORECAST.PARITY': { ownerOnly: true, label: '計算の一致の確認' },
     'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true },   // 続きの処理（画面からは始めない）
     // 予測の実行: 予算策定担当（その計画のクライアントの担当でもよい）以上
+    // 組み立て（続きは同じ処理を続けて動かす）→ 計算 → 保存の 3 つ（Forecast.js）
     'FORECAST.RUN': { minRole: 'PLANNER', planScoped: true, label: '予測の実行' },
+    'FORECAST.RUN_CALC': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     // 計画への保存・実行（Plan.js）: 操作ごとの役割（予算策定担当・承認者）。その計画のクライアントの担当でもよい
     'PLAN.VIEW_CHECK': { ownerOnly: true, label: '画面の中身の確認' },
     'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存' },
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
-    'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true }
+    'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
+    'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
+    // 途中で止まった保存の続きを、控え（Journal.js）のとおりに書く。予算策定担当以上（控えは、権限を確かめて始めた保存のもの）
+    'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' }
   };
   const s = specs[String(kind || '')];
   if (!s) throw new Error('未定義の処理です: ' + kind);
@@ -86,12 +91,18 @@ function appJobExecute_(ctx, job) {
         after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
         () => appMigrationImport_(ctx, p));
     case 'FORECAST.RUN':
-      return appAudited_(ctx, 'FORECAST.RUN.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, confirms: p.confirms || [], jobId: job.id },
-        after: res => (res.needConfirm ? { needConfirm: res.needConfirm.key || true } : { runId: res.__next.payload.runId, changed: res.__next.payload.changed,
-          annual: res.__next.payload.headline && res.__next.payload.headline.annual, timing: res.__next.payload.timing }) }, () => appForecastRunCalc_(ctx, p, job));
+      return appAudited_(ctx, 'FORECAST.RUN.BUILD', { entityType: 'PLAN', entityId: p.planId,
+        detail: { planId: p.planId, confirms: p.confirms || [], runId: p.runId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
+        after: res => ({ runId: res.__next.payload.runId, next: res.__next.kind, built: res.__next.payload.build.done.length, problems: res.__next.payload.build.problems,
+          buildMs: res.__next.payload.buildMs }) }, () => appForecastRunBuild_(ctx, p, job));
+    case 'FORECAST.RUN_CALC':
+      return appAudited_(ctx, 'FORECAST.RUN.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, runId: p.runId, confirms: p.confirms || [], jobId: job.id },
+        after: res => (res.needConfirm ? { needConfirm: res.needConfirm.key || true } : { runId: res.__next.payload.runId,
+          annual: res.__next.payload.headline && res.__next.payload.headline.annual, runMs: res.__next.payload.runMs }) }, () => appForecastRunCalc_(ctx, p));
     case 'FORECAST.RUN_SAVE':
       return appAudited_(ctx, 'FORECAST.RUN.SAVE', { entityType: 'FORECAST_RUN', entityId: p.runId, detail: { planId: p.planId, runId: p.runId, inputHash: p.inputHash, jobId: job.id },
-        after: res => ({ runId: res.runId, changed: res.changed, written: res.written, annual: res.headline && res.headline.annual }) }, () => appForecastRunSave_(ctx, p));
+        after: res => ({ runId: res.runId, changed: res.changed, written: res.written, annual: res.headline && res.headline.annual, timing: res.timing }) },
+        () => appForecastRunSave_(ctx, p));
     case 'FORECAST.PARITY':
       return appAudited_(ctx, 'FORECAST.PARITY.A', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
         after: res => ({ next: res.__next.kind, seed: res.__next.payload.seed, legacyAnnual: res.__next.payload.legacy && res.__next.payload.legacy.annual,
@@ -110,13 +121,21 @@ function appJobExecute_(ctx, job) {
         after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, result: res.result, timing: res.timing }) },
         () => appPlanEdit_(ctx, p));
     case 'PLAN.RUN':
-      return appAudited_(ctx, 'PLAN.' + p.action + '.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, action: p.action, jobId: job.id },
-        after: res => ({ actionId: res.__next.payload.actionId, changed: res.__next.payload.changed, result: res.__next.payload.result, timing: res.__next.payload.timing }) },
-        () => appPlanRunCalc_(ctx, p, job));
+      return appAudited_(ctx, 'PLAN.' + p.action + '.BUILD', { entityType: 'PLAN', entityId: p.planId,
+        detail: { planId: p.planId, action: p.action, actionId: p.actionId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
+        after: res => ({ actionId: res.__next.payload.actionId, next: res.__next.kind, built: res.__next.payload.build.done.length, problems: res.__next.payload.build.problems,
+          buildMs: res.__next.payload.buildMs }) }, () => appPlanRunBuild_(ctx, p));
+    case 'PLAN.RUN_CALC':
+      return appAudited_(ctx, 'PLAN.' + p.action + '.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, action: p.action, actionId: p.actionId, jobId: job.id },
+        after: res => ({ actionId: res.__next.payload.actionId, result: res.__next.payload.result, runMs: res.__next.payload.runMs }) },
+        () => appPlanRunCalc_(ctx, p));
     case 'PLAN.RUN_SAVE':
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
-        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written }) }, () => appPlanRunSave_(ctx, p));
+        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
+    case 'SYSTEM.RECOVER':
+      return appAudited_(ctx, 'SYSTEM.RECOVER', { entityType: 'SYSTEM', detail: { jobId: job.id, pending: appJournalPending_() },
+        after: res => res }, () => appWithLock_(() => appJournalRecover_(ctx) || { nothing: true }));
     default:
       throw new Error('未定義の処理です: ' + job.kind);
   }

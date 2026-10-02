@@ -171,23 +171,48 @@ function appInsertRows_(name, objs) {
  * 新しい中身を先に書いてから、余った古い行を消す。返り値は { removed, kept, added }
  */
 function appReplaceRows_(name, keep, objs) {
-  const def = APP_TABLES[name];
-  const sh = appTableSheet_(name, false);
   const cur = appReadTable_(name);
   const kept = cur.filter(keep).map(appStripRow_);
-  const all = kept.concat(objs);
+  appReplaceWhole_(name, kept.concat(objs));
+  return { removed: cur.length - kept.length, kept: kept.length, added: objs.length };
+}
+
+/** 表全体を rows にする（2 行目から書き、余った古い行を消す）。何度書いても同じ結果になる（保存の控えの書き直しに使う） */
+function appReplaceWhole_(name, rows) {
+  const def = APP_TABLES[name];
+  const sh = appTableSheet_(name, false);
   const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
   const seen = {};
-  all.forEach(o => {
+  rows.forEach(o => {
     const k = keyOf(o);
     if (seen[k]) throw new Error('同じキーの行があります（' + name + '）。');
     seen[k] = true;
   });
   const oldLast = sh.getLastRow();
-  appWriteBody_(sh, all.map(o => appObjectToRow_(def, o)), def.columns.length);
-  const newLast = all.length + 1;
+  appWriteBody_(sh, rows.map(o => appObjectToRow_(def, o)), def.columns.length);
+  const newLast = rows.length + 1;
   if (oldLast > newLast) sh.getRange(newLast + 1, 1, oldLast - newLast, def.columns.length).clearContent();
-  return { removed: cur.length - kept.length, kept: kept.length, added: objs.length };
+  return { rows: rows.length };
+}
+
+/** キーの無い行だけ足す（何度呼んでも同じ結果になる）。返り値は足した行 */
+function appEnsureRows_(name, objs) {
+  const def = APP_TABLES[name];
+  if (!objs.length) return [];
+  const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
+  const have = {};
+  appReadTable_(name).forEach(o => { have[keyOf(o)] = true; });
+  return appInsertRows_(name, objs.filter(o => !have[keyOf(o)]));
+}
+
+/** キーの行の列を patch の値にする。すでに同じ値なら書かない（何度呼んでも同じ結果になる）。返り値は書いたかどうか */
+function appPatchRow_(name, keyVals, patch, actor) {
+  const def = APP_TABLES[name];
+  const cur = appReadTable_(name).filter(r => def.key.every(k => r[k] === keyVals[k]))[0];
+  if (!cur) throw new Error('対象が見つかりません（' + name + '）。');
+  if (Object.keys(patch).every(k => String(cur[k]) === String(patch[k]))) return false;
+  appUpdateByKey_(name, keyVals, patch, undefined, actor || '');
+  return true;
 }
 
 /**

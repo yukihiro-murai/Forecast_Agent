@@ -84,10 +84,57 @@ function appScratchBook_() {
  * 計算用ブックを空にする（シートを 1 枚の空のシートだけにする）。
  * 旧来の計算は必要なシートを自分で作るか、呼ぶ側が入れたシートだけを読む。
  */
-function appScratchReset_(ss) {
+function appScratchReset_(ss, token) {
+  // 空にした時点で、前の処理の中身ではなくなる（その処理の続きは appScratchOwnedBy_ で止まる）
+  appProps_().setProperty(APP_PROP.scratchOwner, token || appId_('SCR'));
   const keep = ss.insertSheet('_EMPTY_' + Utilities.getUuid().slice(0, 8));
   ss.getSheets().forEach(s => { if (s.getSheetId() !== keep.getSheetId()) ss.deleteSheet(s); });
   return keep;
+}
+
+/** 計算用ブックの中身が、token の処理が組み立てたままか */
+function appScratchOwnedBy_(token) {
+  return !!token && appProps_().getProperty(APP_PROP.scratchOwner) === token;
+}
+
+/** 組み立てを打ち切る目安（1 回の実行の上限 6 分のうち、残りでシート 1 枚と後始末ができる時間） */
+const APP_BUILD_BUDGET_MS = 4 * 60 * 1000;
+
+/** その実行で、次のシートの組み立てに進んでよい最後の時刻（テストでは小さくして、何回かに分かれる動きを確かめる） */
+function appBuildDeadline_(jobStartMs) {
+  return jobStartMs + APP_BUILD_BUDGET_MS;
+}
+
+/**
+ * データ本体から計算用ブックを組み立てる（何回かの実行に分けてよい）。state は前の回の続き（無ければ空にして初めから）。
+ * deadlineMs を過ぎたら、次のシートに進まずに返す（続きは次の実行で）。only を渡すとそのシートだけ。
+ * 返り値: { state: { token, done, problems }, complete }。problems は書き方を変えても直らなかったシート（小さく保つ）
+ */
+function appScratchBuildStep_(scratch, planId, only, state, deadlineMs) {
+  let st = state;
+  if (!st) {
+    st = { token: appId_('SCR'), done: [], problems: [] };
+    appScratchReset_(scratch, st.token);
+  } else if (!appScratchOwnedBy_(st.token)) {
+    throw new Error('組み立てている間に、計算用ブックがほかの処理で使われました。もう一度実行してください。');
+  }
+  const names = Object.keys(APP_ENGINE_SHEETS).filter(n => (!only || only.indexOf(n) >= 0) && st.done.indexOf(n) < 0);
+  const sheets = appEngLoadPlanSheets_(planId, names);
+  for (let i = 0; i < names.length; i++) {
+    if (i > 0 && new Date().getTime() > deadlineMs) break;   // 1 回に 1 枚は必ず進める（同じところで止まり続けない）
+    const dec = sheets[names[i]];
+    if (dec) {
+      const w = appEngWriteSheet_(scratch, dec, null);
+      if (w.mismatches || w.formatMismatches) st.problems.push(names[i] + (w.mismatches ? ' 値 ' + w.mismatches : '') + (w.formatMismatches ? ' 表示形式 ' + w.formatMismatches : ''));
+    }
+    st.done.push(names[i]);
+  }
+  const complete = Object.keys(APP_ENGINE_SHEETS).every(n => (only && only.indexOf(n) < 0) || st.done.indexOf(n) >= 0);
+  if (complete) {
+    const all = scratch.getSheets();
+    all.forEach(s => { if (/^_EMPTY_/.test(s.getName()) && scratch.getSheets().length > 1) scratch.deleteSheet(s); });
+  }
+  return { state: st, complete: complete };
 }
 
 // ---- 旧来の計算に渡す差し替え（LegacyEngine.js の appLegacyEngine_ に渡す） ----

@@ -65,6 +65,7 @@ function appParityB_(ctx, p) {
   const pl = appParityPlan_(p.planId);
   const t0 = new Date().getTime();
   return appWithLock_(() => {
+    appJournalRecover_(ctx);   // 保存が途中で止まっていれば、先に書き終える（食い違ったまま組み立てない）
     const scratch = appParityScratch_(pl.plan);
     const build = appScratchFromStore_(scratch, pl.plan.plan_id);
     const pre = appScratchDigest_(scratch);

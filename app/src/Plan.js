@@ -172,6 +172,14 @@ function appPlanView_(ctx, planId) {
   const plan = appPlanOf_(planId);
   const clients = {};
   appReadTable_('CLIENTS').forEach(c => { clients[c.client_id] = c.client_name; });
+  const roles = ctx.roles || [];
+  const pending = appJournalPending_();
+  if (pending) {
+    // 保存が途中で止まっている間は、表どうしが食い違っていることがあるので組み立てない（続きを書くまで待ってもらう）
+    return { plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy },
+      pendingWrite: { label: pending.label, at: pending.at }, can: { plan: appHasRole_(roles, 'PLANNER'), approve: false, admin: appHasRole_(roles, 'ADMIN') },
+      actions: [], recent: [], boot: null };
+  }
   const inputHash = appPlanInputHash_(plan.plan_id);
   const day = Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM-dd');   // 旧来の画面は「今日」で変わる（既定の年度など）
   const key = 'VIEW_' + appSha256Hex_([plan.plan_id, inputHash, day, APP_VERSION].join('|')).slice(0, 32);
@@ -191,7 +199,6 @@ function appPlanView_(ctx, planId) {
     try { appJobPutResult_(key, view); } catch (e) { Logger.log('画面の中身を覚えておけません: ' + (e && e.message ? e.message : e)); }
     if (view.builtMs > 20000) appRunLog_({ requestId: ctx.requestId, kind: 'PLAN.VIEW', status: 'SLOW', durationMs: view.builtMs, detail: { planId: plan.plan_id } });
   }
-  const roles = ctx.roles || [];
   return Object.assign({
     plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy },
     inputHash: inputHash,
@@ -254,14 +261,18 @@ function appPlanActionRow_(ctx, plan, actionName, x) {
   };
 }
 
-/** 保存: 使うシートだけを組み立てて旧来の webSave* を動かし、変わったシートをデータ本体へ戻す（1 つの処理・ロックの中） */
+/** 1 回の保存（PLAN.EDIT）で、書き始めてよい時間の目安。これを過ぎたら何も書かずに止める（書きかけで止まらないように） */
+const APP_EDIT_WRITE_DEADLINE_MS = 4 * 60 * 1000;
+
+/** 保存: 使うシートだけを組み立てて旧来の webSave* を動かし、変わったシートを、控えを置いてからデータ本体へ戻す（1 つの処理・ロックの中） */
 function appPlanEdit_(ctx, p) {
   const act = appPlanAction_(p.action, 'edit');
   const plan = appPlanOf_(p.planId);
-  const args = appJobArgs_(p);
+  const args = appPlanCheckArgs_(appJobArgs_(p));
   const t0 = new Date().getTime();
   const actionId = appId_('ACT');
   return appWithLock_(() => {
+    appJournalRecover_(ctx);   // 前の保存が途中で止まっていれば、先に書き終える
     const stored = appStoredHashes_(plan.plan_id);
     const inputHash = appPlanInputHash_(plan.plan_id);
     if (p.inputHash && p.inputHash !== inputHash) {
@@ -275,13 +286,17 @@ function appPlanEdit_(ctx, p) {
     const t2 = new Date().getTime();
     const cap = appCaptureChanged_(scratch, plan.plan_id, stored, act.sheets);
     const names = cap.changed.map(e => e.sheetRow.sheet);
-    const written = names.length ? appWriteChanged_(ctx, plan.plan_id, cap.changed, actionId) : {};
     const result = appPlanResultSummary_(call.value);
-    if (act.local === 'appPlanSetPeople_' && names.length) {
-      appUpdateByKey_('PLANS', { plan_id: plan.plan_id }, { people_csv: call.value.peopleCsv }, undefined, ctx.actor);
+    if (new Date().getTime() - t0 > APP_EDIT_WRITE_DEADLINE_MS) {
+      throw new Error('時間がかかりすぎたので、保存をやめました（何も書いていません）。もう一度保存してください。');
     }
-    appInsertRows_('PLAN_ACTIONS', [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
-      inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })]);
+    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, actionId);
+    if (act.local === 'appPlanSetPeople_' && names.length) {
+      ops.push({ table: 'PLANS', mode: 'patch', key: { plan_id: plan.plan_id }, patch: { people_csv: call.value.peopleCsv }, actor: ctx.actor });
+    }
+    ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
+      inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })] });
+    const written = appJournalRun_(ctx, act.label + '（' + actionId + '）', plan.plan_id, ops);
     return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: result,
       build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
       timing: { buildMs: t1 - t0, runMs: t2 - t1, saveMs: new Date().getTime() - t2 },
@@ -289,49 +304,77 @@ function appPlanEdit_(ctx, p) {
   });
 }
 
-/** 実行（計算）: 全部のシートを組み立てて旧来の webRun* を動かし、変わったシートを控える。保存は続きの処理 */
-function appPlanRunCalc_(ctx, p, job) {
+/**
+ * 実行（組み立て・PLAN.RUN）: データ本体から計算用ブックを組み立てる（sheets を決めた操作はそのシートだけ）。
+ * 1 回の上限に収まらなければ同じ処理を続けて動かし、組み立て終えたら計算（PLAN.RUN_CALC）へ
+ */
+function appPlanRunBuild_(ctx, p) {
   const act = appPlanAction_(p.action, 'run');
   const plan = appPlanOf_(p.planId);
-  const t0 = new Date().getTime();
-  const actionId = appId_('ACT');
-  const inputHash = appPlanInputHash_(plan.plan_id);
-  const stored = appStoredHashes_(plan.plan_id);
+  const jobStart = new Date().getTime();
   return appWithLock_(() => {
-    const scratch = appParityScratch_(plan);
-    const build = appScratchFromStore_(scratch, plan.plan_id, act.sheets);   // sheets を決めた操作は、そのシートだけ
-    const t1 = new Date().getTime();
-    const call = appLegacyCall_(scratch, { asOfMs: t0, seed: actionId, actor: ctx.actor }, act.fn, []);
-    const t2 = new Date().getTime();
-    const cap = appCaptureChanged_(scratch, plan.plan_id, stored, act.sheets);
-    appJobPutResult_(job.id + '_SAVE', { changed: cap.changed });
-    const t3 = new Date().getTime();
-    return {
-      __next: { kind: 'PLAN.RUN_SAVE', payload: {
-        planId: plan.plan_id, action: p.action, actionId: actionId, seed: actionId, asOfMs: t0, inputHash: inputHash, parentJobId: job.id,
-        engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 }, result: appPlanResultSummary_(call.value),
-        changed: cap.changed.map(e => e.sheetRow.sheet), unknown: cap.unknown, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"),
-        build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
-        timing: { buildMs: t1 - t0, runMs: t2 - t1, captureMs: t3 - t2 } } },
-      audit: { entityId: plan.plan_id, clientId: plan.client_id }
-    };
+    if (!p.build) appJournalRecover_(ctx);
+    const inputHash = appPlanInputHash_(plan.plan_id);
+    if (p.build && inputHash !== p.inputHash) throw new Error('組み立てている間にデータ本体が変わりました。もう一度実行してください。');
+    const actionId = p.actionId || appId_('ACT');
+    const asOfMs = p.asOfMs || jobStart;
+    const step = appScratchBuildStep_(appParityScratch_(plan), plan.plan_id, act.sheets || null, p.build || null, appBuildDeadline_(jobStart));
+    const payload = { planId: plan.plan_id, action: p.action, actionId: actionId, seed: actionId, asOfMs: asOfMs, inputHash: inputHash,
+      startedAt: Utilities.formatDate(new Date(asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), build: step.state,
+      buildMs: Number(p.buildMs || 0) + (new Date().getTime() - jobStart) };
+    return { __next: { kind: step.complete ? 'PLAN.RUN_CALC' : 'PLAN.RUN', payload: payload }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
   });
 }
 
-/** 実行（保存）: 計算の間にデータ本体が変わっていないことを確かめてから、控えを書き戻す */
-function appPlanRunSave_(ctx, p) {
+/** 実行（計算・PLAN.RUN_CALC）: 組み立てた計算用ブックで旧来の webRun* を動かす（データ本体には書かない） */
+function appPlanRunCalc_(ctx, p) {
+  const act = appPlanAction_(p.action, 'run');
   const plan = appPlanOf_(p.planId);
-  const saved = appJobGetResult_(p.parentJobId + '_SAVE');
-  if (!saved.found) throw new Error('計算した結果の控えが見つかりません（保存期間が過ぎた）。もう一度実行してください。');
-  const changed = saved.value.changed;
+  const t0 = new Date().getTime();
   return appWithLock_(() => {
+    if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const names = changed.map(e => e.sheetRow.sheet);
-    const written = names.length ? appWriteChanged_(ctx, plan.plan_id, changed, p.actionId) : {};
-    appInsertRows_('PLAN_ACTIONS', [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))]);
-    return { actionId: p.actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: p.result,
-      unknown: p.unknown || [], audit: { entityId: p.actionId, clientId: plan.client_id } };
+    const call = appLegacyCall_(appParityScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor }, act.fn, []);
+    const payload = Object.assign({}, p, { engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
+      result: appPlanResultSummary_(call.value), runMs: new Date().getTime() - t0 });
+    return { __next: { kind: 'PLAN.RUN_SAVE', payload: payload }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
   });
+}
+
+/** 実行（保存・PLAN.RUN_SAVE）: 書き換わったシートを控えの形にし、計算の間にデータ本体が変わっていないことを確かめてから書く */
+function appPlanRunSave_(ctx, p) {
+  const act = appPlanAction_(p.action, 'run');
+  const plan = appPlanOf_(p.planId);
+  const t0 = new Date().getTime();
+  return appWithLock_(() => {
+    if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
+    if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
+    const cap = appCaptureChanged_(appParityScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id), act.sheets);
+    const t1 = new Date().getTime();
+    const names = cap.changed.map(e => e.sheetRow.sheet);
+    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId);
+    ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))] });
+    const written = appJournalRun_(ctx, act.label + '（' + p.actionId + '）', plan.plan_id, ops);
+    return { actionId: p.actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: p.result,
+      unknown: cap.unknown, build: (p.build && p.build.problems) || [],
+      timing: { buildMs: p.buildMs || 0, runMs: p.runMs || 0, captureMs: t1 - t0, saveMs: new Date().getTime() - t1 },
+      audit: { entityId: p.actionId, clientId: plan.client_id } };
+  });
+}
+
+/**
+ * 画面から渡された保存の中身を確かめる。Sheets は「=」（と、「+」「-」の後に英字や括弧が続くもの）で始まる文字を数式として動かすので、
+ * 計算用ブックで所有者の権限のまま外部を読む数式（IMPORTXML など）が動かないよう、受け付けない
+ */
+function appPlanCheckArgs_(args) {
+  const bad = v => typeof v === 'string' && (/^\s*=/.test(v) || /^\s*[+\-]\s*[A-Za-z_$(@]/.test(v));
+  const walk = v => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (v && typeof v === 'object') { Object.keys(v).forEach(k => walk(v[k])); return; }
+    if (bad(v)) throw new Error('数式として動いてしまう文字は入力できません（' + String(v).slice(0, 20) + '）。先頭の「=」「+」「-」を消すか、前に別の文字を入れてください。');
+  };
+  walk(args);
+  return args;
 }
 
 // ---- 画面の中身の確認（所有者）: 読むだけのブックと、計算用ブックで、旧来の画面の中身が同じか ----
@@ -364,6 +407,7 @@ function appPlanViewCheck_(ctx, p) {
   const t0 = new Date().getTime();
   const strip = v => { const x = appSerialize_(v); delete x.user; delete x.bookUrl; delete x.access; return x; };
   return appWithLock_(() => {
+    appJournalRecover_(ctx);
     const scratch = appParityScratch_(plan);
     const build = appScratchFromStore_(scratch, plan.plan_id);
     const t1 = new Date().getTime();

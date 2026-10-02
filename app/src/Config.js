@@ -17,7 +17,8 @@ const APP_FILES = {
   backupFolder: 'バックアップ',
   archiveFolder: 'アーカイブ',
   backupPrefix: '売上予測アプリ データ バックアップ ',
-  scratch: '売上予測アプリ 計算用（自動）'
+  scratch: '売上予測アプリ 計算用（自動）',
+  journalPrefix: '売上予測アプリ 保存の控え（自動） '   // 書き終えたらゴミ箱へ（Journal.js）
 };
 
 /** Script Properties のキー（ファイルの ID と鎖の最新ハッシュ。秘密情報は置かない） */
@@ -30,6 +31,7 @@ const APP_PROP = {
   auditLastHash: 'APP_AUDIT_LAST_HASH',
   internalDomain: 'APP_INTERNAL_DOMAIN',
   scratchId: 'APP_SCRATCH_SPREADSHEET_ID',
+  scratchOwner: 'APP_SCRATCH_OWNER',     // 計算用ブックを今使っている処理の印（組み立て → 計算 → 保存の続きの処理が、同じ中身のままか確かめる）
   fyNaming: 'APP_FY_NAMING',   // 'start' = 年度を始まりの年で呼ぶ（ログのファイル名を直し終えた印）
   tablesVersion: 'APP_TABLES_VERSION'   // データ本体の表をそろえた版（APP_SCHEMA_VERSION と違えば、最初の操作で足りない表を作る）
 };

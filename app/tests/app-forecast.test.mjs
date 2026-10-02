@@ -161,9 +161,12 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
     const snap = env.run('appSheetSnapshot_(__s, __n)', { __s: scratch.getSheetByName(name), __n: Number(loaded[name].fmtCols) });
     assert.deepEqual(J(env.run('appEngCompare_(__a, __b)', { __a: snap, __b: loaded[name] })), [], `${name} が計算後のとおりに残る`);
   }
-  // 記録: 計算と保存
+  // 記録: 組み立て → 計算（確認が要って止まる）、組み立て → 計算 → 保存
   const au = env.audit().filter((a) => /^FORECAST\.RUN/.test(a.action) && a.phase === 'END').map((a) => [a.action, a.result]);
-  assert.deepEqual(au, [['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.SAVE', 'OK']]);
+  assert.deepEqual(au, [['FORECAST.RUN.BUILD', 'OK'], ['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.BUILD', 'OK'], ['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.SAVE', 'OK']]);
+  assert.equal(env.props.APP_WRITE_JOURNAL, undefined, '書き終えたら保存の控えを消す');
+  const journals = Object.values(env.files).filter((f) => f.kind === 'file' && /保存の控え/.test(f.name));
+  assert.ok(journals.length >= 1 && journals.every((f) => f.trashed), '控えのファイルはゴミ箱へ');
   // 2 回目: また足された行だけ
   const st3 = env.runJob('FORECAST.RUN', { planId, confirms: ['extreme'] });
   assert.equal(st3.status, 'DONE', st3.error);
@@ -183,7 +186,7 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
 {
   const { env, planId } = imported();
   const started = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId, confirms: ['extreme'] } } });
-  env.fireTriggers('triggerRunJob');   // 計算だけ動く（保存は次のトリガー）
+  env.fireTriggers('triggerRunJob');   // 組み立てだけ動く（計算・保存は次のトリガー）
   const st = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
   assert.equal(st.status, 'CONTINUED');
   const meta = env.data().getSheetByName('ENG_SHEETS');

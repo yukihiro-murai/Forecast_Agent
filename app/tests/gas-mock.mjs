@@ -275,6 +275,14 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     Object.assign(f, {
       getId: () => f.id, getName: () => f.name, getUrl: () => 'https://drive.google.com/drive/folders/' + f.id,
       createFolder: (n) => makeFolder(n, f.id),
+      // 文字のファイル（保存の控え）。本物と同じく、中身は getBlob().getDataAsString() で読む
+      createFile: (n, content, mime) => {
+        const x = makeFile(newId('FILE'), n, f.id);
+        x.mime = mime || 'text/plain';
+        x.content = String(content);
+        x.getBlob = () => ({ getDataAsString: () => x.content });
+        return x;
+      },
       // 本物と同じく、ゴミ箱のファイルも一覧に出す
       getFilesByType: (mime) => iter(Object.values(files).filter((x) => x.kind === 'file' && x.parent === f.id && x.mime === mime)),
     });
@@ -347,7 +355,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       getFolderById: (id) => { if (!files[id] || files[id].kind !== 'folder') throw new Error('no folder ' + id); return files[id]; },
       getFileById: (id) => { if (!files[id] || files[id].kind !== 'file') throw new Error('no file ' + id); return files[id]; },
     },
-    MimeType: { GOOGLE_SHEETS: SHEETS_MIME },
+    MimeType: { GOOGLE_SHEETS: SHEETS_MIME, PLAIN_TEXT: 'text/plain' },
     ScriptApp: {
       getProjectTriggers: () => triggers.map((t) => ({ getUniqueId: () => t.uid, getHandlerFunction: () => t.handler })),
       newTrigger(handler) {
