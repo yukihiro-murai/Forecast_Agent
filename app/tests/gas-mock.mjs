@@ -12,7 +12,10 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 export const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const srcDir = path.join(appDir, 'src');
+export const srcDir = process.env.APP_SRC_DIR || path.join(appDir, 'src');   // 速さの比べ（bench）で前の版を読むときだけ差し替える
+/** スプレッドシートを読んだ・書いた回数とセルの数（速さの比べに使う） */
+export const STATS = { reads: 0, readCells: 0, writes: 0, writeCells: 0, bySheet: {} };
+const stat = (sh, k, n) => { const c = k === 'reads' ? 'readCells' : 'writeCells'; STATS[k]++; STATS[c] += n; const b = STATS.bySheet[sh.name] = STATS.bySheet[sh.name] || { reads: 0, readCells: 0, writes: 0, writeCells: 0 }; b[k]++; b[c] += n; };
 export const repoRoot = path.resolve(appDir, '..');
 export const srcNames = (await readdir(srcDir)).sort();
 export const jsFiles = srcNames.filter((n) => n.endsWith('.js'));
@@ -189,7 +192,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
       const each = (fn) => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) fn(r - 1 + i, col - 1 + j, i, j); };
       const grid = (fn) => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => fn(r - 1 + i, col - 1 + j)));
       let range = {
-        getValues: () => grid((y, x) => at(rows, y, x, '')),
+        getValues: () => { stat(sh, 'reads', nr * nc); return grid((y, x) => at(rows, y, x, '')); },
         getValue: () => at(rows, r - 1, col - 1, ''),
         getFormulas: () => grid((y, x) => at(fmls, y, x, '') || ''),
         getNumberFormats: () => grid((y, x) => fmtAt(y, x)),
@@ -209,6 +212,7 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         setValues(vals) {
           if (sh.failWrites) throw new Error('write failed');
           if (vals.length !== nr || vals.some((v) => v.length !== nc)) throw new Error('The number of rows or columns in the data does not match the range.');
+          stat(sh, 'writes', nr * nc);
           each((y, x, i, j) => writeCell(y, x, vals[i][j]));
           return range;
         },
@@ -441,8 +445,9 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     for (let i = 0; i < 60; i++) {   // 組み立てが何回かに分かれても最後まで
       fireTriggers('triggerRunJob', opts);
       const st = call('apiJobStatus(__in)', { __in: { jobId: id } });
-      if (st.status !== 'CONTINUED') return st;
-      id = st.nextJobId;
+      if (st.status === 'CONTINUED') { id = st.nextJobId; continue; }
+      if (st.status === 'QUEUED' || st.status === 'RUNNING') { id = st.jobId; continue; }   // 終わった段はサーバーがたどる。次の段を待つ
+      return st;
     }
     throw new Error('続きの処理が終わらない');
   };

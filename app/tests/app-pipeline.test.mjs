@@ -99,11 +99,11 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   const started = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId } } });
   env.fireTriggers('triggerRunJob');   // 組み立て
   const st = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
-  assert.equal(st.status, 'CONTINUED');
-  assert.equal(st.nextKind, 'FORECAST.RUN_CALC');
+  assert.equal(st.status, 'QUEUED');
+  assert.equal(st.kind, 'FORECAST.RUN_CALC');
   env.run('appScratchReset_(appScratchBook_())');   // ほかの処理が計算用ブックを空にした
   env.fireTriggers('triggerRunJob');
-  const st2 = env.call('apiJobStatus(__in)', { __in: { jobId: st.nextJobId } });
+  const st2 = env.call('apiJobStatus(__in)', { __in: { jobId: st.jobId } });
   assert.equal(st2.status, 'FAILED');
   assert.match(st2.error, /計算用ブックがほかの処理で使われました/);
   assert.deepEqual(env.table('ENG_SHEETS').map((r) => r.content_hash), before, 'データ本体は変えない');
@@ -260,6 +260,21 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.equal(calcs.length, 4, '1 回に 1 つずつ新しく問い合わせ、ほかは控えから答える');
   // Vertex AI 以外へは問い合わせない
   assert.throws(() => env.run(`appAiFetcher_('x', Date.now() + 60000).fetch('https://example.com/', { payload: '' })`), /Vertex AI 以外へは問い合わせません/);
+}
+
+// ==== 10. 2 回目からは、かかった時間から見て収まる続きの処理を、同じ実行の中で続けて動かす（トリガーを待たない） ====
+{
+  const { env, planId } = imported();
+  const first = env.runJob('FORECAST.RUN', { planId });
+  assert.equal(first.status, 'DONE', first.error);
+  const started = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId } } });
+  env.fireTriggers('triggerRunJob');   // 1 回だけ
+  const st = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
+  assert.equal(st.status, 'DONE', '1 回のトリガーで保存まで終わる: ' + st.status + ' ' + (st.error || ''));
+  assert.equal(st.kind, 'FORECAST.RUN_SAVE', '状態は、たどった最後の段のもの');
+  assert.ok(st.result && st.result.runId, '最後の段の結果を返す');
+  assert.equal(env.table('FORECAST_RUNS').length, 2);
+  assert.equal(env.triggers.filter((t) => t.handler === 'triggerRunJob').length, 0, '使わなかったトリガーは消す');
 }
 
 console.log('app-pipeline: all tests passed');

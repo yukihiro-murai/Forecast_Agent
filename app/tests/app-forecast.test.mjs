@@ -188,12 +188,13 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
   const started = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId, confirms: ['extreme'] } } });
   env.fireTriggers('triggerRunJob');   // 組み立てだけ動く（計算・保存は次のトリガー）
   const st = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
-  assert.equal(st.status, 'CONTINUED');
+  assert.equal(st.status, 'QUEUED', '終わった組み立てはたどり、次の計算を待っている');
+  assert.equal(st.kind, 'FORECAST.RUN_CALC');
   const meta = env.data().getSheetByName('ENG_SHEETS');
   const H = meta.rows[0];
   meta.rows[1][H.indexOf('content_hash')] = 'changed-by-someone';
   env.fireTriggers('triggerRunJob');
-  const st2 = env.call('apiJobStatus(__in)', { __in: { jobId: st.nextJobId } });
+  const st2 = env.call('apiJobStatus(__in)', { __in: { jobId: st.jobId } });
   assert.equal(st2.status, 'FAILED');
   assert.match(st2.error, /データ本体が変わりました/);
   assert.equal(env.table('FORECAST_RUNS').length, 0);

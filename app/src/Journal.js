@@ -7,7 +7,10 @@
  * 控えが残っていれば、次の書き込みの前に控えのとおりに書き直す（何度書き直しても同じ結果になる）。
  *
  * 控えの中身（ops）:
- *   { table, mode: 'replace', rows }       … 表全体をこの行にする（ほかの計画の行も含めた、書き終えた後の全部）
+ *   { table, mode: 'replace', rows }       … 表全体をこの行にする（ほかの計画の行も含めた、書き終えた後の全部。前の版の控え）
+ *   { table, mode: 'replacePlan', planId, sheets, rows }
+ *                                          … 計画 planId の行（sheets を渡せばそのシートの行だけ）を rows に入れ替える。
+ *                                            ほかの計画の行は控えに入れない（控えが小さく、書く行も少ない）。元の行があった場所に置く
  *   { table, mode: 'ensure', rows }        … キーの無い行だけ足す（追記だけの表・記録の表）
  *   { table, mode: 'patch', key, patch }   … キーの行の列を、この値にする（同じ値なら書かない）
  */
@@ -67,6 +70,7 @@ function appJournalApply_(ops) {
     const prev = written[op.table];
     let res;
     if (op.mode === 'replace') res = Object.assign({ replaced: true }, appReplaceWhole_(op.table, op.rows), op.removed !== undefined ? { removed: op.removed } : {});
+    else if (op.mode === 'replacePlan') res = Object.assign({ replaced: true }, appReplaceWhole_(op.table, appPlanRowsSwapped_(op)), op.removed !== undefined ? { removed: op.removed } : {});
     else if (op.mode === 'ensure') res = { appended: appEnsureRows_(op.table, op.rows).length };
     else if (op.mode === 'patch') res = { patched: appPatchRow_(op.table, op.key, op.patch, op.actor) ? 1 : 0 };
     else throw new Error('控えの書き方が不明です: ' + op.mode);
@@ -77,11 +81,33 @@ function appJournalApply_(ops) {
 
 // ---- 控えを作る側の道具 ----
 
-/** 表 name の中身を「keep が true の今の行 + objs」にする op。前の行がそのまま残り、後ろに足されただけなら ensure にする */
-function appOpReplaceRows_(name, keep, objs) {
-  const cur = appReadTable_(name);
-  const kept = cur.filter(keep).map(appStripRow_);
-  return { table: name, mode: 'replace', rows: kept.concat(objs), removed: cur.length - kept.length };
+/** 計画 planId の行（sheets を渡せばそのシートの行だけ）を、objs に入れ替える op */
+function appOpReplacePlan_(name, planId, sheets, objs) {
+  const hit = appPlanRowMatcher_(planId, sheets);
+  return { table: name, mode: 'replacePlan', planId: planId, sheets: sheets || null, rows: objs, removed: appReadTable_(name).filter(hit).length };
+}
+
+function appPlanRowMatcher_(planId, sheets) {
+  return r => r.plan_id === planId && (!sheets || sheets.indexOf(r.sheet) >= 0);
+}
+
+/**
+ * replacePlan の書き終えた後の表の全行。入れ替える行は、元の行があった場所に置く（シートごと。元が無ければ後ろに足す）。
+ * 前後の行の位置が変わらないので、書き直す行が少なくて済む（appReplaceWhole_ は同じ行を書かない）
+ */
+function appPlanRowsSwapped_(op) {
+  const hit = appPlanRowMatcher_(op.planId, op.sheets);
+  const group = r => (r.sheet === undefined ? '' : String(r.sheet));
+  const fresh = {};
+  op.rows.forEach(r => { (fresh[group(r)] = fresh[group(r)] || []).push(r); });
+  const out = [];
+  appReadTable_(op.table).forEach(r => {
+    if (!hit(r)) { out.push(appStripRow_(r)); return; }
+    const g = group(r);
+    if (fresh[g]) { fresh[g].forEach(x => out.push(x)); delete fresh[g]; }
+  });
+  op.rows.forEach(r => { const g = group(r); if (fresh[g]) { fresh[g].forEach(x => out.push(x)); delete fresh[g]; } });
+  return out;
 }
 
 /** 計画 1 つ分の行を入れ替える op（appReplaceOrAppend_ と同じ判断: 足されただけなら足した行だけ） */
@@ -97,5 +123,5 @@ function appOpReplaceOrAppend_(name, planId, objs) {
     cur.forEach(o => { have[o.seq] = true; });
     return { table: name, mode: 'ensure', rows: objs.filter(o => !have[o.seq]) };
   }
-  return { table: name, mode: 'replace', rows: all.filter(r => r.plan_id !== planId).map(appStripRow_).concat(objs) };
+  return appOpReplacePlan_(name, planId, null, objs);
 }

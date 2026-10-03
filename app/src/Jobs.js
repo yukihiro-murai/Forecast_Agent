@@ -9,6 +9,9 @@ const APP_JOB_RESULT_PREFIX = 'APP_JOB_RESULT_';
 const APP_JOB_QUEUE_EXPIRE_MS = 15 * 60 * 1000;   // 待ち行列に入ってからこれだけたっても始まらなければ、止まったとみなす
 const APP_JOB_STALE_MS = 8 * 60 * 1000;   // 1 回の実行の上限（6 分）を超えて「実行中」のままなら止まったとみなす
 const APP_JOB_KEEP_MS = 24 * 3600 * 1000;
+// 続きの処理を、同じ実行の中で続けて動かしてよい最後の時刻（実行の始まりから）。1 回の実行の上限は 6 分
+const APP_JOB_INLINE_LIMIT_MS = 5 * 60 * 1000;
+const APP_JOB_STAGE_PROP = 'APP_STAGE_MS';   // 処理の段ごとの、最近かかった時間（続けて動かせるかの見積もり）。APP_JOB_ で始めない（処理の一覧に混ざる）
 
 /** 処理の種類ごとの権限と中身 */
 function appJobSpec_(kind) {
@@ -278,9 +281,49 @@ function appRunJobs_(ctx, e) {
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'triggerRunJob' && uid && String(t.getUniqueId()) === uid) ScriptApp.deleteTrigger(t);
   });
+  const start = new Date().getTime();
   const ran = [];
-  appJobList_().filter(j => j.status === 'QUEUED').forEach(j => { ran.push(appRunJob_(j.id)); });
+  appJobList_().filter(j => j.status === 'QUEUED').forEach(j => {
+    let r = appRunJob_(j.id);
+    ran.push(r);
+    // 続きの処理は、これまでにかかった時間から見て収まるなら、次のトリガーを待たずにこの実行の中で動かす（トリガーを待つだけで数十秒かかる）
+    while (r.nextJobId && appJobCanInline_(r.nextJobId, start)) {
+      const next = appJobGet_(r.nextJobId);
+      r = appRunJob_(r.nextJobId);
+      ran.push(Object.assign({ inline: true }, r));
+      if (next && next.triggerUid) ScriptApp.getProjectTriggers().forEach(t => { if (String(t.getUniqueId()) === next.triggerUid) ScriptApp.deleteTrigger(t); });
+    }
+  });
   return { ran: ran };
+}
+
+/** 段の名前（予測・実行は操作ごとに時間が違うので、操作も付ける） */
+function appJobStageKey_(job) {
+  return job.kind + (job.payload && job.payload.action ? ':' + job.payload.action : '');
+}
+
+function appJobStageTimes_() {
+  try { return JSON.parse(appProps_().getProperty(APP_JOB_STAGE_PROP) || '{}'); } catch (e) { return {}; }
+}
+
+/** かかった時間を残す（段ごとに最近 3 回） */
+function appJobRecordStage_(job, ms) {
+  const t = appJobStageTimes_();
+  const k = appJobStageKey_(job);
+  t[k] = [Math.round(ms)].concat(t[k] || []).slice(0, 3);
+  const keys = Object.keys(t);
+  if (keys.length > 60) delete t[keys[0]];
+  appProps_().setProperty(APP_JOB_STAGE_PROP, JSON.stringify(t));
+}
+
+/** 次の処理を同じ実行の中で動かしてよいか: 最近 3 回のうち一番長い時間の 1.5 倍 + 30 秒が、残りの時間に収まる（初めての段は動かさない） */
+function appJobCanInline_(nextId, startMs) {
+  const next = appJobGet_(nextId);
+  if (!next || next.status !== 'QUEUED') return false;
+  const past = appJobStageTimes_()[appJobStageKey_(next)];
+  if (!past || !past.length) return false;
+  const need = Math.max.apply(null, past) * 1.5 + 30 * 1000;
+  return new Date().getTime() - startMs + need <= APP_JOB_INLINE_LIMIT_MS;
 }
 
 function appRunJob_(id) {
@@ -334,14 +377,21 @@ function appRunJob_(id) {
   appJobSave_(done);
   appRunLog_({ requestId: id, kind: 'JOB:' + job.kind, startedAt: job.startedAt, durationMs: new Date().getTime() - t0, status: status,
     detail: { jobId: id, requestedBy: job.requestedBy, attempts: done.attempts }, error: error });
-  return { id: id, status: status };
+  try { if (status === 'DONE') appJobRecordStage_(job, new Date().getTime() - t0); } catch (e) { /* 見積もりの記録は処理の結果に関係しない */ }
+  return { id: id, status: status, nextJobId: nextJobId };
 }
 
 /** 画面から: 処理の状態（終わっていれば結果も）。頼んだ人と所有者だけが見られる */
 function appJobStatus_(ctx, id) {
-  const job = appJobGet_(String(id || ''));
+  let job = appJobGet_(String(id || ''));
   if (!job) throw new Error('処理が見つかりません。もう一度始めてください。');
   if (job.requestedBy !== ctx.actor && !ctx.user.isOwner) throw new Error('この処理の状態を見る権限がありません。');
+  // 終わった続きの処理はたどって、いま動いている（または最後の）処理の状態を返す（画面が段ごとに尋ね直さなくてよい）
+  for (let hop = 0; hop < 100 && job.status === 'DONE' && job.nextJobId; hop++) {
+    const next = appJobGet_(job.nextJobId);
+    if (!next || next.requestedBy !== job.requestedBy) break;
+    job = next;
+  }
   const out = { jobId: job.id, kind: job.kind, status: job.status, createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt,
     error: job.error, payload: appJobClientPayload_(job.payload) };
   if (job.status === 'QUEUED' && new Date().getTime() - new Date(job.createdAt).getTime() > APP_JOB_QUEUE_EXPIRE_MS) {

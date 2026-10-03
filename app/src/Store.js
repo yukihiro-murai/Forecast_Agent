@@ -54,6 +54,7 @@ function appWithLock_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(APP_LOCK_WAIT_MS);
   APP_LOCK_DEPTH_ = 1;
+  appStoreForget_();   // ロックを取る前に読んだ表は、ほかの実行が書き換えたかもしれない
   try {
     return fn();
   } finally {
@@ -78,6 +79,8 @@ function appDataSpreadsheet_() {
 function appTableSheet_(name, create) {
   const def = APP_TABLES[name];
   if (!def) throw new Error('未定義の表: ' + name);
+  const sheets = APP_STORE_CACHE_.sheets || (APP_STORE_CACHE_.sheets = {});
+  if (sheets[name]) return sheets[name];
   const ss = appDataSpreadsheet_();
   let sh = ss.getSheetByName(name);
   if (!sh) {
@@ -86,11 +89,34 @@ function appTableSheet_(name, create) {
     appFitColumns_(sh, def.columns.length);
     sh.getRange(1, 1, 1, def.columns.length).setNumberFormat('@').setValues([def.columns]);
     sh.setFrozenRows(1);
+    sheets[name] = sh;
     return sh;
   }
   const head = sh.getRange(1, 1, 1, def.columns.length).getValues()[0].map(String);
   if (head.join('|') !== def.columns.join('|')) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
+  sheets[name] = sh;   // 見出しを確かめたシートは、この実行の間は確かめ直さない
   return sh;
+}
+
+// ---- 読んだ表の控え（この実行の間だけ。書いた表とロックを取ったときは捨てる）----
+// 1 回の処理で同じ表を何度も読む（入力のハッシュ・キーの重複の確認・控えの作成など）。スプレッドシートを読むのは 1 回にする
+
+/** 表の 2 行目から最後の行までのセル（文字列）。読み込んだものを控える */
+function appRawTable_(name) {
+  const raw = APP_STORE_CACHE_.raw || (APP_STORE_CACHE_.raw = {});
+  if (raw[name]) return raw[name];
+  const def = APP_TABLES[name];
+  const sh = appTableSheet_(name, false);
+  const last = sh.getLastRow();
+  raw[name] = last < 2 ? [] : sh.getRange(2, 1, last - 1, def.columns.length).getValues()
+    .map(r => r.map(v => (v === null || v === undefined ? '' : String(v))));
+  return raw[name];
+}
+
+/** 書いた表の控えを捨てる（name を省くと全部） */
+function appStoreForget_(name) {
+  if (!APP_STORE_CACHE_.raw) return;
+  if (name) delete APP_STORE_CACHE_.raw[name]; else APP_STORE_CACHE_.raw = {};
 }
 
 /** シートの列数をちょうど n にする（足りなければ足し、余りは消してセルの上限を節約する） */
@@ -101,14 +127,15 @@ function appFitColumns_(sh, n) {
 }
 
 /** 行を 2 行目から書く（大きいときは分けて書く）。足りない行は足す */
-function appWriteBody_(sh, rows, width) {
+function appWriteBody_(sh, rows, width, offset) {
   if (!rows.length) return;
-  const need = rows.length + 1;
+  offset = offset || 0;
+  const need = offset + rows.length + 1;
   if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
   const CHUNK = 5000;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const part = rows.slice(i, i + CHUNK);
-    sh.getRange(2 + i, 1, part.length, width).setNumberFormat('@').setValues(part);
+    sh.getRange(2 + offset + i, 1, part.length, width).setNumberFormat('@').setValues(part);
   }
 }
 
@@ -137,10 +164,7 @@ function appObjectToRow_(def, o) {
 /** 表の全行（_row = シートの行番号つき）。キーが空の行は飛ばす */
 function appReadTable_(name) {
   const def = APP_TABLES[name];
-  const sh = appTableSheet_(name, false);
-  const last = sh.getLastRow();
-  if (last < 2) return [];
-  return sh.getRange(2, 1, last - 1, def.columns.length).getValues()
+  return appRawTable_(name)
     .map((r, i) => { const o = appRowToObject_(def, r); o._row = i + 2; return o; })
     .filter(o => def.key.some(k => o[k] !== ''));
 }
@@ -160,6 +184,7 @@ function appInsertRows_(name, objs) {
   });
   const sh = appTableSheet_(name, false);
   const rows = objs.map(o => appObjectToRow_(def, o));
+  appStoreForget_(name);
   const start = sh.getLastRow() + 1;
   if (start + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), Math.max(1000, rows.length));
   sh.getRange(start, 1, rows.length, def.columns.length).setNumberFormat('@').setValues(rows);
@@ -188,11 +213,18 @@ function appReplaceWhole_(name, rows) {
     if (seen[k]) throw new Error('同じキーの行があります（' + name + '）。');
     seen[k] = true;
   });
-  const oldLast = sh.getLastRow();
-  appWriteBody_(sh, rows.map(o => appObjectToRow_(def, o)), def.columns.length);
-  const newLast = rows.length + 1;
-  if (oldLast > newLast) sh.getRange(newLast + 1, 1, oldLast - newLast, def.columns.length).clearContent();
-  return { rows: rows.length };
+  const next = rows.map(o => appObjectToRow_(def, o));
+  const old = appRawTable_(name);
+  // 今の中身と同じ行は書かない: 頭から同じ行と（行の数が同じなら）お尻から同じ行を除いた、間だけを書く
+  const same = (a, b) => a.length === b.length && a.every((v, j) => v === b[j]);
+  let head = 0;
+  while (head < next.length && head < old.length && same(next[head], old[head])) head++;
+  let tail = 0;
+  if (old.length === next.length) while (tail < next.length - head && same(next[next.length - 1 - tail], old[old.length - 1 - tail])) tail++;
+  appStoreForget_(name);
+  appWriteBody_(sh, next.slice(head, next.length - tail), def.columns.length, head);
+  if (old.length > next.length) sh.getRange(next.length + 2, 1, old.length - next.length, def.columns.length).clearContent();
+  return { rows: rows.length, written: next.length - head - tail };
 }
 
 /** キーの無い行だけ足す（何度呼んでも同じ結果になる）。返り値は足した行 */
@@ -257,6 +289,7 @@ function appUpdateByKey_(name, keyVals, patch, expectedVersion, actor) {
     updated_at: appNowIso_(), updated_by: actor, row_version: Number(cur.row_version || 0) + 1
   });
   const sh = appTableSheet_(name, false);
+  appStoreForget_(name);
   sh.getRange(cur._row, 1, 1, def.columns.length).setNumberFormat('@').setValues([appObjectToRow_(def, after)]);
   return { before: appStripRow_(cur), after: after };
 }

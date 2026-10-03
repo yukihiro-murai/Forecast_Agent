@@ -127,7 +127,6 @@ function appStoredHashes_(planId) {
 function appChangedOps_(ctx, planId, changed, batchId) {
   const now = appNowIso_();
   const names = changed.map(e => e.sheetRow.sheet);
-  const inChanged = r => r.plan_id === planId && names.indexOf(r.sheet) >= 0;
   const ops = [];
   changed.forEach(enc => {
     const name = enc.sheetRow.sheet;
@@ -138,10 +137,10 @@ function appChangedOps_(ctx, planId, changed, batchId) {
   if (!changed.length) return ops;
   const segs = [].concat.apply([], changed.map(e => e.rowSegs));
   const fmts = [].concat.apply([], changed.map(e => e.formatRows));
-  ops.push(appOpReplaceRows_('ENG_ROWS', r => !inChanged(r), segs));
-  ops.push(appOpReplaceRows_('ENG_FORMATS', r => !inChanged(r), fmts));
+  ops.push(appOpReplacePlan_('ENG_ROWS', planId, names, segs));
+  ops.push(appOpReplacePlan_('ENG_FORMATS', planId, names, fmts));
   // シートの大きさとハッシュは最後に書く（途中で止まっても、控えから書き直すまで「入力のハッシュ」は前のまま）
-  ops.push(appOpReplaceRows_('ENG_SHEETS', r => !inChanged(r),
+  ops.push(appOpReplacePlan_('ENG_SHEETS', planId, names,
     changed.map(e => Object.assign({}, e.sheetRow, { import_batch_id: batchId, updated_at: now, updated_by: ctx.actor }))));
   return ops;
 }

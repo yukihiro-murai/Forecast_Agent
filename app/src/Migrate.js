@@ -150,21 +150,20 @@ function appMigrationImport_(ctx, input) {
       return { planId: planId, unchanged: true, lastImportedAt: last.finished_at, audit: { entityId: planId, clientId: client.client_id } };
     }
     const batchId = appId_('IB');
-    const mine = r => r.plan_id !== planId;
     const written = {};
     // 表の形のシート（旧ブックに無いシートの行も消す）
     Object.keys(APP_ENGINE_SHEETS).filter(n => APP_ENGINE_SHEETS[n].mode === 'table').forEach(name => {
       const enc = encoded.filter(e => e.sheetRow.sheet === name)[0];
       const rows = enc && enc.sheetRow.mode === 'table' ? enc.tableRows : [];
-      ops.push(appOpReplaceRows_('ENG_' + name, mine, rows));
+      ops.push(appOpReplacePlan_('ENG_' + name, planId, null, rows));
       written['ENG_' + name] = rows.length;
     });
     const segs = [].concat.apply([], encoded.map(e => e.rowSegs));
     const fmts = [].concat.apply([], encoded.map(e => e.formatRows));
     const sheetRows = encoded.map(e => Object.assign({}, e.sheetRow, { import_batch_id: batchId, updated_at: now, updated_by: ctx.actor }));
-    ops.push(appOpReplaceRows_('ENG_ROWS', mine, segs));
-    ops.push(appOpReplaceRows_('ENG_FORMATS', mine, fmts));
-    ops.push(appOpReplaceRows_('ENG_SHEETS', mine, sheetRows));
+    ops.push(appOpReplacePlan_('ENG_ROWS', planId, null, segs));
+    ops.push(appOpReplacePlan_('ENG_FORMATS', planId, null, fmts));
+    ops.push(appOpReplacePlan_('ENG_SHEETS', planId, null, sheetRows));
     written.ENG_ROWS = segs.length;
     written.ENG_FORMATS = fmts.length;
     written.ENG_SHEETS = sheetRows.length;

@@ -258,6 +258,7 @@ function pollJob(){
   var done = function(){ S.job = null; busy(0); };
   google.script.run.withSuccessHandler(function(st){
     if (!S.job || S.job.id !== j.id) return;
+    if (st.jobId && st.jobId !== j.id) { j.id = st.jobId; j.kind = st.kind || j.kind; }   // 終わった続きの処理は、サーバーがたどって返す
     if (st.status === 'CONTINUED') { j.id = st.nextJobId; j.kind = st.nextKind || j.kind; j.status = 'QUEUED'; busy(0); setTimeout(pollJob, 3000); return; }
     if (st.status === 'DONE') { done(); (JOB_DONE[j.kind] || function(){})(st.result, st.payload || j.payload); render(); return; }
     if (st.status === 'FAILED' || st.status === 'STALLED' || st.status === 'LOST') { done(); toast(st.error || '処理が止まりました', true); render(); return; }
