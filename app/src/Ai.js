@@ -17,6 +17,15 @@ const APP_AI_ALLOWED_URL = /^https:\/\/([a-z0-9-]+-)?(aiplatform|discoveryengine
 /** 旧来の UrlFetchApp.fetch の代わり。fetch(url, options) と、止めたかどうか・回数を返す */
 function appAiFetcher_(actionId, deadlineMs) {
   const st = { hits: 0, live: 0, stopped: false };
+  const log = [];   // 失敗した問い合わせ（先・番号・理由の頭）。旧来の A-4 は理由をデータ本体に移さないシートに書くので、エラーの文に出すため
+  const note = (url, code, text) => {
+    if (code >= 200 && code < 300) return;
+    let msg = String(text || '');
+    try { const j = JSON.parse(msg); msg = (j.error && (j.error.status + ' ' + j.error.message)) || msg; } catch (e) { /* 文のまま */ }
+    const u = url.split('?')[0].replace(/^https:\/\//, '').split('/');
+    const line = u[0] + ' … ' + u[u.length - 1] + ' → ' + code + ' ' + msg.replace(/\s+/g, ' ').slice(0, 160);
+    if (log.indexOf(line) < 0) log.push(line);   // 同じ失敗は 1 行
+  };
   const response = (code, text) => ({
     getResponseCode: () => code,
     getContentText: () => text,
@@ -28,18 +37,21 @@ function appAiFetcher_(actionId, deadlineMs) {
     const body = options && options.payload !== undefined ? String(options.payload) : '';
     const key = 'AIF_' + appSha256Hex_(String(actionId) + '\n' + url + '\n' + body).slice(0, 40);
     const saved = appJobGetResult_(key);
-    if (saved.found) { st.hits++; return response(saved.value.code, saved.value.text); }
+    if (saved.found) { st.hits++; note(url, saved.value.code, saved.value.text); return response(saved.value.code, saved.value.text); }
     if (st.stopped || (st.live > 0 && new Date().getTime() > deadlineMs)) {   // 1 回に 1 つは必ず問い合わせる（必ず先へ進む）
       st.stopped = true;
       throw new Error('時間の区切りのため、続きは次の回に問い合わせます。');
     }
     st.live++;
-    const res = UrlFetchApp.fetch(url, options);
+    let res;
+    try { res = UrlFetchApp.fetch(url, options); } catch (e) { log.push(url.replace(/^https:\/\//, '').split('/')[0] + ' → ' + String(e && e.message ? e.message : e).slice(0, 200)); throw e; }
     const code = res.getResponseCode();
     const text = res.getContentText() || '';
     // 一時的な失敗（混み合い・Google 側のエラー）は控えない（次の回にもう一度問い合わせる）
     if (code !== 429 && code < 500) appJobPutResult_(key, { code: code, text: text });
+    note(url, code, text);
     return response(code, text);
   };
-  return { fetch: fetch, stopped: () => st.stopped, stats: () => ({ hits: st.hits, live: st.live, stopped: st.stopped }) };
+  return { fetch: fetch, stopped: () => st.stopped, failures: () => log.slice(),
+    stats: () => ({ hits: st.hits, live: st.live, stopped: st.stopped, failed: log.length }) };
 }

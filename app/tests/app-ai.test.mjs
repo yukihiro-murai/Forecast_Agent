@@ -51,4 +51,12 @@ const ps = Object.fromEntries(env.table('ENG_PROCESS_STATUS').filter((r) => r.pl
 assert.equal(ps.step3_status.status, 'success');
 assert.match(ps.step3a_status.error_summary, /vertex_rows=4; web_error=0/);
 assert.equal(env.table('ENG_AI_RESEARCH_STRUCTURED').filter((r) => r.plan_id === planId).length, 4, '話題ごとの点数をデータ本体に残す（次の予測で使う）');
+// 権限が無いなど、全部の問い合わせが失敗したら、失敗の理由をエラーの文に出す（旧来は理由をデータ本体に移さないシートに書くため）
+env.run(`(() => { globalThis.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 403,
+  getContentText: () => JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'Permission denied on resource project test-project.' } }) }) }; appAiDeadline_ = () => Date.now() + 60000; })()`);
+const ng = env.runJob('PLAN.RUN', { planId, action: 'AI.RESEARCH' });
+assert.equal(ng.status, 'FAILED');
+assert.match(ng.error, /Vertex調査に失敗しました/);
+assert.match(ng.error, /問い合わせの失敗（\d+ 件）/);
+assert.match(ng.error, /gemini-test:generateContent → 403 PERMISSION_DENIED Permission denied on resource project/);
 console.log('app-ai: all tests passed');

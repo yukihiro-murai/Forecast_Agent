@@ -344,7 +344,11 @@ function appPlanRunCalc_(ctx, p) {
     try {
       call = appLegacyCall_(appParityScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
     } catch (e) {
-      if (!fetcher || !fetcher.stopped()) throw e;
+      if (!fetcher || !fetcher.stopped()) {
+        const f = fetcher ? fetcher.failures() : [];
+        if (f.length) throw new Error(String(e && e.message ? e.message : e) + '\n問い合わせの失敗（' + f.length + ' 件）:\n' + f.slice(0, 6).join('\n'));
+        throw e;
+      }
     }
     if (fetcher && fetcher.stopped()) {
       // 時間の区切りで止めた: 計算用ブックは途中のまま。組み立て直して、受け取った答えを使ってもう一度動かす
