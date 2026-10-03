@@ -151,6 +151,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 .waitlist{list-style:none;display:grid;gap:var(--s2)}
 .waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:13px}
 .ws{white-space:normal}
+.pre{white-space:pre-wrap;word-break:break-word}
 .row.foot{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
 .tbl.mt12{margin-top:var(--s3)}
 
@@ -228,10 +229,10 @@ var JOB_DONE = {
   'FORECAST.RUN': function(r, payload){
     S.view = 'forecast';
     if (!r || !r.needConfirm) return;
-    var c = r.needConfirm;
-    if (confirm((c.title || '確認') + '\n\n' + (c.message || '') + '\n\nこのまま予測を実行しますか？')) {
-      setTimeout(function(){ startJob('FORECAST.RUN', { planId: payload.planId, confirms: (payload.confirms || []).concat([c.key]) }); }, 0);
-    } else toast('予測の実行をやめました');
+    // 確認は画面の中のカードで聞く（別のタブを見ている間に終わると、ブラウザが確認の窓を出さずに「やめる」にするため）
+    S.fc.confirm = { key: r.needConfirm.key, title: r.needConfirm.title || '確認', message: r.needConfirm.message || '', planId: payload.planId, confirms: payload.confirms || [] };
+    S.fc.tab = 'forecast';
+    toast('予測の前に確認があります', false);
   },
   'FORECAST.RUN_SAVE': function(r){ S.view = 'forecast'; toast('予測を保存しました'); loadForecast(r.planId); },
   'PLAN.VIEW_CHECK': function(r){ S.view = 'migrate'; S.mig.viewCheck = r; toast(r.same ? '画面の中身は旧来と同じでした' : '画面の中身に違いがありました', !r.same); },
@@ -555,6 +556,11 @@ function fcForecastTab(d, v){
   var O = v.boot.output, sec = O && O.sections && O.sections[0];
   html += '<div class="kpis">' + fcKpi('Downside（P10）', annual.p10) + fcKpi('Baseline（P50）', annual.p50, true) + fcKpi('Upside（P90）', annual.p90)
     + fcKpi('最終予算（年度合計）', sec ? sec.annual.final : null) + '</div>';
+  var cf = S.fc.confirm && S.fc.confirm.planId === S.fc.planId ? S.fc.confirm : null;
+  if (cf) html += '<div class="card caution" role="alert"><div class="card-head"><h2 class="warn-text">' + esc(cf.title) + '</h2></div>'
+    + '<div class="pre">' + esc(cf.message) + '</div>'
+    + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="fcConfirmRun()">このまま予測を実行</button>'
+    + '<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button><span class="note">入力を直す場合は「やめる」を押し、「入力」タブで直してから実行してください。</span></div></div>';
   html += '<div class="card"><div class="card-head"><h2>予測の実行</h2></div>'
     + '<p class="note">' + (l ? '最新の予測: ' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0])
       : 'まだ新アプリで予測を実行していません。上の数字は、取り込んだ旧ブックで最後に実行した結果です。')
@@ -566,6 +572,7 @@ function fcForecastTab(d, v){
   if (!sec) return html + '<div class="card note">予算は、予測を実行すると入力できます。</div>';
   var bd = S.fc.budget;
   var cell = function(m, k){ var x = bd[m.row]; var val = x && x[k] !== undefined ? x[k] : m[k];
+    if (typeof val === 'number') val = Math.round(val);   // 旧来の採用予測は小数のまま入っている（表示だけ丸める。直さなければ保存しない）
     return canPlan ? '<input class="inp cell num" type="number" step="10000" value="' + esc(val === null ? '' : val) + '" oninput="fcBudget(' + m.row + ',\'' + k + '\',this.value)" aria-label="' + esc(m.month) + (k === 'adopted' ? ' 採用予測' : ' 上乗せ') + '">' : yen(val); };
   html += '<div class="card"><div class="card-head"><h2>月ごとの予測と予算</h2><span class="note">単位: 円</span></div><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:96px"><col><col><col><col style="width:150px"><col style="width:150px"><col></colgroup>'
     + '<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">採用予測</th><th class="num">上乗せ</th><th class="num">最終予算</th></tr></thead><tbody>'
@@ -575,6 +582,7 @@ function fcForecastTab(d, v){
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
   return html;
 }
+function fcConfirmRun(){ var c = S.fc.confirm; S.fc.confirm = null; startJob('FORECAST.RUN', { planId: c.planId, confirms: c.confirms.concat([c.key]) }); }
 function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = val; var btn = document.querySelector('[onclick="fcSaveBudget()"]'); if (btn) btn.disabled = !!S.job; }
 function fcSaveBudget(){
   var sec = S.fc.view.boot.output.sections[0], bd = S.fc.budget;
