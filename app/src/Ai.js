@@ -16,6 +16,8 @@ const APP_AI_ALLOWED_URL = /^https:\/\/([a-z0-9-]+-)?(aiplatform|discoveryengine
 
 /** 許可を求めるだけ（UrlFetchApp.getRequest は問い合わせない）。エディタから実行すると、足りない許可の画面が出る */
 function appAuthorizeAi_(ctx) {
+  // 一部の許可だけを出した状態（項目ごとの同意）だと、エディタは足りない許可を自動では求めない。requireScopes で許可の画面を出させる
+  ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ['https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/cloud-platform']);
   UrlFetchApp.getRequest('https://aiplatform.googleapis.com/');
   ScriptApp.getOAuthToken();
   return { ok: true, message: 'A-4 AI 調査の許可があります。' };
