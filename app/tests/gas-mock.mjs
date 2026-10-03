@@ -437,7 +437,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   /** 処理を始めて、トリガーで動かし、結果を受け取る（続きの処理があればそれも動かす） */
   const runJob = (kind, payload, opts) => {
     let id = call('apiStartJob(__in)', { __in: { kind, payload } }).jobId;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 60; i++) {   // 組み立てが何回かに分かれても最後まで
       fireTriggers('triggerRunJob', opts);
       const st = call('apiJobStatus(__in)', { __in: { jobId: id } });
       if (st.status !== 'CONTINUED') return st;

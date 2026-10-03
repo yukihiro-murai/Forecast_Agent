@@ -37,6 +37,7 @@ function legacyBook(env) {
 const STUB = `appLegacyEngine_ = function (svc) {
   return {
     WEB_UI_CONFIRMS_: {}, VERSION: 'stub-1', SOURCE_SHA256: 'stub', WEB_SOURCE_SHA256: 'stub-web',
+    webGetBootstrap_() { return { setup: { client: 'テスト製薬' } }; },
     runPhase1Forecast() {
       const ss = svc.SpreadsheetApp.getActiveSpreadsheet();
       const r = () => Math.round(Math.random() * 1000);
@@ -49,7 +50,7 @@ const STUB = `appLegacyEngine_ = function (svc) {
     }
   };
 };`;
-function imported() {
+function imported(stub = true) {
   const env = setUpEnv();
   const book = legacyBook(env);
   const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
@@ -57,7 +58,7 @@ function imported() {
   assert.equal(dry.status, 'DONE', dry.error);
   const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
   assert.equal(imp.status, 'DONE', imp.error);
-  env.run(STUB);
+  if (stub) env.run(STUB);
   return { env, planId: imp.result.planId };
 }
 const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
@@ -164,7 +165,7 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
 
 // ==== 5. 数式として動いてしまう入力は受け付けない（数・増減率・ふつうの文は通す） ====
 {
-  const { env, planId } = imported();
+  const { env, planId } = imported(false);   // 旧来の webSaveInputs を本物のまま
   const view = env.call('apiPlanView(__in)', { __in: { planId } });
   const bad = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', inputHash: view.inputHash,
     args: { kind: 'product', rows: [{ person: '鷹野', product: '製品A', ym: '2026-06', step: '+5%', reason: '=IMPORTXML("https://example.com","//a")' }] } });

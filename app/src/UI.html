@@ -5,67 +5,151 @@
 <base target="_top">
 <title>Trends2Targets</title>
 <style>
+/* ---- トークン（色・角丸・高さ・間隔は 4px の倍数） ---- */
 :root{
-  --bg:#F4F7FB; --card:#FFFFFF;
+  --bg:#F4F7FB; --card:#FFFFFF; --surface:#F8FAFC;
   --primary:#00A0E9; --primary-dark:#0084C5; --primary-soft:#E5F4FD;
-  --navy:#0F3557; --text:#24303E; --muted:#5A6B7E; --line:#DCE4EC;
-  --warn-bg:#FFF6E8; --warn-fg:#A65C00; --error:#C0392B; --error-bg:#FDEDEC;
-  --radius:14px; --radius-s:10px; --h-btn:40px; --h-input:40px;
-  --shadow:0 1px 2px rgba(15,53,87,.05), 0 6px 18px rgba(15,53,87,.06);
+  --navy:#0F3557; --navy-2:#1B4A73; --text:#24303E; --muted:#5A6B7E; --line:#DCE4EC; --line-soft:#EEF2F6;
+  --ok-bg:#E7F6EE; --ok-fg:#17734A; --warn-bg:#FFF6E8; --warn-fg:#A65C00; --error:#C0392B; --error-bg:#FDEDEC;
+  --radius:12px; --radius-s:8px;
+  --h-btn:40px; --h-btn-sm:32px; --h-input:40px; --h-cell:36px;
+  --w-btn:160px; --w-btn-sm:104px; --w-action:248px; --w-tab:128px;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px;
+  --shadow:0 1px 2px rgba(15,53,87,.05), 0 4px 14px rgba(15,53,87,.06);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.55}
+body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
 button{font-family:inherit;cursor:pointer;border:none;background:none}
-input,select,textarea{font-family:inherit;font-size:14px}
-.topbar{position:fixed;top:0;left:0;right:0;height:60px;background:var(--navy);display:flex;align-items:center;padding:0 24px;color:#fff;z-index:60}
-.topbar .ttl{font-size:17px;font-weight:700}
-.topbar .ttl-ja{font-size:14px;font-weight:600;color:#B8CFE3;margin-left:12px}
+input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
+a{color:var(--primary-dark)}
+
+/* ---- 枠組み ---- */
+.topbar{position:fixed;top:0;left:0;right:0;height:56px;background:var(--navy);display:flex;align-items:center;padding:0 var(--s6);color:#fff;z-index:60}
+.topbar .ttl{font-size:16px;font-weight:700;letter-spacing:.02em}
+.topbar .ttl-ja{font-size:13px;font-weight:600;color:#B8CFE3;margin-left:var(--s3);letter-spacing:0}
 .topbar .spacer{flex:1}
-.topbar .meta{font-size:13px;color:#B8CFE3;margin-left:14px}
+.topbar .meta{font-size:12.5px;color:#B8CFE3;margin-left:var(--s4)}
 .topbar .meta b{color:#fff}
-.layout{display:flex;padding-top:60px;min-height:100vh}
-.sidenav{width:210px;flex:0 0 210px;padding:18px 12px;border-right:1px solid var(--line);background:#fff}
-.navbtn{display:flex;width:100%;height:44px;align-items:center;padding:0 14px;border-radius:var(--radius-s);font-size:14px;font-weight:700;color:var(--muted);margin-bottom:4px;text-align:left}
+.layout{display:flex;padding-top:56px;min-height:100vh}
+.sidenav{width:208px;flex:0 0 208px;padding:var(--s4) var(--s3);border-right:1px solid var(--line);background:#fff}
+.navbtn{display:flex;width:100%;height:40px;align-items:center;padding:0 var(--s4);border-radius:var(--radius-s);font-size:14px;font-weight:700;color:var(--muted);margin-bottom:var(--s1);text-align:left}
 .navbtn.on{background:var(--navy);color:#fff}
 .navbtn:hover:not(.on){background:var(--primary-soft);color:var(--navy)}
-.main{flex:1;padding:24px 28px;max-width:1180px}
-h1{font-size:22px;color:var(--navy);margin-bottom:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px}
-.card h2{font-size:16px;color:var(--navy);margin-bottom:10px}
+.main{flex:1;min-width:0;padding:var(--s6) var(--s8) 64px;max-width:1184px}
+
+/* ---- 見出し ---- */
+.page-head{display:flex;align-items:center;gap:var(--s4);margin-bottom:var(--s4);min-height:40px}
+.page-head h1{flex:1;margin:0}
+h1{font-size:22px;line-height:1.35;color:var(--navy);margin-bottom:var(--s4)}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:var(--s3)}
+.card-head{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3)}
+.card-head h2{flex:1;margin:0}
 .note{font-size:12.5px;color:var(--muted)}
-.guide{display:flex;gap:16px;align-items:flex-start}
-.charbox{width:72px;height:72px;flex:0 0 72px}
+.mt0{margin-top:0!important}.mt4{margin-top:var(--s1)}.mt8{margin-top:var(--s2)}.mt12{margin-top:var(--s3)}.mt16{margin-top:var(--s4)}
+.err-text{color:var(--error)}.warn-text{color:var(--warn-fg)}
+
+/* ---- カード ---- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:var(--s5) var(--s6);margin-bottom:var(--s4)}
+.card.soft{background:var(--primary-soft);border-color:#CBE7F8;box-shadow:none}
+.card.alert{background:var(--error-bg);border-color:#F2C4BF;box-shadow:none}
+.card.caution{background:var(--warn-bg);border-color:#F3D9B1;box-shadow:none}
+.card-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--s3);margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
+.card-foot .note{flex:1;min-width:240px}
+
+/* ---- 案内役 ---- */
+.guide{display:flex;gap:var(--s4);align-items:flex-start}
+.charbox{width:64px;height:64px;flex:0 0 64px}
 .charbox svg{width:100%;height:100%;display:block}
-.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:14px 18px;flex:1;font-size:14px;color:var(--navy)}
+.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:var(--s3) var(--s4);flex:1;font-size:14px;color:var(--navy)}
 .bubble .chip{background:#fff}
 .bubble::before{content:"";position:absolute;left:-8px;top:20px;border:8px solid transparent;border-right-color:var(--primary-soft);border-left:none}
-.btn{display:inline-flex;align-items:center;justify-content:center;height:var(--h-btn);min-width:120px;padding:0 18px;border-radius:var(--radius-s);font-size:14px;font-weight:700;background:var(--navy);color:#fff}
-.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ---- ボタン（高さと最小幅をそろえる） ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);height:var(--h-btn);min-width:var(--w-btn);padding:0 var(--s5);border-radius:var(--radius-s);font-size:14px;font-weight:700;background:var(--navy);color:#fff;white-space:nowrap;text-decoration:none;transition:background .15s}
+.btn:hover:not(:disabled){background:var(--navy-2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 .btn-ghost{background:#fff;color:var(--navy);border:1.5px solid var(--line)}
-.btn-sm{height:32px;min-width:72px;padding:0 12px;font-size:13px}
-.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}
-.field{display:flex;flex-direction:column;gap:4px}
+.btn-ghost:hover:not(:disabled){background:var(--surface);border-color:#C5D2DE}
+.btn-sm{height:var(--h-btn-sm);min-width:var(--w-btn-sm);padding:0 var(--s3);font-size:13px}
+.btn-icon{height:var(--h-btn-sm);width:var(--h-btn-sm);min-width:0;padding:0;font-size:16px;line-height:1}
+.btn-block{width:100%;min-width:0}
+
+/* ---- タブ（同じ幅の切り替え） ---- */
+.tabs{display:flex;flex-wrap:wrap;gap:var(--s1);padding:var(--s1);background:#E9EEF4;border-radius:10px;margin-bottom:var(--s4);width:max-content;max-width:100%}
+.tab{height:36px;min-width:var(--w-tab);padding:0 var(--s4);border-radius:var(--radius-s);font-size:13.5px;font-weight:700;color:var(--muted)}
+.tab.on{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(15,53,87,.12)}
+.tab:hover:not(.on){color:var(--navy)}
+.tabs.sub{background:transparent;padding:0;gap:var(--s2)}
+.tabs.sub .tab{height:var(--h-btn-sm);min-width:var(--w-btn-sm);border:1.5px solid var(--line);background:#fff}
+.tabs.sub .tab.on{border-color:var(--navy);background:var(--navy);color:#fff;box-shadow:none}
+
+/* ---- 入力（行は下端でそろえる） ---- */
+.row{display:flex;gap:var(--s3);align-items:flex-end;flex-wrap:wrap;margin-top:var(--s3)}
+.row.c{align-items:center}
+.field{display:flex;flex-direction:column;gap:var(--s1)}
 .field label{font-size:12.5px;font-weight:700;color:var(--navy)}
-.inp{height:var(--h-input);padding:0 10px;border:1.5px solid var(--line);border-radius:8px;width:220px;background:#fff}
-.inp.sm{width:140px}
+.inp{height:var(--h-input);padding:0 var(--s3);border:1.5px solid var(--line);border-radius:var(--radius-s);width:240px;background:#fff}
+.inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,160,233,.15)}
+.inp.sm{width:160px}.inp.md{width:320px}.inp.lg{width:480px}
+.inp.cell{height:var(--h-cell);width:100%;padding:0 var(--s2)}
+.inp.num,.num .inp{text-align:right;font-variant-numeric:tabular-nums}
+select.inp{padding-right:var(--s6)}
+
+/* ---- 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる） ---- */
+.actions{display:grid;grid-template-columns:var(--w-action) 1fr;gap:var(--s3) var(--s4);align-items:center}
+.actions .btn{width:100%;min-width:0}
+.actions .desc{font-size:13px;color:var(--text)}
+.actions .desc .note{display:block}
+
+/* ---- 数字のまとめ ---- */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3);margin-bottom:var(--s4)}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:var(--s3) var(--s4);box-shadow:var(--shadow)}
+.kpi .k{font-size:12px;font-weight:700;color:var(--muted)}
+.kpi .v{font-size:22px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.3;margin-top:2px}
+.kpi .u{font-size:12px;color:var(--muted);margin-left:2px;font-weight:600}
+.kpi.main{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy) inset}
+
+/* ---- 表 ---- */
+.tblwrap{overflow-x:auto;margin:0 calc(-1 * var(--s2))}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
-.tbl th{background:#F1F5F9;color:var(--navy);font-weight:700;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
-.tbl td{padding:8px 10px;border-bottom:1px solid #EEF2F6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl th{background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:700;text-align:left;padding:var(--s2) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:var(--s2) var(--s3);height:44px;border-bottom:1px solid var(--line-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.tbl tbody tr:hover td{background:#FAFCFE}
 .tbl td.num,.tbl th.num{text-align:right;font-variant-numeric:tabular-nums}
-.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;margin:0 4px 2px 0;background:var(--primary-soft);color:var(--primary-dark)}
+.tbl td.wrap{white-space:normal}
+.tbl td.ctr,.tbl th.ctr{text-align:center}
+.tbl tr.total td{font-weight:700;color:var(--navy);border-top:1.5px solid var(--line);background:var(--surface)}
+.tbl td.empty{text-align:center;color:var(--muted);height:64px}
+.tbl.edit td{padding:6px var(--s2)}
+
+/* ---- 小さな印 ---- */
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;margin:0 4px 2px 0;background:var(--primary-soft);color:var(--primary-dark);white-space:nowrap}
+.chip.ok{background:var(--ok-bg);color:var(--ok-fg)}
 .chip.off{background:#EDF1F5;color:var(--muted)}
 .chip.ng{background:var(--error-bg);color:var(--error)}
 .chip.warn{background:var(--warn-bg);color:var(--warn-fg)}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 22px 8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:#fff;background:var(--navy);box-shadow:0 8px 30px rgba(0,0,0,.18);opacity:0;transition:opacity .3s;z-index:95}
+
+/* ---- 通知・処理中 ---- */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 22px 8px 12px;border-radius:10px;font-size:14px;font-weight:700;color:#fff;background:var(--navy);box-shadow:0 8px 30px rgba(0,0,0,.18);opacity:0;transition:opacity .3s;z-index:95;pointer-events:none}
 .toast.on{opacity:1}
 .toast.err{background:var(--error);padding:12px 22px}
 .toast .tc{width:34px;height:34px;flex:0 0 34px;background:#fff;border-radius:50%;padding:2px}
 .toast .tc svg{width:100%;height:100%;display:block}
-.busy{position:fixed;right:24px;bottom:24px;width:210px;height:64px;display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);font-size:13px;font-weight:700;color:var(--navy);opacity:0;pointer-events:none;transition:opacity .2s;z-index:94}
+.busy{position:fixed;right:24px;bottom:24px;width:232px;height:64px;display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);font-size:13px;font-weight:700;color:var(--navy);opacity:0;pointer-events:none;transition:opacity .2s;z-index:94}
 .busy.on{opacity:1}
 .busy .bc{width:48px;height:48px;flex:0 0 48px}
 .busy .bc svg{width:100%;height:100%;display:block}
 .busy small{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+.jobbar{display:flex;align-items:center;gap:var(--s3)}
+.jobbar b{flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:0 0 10px;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.waitlist{list-style:none;display:grid;gap:var(--s2)}
+.waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:13px}
+.ws{white-space:normal}
+.row.foot{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
+.tbl.mt12{margin-top:var(--s3)}
+
 </style>
 </head>
 <body>
@@ -92,10 +176,10 @@ function toast(msg, err){
 }
 function errorBanner(){
   if (!S.lastError) return '';
-  return '<div class="card" style="border-color:var(--error);background:var(--error-bg)"><div class="row" style="margin-top:0;align-items:flex-start;flex-wrap:nowrap">'
-    + '<div style="flex:1"><b style="color:var(--error)">エラー（' + esc(S.lastError.at) + '）</b><div style="margin-top:4px;white-space:pre-wrap;word-break:break-all">' + esc(S.lastError.message) + '</div>'
-    + '<div class="note" style="margin-top:6px">これまでのエラーは「操作の記録」でも見られます。</div></div>'
-    + '<button class="btn btn-ghost btn-sm" onclick="S.lastError=null;render()">閉じる</button></div></div>';
+  return '<div class="card alert" role="alert"><div class="card-head"><h2 class="err-text">エラー（' + esc(S.lastError.at) + '）</h2>'
+    + '<button class="btn btn-ghost btn-sm" onclick="S.lastError=null;render()">閉じる</button></div>'
+    + '<div style="white-space:pre-wrap;word-break:break-all">' + esc(S.lastError.message) + '</div>'
+    + '<p class="note mt8">これまでのエラーは「操作の記録」でも見られます。</p></div>';
 }
 var busyT = null;
 /** 右下の表示。裏の処理を待っている間はその進み、ほかは通信中（0.6 秒を超えたら）を出す */
@@ -119,13 +203,15 @@ var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListA
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
   'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）',
-  'FORECAST.RUN': '予測を計算しています（1/2）', 'FORECAST.RUN_SAVE': '予測を保存しています（2/2）', 'PLAN.VIEW_CHECK': '画面の中身を確かめています' };
+  'FORECAST.RUN': '予測の準備をしています（1/3 データの組み立て）', 'FORECAST.RUN_CALC': '予測を計算しています（2/3）', 'FORECAST.RUN_SAVE': '予測を保存しています（3/3）',
+  'PLAN.VIEW_CHECK': '画面の中身を確かめています', 'SYSTEM.RECOVER': '保存の続きを書いています' };
+var PLAN_STEP = { 'PLAN.RUN': '準備しています（1/3 データの組み立て）', 'PLAN.RUN_CALC': '実行しています（2/3）', 'PLAN.RUN_SAVE': '保存しています（3/3）' };
 /** 処理の表示名（計画への保存・実行は操作の名前で） */
 function jobLabel(j){
   if (!j) return '';
   if (/^PLAN\.(EDIT|RUN)/.test(j.kind)) {
     var a = fcActionLabel(j.payload && j.payload.action);
-    return j.kind === 'PLAN.EDIT' ? a + 'をしています' : a + (j.kind === 'PLAN.RUN' ? ' を計算しています（1/2）' : ' を保存しています（2/2）');
+    return j.kind === 'PLAN.EDIT' ? a + '：保存しています' : a + '：' + (PLAN_STEP[j.kind] || '処理しています');
   }
   return JOB_LABEL[j.kind] || '処理しています';
 }
@@ -133,7 +219,8 @@ var JOB_DONE = {
   'MIGRATION.DRYRUN': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.dry = r; },
   'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); loadPlans(); },
   'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); },
-  // 旧来の計算が入力の確認を求めたとき（極端な入力値など）は、内容を見せて、続けるときだけもう一度動かす
+  // 旧来の計算が入力の確認を求めたとき（極端な入力値など）は、内容を見せて、続けるときだけもう一度動かす（計算の処理が返す）
+  'FORECAST.RUN_CALC': function(r, payload){ JOB_DONE['FORECAST.RUN'](r, payload); },
   'FORECAST.RUN': function(r, payload){
     S.view = 'forecast';
     if (!r || !r.needConfirm) return;
@@ -145,7 +232,8 @@ var JOB_DONE = {
   'FORECAST.RUN_SAVE': function(r){ S.view = 'forecast'; toast('予測を保存しました'); loadForecast(r.planId); },
   'PLAN.VIEW_CHECK': function(r){ S.view = 'migrate'; S.mig.viewCheck = r; toast(r.same ? '画面の中身は旧来と同じでした' : '画面の中身に違いがありました', !r.same); },
   'PLAN.EDIT': function(r){ S.view = 'forecast'; toast(r.changed && r.changed.length ? '保存しました' : '変更はありませんでした'); loadForecast(r.planId); },
-  'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId); }
+  'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId); },
+  'SYSTEM.RECOVER': function(r){ toast(r && r.nothing ? '書きかけの保存はありませんでした' : '保存の続きを書きました'); if (S.view === 'forecast' && S.fc.planId) loadForecast(S.fc.planId, true); }
 };
 function startJob(kind, payload){
   if (S.job || S.starting) return;   // すでに動いている・始めている途中なら何もしない
@@ -198,15 +286,20 @@ function render(){
   var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : B.setUp && B.allowed ? [['home','ホーム'],['forecast','予測']] : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
   var v = { home: viewHome, forecast: viewForecast, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
-  $('main').innerHTML = errorBanner() + '<div id="jobBox">' + jobBanner() + '</div>' + v();
+  // 知らせ（エラー・裏の処理の進み）は、画面の見出しのすぐ下に出す（見出しの位置をどの画面でもそろえる）
+  var body = v();
+  var m = body.match(/^(<div class="page-head">[\s\S]*?<\/h1>[\s\S]*?<\/div>|<h1>[\s\S]*?<\/h1>)/);
+  var head = m ? m[0] : '';
+  $('main').innerHTML = head + errorBanner() + '<div id="jobBox">' + jobBanner() + '</div>' + body.slice(head.length);
 }
 /** 裏で動いている処理の進み（画面の上にも出す） */
 function jobBanner(){
   if (!S.job) return '';
   var sec = Math.round((Date.now() - S.job.started) / 1000);
-  return '<div class="card" style="background:var(--primary-soft)"><div class="row" style="margin-top:0;align-items:center">'
-    + '<span class="chip">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '</span><b>' + esc(jobLabel(S.job)) + '</b>'
-    + '<span class="note">' + sec + ' 秒（画面を閉じても続きます）</span></div></div>';
+  var m = Math.floor(sec / 60), ss = sec % 60;
+  return '<div class="card soft" role="status"><div class="jobbar"><span class="dot"></span><b>' + esc(jobLabel(S.job)) + '</b>'
+    + '<span class="chip">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '</span>'
+    + '<span class="note">' + (m ? m + ' 分 ' : '') + ss + ' 秒・画面を閉じても続きます</span></div></div>';
 }
 function go(v){
   S.view = v;
@@ -228,7 +321,10 @@ function viewHome(){
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
-  return '<h1>ホーム</h1>' + guide('guide', '左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを見られます（旧アプリと同じ中身）。AI 調査は、まだ旧アプリで行います。<div class="row" style="align-items:center"><span class="note">あなたの役割</span>' + roles + '</div>');
+  var links = [['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
+    .filter(function(x){ return !x[3] || B.user.isAdmin; });
+  return '<h1>ホーム</h1>' + guide('guide', 'Trends2Targets は、売上予測と予算策定のアプリです。左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを、旧アプリと同じ中身で見られます。AI 調査は、まだ旧アプリで行います。<div class="row c"><span class="note">あなたの役割</span>' + roles + '</div>')
+    + '<div class="card"><h2>よく使う画面</h2><div class="actions">' + links.map(function(x){ return '<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button><div class="desc">' + x[2] + '</div>'; }).join('') + '</div></div>';
 }
 
 function viewMembers(){
@@ -241,21 +337,21 @@ function viewMembers(){
         + '<button class="btn btn-ghost btn-sm" onclick="revoke(\'' + esc(r.role_id) + '\',' + r.row_version + ')">外す</button>';
     }).join(' ');
     if (m.email === d.owner) rs = '<span class="chip">' + esc(d.roleLabels.ADMIN) + '（所有者）</span>' + (rs ? ' ' + rs : '');
-    return '<tr><td>' + esc(m.display_name) + '</td><td>' + esc(m.email) + '</td><td>' + esc(m.department) + '</td><td>' + (m.is_active ? '' : '<span class="chip off">無効</span>') + (rs || '<span class="note">閲覧・情報提供のみ</span>') + '</td></tr>';
+    return '<tr><td>' + esc(m.display_name) + '</td><td>' + esc(m.email) + '</td><td>' + esc(m.department) + '</td><td class="wrap">' + (m.is_active ? '' : '<span class="chip off">無効</span>') + (rs || '<span class="note">閲覧・情報提供のみ</span>') + '</td></tr>';
   }).join('');
   var memberOpts = d.members.filter(function(m){ return m.is_active; }).map(function(m){ return '<option value="' + esc(m.email) + '">' + esc(m.display_name) + '（' + esc(m.email) + '）</option>'; }).join('');
   var roleOpts = d.grantable.map(function(r){ return '<option value="' + r + '">' + esc(d.roleLabels[r]) + '</option>'; }).join('');
   var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.client_name) + '</option>'; }).join('');
   return '<h1>メンバーと役割</h1>'
     + '<div class="card"><h2>メンバー</h2><p class="note">社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録してください。</p>'
-    + '<table class="tbl" style="margin-top:10px"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
-    + '<div class="row"><div class="field"><label>メール</label><input class="inp" id="m_email" placeholder="name@' + esc((B.user.email || '').split('@')[1] || '') + '"></div>'
+    + '<table class="tbl mt12"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div class="row foot"><div class="field"><label>メール</label><input class="inp" id="m_email" placeholder="name@' + esc((B.user.email || '').split('@')[1] || '') + '"></div>'
     + '<div class="field"><label>名前</label><input class="inp sm" id="m_name"></div><div class="field"><label>部署</label><input class="inp sm" id="m_dept"></div>'
-    + '<button class="btn" onclick="saveMember()">登録する</button></div></div>'
-    + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label>メンバー</label><select class="inp" id="g_email" style="width:320px">' + memberOpts + '</select></div>'
+    + '<button class="btn" onclick="saveMember()">メンバーを登録</button></div></div>'
+    + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label>メンバー</label><select class="inp md" id="g_email">' + memberOpts + '</select></div>'
     + '<div class="field"><label>役割</label><select class="inp sm" id="g_role">' + roleOpts + '</select></div>'
     + '<div class="field"><label>範囲（予算策定担当のみ）</label><select class="inp" id="g_client">' + clientOpts + '</select></div>'
-    + '<button class="btn" onclick="grant()">付ける</button></div></div>';
+    + '<button class="btn" onclick="grant()">役割を付ける</button></div></div>';
 }
 function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); go('members'); }); }
 function grant(){ var c = $('g_client').value; call('apiGrantRole', [{ email: $('g_email').value, role: $('g_role').value, scopeType: c ? 'CLIENT' : 'ALL', clientId: c }], function(){ toast('役割を付けました'); go('members'); }); }
@@ -266,8 +362,8 @@ function viewClients(){
   if (!d) return '<h1>クライアント</h1><div class="card note">読み込み中…</div>';
   var rows = d.clients.map(function(c){ return '<tr><td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>'; }).join('');
   return '<h1>クライアント</h1><div class="card"><table class="tbl"><colgroup><col style="width:300px"><col style="width:160px"><col></colgroup><thead><tr><th>名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="note">まだ登録がありません</td></tr>') + '</tbody></table>'
-    + '<div class="row"><div class="field"><label>クライアント名</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
-    + '<button class="btn" onclick="saveClient()">追加する</button></div><p class="note" style="margin-top:8px">旧アプリのクライアントは、段階2で移すときにまとめて登録します。</p></div>';
+    + '<div class="row foot"><div class="field"><label>クライアント名</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
+    + '<button class="btn" onclick="saveClient()">クライアントを追加</button></div><p class="note mt8">旧アプリのクライアントは、段階2で移すときにまとめて登録します。</p></div>';
 }
 function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, zacCode: $('c_zac').value }], function(){ toast('追加しました'); go('clients'); }); }
 
@@ -276,13 +372,13 @@ function viewSettings(){
   if (!s) return '<h1>設定</h1><div class="card note">読み込み中…</div>';
   var rows = s.map(function(x, i){
     var val = x.type === 'bool' ? esc(x.value ? 'する' : 'しない') : x.type === 'sheet' ? (x.value ? '<a target="_blank" href="' + esc(x.url) + '">' + esc(x.display || x.value) + '</a>' : '<span class="chip warn">未設定</span>') : esc(x.value);
-    var input = x.type === 'bool' ? '<select class="inp sm" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
-      : x.type === 'sheet' ? '<input class="inp" style="width:300px" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
-      : '<input class="inp sm" id="s_' + i + '" value="' + esc(x.value) + '">';
-    return '<tr><td>' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td style="white-space:normal">' + val + '</td><td>' + input
-      + ' <button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></td></tr>';
+    var input = x.type === 'bool' ? '<select class="inp md" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
+      : x.type === 'sheet' ? '<input class="inp md" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
+      : '<input class="inp md" id="s_' + i + '" value="' + esc(x.value) + '">';
+    return '<tr><td class="wrap">' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td class="wrap">' + val + '</td><td><div class="row c mt0">' + input
+      + '<button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
   }).join('');
-  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl" style="margin-top:10px"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl mt12"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
 
@@ -291,12 +387,24 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る',
   'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行',
   'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る',
-  'FORECAST.RUN.CALC': '予測の計算', 'FORECAST.RUN.SAVE': '予測の保存', 'FORECAST.LATEST': '予測を見る' };
-var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム' };
+  'FORECAST.RUN.BUILD': '予測の準備（組み立て）', 'FORECAST.RUN.CALC': '予測の計算', 'FORECAST.RUN.SAVE': '予測の保存', 'FORECAST.LATEST': '予測を見る',
+  'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加' };
+var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
+  'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工',
+  'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
+  'REVIEW.GENERATE': 'C-1 四半期レビューの提案', 'REVIEW.APPLY': 'C-3 承認した提案の適用' };
+/** 操作の記録の操作名（計画への保存・実行は「操作名（準備・計算・保存）」） */
+function actionName(a){
+  if (ACTION_LABELS[a]) return ACTION_LABELS[a];
+  var m = /^PLAN\.(.+?)(?:\.(BUILD|CALC|SAVE))?$/.exec(String(a || ''));
+  if (m && PLAN_ACTION_LABELS[m[1]]) return PLAN_ACTION_LABELS[m[1]] + (m[2] ? '（' + { BUILD: '準備', CALC: '実行', SAVE: '保存' }[m[2]] + '）' : '');
+  return a;
+}
+var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム', PLAN: '計画', PLAN_ACTION: '計画の操作', FORECAST_RUN: '予測' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
   if (a.phase === 'START') return ['開始', 'off'];
-  return { OK: ['完了', ''], FAILED: ['失敗', 'ng'], NEEDS_CONFIRM: ['確認待ち', 'warn'] }[a.result] || [a.result || a.phase, 'off'];
+  return { OK: ['完了', 'ok'], FAILED: ['失敗', 'ng'], NEEDS_CONFIRM: ['確認待ち', 'warn'] }[a.result] || [a.result || a.phase, 'off'];
 }
 /** 最近の記録を読む（新しい順に 500 件まで）。絞り込みは画面の中で行う（日本語の操作名でも探せる） */
 function loadAudit(){ if ($('a_q')) S.auditQ = $('a_q').value; call('apiListAudit', [{ limit: 500 }], function(r){ S.audit = r.rows; }); }
@@ -304,23 +412,23 @@ function viewAudit(){
   var q = String(S.auditQ || '').trim().toLowerCase();
   var rows = (S.audit || []).filter(function(a){
     if (!q) return true;
-    return [a.actor_email, a.action, ACTION_LABELS[a.action], ENTITY_LABELS[a.entity_type], a.entity_id, auditStep(a)[0]].join(' ').toLowerCase().indexOf(q) >= 0;
+    return [a.actor_email, a.action, actionName(a.action), ENTITY_LABELS[a.entity_type], a.entity_id, auditStep(a)[0]].join(' ').toLowerCase().indexOf(q) >= 0;
   }).map(function(a){
     var st = auditStep(a);
     var target = a.entity_type ? (ENTITY_LABELS[a.entity_type] || a.entity_type) + (a.entity_id ? '：' + a.entity_id : '') : '';
-    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(ACTION_LABELS[a.action] || a.action) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target + (a.error ? '\n' + a.error : '')) + '">' + esc(target)
-      + (a.error ? '<div class="note" style="color:var(--error);white-space:normal">' + esc(a.error.slice(0, 160)) + '</div>' : '') + '</td></tr>';
+    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(actionName(a.action)) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target + (a.error ? '\n' + a.error : '')) + '">' + esc(target)
+      + (a.error ? '<div class="note err-text ws">' + esc(a.error.slice(0, 160)) + '</div>' : '') + '</td></tr>';
   }).join('');
   if (!S.audit) return '<h1>操作の記録</h1><div class="card note">読み込み中…</div>';
-  return '<h1>操作の記録</h1><div class="card"><div class="row" style="margin-top:0"><div class="field"><label>絞り込み（人・操作・対象）</label><input class="inp" id="a_q" value="' + esc(S.auditQ) + '"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>'
-    + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:170px"><col style="width:240px"><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="note">記録はまだありません</td></tr>') + '</tbody></table>'
-    + '<p class="note" style="margin-top:8px">今月と先月の新しい順に 500 件まで。それより前は、状態の画面の「今年度のログ」で見られます。</p></div>';
+  return '<h1>操作の記録</h1><div class="card"><div class="row mt0"><div class="field"><label>絞り込み（人・操作・対象）</label><input class="inp" id="a_q" value="' + esc(S.auditQ) + '"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>'
+    + '<table class="tbl mt12"><colgroup><col style="width:170px"><col style="width:240px"><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="note">記録はまだありません</td></tr>') + '</tbody></table>'
+    + '<p class="note mt8">今月と先月の新しい順に 500 件まで。それより前は、状態の画面の「今年度のログ」で見られます。</p></div>';
 }
 
 function migChip(x){
   if (x.losslessMismatch) return '<span class="chip ng">保存で変わる ' + x.losslessMismatch + '</span>';
   if (x.mismatch) return '<span class="chip ng">組み立てで違う ' + x.mismatch + '</span>';
-  var out = '<span class="chip">一致</span>';
+  var out = '<span class="chip ok">一致</span>';
   if (x.repaired) out += '<span class="chip warn">書き方を変えて一致 ' + x.repaired + '</span>';
   if (x.forcedText) out += '<span class="chip warn">文字列に固定 ' + x.forcedText + '</span>';
   if (x.formatMismatches) out += '<span class="chip warn">表示形式が違う ' + x.formatMismatches + '</span>';
@@ -330,19 +438,19 @@ function viewMigrate(){
   var m = S.mig, d = m.dry;
   var html = '<h1>旧ブックから移す</h1>'
     + guide('explain', '旧ブック（クライアント別売上予測）のデータを、このアプリのデータ本体へ写します。まず「試しに読む」で、何も書き込まずに、そのまま写せるかを確かめます。旧ブックは読むだけで、何も変えません。')
-    + '<div class="card"><div class="row" style="margin-top:0"><div class="field"><label>旧ブックの URL</label><input class="inp" id="mig_url" style="width:520px" value="' + esc(m.url) + '" placeholder="https://docs.google.com/spreadsheets/d/..."></div>'
-    + '<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="migDry()">試しに読む</button></div><p class="note" style="margin-top:8px">裏で動かします。1〜2 分ほどかかります（画面を閉じても続き、開き直すと結果を待ちます）。</p></div>';
+    + '<div class="card"><div class="row mt0"><div class="field"><label>旧ブックの URL</label><input class="inp lg" id="mig_url" value="' + esc(m.url) + '" placeholder="https://docs.google.com/spreadsheets/d/..."></div>'
+    + '<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="migDry()">試しに読む</button></div><p class="note mt8">裏で動かします。1〜2 分ほどかかります（画面を閉じても続き、開き直すと結果を待ちます）。</p></div>';
   if (d) {
-    var verdict = !d.lossless ? '<span class="chip ng">このままでは写せません</span>' : (d.faithful ? '<span class="chip">そのまま写せます</span>' : '<span class="chip warn">写せます（組み立てに注意が必要なセルあり）</span>');
+    var verdict = !d.lossless ? '<span class="chip ng">このままでは写せません</span>' : (d.faithful ? '<span class="chip ok">そのまま写せます</span>' : '<span class="chip warn">写せます（組み立てに注意が必要なセルあり）</span>');
     var rows = d.sheets.map(function(x){
       return '<tr><td>' + esc(x.sheet) + '</td><td>' + x.rows + '</td><td>' + (x.mode === 'table' ? '表' : '行ごと') + (x.warnings.length ? '<div class="note">' + esc(x.warnings.join(' / ')) + '</div>' : '') + '</td><td>' + migChip(x) + (x.samples && x.samples.length ? '<div class="note">' + esc(x.samples.join(', ')) + '</div>' : '') + '</td></tr>';
     }).join('');
-    html += '<div class="card"><h2>試しに読んだ結果</h2><div class="row" style="margin-top:0;align-items:center">'
+    html += '<div class="card"><h2>試しに読んだ結果</h2><div class="row c mt0">'
       + '<span class="chip">' + esc(d.client) + '</span><span class="chip">FY' + esc(d.fy) + '</span><span class="chip">担当者 ' + d.peopleCount + ' 人</span>' + verdict + '</div>'
-      + (d.existingPlan ? '<p class="note" style="margin-top:8px">前に取り込んだ計画があります（' + esc((d.existingPlan.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '）。' + (d.existingPlan.unchanged ? '内容は前回と同じです。' : '取り込むと、この計画の中身を入れ替えます。') + '</p>' : '')
-      + (d.existingPlan && d.existingPlan.runsSinceImport ? '<p class="note" style="color:var(--warn-fg)">前回の取り込みの後に、新アプリで予測を ' + d.existingPlan.runsSinceImport + ' 回実行しています。取り込むと、計算用の表は旧ブックの内容に戻ります（予測の記録は残ります）。</p>' : '')
-      + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
-      + (d.missing.length ? '<p class="note" style="margin-top:8px">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
+      + (d.existingPlan ? '<p class="note mt8">前に取り込んだ計画があります（' + esc((d.existingPlan.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '）。' + (d.existingPlan.unchanged ? '内容は前回と同じです。' : '取り込むと、この計画の中身を入れ替えます。') + '</p>' : '')
+      + (d.existingPlan && d.existingPlan.runsSinceImport ? '<p class="note warn-text">前回の取り込みの後に、新アプリで予測を ' + d.existingPlan.runsSinceImport + ' 回実行しています。取り込むと、計算用の表は旧ブックの内容に戻ります（予測の記録は残ります）。</p>' : '')
+      + '<table class="tbl mt12"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      + (d.missing.length ? '<p class="note mt8">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
       + (d.notMigrated.length || d.unknown.length ? '<p class="note">移さないシート（計算で使わない）: ' + esc(d.notMigrated.concat(d.unknown).join('、')) + '</p>' : '')
       + (d.timing ? '<p class="note">読むのにかかった時間: ' + Math.round(d.timing.totalMs / 1000) + ' 秒</p>' : '')
       + '<div class="row"><button class="btn" ' + (d.lossless && !S.job ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
@@ -351,7 +459,7 @@ function viewMigrate(){
   if (m.result) {
     var r = m.result;
     var total = r.written ? Object.keys(r.written).reduce(function(a, k){ return a + r.written[k]; }, 0) : 0;
-    var verifyHtml = r.unchanged ? '' : (r.verified ? '<p><span class="chip">読み戻して旧ブックと一致</span></p>'
+    var verifyHtml = r.unchanged ? '' : (r.verified ? '<p><span class="chip ok">読み戻して旧ブックと一致</span></p>'
       : '<p><span class="chip ng">読み戻すと旧ブックと違うシートがあります</span></p><p class="note">' + esc((r.verify || []).map(function(x){ return x.sheet + '（' + x.mismatch + '）'; }).join('、')) + '</p>');
     html += '<div class="card"><h2>取り込みの結果</h2>' + (r.unchanged ? '<p>前回と同じ内容なので、書き込みませんでした。</p>' : '<p>データ本体に ' + total + ' 行を書きました。</p>') + verifyHtml + '</div>';
   }
@@ -367,16 +475,6 @@ function loadForecast(planId, force){
   call('apiPlanView', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.view.done = Date.now(); S.fc.view = r; } }, fail('view'));
   setTimeout(fcWaitTick, 1000);
 }
-function fcTable(h, title){
-  if (!h) return '';
-  var row = function(label, a){ return '<tr><td>' + label + '</td><td class="num">' + yen(a && a.p10) + '</td><td class="num">' + yen(a && a.p50) + '</td><td class="num">' + yen(a && a.p90) + '</td></tr>'; };
-  var months = (h.monthly || []).map(function(m){ return '<tr><td>' + esc(m.month || m.ym) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td></tr>'; }).join('');
-  return '<div class="card"><h2>' + title + '</h2>'
-    + '<table class="tbl"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（円）</th><th class="num">Downside（P10）</th><th class="num">Baseline（P50）</th><th class="num">Upside（P90）</th></tr></thead><tbody>'
-    + row('シミュレーション予測（混合）', h.annual) + row('<span class="note">過去売上のみ（客観）</span>', h.objective) + '</tbody></table>'
-    + (months ? '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>月（円）</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th></tr></thead><tbody>' + months + '</tbody></table>' : '')
-    + '</div>';
-}
 // ---- 予測（計画の画面: 旧来の Web アプリと同じ中身を、データ本体の上で見る・保存する・実行する） ----
 var FC_TABS = [['forecast','予測と予算'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['steps','進み']];
 var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
@@ -384,29 +482,39 @@ function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
   if (!f.plans) return '<h1>予測</h1><div class="card note">読み込み中…</div>';
   if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。「旧ブックから移す」で旧ブックを取り込んでください。');
-  var sel = f.plans.length > 1 ? '<select class="inp" onchange="loadForecast(this.value)">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
-  var html = '<h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel;
-  html += '<div class="row" style="margin:0 0 14px">' + FC_TABS.map(function(t){ return '<button class="btn btn-sm' + (f.tab === t[0] ? '' : ' btn-ghost') + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
+  var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
+  var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel + '</div>';
+  if (v && v.pendingWrite) return html + fcPendingBox(v);
+  html += '<div class="tabs" role="tablist">' + FC_TABS.map(function(t){ return '<button class="tab' + (f.tab === t[0] ? ' on' : '') + '" role="tab" aria-selected="' + (f.tab === t[0]) + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
   var wait = fcWaitBox();
   if (!d || !v) return html + wait;
   var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
   // タブの表示で失敗しても、前の画面のまま止まらずに理由を出す（2026-10-02「進み」が表示されなかった）
   try { return html + body(d, v); } catch (e) {
-    return html + '<div class="card" style="border-color:var(--error);background:var(--error-bg)"><b style="color:var(--error)">このタブを表示できませんでした</b><p class="note" style="margin-top:6px">' + esc((e && e.message) || e) + '</p><p class="note">この文を管理者に伝えてください。ほかのタブは使えます。</p></div>';
+    return html + '<div class="card alert"><h2 class="err-text">このタブを表示できませんでした</h2><p class="note">' + esc((e && e.message) || e) + '</p><p class="note mt4">この文を管理者に伝えてください。ほかのタブは使えます。</p></div>';
   }
+}
+/** 保存が途中で止まっているとき（表どうしが食い違っているので、続きを書くまで中身は出さない） */
+function fcPendingBox(v){
+  var p = v.pendingWrite;
+  return '<div class="card caution"><h2 class="warn-text">前回の保存が途中で止まっています</h2>'
+    + '<p>「' + esc(p.label) + '」の書き込みが、途中で止まりました（' + esc(String(p.at || '').replace('T', ' ').slice(0, 16)) + '）。書く前に控えを取ってあるので、続きを書けば元どおりになります。</p>'
+    + '<div class="card-foot">' + (v.can && v.can.plan
+      ? '<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="startJob(\'SYSTEM.RECOVER\', {})">保存の続きを書く</button><span class="note">1〜2 分ほどかかります。終わると画面が元に戻ります。</span>'
+      : '<span class="note">予算策定担当か管理者に「保存の続きを書く」を押してもらってください。</span>') + '</div></div>';
 }
 /** 読み込みの待ち（何を待っているか・何秒か。失敗したら理由と、もう一度読む）。待ち続けないように 1 秒ごとに表示を新しくする */
 function fcWaitBox(){
   var L = S.fc.load || {}, now = Date.now();
   var part = function(k, label){ var x = L[k]; if (!x) return '';
-    if (x.error) return '<li><b style="color:var(--error)">' + label + ': 読めませんでした</b>（' + esc(x.error) + '）</li>';
-    if (x.done) return '<li>' + label + ': 読めました（' + Math.round((x.done - x.start) / 1000) + ' 秒）</li>';
-    return '<li>' + label + ': 読み込み中…（' + Math.round((now - x.start) / 1000) + ' 秒）</li>'; };
+    if (x.error) return '<li><span class="chip ng">失敗</span>' + label + '<span class="note">（' + esc(x.error) + '）</span></li>';
+    if (x.done) return '<li><span class="chip ok">読めました</span>' + label + '<span class="note">（' + Math.round((x.done - x.start) / 1000) + ' 秒）</span></li>';
+    return '<li><span class="dot"></span>' + label + '<span class="note">読み込み中…（' + Math.round((now - x.start) / 1000) + ' 秒）</span></li>'; };
   var slow = Object.keys(L).some(function(k){ return !L[k].done && !L[k].error && now - L[k].start > 90000; });
   var failed = Object.keys(L).some(function(k){ return L[k].error; });
-  return '<div class="card" id="fcWait"><ul class="note" style="margin-left:18px">' + part('latest', '予測の結果') + part('view', '画面の中身（入力・予算・検証など）') + '</ul>'
-    + (slow ? '<p class="note" style="margin-top:8px;color:var(--warn-fg)">時間がかかっています。データが変わった後の最初の表示は 1 分ほどかかることがあります。</p>' : '')
-    + (slow || failed ? '<div class="row"><button class="btn btn-sm" onclick="loadForecast(S.fc.planId, true)">もう一度読み込む</button></div>' : '') + '</div>';
+  return '<div class="card" id="fcWait"><ul class="waitlist">' + part('latest', '予測の結果') + part('view', '画面の中身（入力・予算・検証など）') + '</ul>'
+    + (slow ? '<p class="note warn-text mt8">時間がかかっています。データが変わった後の最初の表示は 1 分ほどかかることがあります。</p>' : '')
+    + (slow || failed ? '<div class="card-foot"><button class="btn btn-ghost" onclick="loadForecast(S.fc.planId, true)">もう一度読み込む</button></div>' : '') + '</div>';
 }
 var fcWaitT = null;
 function fcWaitTick(){
@@ -420,43 +528,47 @@ function fcTab(t){ S.fc.tab = t; render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
-/** 実行のボタン（裏の処理。計算用ブックで旧来と同じに動かす） */
-function fcRunBtn(action, note, role){
-  role = role === true ? 'approve' : role || 'plan';
-  var ok = fcCan(role);
-  return '<div class="row" style="align-items:center"><button class="btn btn-sm" ' + (S.job || !ok ? 'disabled ' : '') + 'onclick="fcRun(\'' + action + '\')">' + esc(fcActionLabel(action)) + '</button>'
-    + '<span class="note">' + esc(note || '') + (ok ? '' : '（' + FC_ROLE_NAME[role] + 'が実行できます）') + '</span></div>';
+/** 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる）。items: [[action, 説明, 役割]] */
+function fcActions(items){
+  return '<div class="actions">' + items.map(function(it){
+    var role = it[2] || 'plan', ok = fcCan(role);
+    return '<button class="btn btn-ghost" ' + (S.job || !ok ? 'disabled ' : '') + 'onclick="fcRun(\'' + it[0] + '\')">' + esc(fcActionLabel(it[0])) + '</button>'
+      + '<div class="desc">' + esc(it[1]) + (ok ? '' : '<span class="note">' + FC_ROLE_NAME[role] + 'が実行できます。</span>') + (it[3] ? '<span class="note">' + esc(it[3]) + '</span>' : '') + '</div>';
+  }).join('') + '</div>';
 }
-function fcSourceNote(){ return S.fc.view && !S.fc.view.sourceReady ? '「設定」の「ZAC の実績のスプレッドシート」を入れると使えます。' : ''; }
 function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（3〜6 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
 function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, action: action, args: args, inputHash: S.fc.view.inputHash }); }
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
 function fcPct(v){ return v === null || v === undefined || v === '' ? '-' : (Number(v) * 100).toFixed(1) + '%'; }
+function fcSourceNote(){ return S.fc.view && !S.fc.view.sourceReady ? '「設定」の「ZAC の実績のスプレッドシート」を入れると使えます。' : ''; }
+function fcKpi(label, n, main){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="k">' + label + '</div><div class="v">' + yen(n) + '<span class="u">円</span></div></div>'; }
+function fcSaveBtn(label, onclick, enabled){ return '<button class="btn" ' + (S.job || !enabled ? 'disabled ' : '') + 'onclick="' + onclick + '">' + label + '</button>'; }
 
 function fcForecastTab(d, v){
-  var html = '', l = d.latest;
-  if (l) {
-    html += fcTable({ annual: { p10: l.annual_p10, p50: l.annual_p50, p90: l.annual_p90 }, objective: { p10: l.objective_p10, p50: l.objective_p50, p90: l.objective_p90 }, monthly: d.monthly },
-      '最新の予測（' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0]) + '）');
-  } else {
-    html += guide('explain', 'まだ新アプリで予測を実行していません。下は、取り込んだ旧ブックで最後に実行した結果です。') + fcTable(d.stored, '旧ブックで最後に実行した結果');
-  }
-  var canPlan = fcCan('plan');
-  html += '<div class="card"><div class="row" style="margin-top:0;align-items:center"><button class="btn" ' + (S.job || !canPlan ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(S.fc.planId) + '\' })">予測を実行</button>'
-    + '<span class="note">データ本体の内容で旧来の予測を動かし、結果を残します（4〜6 分ほど。旧ブックは変わりません）。' + (canPlan ? '' : '予算策定担当が実行できます。') + '</span></div>'
-    + (d.runs.length > 1 ? '<p class="note" style="margin-top:8px">これまでの実行: ' + d.runs.map(function(r){ return esc(String(r.finishedAt || '').replace('T', ' ').slice(5, 16)) + ' P50 ' + yen(r.p50); }).join('、') + '</p>' : '') + '</div>';
-  // 予算（A-10: OUTPUT の H=採用 / I=上乗せ。J=最終は数式）
+  var html = '', l = d.latest, canPlan = fcCan('plan');
+  var annual = l ? { p10: l.annual_p10, p50: l.annual_p50, p90: l.annual_p90 } : (d.stored && d.stored.annual) || {};
+  var obj = l ? { p10: l.objective_p10, p50: l.objective_p50, p90: l.objective_p90 } : (d.stored && d.stored.objective) || {};
   var O = v.boot.output, sec = O && O.sections && O.sections[0];
+  html += '<div class="kpis">' + fcKpi('Downside（P10）', annual.p10) + fcKpi('Baseline（P50）', annual.p50, true) + fcKpi('Upside（P90）', annual.p90)
+    + fcKpi('最終予算（年度合計）', sec ? sec.annual.final : null) + '</div>';
+  html += '<div class="card"><div class="card-head"><h2>予測の実行</h2></div>'
+    + '<p class="note">' + (l ? '最新の予測: ' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0])
+      : 'まだ新アプリで予測を実行していません。上の数字は、取り込んだ旧ブックで最後に実行した結果です。')
+    + '　過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yen(obj.p90) + ' 円</p>'
+    + '<div class="actions mt12"><button class="btn" ' + (S.job || !canPlan ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(S.fc.planId) + '\' })">予測を実行</button>'
+    + '<div class="desc">データ本体の内容で旧来の予測を動かし、結果を残します（4〜6 分ほど。旧ブックは変わりません）。' + (canPlan ? '' : '<span class="note">予算策定担当が実行できます。</span>') + '</div></div>'
+    + (d.runs.length > 1 ? '<p class="note mt12">これまでの実行: ' + d.runs.map(function(r){ return esc(String(r.finishedAt || '').replace('T', ' ').slice(5, 16)) + ' P50 ' + yen(r.p50); }).join('、') + '</p>' : '') + '</div>';
+  // 予算（A-10: OUTPUT の H=採用 / I=上乗せ。J=最終は数式）
   if (!sec) return html + '<div class="card note">予算は、予測を実行すると入力できます。</div>';
   var bd = S.fc.budget;
   var cell = function(m, k){ var x = bd[m.row]; var val = x && x[k] !== undefined ? x[k] : m[k];
-    return canPlan ? '<input class="inp num" style="width:100%;text-align:right" type="number" step="10000" value="' + esc(val === null ? '' : val) + '" oninput="fcBudget(' + m.row + ',\'' + k + '\',this.value)">' : yen(val); };
-  html += '<div class="card"><h2>予算（月ごと・円）</h2><table class="tbl"><colgroup><col style="width:90px"><col><col><col><col style="width:140px"><col style="width:120px"><col></colgroup>'
+    return canPlan ? '<input class="inp cell num" type="number" step="10000" value="' + esc(val === null ? '' : val) + '" oninput="fcBudget(' + m.row + ',\'' + k + '\',this.value)" aria-label="' + esc(m.month) + (k === 'adopted' ? ' 採用予測' : ' 上乗せ') + '">' : yen(val); };
+  html += '<div class="card"><div class="card-head"><h2>月ごとの予測と予算</h2><span class="note">単位: 円</span></div><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:96px"><col><col><col><col style="width:150px"><col style="width:150px"><col></colgroup>'
     + '<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">採用予測</th><th class="num">上乗せ</th><th class="num">最終予算</th></tr></thead><tbody>'
     + sec.monthly.map(function(m){ return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td><td class="num">' + cell(m, 'adopted') + '</td><td class="num">' + cell(m, 'uplift') + '</td><td class="num">' + yen(m.final) + '</td></tr>'; }).join('')
-    + '<tr><td><b>年度合計</b></td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num"><b>' + yen(sec.annual.final) + '</b></td></tr>'
-    + '</tbody></table>'
-    + (canPlan ? '<div class="row" style="align-items:center"><button class="btn" ' + (S.job || !Object.keys(bd).length ? 'disabled ' : '') + 'onclick="fcSaveBudget()">予算を保存</button><span class="note">最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。</span></div>' : '') + '</div>';
+    + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num">' + yen(sec.annual.final) + '</td></tr>'
+    + '</tbody></table></div>'
+    + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
   return html;
 }
 function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = val; var btn = document.querySelector('[onclick="fcSaveBudget()"]'); if (btn) btn.disabled = !!S.job; }
@@ -470,30 +582,33 @@ function fcSaveBudget(){
 function fcInputTab(d, v){
   var boot = v.boot, kind = S.fc.inputKind, canPlan = fcCan('plan');
   var rows = fcDraft(kind);
-  var cols = { product: [['person','担当者','people'],['product','製品','products'],['ym','対象月','month'],['step','増減率','step'],['reason','理由','text']],
-    client: [['person','担当者','people'],['ym','対象月','month'],['step','増減率','step'],['reason','理由','text']],
-    opinions: [['person','担当者','people'],['ym','対象月','month'],['step','増減率','step'],['conf','確度（0〜1）','conf'],['note','補足','text']],
-    devspot: [['person','担当者','people'],['ym','対象月','month'],['project','案件名','text'],['amount','金額（円）','money'],['conf','確度（0〜1）','conf']] }[kind];
-  var opts = function(list, cur){ return [''].concat(list).map(function(o){ var val = typeof o === 'string' ? o : o.value, lab = typeof o === 'string' ? o : o.label;
+  var cols = { product: [['person','担当者','people',140],['product','製品','products',200],['ym','対象月','month',128],['step','増減率','step',112],['reason','理由','text']],
+    client: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112],['reason','理由','text']],
+    opinions: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112],['conf','確度（0〜1）','conf',112],['note','補足','text']],
+    devspot: [['person','担当者','people',140],['ym','対象月','month',128],['project','案件名','text',220],['amount','金額（円）','money',144],['conf','確度（0〜1）','conf',112]] }[kind];
+  var opts = function(list, cur){ return [''].concat(list || []).map(function(o){ var val = typeof o === 'string' ? o : o.value, lab = typeof o === 'string' ? o : o.label;
     return '<option value="' + esc(val) + '"' + (String(cur) === String(val) ? ' selected' : '') + '>' + esc(lab) + '</option>'; }).join(''); };
+  var withCur = function(list, val){ list = list || []; return list.indexOf(val) < 0 && val ? list.concat([val]) : list; };
   var cellHtml = function(c, r, i){
-    var val = r[c[0]] === null || r[c[0]] === undefined ? '' : r[c[0]], on = 'onchange="fcInput(' + i + ',\'' + c[0] + '\',this.value)"';
+    var val = r[c[0]] === null || r[c[0]] === undefined ? '' : r[c[0]], on = 'onchange="fcInput(' + i + ',\'' + c[0] + '\',this.value)" aria-label="' + esc(c[1]) + '"';
     if (!canPlan) return esc(c[2] === 'month' ? String(val).replace('-', '/') : val);
-    if (c[2] === 'people') return '<select class="inp" style="width:100%" ' + on + '>' + opts(boot.setup.people, val) + '</select>';
-    if (c[2] === 'products') return '<select class="inp" style="width:100%" ' + on + '>' + opts(boot.products.indexOf(val) < 0 && val ? boot.products.concat([val]) : boot.products, val) + '</select>';
-    if (c[2] === 'month') return '<select class="inp" style="width:100%" ' + on + '>' + opts(boot.months, val) + '</select>';
-    if (c[2] === 'step') return '<select class="inp" style="width:100%" ' + on + '>' + opts(boot.stepOptions.indexOf(val) < 0 && val ? boot.stepOptions.concat([val]) : boot.stepOptions, val) + '</select>';
-    var type = c[2] === 'conf' || c[2] === 'money' ? 'number' : 'text';
-    return '<input class="inp" style="width:100%" type="' + type + '"' + (c[2] === 'conf' ? ' min="0" max="1" step="0.1"' : c[2] === 'money' ? ' step="10000"' : '') + ' value="' + esc(val) + '" ' + on + '>';
+    if (c[2] === 'people') return '<select class="inp cell" ' + on + '>' + opts(withCur(boot.setup.people, val), val) + '</select>';
+    if (c[2] === 'products') return '<select class="inp cell" ' + on + '>' + opts(withCur(boot.products, val), val) + '</select>';
+    if (c[2] === 'month') return '<select class="inp cell" ' + on + '>' + opts(boot.months, val) + '</select>';
+    if (c[2] === 'step') return '<select class="inp cell" ' + on + '>' + opts(withCur(boot.stepOptions, val), val) + '</select>';
+    var num = c[2] === 'conf' || c[2] === 'money';
+    return '<input class="inp cell' + (num ? ' num' : '') + '" type="' + (num ? 'number' : 'text') + '"' + (c[2] === 'conf' ? ' min="0" max="1" step="0.1"' : c[2] === 'money' ? ' step="10000"' : '') + ' value="' + esc(val) + '" ' + on + '>';
   };
-  var html = '<div class="row" style="margin:0 0 10px">' + INPUT_KINDS.map(function(k){ return '<button class="btn btn-sm' + (kind === k[0] ? '' : ' btn-ghost') + '" onclick="S.fc.inputKind=\'' + k[0] + '\';render()">' + k[1] + '</button>'; }).join('') + '</div>';
-  html += '<div class="card"><table class="tbl"><thead><tr>' + cols.map(function(c){ return '<th>' + c[1] + '</th>'; }).join('') + (canPlan ? '<th style="width:56px"></th>' : '') + '</tr></thead><tbody>'
-    + (rows.length ? rows.map(function(r, i){ return '<tr>' + cols.map(function(c){ return '<td>' + cellHtml(c, r, i) + '</td>'; }).join('')
-      + (canPlan ? '<td><button class="btn btn-ghost btn-sm" style="min-width:0" onclick="fcInputDel(' + i + ')" aria-label="行を削除">×</button></td>' : '') + '</tr>'; }).join('')
-      : '<tr><td colspan="' + (cols.length + 1) + '" class="note" style="text-align:center">まだ入力がありません。</td></tr>')
-    + '</tbody></table>'
-    + (canPlan ? '<div class="row" style="align-items:center"><button class="btn btn-ghost" onclick="fcInputAdd()">+ 行を追加</button><button class="btn" ' + (S.job || !S.fc.inputDirty[kind] ? 'disabled ' : '') + 'onclick="fcSaveInput()">保存</button>'
-      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存の変更があります</span>' : '') + '<span class="note">保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません（旧来と同じ）。</span></div>' : '<p class="note" style="margin-top:8px">入力は予算策定担当ができます。</p>')
+  var html = '<div class="tabs sub">' + INPUT_KINDS.map(function(k){ return '<button class="tab' + (kind === k[0] ? ' on' : '') + '" onclick="S.fc.inputKind=\'' + k[0] + '\';render()">' + k[1] + (S.fc.inputDirty[k[0]] ? ' ●' : '') + '</button>'; }).join('') + '</div>';
+  html += '<div class="card"><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (canPlan ? '<col style="width:48px">' : '') + '</colgroup>'
+    + '<thead><tr>' + cols.map(function(c){ return '<th' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + c[1] + '</th>'; }).join('') + (canPlan ? '<th></th>' : '') + '</tr></thead><tbody>'
+    + (rows.length ? rows.map(function(r, i){ return '<tr>' + cols.map(function(c){ return '<td' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + cellHtml(c, r, i) + '</td>'; }).join('')
+      + (canPlan ? '<td class="ctr"><button class="btn btn-ghost btn-icon" onclick="fcInputDel(' + i + ')" aria-label="この行を消す" title="この行を消す">×</button></td>' : '') + '</tr>'; }).join('')
+      : '<tr><td colspan="' + (cols.length + 1) + '" class="empty">まだ入力がありません。' + (canPlan ? '「行を追加」で登録できます。' : '') + '</td></tr>')
+    + '</tbody></table></div>'
+    + (canPlan ? '<div class="card-foot">' + fcSaveBtn('入力を保存', 'fcSaveInput()', S.fc.inputDirty[kind]) + '<button class="btn btn-ghost" onclick="fcInputAdd()">行を追加</button>'
+      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存の変更があります</span>' : '') + '<span class="note">保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません（旧来と同じ）。</span></div>'
+      : '<p class="note mt12">入力は予算策定担当ができます。</p>')
     + '</div>';
   return html;
 }
@@ -505,24 +620,27 @@ function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: 
 
 function fcEvalTab(d, v){
   var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = '';
-  html += '<div class="card"><h2>検証の更新</h2>' + fcRunBtn('IMPORT.ACTUALS', '確定した月の実績を ZAC の実績から取り込み直します。' + fcSourceNote(), 'admin') + fcRunBtn('EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。') + fcRunBtn('EVAL.DASHBOARD', '精度の指標をまとめ直します。')
-    + fcRunBtn('EVAL.INSIGHTS', '外れた月の原因の見立てを作り直します。') + fcRunBtn('LEARN.MONTHLY', '実績から補正の係数を学び直します（次の予測に反映）。')
-    + '</div>';
-  if (e.metrics && e.metrics.length) html += '<div class="card"><h2>精度の指標</h2><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>メモ</th></tr></thead><tbody>'
-    + e.metrics.map(function(m){ return '<tr><td>' + esc(m.name) + '</td><td class="num">' + esc(typeof m.value === 'number' ? (Math.abs(m.value) < 3 ? fcPct(m.value) : yen(m.value)) : m.value) + '</td><td>' + esc(m.note) + '</td></tr>'; }).join('') + '</tbody></table></div>';
-  if (e.compare && e.compare.length) html += '<div class="card"><h2>月ごとの予測と実績（円）</h2><table class="tbl"><thead><tr><th>月</th><th class="num">予測</th><th class="num">実績</th><th class="num">差</th><th class="num">誤差率</th><th>帯の外</th></tr></thead><tbody>'
-    + e.compare.map(function(c){ return '<tr><td>' + esc(c.month) + '</td><td class="num">' + yen(c.forecastTotal) + '</td><td class="num">' + yen(c.actualTotal) + '</td><td class="num">' + yen(c.gap) + '</td><td class="num">' + fcPct(c.ape) + '</td><td>' + (c.rangeOutside ? '<span class="chip warn">外</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  html += '<div class="card"><div class="card-head"><h2>検証の更新</h2><span class="note">上から順に実行します</span></div>' + fcActions([
+    ['IMPORT.ACTUALS', '確定した月の実績を、ZAC の実績から取り込み直します。', 'admin', fcSourceNote()],
+    ['EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。'],
+    ['EVAL.DASHBOARD', '精度の指標をまとめ直します。'],
+    ['EVAL.INSIGHTS', '外れた月の原因の見立てを作り直します。'],
+    ['LEARN.MONTHLY', '実績から補正の係数を学び直します（次の予測に反映）。']]) + '</div>';
+  if (e.metrics && e.metrics.length) html += '<div class="card"><h2>精度の指標</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>メモ</th></tr></thead><tbody>'
+    + e.metrics.map(function(m){ return '<tr><td>' + esc(m.name) + '</td><td class="num">' + esc(typeof m.value === 'number' ? (Math.abs(m.value) < 3 ? fcPct(m.value) : yen(m.value)) : m.value) + '</td><td title="' + esc(m.note) + '">' + esc(m.note) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+  if (e.compare && e.compare.length) html += '<div class="card"><div class="card-head"><h2>月ごとの予測と実績</h2><span class="note">単位: 円</span></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col style="width:112px"><col style="width:96px"></colgroup><thead><tr><th>月</th><th class="num">予測</th><th class="num">実績</th><th class="num">差</th><th class="num">誤差率</th><th class="ctr">帯の外</th></tr></thead><tbody>'
+    + e.compare.map(function(c){ return '<tr><td>' + esc(c.month) + '</td><td class="num">' + yen(c.forecastTotal) + '</td><td class="num">' + yen(c.actualTotal) + '</td><td class="num">' + yen(c.gap) + '</td><td class="num">' + fcPct(c.ape) + '</td><td class="ctr">' + (c.rangeOutside ? '<span class="chip warn">外</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   if (e.insights && e.insights.length) {
     var ins = S.fc.ins;
     var val = function(r, k){ return ins[r.row] && ins[r.row][k] !== undefined ? ins[r.row][k] : r[k]; };
-    var sel = function(r, k, list){ return '<select class="inp" style="width:100%" onchange="fcIns(' + r.row + ',\'' + k + '\',this.value)">' + list.map(function(o){ return '<option' + (o === val(r, k) ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>'; };
-    var txt = function(r, k){ return '<input class="inp" style="width:100%" value="' + esc(val(r, k)) + '" oninput="fcIns(' + r.row + ',\'' + k + '\',this.value)">'; };
-    html += '<div class="card"><h2>学習インサイト</h2><table class="tbl"><colgroup><col style="width:80px"><col><col style="width:180px"><col style="width:150px"><col style="width:180px"><col style="width:110px"><col style="width:120px"></colgroup>'
+    var sel = function(r, k, list){ return '<select class="inp cell" onchange="fcIns(' + r.row + ',\'' + k + '\',this.value)">' + list.map(function(o){ return '<option' + (o === val(r, k) ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>'; };
+    var txt = function(r, k){ return '<input class="inp cell" value="' + esc(val(r, k)) + '" oninput="fcIns(' + r.row + ',\'' + k + '\',this.value)">'; };
+    html += '<div class="card"><h2>学習インサイト</h2><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:88px"><col><col style="width:180px"><col style="width:152px"><col style="width:180px"><col style="width:112px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>月</th><th>見立て</th><th>原因の仮説</th><th>対応</th><th>次に反映すること</th><th>担当</th><th>状態</th></tr></thead><tbody>'
       + e.insights.map(function(r){ return '<tr><td>' + esc(r.month) + '</td><td title="' + esc(r.insight + ' ' + r.nextAction) + '">' + esc(r.insight) + '</td>'
         + (canPlan ? '<td>' + txt(r, 'hypothesis') + '</td><td>' + sel(r, 'actionType', ['', '前提を更新', '入力を修正', '様子見', 'エスカレーション']) + '</td><td>' + txt(r, 'reflection') + '</td><td>' + txt(r, 'owner') + '</td><td>' + sel(r, 'status', ['', 'open', 'in_progress', 'done']) + '</td>'
           : '<td>' + esc(r.hypothesis) + '</td><td>' + esc(r.actionType) + '</td><td>' + esc(r.reflection) + '</td><td>' + esc(r.owner) + '</td><td>' + esc(r.status) + '</td>') + '</tr>'; }).join('')
-      + '</tbody></table>' + (canPlan ? '<div class="row"><button class="btn" ' + (S.job || !Object.keys(ins).length ? 'disabled ' : '') + 'onclick="fcSaveIns()">記入を保存</button></div>' : '') + '</div>';
+      + '</tbody></table></div>' + (canPlan ? '<div class="card-foot">' + fcSaveBtn('記入を保存', 'fcSaveIns()', Object.keys(ins).length) + '<span class="note">原因の仮説・対応・担当などは、次の予測と四半期レビューの材料になります。</span></div>' : '') + '</div>';
   }
   if (!(e.metrics || []).length && !(e.compare || []).length && !(e.insights || []).length) html += '<div class="card note">検証の結果はまだありません。実績を取り込んで、上の順に更新してください。</div>';
   return html;
@@ -537,20 +655,21 @@ function fcSaveIns(){
 
 function fcQuarterlyTab(d, v){
   var q = v.boot.quarterly || {}, canApprove = fcCan('approve'), html = '';
-  html += '<div class="card"><h2>四半期レビュー</h2>' + fcRunBtn('REVIEW.GENERATE', '前の四半期の結果から、設定の見直しの提案を作ります。')
-    + fcRunBtn('REVIEW.APPLY', '「承認」にした提案を設定に反映します。', true) + '</div>';
+  html += '<div class="card"><div class="card-head"><h2>四半期レビュー</h2><span class="note">提案 → 承認 → 適用の順に進めます</span></div>' + fcActions([
+    ['REVIEW.GENERATE', '前の四半期の結果から、設定の見直しの提案を作ります。'],
+    ['REVIEW.APPLY', '「承認」にした提案を設定に反映します。', 'approve']]) + '</div>';
   if (q.proposals && q.proposals.length) {
     var dec = S.fc.dec;
-    html += '<div class="card"><h2>' + esc(q.title || '提案') + '</h2><p class="note">' + esc(q.period || '') + (q.applied ? '　<span class="chip">反映済み</span>' : '') + '</p>'
-      + '<table class="tbl" style="margin-top:8px"><colgroup><col style="width:200px"><col style="width:110px"><col style="width:110px"><col style="width:70px"><col><col style="width:100px"><col style="width:130px"></colgroup>'
+    html += '<div class="card"><div class="card-head"><h2>' + esc(q.title || '提案') + '</h2><span class="note">' + esc(q.period || '') + '</span>' + (q.applied ? '<span class="chip ok">反映済み</span>' : '') + '</div>'
+      + '<div class="tblwrap"><table class="tbl' + (canApprove ? ' edit' : '') + '"><colgroup><col style="width:200px"><col style="width:104px"><col style="width:104px"><col style="width:72px"><col><col style="width:96px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>対象</th><th>今</th><th>提案</th><th class="num">確度</th><th>理由</th><th>影響</th><th>承認</th></tr></thead><tbody>'
       + q.proposals.map(function(p){ var cur = dec[p.row] !== undefined ? dec[p.row] : p.decision;
-        return '<tr><td>' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td title="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
-          + (canApprove ? '<select class="inp" style="width:100%" onchange="fcDec(' + p.row + ',this.value)">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
-      + '</tbody></table>' + (canApprove ? '<div class="row"><button class="btn" ' + (S.job || !Object.keys(dec).length ? 'disabled ' : '') + 'onclick="fcSaveDec()">承認を保存</button></div>' : '<p class="note" style="margin-top:8px">承認は承認者ができます。</p>') + '</div>';
+        return '<tr><td title="' + esc(p.target) + '">' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td title="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
+          + (canApprove ? '<select class="inp cell" onchange="fcDec(' + p.row + ',this.value)" aria-label="承認">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
+      + '</tbody></table></div>' + (canApprove ? '<div class="card-foot">' + fcSaveBtn('承認を保存', 'fcSaveDec()', Object.keys(dec).length) + '<span class="note">保存した後に「' + esc(fcActionLabel('REVIEW.APPLY')) + '」で設定に反映します。</span></div>' : '<p class="note mt12">承認は承認者ができます。</p>') + '</div>';
   } else html += '<div class="card note">提案はまだありません。</div>';
-  if (q.logRecent && q.logRecent.length) html += '<div class="card"><h2>これまでのレビュー</h2><table class="tbl"><thead><tr><th>日付</th><th>四半期</th><th class="num">提案</th><th>反映</th></tr></thead><tbody>'
-    + q.logRecent.map(function(r){ return '<tr><td>' + esc(r.at) + '</td><td>' + esc(r.quarter) + '</td><td class="num">' + r.proposals + '</td><td>' + (r.applied ? '<span class="chip">済み</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (q.logRecent && q.logRecent.length) html += '<div class="card"><h2>これまでのレビュー</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:160px"><col style="width:96px"><col></colgroup><thead><tr><th>日付</th><th>四半期</th><th class="num">提案</th><th>反映</th></tr></thead><tbody>'
+    + q.logRecent.map(function(r){ return '<tr><td>' + esc(r.at) + '</td><td>' + esc(r.quarter) + '</td><td class="num">' + r.proposals + '</td><td>' + (r.applied ? '<span class="chip ok">済み</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   return html;
 }
 function fcDec(row, val){ S.fc.dec[row] = val; var btn = document.querySelector('[onclick="fcSaveDec()"]'); if (btn) btn.disabled = !!S.job; }
@@ -558,17 +677,20 @@ function fcSaveDec(){ var dec = S.fc.dec; fcEdit('REVIEW.DECIDE', { rows: Object
 
 function fcStepsTab(d, v){
   var st = v.boot.steps || [];
-  var label = { success: '<span class="chip">済み</span>', error: '<span class="chip ng">エラー</span>', not_run: '<span class="chip off">未実行</span>' };
-  var html = '<div class="card"><h2>手順の進み</h2><table class="tbl"><colgroup><col style="width:70px"><col style="width:220px"><col style="width:110px"><col style="width:90px"><col style="width:120px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
+  var label = { success: '<span class="chip ok">済み</span>', error: '<span class="chip ng">エラー</span>', not_run: '<span class="chip off">未実行</span>' };
+  var html = '<div class="card"><h2>手順の進み</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:72px"><col style="width:200px"><col style="width:104px"><col style="width:88px"><col style="width:136px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
     + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td title="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
-    + '</tbody></table>' + fcRunBtn('IMPORT.SALES', 'ZAC の実績から、過去 4 年分の売上を取り込み直します（入力の雛形も整えます）。' + fcSourceNote(), 'admin')
-    + fcRunBtn('SALES.AGGREGATE', '取り込んだ売上を月ごとに集計し直します。') + '</div>';
+    + '</tbody></table></div></div>';
+  html += '<div class="card"><div class="card-head"><h2>売上の取り込みと集計</h2><span class="note">予測の前に、上から順に実行します</span></div>' + fcActions([
+    ['IMPORT.SALES', 'ZAC の実績から、過去 4 年分の売上を取り込み直します（入力の雛形も整えます）。', 'admin', fcSourceNote()],
+    ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。']]) + '</div>';
   var people = (v.boot.setup.people || []).join(', ');
   html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
-    ? '<div class="row" style="margin-top:0;align-items:center"><input class="inp" style="width:420px" id="fc_people" value="' + esc(people) + '"><button class="btn btn-sm" ' + (S.job ? 'disabled ' : '') + 'onclick="fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })">担当者を保存</button></div><p class="note" style="margin-top:6px">カンマ区切り。入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</p>'
-    : '<p>' + esc(people || '（なし）') + '</p><p class="note">変えるのは管理者です。</p>') + '</div>';
-  if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><table class="tbl"><colgroup><col style="width:150px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
-    + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td>' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    ? '<div class="row mt0"><div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'
+      + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + '</div><p class="note mt8">入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</p>'
+    : '<p>' + esc(people || '（なし）') + '</p><p class="note mt4">変えるのは管理者です。</p>') + '</div>';
+  if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
+    + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td title="' + esc((r.changed || []).join('、')) + '">' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   return html;
 }
 function loadPlans(){ call('apiListPlans', [], function(r){ S.mig.plans = r.plans; }); }
@@ -577,23 +699,23 @@ function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 
 function viewParity(){
   var m = S.mig, html = '';
   if (m.plans && m.plans.length) {
-    html += '<div class="card"><h2>取り込んだ計画</h2><table class="tbl"><colgroup><col style="width:220px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>取り込み</th><th></th></tr></thead><tbody>'
+    html += '<div class="card"><h2>取り込んだ計画</h2><table class="tbl"><colgroup><col style="width:220px"><col style="width:88px"><col style="width:152px"><col></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>取り込み</th><th>確かめる</th></tr></thead><tbody>'
       + m.plans.map(function(p){
-        return '<tr><td>' + esc(p.clientName) + '</td><td>FY' + esc(p.fy) + '</td><td>' + esc((p.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>'
-          + '<button class="btn btn-sm" ' + (S.job ? 'disabled ' : '') + 'onclick="startParity(\'' + esc(p.planId) + '\')">計算の一致を確かめる</button> '
-          + '<button class="btn btn-sm btn-ghost" ' + (S.job ? 'disabled ' : '') + 'onclick="S.mig.viewCheck=null;startJob(\'PLAN.VIEW_CHECK\', { planId: \'' + esc(p.planId) + '\' })">画面の中身を確かめる</button></td></tr>';
-      }).join('') + '</tbody></table><p class="note" style="margin-top:8px">旧ブックをそのまま写したものと、データ本体から組み立てたもので、同じ乱数・同じ時刻で予測を 2 回動かし、計算後の全シートを比べます（3〜5 分ほど。どちらにも書き込みません）。</p></div>';
+        return '<tr><td>' + esc(p.clientName) + '</td><td>FY' + esc(p.fy) + '</td><td>' + esc((p.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td><div class="row c mt0">'
+          + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="startParity(\'' + esc(p.planId) + '\')">計算の一致を確かめる</button>'
+          + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="S.mig.viewCheck=null;startJob(\'PLAN.VIEW_CHECK\', { planId: \'' + esc(p.planId) + '\' })">画面の中身を確かめる</button></div></td></tr>';
+      }).join('') + '</tbody></table><p class="note mt8">旧ブックをそのまま写したものと、データ本体から組み立てたもので、同じ乱数・同じ時刻で予測を 2 回動かし、計算後の全シートを比べます（3〜5 分ほど。どちらにも書き込みません）。</p></div>';
   }
   var vc = m.viewCheck;
   if (vc) {
-    html += '<div class="card"><h2>画面の中身の確認</h2><div class="row" style="margin-top:0;align-items:center">' + (vc.same ? '<span class="chip">旧来の画面と同じ</span>' : '<span class="chip ng">違いあり（' + vc.diffs.length + (vc.diffs.length >= 30 ? ' 以上' : '') + '）</span>') + '</div>'
-      + (vc.diffs.length ? '<p class="note" style="margin-top:8px;color:var(--error)">左が計算用ブックで読んだもの、右がデータ本体から読んだもの:<br>' + vc.diffs.map(function(d){ return esc(d.path) + '：' + esc(d.a) + ' / ' + esc(d.b); }).join('<br>') + '</p>' : '')
-      + '<p class="note" style="margin-top:8px">旧来の画面の読み取り（webGetBootstrap_）を、データ本体から組み立てた計算用ブックと、データ本体から直接読むもので動かして比べました（どちらにも書きません）。かかった時間: '
+    html += '<div class="card"><h2>画面の中身の確認</h2><div class="row c mt0">' + (vc.same ? '<span class="chip ok">旧来の画面と同じ</span>' : '<span class="chip ng">違いあり（' + vc.diffs.length + (vc.diffs.length >= 30 ? ' 以上' : '') + '）</span>') + '</div>'
+      + (vc.diffs.length ? '<p class="note mt8 err-text">左が計算用ブックで読んだもの、右がデータ本体から読んだもの:<br>' + vc.diffs.map(function(d){ return esc(d.path) + '：' + esc(d.a) + ' / ' + esc(d.b); }).join('<br>') + '</p>' : '')
+      + '<p class="note mt8">旧来の画面の読み取り（webGetBootstrap_）を、データ本体から組み立てた計算用ブックと、データ本体から直接読むもので動かして比べました（どちらにも書きません）。かかった時間: '
       + Math.round((vc.timing.buildMs + vc.timing.realMs + vc.timing.viewMs) / 1000) + ' 秒（データ本体から直接読むのは ' + (vc.timing.viewMs / 1000).toFixed(1) + ' 秒）。</p></div>';
   }
   var r = m.parity;
   if (r) {
-    var verdict = r.same ? '<span class="chip">完全に一致</span>' : '<span class="chip ng">違いあり（' + r.diff.length + ' シート）</span>';
+    var verdict = r.same ? '<span class="chip ok">完全に一致</span>' : '<span class="chip ng">違いあり（' + r.diff.length + ' シート）</span>';
     var row = function(label, h){ return '<tr><td>' + label + '</td><td>' + yen(h && h.annual.p10) + '</td><td>' + yen(h && h.annual.p50) + '</td><td>' + yen(h && h.annual.p90) + '</td></tr>'; };
     var diffText = function(list){ return (list || []).map(function(d){
       var cells = d.formatCells && d.formatCells.samples.length ? '：' + d.formatCells.samples.map(function(x){ return x.cells + ' 「' + x.a + '」/「' + x.b + '」'; }).join('、') + (d.formatCells.count > d.formatCells.samples.length ? ' ほか' : '') : '';
@@ -602,19 +724,19 @@ function viewParity(){
     var diffs = diffText(r.diff);
     var preDiffs = r.preDiff ? diffText(r.preDiff) : '';
     var sec = r.timing ? Math.round((r.timing.a.copyMs + r.timing.a.runMs + r.timing.a.digestMs + r.timing.b.buildMs + r.timing.b.runMs + r.timing.b.compareMs) / 1000) : 0;
-    html += '<div class="card"><h2>計算の一致の確認</h2><div class="row" style="margin-top:0;align-items:center">' + verdict
+    html += '<div class="card"><h2>計算の一致の確認</h2><div class="row c mt0">' + verdict
       + (r.legacyChangedAfterImport ? '<span class="chip warn">取り込みの後に旧ブックが変わっています（取り込み直してから確かめてください）</span>' : '') + '</div>'
-      + '<table class="tbl" style="margin-top:12px"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（シミュレーション予測）</th><th>Downside（P10）</th><th>Baseline（P50）</th><th>Upside（P90）</th></tr></thead><tbody>'
+      + '<table class="tbl mt12"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（シミュレーション予測）</th><th>Downside（P10）</th><th>Baseline（P50）</th><th>Upside（P90）</th></tr></thead><tbody>'
       + row('旧ブックの写しで実行', r.legacy) + row('データ本体から組み立てて実行', r.store)
       + row('<span class="note">参考: 旧ブックで前回に実行した結果</span>', r.previous) + '</tbody></table>'
-      + (diffs ? '<p class="note" style="margin-top:8px;color:var(--error)">計算の後に違いのあったシート（左が旧ブックの写し、右がデータ本体）:<br>' + diffs + '</p>' : '')
-      + (r.preDiff ? (r.preSame ? '<p class="note">計算の前の状態: 全シート一致</p>' : '<p class="note" style="color:var(--error)">計算の前から違っていたシート:<br>' + preDiffs + '</p>') : '')
+      + (diffs ? '<p class="note mt8 err-text">計算の後に違いのあったシート（左が旧ブックの写し、右がデータ本体）:<br>' + diffs + '</p>' : '')
+      + (r.preDiff ? (r.preSame ? '<p class="note">計算の前の状態: 全シート一致</p>' : '<p class="note err-text">計算の前から違っていたシート:<br>' + preDiffs + '</p>') : '')
       + (r.build && r.build.length ? '<p class="note">データ本体から組み立てたときに書き方を変えたセル:<br>' + r.build.map(function(b){
           return esc(b.sheet) + '（' + [b.formatFixed ? '表示形式を直した ' + b.formatFixed : '', b.blankMethod ? '空の形式は「' + esc(b.blankMethod) + '」で直った' : '',
             b.formatMismatches ? '表示形式が直らない ' + b.formatMismatches + '：' + esc((b.formatSamples || []).join('、')) : '', b.mismatch ? '値が直らない ' + b.mismatch : '',
             b.forcedText ? '文字列に固定 ' + b.forcedText : ''].filter(Boolean).join('・') + '）';
         }).join('<br>') + '</p>' : '')
-      + '<p class="note" style="margin-top:8px">上の 2 行は同じ乱数・同じ時刻（' + esc(String(r.asOf || '').replace('T', ' ').slice(0, 16)) + '）で動かした結果です。前回の結果は乱数と実行日が違うので、少し違って正常です'
+      + '<p class="note mt8">上の 2 行は同じ乱数・同じ時刻（' + esc(String(r.asOf || '').replace('T', ' ').slice(0, 16)) + '）で動かした結果です。前回の結果は乱数と実行日が違うので、少し違って正常です'
       + (r.previous && r.legacy ? '（P50 の差 ' + pct(r.legacy.annual.p50, r.previous.annual.p50) + '）' : '') + '。かかった時間: ' + sec + ' 秒。</p></div>';
   }
   return html;
@@ -634,7 +756,7 @@ function migImport(){
 function viewHealth(){
   var h = S.health;
   if (!h) return '<h1>状態</h1><div class="card note">点検中…</div>';
-  var row = function(name, rows, ok, note){ return '<tr><td>' + esc(name) + '</td><td>' + rows + '</td><td>' + (ok ? '<span class="chip">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(note)) + '</td></tr>'; };
+  var row = function(name, rows, ok, note){ return '<tr><td>' + esc(name) + '</td><td>' + rows + '</td><td>' + (ok ? '<span class="chip ok">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(note)) + '</td></tr>'; };
   var core = (h.tables || []).filter(function(x){ return !x.engine; });
   var eng = (h.tables || []).filter(function(x){ return x.engine; });
   var t = core.map(function(x){ return row(x.name, x.rows, x.ok, x.note); }).join('');
@@ -652,11 +774,11 @@ function viewHealth(){
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table>'
     + (missingAny && B.user.isOwner ? '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
-    + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
-    + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
+    + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip ok">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
+    + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
     + '<div class="row">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
     + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐバックアップ</button></div></div>'
-    + '<div class="card"><h2>ファイル</h2><div class="row" style="margin-top:0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note" style="margin-top:8px">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
+    + '<div class="card"><h2>ファイル</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note mt8">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
 }
 
 render();
