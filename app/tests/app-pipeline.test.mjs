@@ -223,4 +223,43 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.equal(env.run(`appJobGet_('${first.jobId}').status`), 'FAILED');
 }
 
+// ==== 9. A-4 AI 調査: 時間の区切りで止めても、組み立て直して受け取った答えを使い、最後まで終える ====
+{
+  const { env, planId } = imported();
+  env.run(`(() => {
+    globalThis.__calls = [];
+    globalThis.UrlFetchApp = { fetch: (url, o) => { __calls.push(url + ' ' + o.payload); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ topic: JSON.parse(o.payload).topic, score: 1 }) }; } };
+    const base = appLegacyEngine_;
+    appLegacyEngine_ = function (svc) {
+      const eng = base(svc);
+      eng.webRunAiResearch = function () {
+        const ss = svc.SpreadsheetApp.getActiveSpreadsheet();
+        const ok = [];
+        ['Market', 'Competitor', 'Channel', 'DX'].forEach((topic) => {
+          try {   // 旧来の vertexPostJson_ と同じく、失敗は握って先へ進む
+            const res = svc.UrlFetchApp.fetch('https://asia-northeast1-aiplatform.googleapis.com/v1/projects/p/x:generateContent', { method: 'post', payload: JSON.stringify({ topic }) });
+            if (res.getResponseCode() === 200) ok.push(JSON.parse(res.getContentText()).topic);
+          } catch (e) { /* 失敗として扱う */ }
+        });
+        const sh = ss.getSheetByName('PROCESS_STATUS');
+        sh.getRange(sh.getLastRow() + 1, 1, 1, 7).setValues([['step3_status', new svc.Date(), 'owner', 'success', 'テスト製薬', ok.length, ok.join(',')]]);
+        return { rows: ok.length };
+      };
+      return eng;
+    };
+    appAiDeadline_ = () => 0;   // いつも区切りを過ぎている（1 回に 1 つだけ問い合わせる）
+  })()`);
+  const st = env.runJob('PLAN.RUN', { planId, action: 'AI.RESEARCH' });
+  assert.equal(st.status, 'DONE', st.error);
+  const calls = env.run('__calls');
+  assert.equal(calls.length, 4, '同じ問い合わせは 2 度しない（受け取った答えを使う）: ' + calls.length);
+  const ps = engRows(env, 'PROCESS_STATUS', planId).filter((r) => r.step_key === 'step3_status');
+  assert.equal(ps.length, 1, '途中で止めた回の結果は残さない');
+  assert.equal(ps[0].error_summary, 'Market,Competitor,Channel,DX', '4 つの話題すべての答えで終える');
+  const calcs = env.audit().filter((a) => a.action === 'PLAN.AI.RESEARCH.CALC' && a.phase === 'END');
+  assert.equal(calcs.length, 4, '1 回に 1 つずつ新しく問い合わせ、ほかは控えから答える');
+  // Vertex AI 以外へは問い合わせない
+  assert.throws(() => env.run(`appAiFetcher_('x', Date.now() + 60000).fetch('https://example.com/', { payload: '' })`), /Vertex AI 以外へは問い合わせません/);
+}
+
 console.log('app-pipeline: all tests passed');

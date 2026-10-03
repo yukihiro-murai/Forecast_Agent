@@ -132,6 +132,7 @@ node app/tests/app-plan.test.mjs
 
 ```bash
 node app/tests/app-pipeline.test.mjs
+node app/tests/app-ai.test.mjs
 ```
 
 GAS のモック（`app/tests/gas-mock.mjs`）の上での契約テストです（GAS 上での動作確認の代わりではありません）。反映は `app/` の中で行います（ルートの `.clasp.json` を拾わないよう `-P .` を付ける）。

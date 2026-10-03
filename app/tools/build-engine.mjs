@@ -32,7 +32,7 @@ export const ENGINE_EXPORTS = [
   // 旧来の Web アプリ（Forecast_WebApp.js）
   'webGetBootstrap_', 'webSaveInputs', 'webSaveBudget', 'webSaveEvalInsights', 'webSaveQuarterlyDecisions',
   'webRunAggregate', 'webRunEvalReport', 'webRunDashboard', 'webRunInsights', 'webRunMonthlyLearn', 'webRunQuarterly', 'webApplyQuarterly',
-  'webRunImportSales', 'webRunImportActuals'
+  'webRunImportSales', 'webRunImportActuals', 'webRunAiResearch'
 ];
 
 /** 旧来の Web アプリの、新アプリが受け持つ関数（元の宣言は変えず、包んだ中で後から差し替える） */

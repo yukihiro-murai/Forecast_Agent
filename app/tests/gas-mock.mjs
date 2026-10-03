@@ -70,12 +70,13 @@ let SHEET_SEQ = 0;
  * strict でないシートは、書式が '@' でないセルに書いた文字列を本物のように変換する。
  */
 /** 見た目だけの操作（色・幅・入力規則・枠線・表示/非表示など）は何もしない（計算の結果に関係しない）。値と表示形式は本物のとおりに扱う */
-const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations)$/;
+const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation)$/;
 function looks(obj) {
   const p = new Proxy(obj, { get(t, k) {
     if (k in t || typeof k === 'symbol') return t[k];
     if (LOOKS.test(String(k))) return () => p;
     if (k === 'getFilter' || k === 'getDataValidation') return () => null;
+    if (k === 'getMergedRanges') return () => [];
     if (k === 'isSheetHidden') return () => false;
     if (k === 'getFrozenRows' || k === 'getFrozenColumns') return () => 0;
     return undefined;

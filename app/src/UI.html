@@ -394,7 +394,7 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'FORECAST.RUN.BUILD': '予測の準備（組み立て）', 'FORECAST.RUN.CALC': '予測の計算', 'FORECAST.RUN.SAVE': '予測の保存', 'FORECAST.LATEST': '予測を見る',
   'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加' };
 var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
-  'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工',
+  'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工', 'AI.RESEARCH': 'A-4 AI 調査',
   'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
   'REVIEW.GENERATE': 'C-1 四半期レビューの提案', 'REVIEW.APPLY': 'C-3 承認した提案の適用' };
 /** 操作の記録の操作名（計画への保存・実行は「操作名（準備・計算・保存）」） */
@@ -540,7 +540,7 @@ function fcActions(items){
       + '<div class="desc">' + esc(it[1]) + (ok ? '' : '<span class="note">' + FC_ROLE_NAME[role] + 'が実行できます。</span>') + (it[3] ? '<span class="note">' + esc(it[3]) + '</span>' : '') + '</div>';
   }).join('') + '</div>';
 }
-function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（3〜6 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
+function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（' + (action === 'AI.RESEARCH' ? '5〜15' : '3〜6') + ' 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
 function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, action: action, args: args, inputHash: S.fc.view.inputHash }); }
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
 function fcPct(v){ return v === null || v === undefined || v === '' ? '-' : (Number(v) * 100).toFixed(1) + '%'; }
@@ -685,9 +685,10 @@ function fcStepsTab(d, v){
   var html = '<div class="card"><h2>手順の進み</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:72px"><col style="width:200px"><col style="width:104px"><col style="width:88px"><col style="width:136px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
     + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td title="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
     + '</tbody></table></div></div>';
-  html += '<div class="card"><div class="card-head"><h2>売上の取り込みと集計</h2><span class="note">予測の前に、上から順に実行します</span></div>' + fcActions([
+  html += '<div class="card"><div class="card-head"><h2>予測の準備</h2><span class="note">予測の前に、上から順に実行します</span></div>' + fcActions([
     ['IMPORT.SALES', 'ZAC の実績から、過去 4 年分の売上を取り込み直します（入力の雛形も整えます）。', 'admin', fcSourceNote()],
-    ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。']]) + '</div>';
+    ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。'],
+    ['AI.RESEARCH', 'Vertex AI で市場・競合・チャネル・DX を調べ、予測に使う点数を作り直します。', 'plan', '5〜15 分ほどかかります（時間の区切りごとに分けて動かします）。']]) + '</div>';
   var people = (v.boot.setup.people || []).join(', ');
   html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
     ? '<div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'

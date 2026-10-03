@@ -29,6 +29,10 @@ const APP_PLAN_ACTIONS = {
   'IMPORT.ACTUALS': { kind: 'run', minRole: 'ADMIN', fn: 'webRunImportActuals', label: 'B-1 検証用の実績の取り込み',
     sheets: ['CONFIG', 'ACTUAL_EVAL_MONTHLY', 'PROCESS_STATUS', 'RUN_LOG'] },
   'SALES.AGGREGATE': { kind: 'run', minRole: 'PLANNER', fn: 'webRunAggregate', label: 'A-3 売上データの加工' },
+  // A-4 は Vertex AI に問い合わせる（Ai.js）。読む・書くシートだけを組み立てる（AI_RESEARCH_RAW・TASK_LOG はデータ本体に移さない表なので、その回限り）
+  'AI.RESEARCH': { kind: 'run', minRole: 'PLANNER', fn: 'webRunAiResearch', label: 'A-4 AI 調査', ai: true,
+    sheets: ['CONFIG', 'PROCESS_STATUS', 'RUN_LOG', 'SALES_INPUT', 'SALES_MONTHLY', 'PRODUCT', 'CLIENT', 'OPINIONS', 'DEV_SPOT', 'EVAL_LOG',
+      'AI_RESEARCH', 'AI_RESEARCH_STRUCTURED', 'AI_SCORE_HISTORY', 'VERTEX_FORECAST_LOG'] },
   'EVAL.REPORT': { kind: 'run', minRole: 'PLANNER', fn: 'webRunEvalReport', label: 'B-2 検証レポートの更新' },
   'EVAL.DASHBOARD': { kind: 'run', minRole: 'PLANNER', fn: 'webRunDashboard', label: 'B-3 ダッシュボードの更新' },
   'EVAL.INSIGHTS': { kind: 'run', minRole: 'PLANNER', fn: 'webRunInsights', label: 'B-4 学習インサイトの更新' },
@@ -322,7 +326,7 @@ function appPlanRunBuild_(ctx, p) {
     const step = appScratchBuildStep_(appParityScratch_(plan), plan.plan_id, act.sheets || null, p.build || null, appBuildDeadline_(jobStart));
     const payload = { planId: plan.plan_id, action: p.action, actionId: actionId, seed: actionId, asOfMs: asOfMs, inputHash: inputHash,
       startedAt: Utilities.formatDate(new Date(asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), build: step.state,
-      buildMs: Number(p.buildMs || 0) + (new Date().getTime() - jobStart) };
+      buildMs: Number(p.buildMs || 0) + (new Date().getTime() - jobStart), aiAttempt: Number(p.aiAttempt || 0) };
     return { __next: { kind: step.complete ? 'PLAN.RUN_CALC' : 'PLAN.RUN', payload: payload }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
   });
 }
@@ -335,9 +339,22 @@ function appPlanRunCalc_(ctx, p) {
   return appWithLock_(() => {
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const call = appLegacyCall_(appParityScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor }, act.fn, []);
+    const fetcher = act.ai ? appAiFetcher_(p.actionId, appAiDeadline_(t0)) : null;
+    let call;
+    try {
+      call = appLegacyCall_(appParityScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
+    } catch (e) {
+      if (!fetcher || !fetcher.stopped()) throw e;
+    }
+    if (fetcher && fetcher.stopped()) {
+      // 時間の区切りで止めた: 計算用ブックは途中のまま。組み立て直して、受け取った答えを使ってもう一度動かす
+      const attempt = Number(p.aiAttempt || 0) + 1;
+      if (attempt >= APP_AI_MAX_ATTEMPTS) throw new Error('AI 調査が ' + attempt + ' 回に分けても終わりませんでした。時間をおいてもう一度実行してください。');
+      return { __next: { kind: 'PLAN.RUN', payload: { planId: plan.plan_id, action: p.action, actionId: p.actionId, asOfMs: p.asOfMs,
+        buildMs: p.buildMs, aiAttempt: attempt, aiCalls: fetcher.stats() } }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
+    }
     const payload = Object.assign({}, p, { engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
-      result: appPlanResultSummary_(call.value), runMs: new Date().getTime() - t0 });
+      result: appPlanResultSummary_(call.value), runMs: new Date().getTime() - t0 }, fetcher ? { aiCalls: fetcher.stats() } : {});
     return { __next: { kind: 'PLAN.RUN_SAVE', payload: payload }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
   });
 }

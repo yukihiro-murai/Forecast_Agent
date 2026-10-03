@@ -128,7 +128,8 @@ function appJobExecute_(ctx, job) {
           buildMs: res.__next.payload.buildMs }) }, () => appPlanRunBuild_(ctx, p));
     case 'PLAN.RUN_CALC':
       return appAudited_(ctx, 'PLAN.' + p.action + '.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, action: p.action, actionId: p.actionId, jobId: job.id },
-        after: res => ({ actionId: res.__next.payload.actionId, result: res.__next.payload.result, runMs: res.__next.payload.runMs }) },
+        after: res => ({ actionId: res.__next.payload.actionId, next: res.__next.kind, result: res.__next.payload.result, runMs: res.__next.payload.runMs,
+          aiCalls: res.__next.payload.aiCalls, aiAttempt: res.__next.payload.aiAttempt }) },
         () => appPlanRunCalc_(ctx, p));
     case 'PLAN.RUN_SAVE':
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,

@@ -220,7 +220,8 @@ function appLegacyServices_(book, opts) {
       getUserProperties: () => { throw new Error('旧来の計算からは User Properties を使いません。'); },
       getDocumentProperties: () => { throw new Error('旧来の計算からは Document Properties を使いません。'); }
     },
-    UrlFetchApp: appBlockedService_('UrlFetchApp'),
+    // 外への問い合わせは止める。A-4 AI 調査だけ、Vertex AI に限って問い合わせる道具（Ai.js の appAiFetcher_）を渡す
+    UrlFetchApp: opts.fetch ? { fetch: opts.fetch } : appBlockedService_('UrlFetchApp'),
     HtmlService: appBlockedService_('HtmlService'),
     // 裏の処理（トリガー）では操作した人のメールが取れないので、頼んだ人を「操作した人」として見せる（PROCESS_STATUS の実行者など）
     Session: pass(Session, { getActiveUser: () => ({ getEmail: () => String(opts.actor || '') }) })
