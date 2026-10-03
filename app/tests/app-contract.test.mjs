@@ -68,8 +68,11 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.equal(manifest.timeZone, 'Asia/Tokyo');
   assert.deepEqual(manifest.webapp, { executeAs: 'USER_DEPLOYING', access: 'MYSELF' },
     '社内に開くのは段階2で所有者が決めてから（ここを DOMAIN に変えるときは設計文書 12 章を更新する）');
+  // 外への問い合わせと Google Cloud は A-4 AI 調査（Vertex AI）のため（2026-10-03 村井さん承認）
   assert.deepEqual([...manifest.oauthScopes].sort(), [
+    'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/script.external_request',
     'https://www.googleapis.com/auth/script.scriptapp',
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/userinfo.email',
