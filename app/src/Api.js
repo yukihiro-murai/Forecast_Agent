@@ -22,6 +22,14 @@ function apiSetup() {
   return api_('SETUP.INIT', { ownerOnly: true, audit: false }, ctx => appSetup_(ctx));
 }
 
+/**
+ * 所有者が Apps Script のエディタから 1 回だけ実行する: A-4 AI 調査の許可（外への問い合わせ・Google Cloud）を出す。
+ * 裏の処理は所有者の許可で動くので、許可が無いと Vertex AI に問い合わせられない。データは何も変えない（問い合わせもしない）
+ */
+function apiAuthorizeAi() {
+  return api_('SETUP.AUTHORIZE_AI', { ownerOnly: true, audit: false }, ctx => appAuthorizeAi_(ctx));
+}
+
 function apiListDirectory() {
   return api_('DIRECTORY.LIST', { minRole: 'ADMIN', audit: false }, ctx => appListDirectory_(ctx));
 }

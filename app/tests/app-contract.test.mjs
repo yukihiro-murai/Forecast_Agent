@@ -21,7 +21,7 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
+  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
 /** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */
 const WRAPPED = ['LegacyEngine.js'];
 

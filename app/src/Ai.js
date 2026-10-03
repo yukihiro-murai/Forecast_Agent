@@ -14,6 +14,13 @@ function appAiDeadline_(startMs) { return startMs + APP_AI_CALC_BUDGET_MS; }
 const APP_AI_MAX_ATTEMPTS = 12;               // 組み立て直して動かす回数の上限
 const APP_AI_ALLOWED_URL = /^https:\/\/([a-z0-9-]+-)?(aiplatform|discoveryengine)\.googleapis\.com\//;
 
+/** 許可を求めるだけ（UrlFetchApp.getRequest は問い合わせない）。エディタから実行すると、足りない許可の画面が出る */
+function appAuthorizeAi_(ctx) {
+  UrlFetchApp.getRequest('https://aiplatform.googleapis.com/');
+  ScriptApp.getOAuthToken();
+  return { ok: true, message: 'A-4 AI 調査の許可があります。' };
+}
+
 /** 旧来の UrlFetchApp.fetch の代わり。fetch(url, options) と、止めたかどうか・回数を返す */
 function appAiFetcher_(actionId, deadlineMs) {
   const st = { hits: 0, live: 0, stopped: false };
@@ -44,7 +51,11 @@ function appAiFetcher_(actionId, deadlineMs) {
     }
     st.live++;
     let res;
-    try { res = UrlFetchApp.fetch(url, options); } catch (e) { log.push(url.replace(/^https:\/\//, '').split('/')[0] + ' → ' + String(e && e.message ? e.message : e).slice(0, 200)); throw e; }
+    try { res = UrlFetchApp.fetch(url, options); } catch (e) {
+      const line = url.replace(/^https:\/\//, '').split('/')[0] + ' → ' + String(e && e.message ? e.message : e).slice(0, 200);
+      if (log.indexOf(line) < 0) log.push(line);   // 同じ失敗は 1 行
+      throw e;
+    }
     const code = res.getResponseCode();
     const text = res.getContentText() || '';
     // 一時的な失敗（混み合い・Google 側のエラー）は控えない（次の回にもう一度問い合わせる）
