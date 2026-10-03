@@ -182,4 +182,45 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.equal(env.scratch().getSheetByName('PRODUCT').fmls.flat().filter(Boolean).length, 0, '計算用ブックに数式を作らない');
 }
 
+// ==== 6. 画面から裏の受け渡しの項目（組み立て済みの印・予測の番号など）を渡されても使わない ====
+{
+  const { env, planId } = imported();
+  const names = Object.keys(J(env.run('APP_ENGINE_SHEETS')));
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  const st = env.runJob('FORECAST.RUN', { planId, build: { token: 'forged', done: names, problems: [] }, runId: 'RUN-FORGED',
+    asOfMs: new Date(2020, 0, 1).getTime(), inputHash: view.inputHash, headline: { annual: { p50: 1 } } });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.ok(env.audit().some((a) => a.action === 'FORECAST.RUN.BUILD' && a.phase === 'END'), '組み立ては飛ばさない');
+  const runs = env.table('FORECAST_RUNS');
+  assert.equal(runs.length, 1);
+  assert.notEqual(runs[0].run_id, 'RUN-FORGED', '画面から渡した番号は使わない');
+  assert.ok(!String(runs[0].as_of || '').startsWith('2020'), '画面から渡した基準日は使わない');
+  assert.equal(st.payload.build, undefined, '状態の返り値に組み立ての印（トークン）を出さない');
+  // 終わった処理の記録は、画面に要る項目だけ残す
+  const left = J(env.run('appJobList_().map(j => Object.keys(j.payload))'));
+  assert.ok(left.every((ks) => ks.every((k) => J(env.run('APP_JOB_CLIENT_FIELDS')).includes(k))), JSON.stringify(left));
+}
+
+// ==== 7. 担当者の区切りの後ろに数式を入れても受け付けない ====
+{
+  const { env, planId } = imported();
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  const bad = env.runJob('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', inputHash: view.inputHash, args: { peopleCsv: ',=IMPORTXML("http://x","//a")' } });
+  assert.equal(bad.status, 'FAILED');
+  assert.match(bad.error, /数式として動いてしまう文字/);
+  const ok = env.runJob('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', inputHash: view.inputHash, args: { peopleCsv: '鷹野, 佐藤' } });
+  assert.equal(ok.status, 'DONE', ok.error);
+}
+
+// ==== 8. 始まらなかった処理（トリガーが動かなかった）は、15 分たてば次の処理を止めない ====
+{
+  const { env, planId } = imported();
+  const first = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId } } });
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId } } }), /終わるまでお待ちください/);
+  env.run(`(() => { const j = appJobGet_('${first.jobId}'); j.createdAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); appJobSave_(j); })()`);
+  const second = env.call('apiStartJob(__in)', { __in: { kind: 'FORECAST.RUN', payload: { planId } } });
+  assert.ok(second.jobId && second.jobId !== first.jobId);
+  assert.equal(env.run(`appJobGet_('${first.jobId}').status`), 'FAILED');
+}
+
 console.log('app-pipeline: all tests passed');

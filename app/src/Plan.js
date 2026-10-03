@@ -235,6 +235,7 @@ function appPlanLocalCall_(book, name, args) {
 function appPlanSetPeople_(book, peopleCsv) {
   const people = String(peopleCsv || '').split(/[,、，]/).map(s => s.trim()).filter(Boolean);
   if (!people.length) throw new Error('担当者を 1 人以上入れてください。');
+  appPlanCheckArgs_(people);   // 区切りの後ろの「=…」も止める（全体の先頭だけでは見逃す）
   if (people.some(p => p.length > 40)) throw new Error('担当者の名前が長すぎます。');
   const cfg = book.getSheetByName('CONFIG');
   if (!cfg) throw new Error('CONFIG がありません。');
@@ -347,6 +348,7 @@ function appPlanRunSave_(ctx, p) {
   const plan = appPlanOf_(p.planId);
   const t0 = new Date().getTime();
   return appWithLock_(() => {
+    appJournalRecover_(ctx);   // 書きかけの控えを先に書き終える（途中の表から控えを作らない）
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
     const cap = appCaptureChanged_(appParityScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id), act.sheets);

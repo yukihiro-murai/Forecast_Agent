@@ -6,6 +6,7 @@
  */
 const APP_JOB_PREFIX = 'APP_JOB_';
 const APP_JOB_RESULT_PREFIX = 'APP_JOB_RESULT_';
+const APP_JOB_QUEUE_EXPIRE_MS = 15 * 60 * 1000;   // 待ち行列に入ってからこれだけたっても始まらなければ、止まったとみなす
 const APP_JOB_STALE_MS = 8 * 60 * 1000;   // 1 回の実行の上限（6 分）を超えて「実行中」のままなら止まったとみなす
 const APP_JOB_KEEP_MS = 24 * 3600 * 1000;
 
@@ -148,6 +149,8 @@ function appJobGet_(id) {
   return raw ? JSON.parse(raw) : null;
 }
 
+function appUtf8Bytes_(s) { return encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, 'x').length; }
+
 function appJobSave_(job) {
   appProps_().setProperty(APP_JOB_PREFIX + job.id, JSON.stringify(job));
 }
@@ -203,10 +206,19 @@ function appIsJobTrigger_(uid) {
 /** その人の、まだ終わっていない処理（画面を開き直したときに続きから待つため） */
 function appActiveJobOf_(email) {
   const j = appJobList_().filter(x => x.requestedBy === email && (x.status === 'QUEUED' || (x.status === 'RUNNING' && !appJobIsStale_(x)))).pop();
-  return j ? { jobId: j.id, kind: j.kind, status: j.status, payload: j.payload } : null;
+  return j ? { jobId: j.id, kind: j.kind, status: j.status, payload: appJobClientPayload_(j.payload) } : null;
 }
 
 // ---- 始める・動かす・状態を返す ----
+
+/** 画面から渡せる項目（ほかは裏の処理どうしの受け渡し専用。画面から渡されたら捨てる） */
+const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'bookUrl', 'contentHash'];
+
+function appJobClientPayload_(payload) {
+  const out = {};
+  APP_JOB_CLIENT_FIELDS.forEach(k => { if (payload && payload[k] !== undefined) out[k] = payload[k]; });
+  return out;
+}
 
 function appStartJob_(ctx, input) {
   const kind = String(input && input.kind || '');
@@ -214,9 +226,10 @@ function appStartJob_(ctx, input) {
   if (!appIsSetUp_()) throw new Error('初期設定がまだです。');
   return appWithLock_(() => {
     appCleanupJobs_();
+    appExpireQueuedJobs_();
     const busy = appJobList_().filter(j => j.status === 'QUEUED' || (j.status === 'RUNNING' && !appJobIsStale_(j)));
     if (busy.length) throw new Error('ほかの処理（' + appJobSpec_(busy[0].kind).label + '）が終わるまでお待ちください。');
-    const job = appEnqueueJob_(kind, appJobStashArgs_((input && input.payload) || {}), ctx.actor, '');
+    const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
 }
@@ -225,11 +238,23 @@ function appStartJob_(ctx, input) {
 function appEnqueueJob_(kind, payload, requestedBy, parentId) {
   const job = { id: appId_('JOB'), kind: kind, payload: payload || {}, status: 'QUEUED', requestedBy: requestedBy, parentId: parentId || '',
     createdAt: new Date().toISOString(), startedAt: '', finishedAt: '', error: '', attempts: 0, nextJobId: '' };
-  if (JSON.stringify(job).length > 8000) throw new Error('処理に渡す内容が大きすぎます。');
+  if (appUtf8Bytes_(JSON.stringify(job)) > 8000) throw new Error('処理に渡す内容が大きすぎます。');   // 1 つの値の上限は約 9KB（文字数ではなくバイト数）
   const trigger = ScriptApp.newTrigger('triggerRunJob').timeBased().after(1000).create();
   job.triggerUid = String(trigger.getUniqueId());
   appJobSave_(job);
   return job;
+}
+
+/** 15 分たっても始まらなかった処理は「失敗」にする（トリガーが動かなかった。残すと次の処理を始められない。ロックの中で呼ぶ） */
+function appExpireQueuedJobs_() {
+  const now = new Date().getTime();
+  appJobList_().filter(j => j.status === 'QUEUED' && now - new Date(j.createdAt).getTime() > APP_JOB_QUEUE_EXPIRE_MS).forEach(j => {
+    ScriptApp.getProjectTriggers().forEach(t => { if (String(t.getUniqueId()) === j.triggerUid) ScriptApp.deleteTrigger(t); });
+    j.status = 'FAILED';
+    j.error = '処理が始まりませんでした。';
+    j.finishedAt = new Date().toISOString();
+    appJobSave_(j);
+  });
 }
 
 function appJobIsStale_(job) {
@@ -282,7 +307,13 @@ function appRunJob_(id) {
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {
       // 続きの処理: 次の処理を待ち行列に入れ、この処理の結果は「続きあり」にする
-      const next = appWithLock_(() => appEnqueueJob_(res.__next.kind, res.__next.payload, job.requestedBy, job.id));
+      // 次の処理を入れるのと同じロックの中で、この処理を「続きあり」で終わりにする（この後で止まっても、画面は次の処理を待てる）
+      const next = appWithLock_(() => {
+        const n = appEnqueueJob_(res.__next.kind, res.__next.payload, job.requestedBy, job.id);
+        const cur = appJobGet_(id) || job;
+        appJobSave_(Object.assign(cur, { status: 'DONE', nextJobId: n.id, finishedAt: new Date().toISOString(), payload: appJobClientPayload_(cur.payload) }));
+        return n;
+      });
       nextJobId = next.id;
       appJobPutResult_(id, { continued: true, nextJobId: next.id, nextKind: next.kind });
     } else {
@@ -298,6 +329,7 @@ function appRunJob_(id) {
   done.error = error;
   done.nextJobId = nextJobId;
   done.finishedAt = new Date().toISOString();
+  done.payload = appJobClientPayload_(done.payload);   // 終わった処理は、画面に要る項目だけ残す（Script Properties の全体の上限 500KB）
   appJobSave_(done);
   appRunLog_({ requestId: id, kind: 'JOB:' + job.kind, startedAt: job.startedAt, durationMs: new Date().getTime() - t0, status: status,
     detail: { jobId: id, requestedBy: job.requestedBy, attempts: done.attempts }, error: error });
@@ -310,8 +342,8 @@ function appJobStatus_(ctx, id) {
   if (!job) throw new Error('処理が見つかりません。もう一度始めてください。');
   if (job.requestedBy !== ctx.actor && !ctx.user.isOwner) throw new Error('この処理の状態を見る権限がありません。');
   const out = { jobId: job.id, kind: job.kind, status: job.status, createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt,
-    error: job.error, payload: job.payload };
-  if (job.status === 'QUEUED' && new Date().getTime() - new Date(job.createdAt).getTime() > 15 * 60 * 1000) {
+    error: job.error, payload: appJobClientPayload_(job.payload) };
+  if (job.status === 'QUEUED' && new Date().getTime() - new Date(job.createdAt).getTime() > APP_JOB_QUEUE_EXPIRE_MS) {
     out.status = 'STALLED';
     out.error = '処理が始まりませんでした。もう一度始めてください。';
   } else if (appJobIsStale_(job)) {

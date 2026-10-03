@@ -65,6 +65,7 @@ function appForecastRunSave_(ctx, p) {
   const plan = appPlanOf_(p.planId);
   const t0 = new Date().getTime();
   return appWithLock_(() => {
+    appJournalRecover_(ctx);   // 書きかけの控えを先に書き終える（途中の表から控えを作らない）
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
     const cap = appCaptureChanged_(appParityScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id));

@@ -72,6 +72,7 @@ h1{font-size:22px;line-height:1.35;color:var(--navy);margin-bottom:var(--s4)}
 .btn-ghost:hover:not(:disabled){background:var(--surface);border-color:#C5D2DE}
 .btn-sm{height:var(--h-btn-sm);min-width:var(--w-btn-sm);padding:0 var(--s3);font-size:13px}
 .btn-icon{height:var(--h-btn-sm);width:var(--h-btn-sm);min-width:0;padding:0;font-size:16px;line-height:1}
+.tbl .btn-icon{height:var(--h-cell);width:var(--h-cell)}
 .btn-block{width:100%;min-width:0}
 
 /* ---- タブ（同じ幅の切り替え） ---- */
@@ -86,6 +87,7 @@ h1{font-size:22px;line-height:1.35;color:var(--navy);margin-bottom:var(--s4)}
 /* ---- 入力（行は下端でそろえる） ---- */
 .row{display:flex;gap:var(--s3);align-items:flex-end;flex-wrap:wrap;margin-top:var(--s3)}
 .row.c{align-items:center}
+.row.nowrap{flex-wrap:nowrap}
 .field{display:flex;flex-direction:column;gap:var(--s1)}
 .field label{font-size:12.5px;font-weight:700;color:var(--navy)}
 .inp{height:var(--h-input);padding:0 var(--s3);border:1.5px solid var(--line);border-radius:var(--radius-s);width:240px;background:#fff}
@@ -93,6 +95,8 @@ h1{font-size:22px;line-height:1.35;color:var(--navy);margin-bottom:var(--s4)}
 .inp.sm{width:160px}.inp.md{width:320px}.inp.lg{width:480px}
 .inp.cell{height:var(--h-cell);width:100%;padding:0 var(--s2)}
 .inp.num,.num .inp{text-align:right;font-variant-numeric:tabular-nums}
+input.inp[type=number]{-moz-appearance:textfield;appearance:textfield}
+input.inp[type=number]::-webkit-inner-spin-button,input.inp[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 select.inp{padding-right:var(--s6)}
 
 /* ---- 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる） ---- */
@@ -372,11 +376,11 @@ function viewSettings(){
   if (!s) return '<h1>設定</h1><div class="card note">読み込み中…</div>';
   var rows = s.map(function(x, i){
     var val = x.type === 'bool' ? esc(x.value ? 'する' : 'しない') : x.type === 'sheet' ? (x.value ? '<a target="_blank" href="' + esc(x.url) + '">' + esc(x.display || x.value) + '</a>' : '<span class="chip warn">未設定</span>') : esc(x.value);
-    var input = x.type === 'bool' ? '<select class="inp md" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
-      : x.type === 'sheet' ? '<input class="inp md" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
-      : '<input class="inp md" id="s_' + i + '" value="' + esc(x.value) + '">';
-    return '<tr><td class="wrap">' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td class="wrap">' + val + '</td><td><div class="row c mt0">' + input
-      + '<button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
+    var input = x.type === 'bool' ? '<select class="inp" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
+      : x.type === 'sheet' ? '<input class="inp" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
+      : '<input class="inp" id="s_' + i + '" value="' + esc(x.value) + '">';
+    return '<tr><td class="wrap">' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td class="wrap">' + val + '</td><td><div class="row c nowrap mt0">' + input
+      + '<button class="btn btn-ghost" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
   }).join('');
   return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl mt12"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
@@ -686,8 +690,8 @@ function fcStepsTab(d, v){
     ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。']]) + '</div>';
   var people = (v.boot.setup.people || []).join(', ');
   html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
-    ? '<div class="row mt0"><div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'
-      + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + '</div><p class="note mt8">入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</p>'
+    ? '<div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'
+      + '<div class="card-foot">' + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + '<span class="note">入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</span></div>'
     : '<p>' + esc(people || '（なし）') + '</p><p class="note mt4">変えるのは管理者です。</p>') + '</div>';
   if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
     + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td title="' + esc((r.changed || []).join('、')) + '">' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
@@ -773,10 +777,10 @@ function viewHealth(){
   var f = h.files || {};
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table>'
-    + (missingAny && B.user.isOwner ? '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
+    + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
     + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip ok">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
     + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
-    + '<div class="row">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
+    + '<div class="card-foot">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
     + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐバックアップ</button></div></div>'
     + '<div class="card"><h2>ファイル</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note mt8">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
 }
