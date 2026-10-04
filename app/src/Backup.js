@@ -36,7 +36,9 @@ function appBackup_(ctx) {
 function appBackupStatus_() {
   const files = appBackupFiles_();
   const enabled = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'triggerDailyBackup');
-  return { enabled: enabled, count: files.length, latest: files.length ? files[0].getName() : '' };
+  const latestAt = files.length ? files[0].getDateCreated().getTime() : 0;
+  return { enabled: enabled, count: files.length, latest: files.length ? files[0].getName() : '',
+    ageHours: latestAt ? Math.round((new Date().getTime() - latestAt) / 36e5) : null, keep: APP_BACKUP_KEEP };
 }
 
 /** 毎日のバックアップを有効にする（すでにあれば何もしない） */

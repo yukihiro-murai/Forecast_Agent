@@ -294,6 +294,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       },
       // 本物と同じく、ゴミ箱のファイルも一覧に出す
       getFilesByType: (mime) => iter(Object.values(files).filter((x) => x.kind === 'file' && x.parent === f.id && x.mime === mime)),
+      getFilesByName: (n) => iter(Object.values(files).filter((x) => x.kind === 'file' && x.parent === f.id && x.name === n)),
     });
     files[f.id] = f;
     return f;
@@ -305,6 +306,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       getLastUpdated: () => f.updated || f.created,
       setTrashed: (b) => { f.trashed = !!b; return f; },
       moveTo: (folder) => { f.parent = folder.getId(); return f; },
+      getParents: () => iter(f.parent && files[f.parent] ? [files[f.parent]] : []),
       makeCopy: (n, folder) => {
         const src = sheetsById[id];
         const copy = newSpreadsheet(n);

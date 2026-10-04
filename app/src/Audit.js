@@ -51,6 +51,11 @@ function appEnsureFyNaming_() {
   });
 }
 
+/** ログのファイルを ID で開く（年度の一覧から全期間を読むとき） */
+function appOpenLogFile_(id) {
+  return SpreadsheetApp.openById(id);
+}
+
 /** その月のログのシート。無ければ作る（新しいファイルに最初からある空のシートは消す）。列が違えば止める */
 function appLogSheet_(kind, now) {
   const columns = APP_LOG_TABLES[kind];
@@ -168,28 +173,4 @@ function appVerifyAuditSheet_(sh) {
     if (appSha256Hex_(r[ip] + '\n' + JSON.stringify(r.slice(0, ip))) !== r[ih]) return { rows: vals.length, ok: false, brokenAt: i + 2, firstPrev: vals[0][ip], lastHash: '' };
   }
   return { rows: vals.length, ok: true, brokenAt: 0, firstPrev: vals[0][ip], lastHash: vals[vals.length - 1][ih] };
-}
-
-/** 監査ログの新しい順の一覧（今月と先月。管理画面用） */
-function appRecentAudit_(limit, query) {
-  const out = [];
-  const now = new Date();
-  const months = [now, new Date(now.getFullYear(), now.getMonth() - 1, 1)];
-  const q = String(query || '').trim().toLowerCase();
-  months.forEach(m => {
-    let ss = null;
-    try { ss = appLogSpreadsheet_(m, 'read'); } catch (e) { ss = null; }
-    if (!ss) return;
-    const sh = ss.getSheetByName('AUDIT_' + Utilities.formatDate(m, APP_TZ, 'yyyy_MM'));
-    if (!sh || sh.getLastRow() < 2) return;
-    const cols = APP_LOG_TABLES.AUDIT;
-    sh.getRange(2, 1, sh.getLastRow() - 1, cols.length).getValues().forEach(r => {
-      const o = {};
-      cols.forEach((c, j) => { o[c] = String(r[j]); });
-      if (q && [o.actor_email, o.action, o.entity_type, o.entity_id, o.client_id, o.result].join(' ').toLowerCase().indexOf(q) < 0) return;
-      out.push(o);
-    });
-  });
-  out.sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0));
-  return out.slice(0, limit || 200);
 }

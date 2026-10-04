@@ -132,6 +132,9 @@ function appHealth_() {
   }
   try { out.backup = appBackupStatus_(); } catch (e) { out.backup = { note: String(e && e.message || e) }; }
   try { out.triggers = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()); } catch (e) { out.triggers = []; }
+  out.housekeeping = appHousekeepingLast_();
+  try { out.journal = appJournalPending_(); } catch (e) { out.journal = null; }
+  try { out.jobs = appJobList_().length; } catch (e) { out.jobs = null; }
   try {
     out.files.folder = DriveApp.getFolderById(props.getProperty(APP_PROP.folderId)).getUrl();
     out.files.data = appDataSpreadsheet_().getUrl();

@@ -152,6 +152,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 .waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:13px}
 .ws{white-space:normal}
 .pre{white-space:pre-wrap;word-break:break-word}
+.logjson{max-height:320px;overflow:auto;background:var(--surface);padding:var(--s3);border-radius:var(--radius-s);font-size:12px;margin:0}
 .tbl.wide{min-width:1080px}
 .row.foot{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
 .tbl.mt12{margin-top:var(--s3)}
@@ -476,7 +477,10 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行',
   'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る',
   'FORECAST.RUN.BUILD': '予測の準備（組み立て）', 'FORECAST.RUN.CALC': '予測の計算', 'FORECAST.RUN.SAVE': '予測の保存', 'FORECAST.LATEST': '予測を見る',
-  'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加' };
+  'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加',
+  'AUDIT.VERIFY': '記録の鎖の確認', 'HOUSEKEEPING.RUN': '手入れ', 'HOUSEKEEPING': '毎日の手入れ', 'BACKUP': 'バックアップ', 'JOURNAL.RECOVER': '保存の続き（自動）',
+  'PLAN.CREATE.BUILD': '計画の作成（準備）', 'PLAN.CREATE.SAVE': '計画の作成（保存）', 'VERSION.SUBMIT': '公式版を出す', 'VERSION.DECIDE': '公式版の承認・却下',
+  'CLIENT.NAME': 'クライアントの画面の名前', 'PORTFOLIO.LIST': '計画の一覧を見る' };
 var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
   'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工', 'AI.RESEARCH': 'A-4 AI 調査',
   'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
@@ -488,29 +492,65 @@ function actionName(a){
   if (m && PLAN_ACTION_LABELS[m[1]]) return PLAN_ACTION_LABELS[m[1]] + (m[2] ? '（' + { BUILD: '準備', CALC: '実行', SAVE: '保存' }[m[2]] + '）' : '');
   return a;
 }
-var ENTITY_LABELS = { MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム', PLAN: '計画', PLAN_ACTION: '計画の操作', FORECAST_RUN: '予測' };
+var ENTITY_LABELS = { PLAN_VERSION: '公式版', MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム', PLAN: '計画', PLAN_ACTION: '計画の操作', FORECAST_RUN: '予測' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
   if (a.phase === 'START') return ['開始', 'off'];
   return { OK: ['完了', 'ok'], FAILED: ['失敗', 'ng'], NEEDS_CONFIRM: ['確認待ち', 'warn'] }[a.result] || [a.result || a.phase, 'off'];
 }
-/** 最近の記録を読む（新しい順に 500 件まで）。絞り込みは画面の中で行う（日本語の操作名でも探せる） */
-function loadAudit(){ if ($('a_q')) S.auditQ = $('a_q').value; call('apiListAudit', [{ limit: 500 }], function(r){ S.audit = r.rows; }); }
+/** ログを読む（種類・月・絞り込みはサーバーで。新しい順に 1000 件まで） */
+var LOG_KINDS = [['AUDIT', '操作'], ['RUN', '実行'], ['ERROR', 'エラー']];
+function loadAudit(){
+  var a = S.au || (S.au = { kind: 'AUDIT', month: '', q: '' });
+  if ($('a_q')) a.q = $('a_q').value;
+  a.data = null; a.sel = null;
+  call('apiListAudit', [{ kind: a.kind, month: a.month, query: a.q }], function(r){ a.data = r; a.month = r.month; });
+}
+function logTime(o){ return String(o.occurred_at || o.finished_at || '').replace('T', ' ').slice(0, 19); }
 function viewAudit(){
-  var q = String(S.auditQ || '').trim().toLowerCase();
-  var rows = (S.audit || []).filter(function(a){
-    if (!q) return true;
-    return [a.actor_email, a.action, actionName(a.action), ENTITY_LABELS[a.entity_type], a.entity_id, auditStep(a)[0]].join(' ').toLowerCase().indexOf(q) >= 0;
-  }).map(function(a){
-    var st = auditStep(a);
-    var target = a.entity_type ? (ENTITY_LABELS[a.entity_type] || a.entity_type) + (a.entity_id ? '：' + a.entity_id : '') : '';
-    return '<tr><td>' + esc(a.occurred_at.replace('T', ' ').slice(0, 19)) + '</td><td>' + esc(a.actor_email) + '</td><td>' + esc(actionName(a.action)) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td><td title="' + esc(target + (a.error ? '\n' + a.error : '')) + '">' + esc(target)
-      + (a.error ? '<div class="note err-text ws">' + esc(a.error.slice(0, 160)) + '</div>' : '') + '</td></tr>';
-  }).join('');
-  if (!S.audit) return '<h1>操作の記録</h1><div class="card note">読み込み中…</div>';
-  return '<h1>操作の記録</h1><div class="card"><div class="row mt0"><div class="field"><label>絞り込み（人・操作・対象）</label><input class="inp" id="a_q" value="' + esc(S.auditQ) + '"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>'
-    + '<table class="tbl mt12"><colgroup><col style="width:170px"><col style="width:240px"><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="note">記録はまだありません</td></tr>') + '</tbody></table>'
-    + '<p class="note mt8">今月と先月の新しい順に 500 件まで。それより前は、状態の画面の「今年度のログ」で見られます。</p></div>';
+  var a = S.au || (S.au = { kind: 'AUDIT', month: '', q: '' }), d = a.data;
+  var html = '<h1>操作の記録</h1><div class="card"><div class="tabs sub">' + LOG_KINDS.map(function(k){ return '<button class="tab' + (a.kind === k[0] ? ' on' : '') + '" onclick="S.au.kind=\'' + k[0] + '\';S.au.month=\'\';loadAudit()">' + k[1] + '</button>'; }).join('') + '</div>'
+    + '<div class="row"><div class="field"><label for="a_month">月</label><select class="inp sm" id="a_month" onchange="S.au.month=this.value;loadAudit()">'
+    + ((d && d.months.length ? d.months : [a.month || '']).map(function(m){ return '<option value="' + esc(m) + '"' + (m === a.month ? ' selected' : '') + '>' + esc(String(m).replace('_', '/')) + '</option>'; }).join('')) + '</select></div>'
+    + '<div class="field"><label for="a_q">絞り込み（人・操作・対象・中身）</label><input class="inp md" id="a_q" value="' + esc(a.q) + '" onkeydown="if(event.key===\'Enter\')loadAudit()"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>';
+  if (!d) return html + '<p class="note mt12">読み込み中…</p></div>';
+  var rows = d.rows, body;
+  if (a.kind === 'AUDIT') {
+    body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:180px"><col style="width:240px"><col style="width:96px"><col><col style="width:128px"></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th><th></th></tr></thead><tbody>'
+      + rows.map(function(o, i){ var st = auditStep(o); var target = o.entity_type ? (ENTITY_LABELS[o.entity_type] || o.entity_type) + (o.entity_id ? '：' + o.entity_id : '') : '';
+        return '<tr' + (a.sel === i ? ' class="on"' : '') + '><td>' + esc(logTime(o)) + '</td><td>' + esc(String(o.actor_email).split('@')[0]) + '</td><td>' + esc(actionName(o.action)) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td>'
+          + '<td title="' + esc(target + (o.error ? '\n' + o.error : '')) + '">' + esc(target) + (o.error ? '<div class="note err-text ws">' + esc(o.error.slice(0, 160)) + '</div>' : '') + '</td>'
+          + '<td><button class="btn btn-ghost btn-sm" onclick="S.au.sel=' + i + ';render()">中身</button></td></tr>'; }).join('');
+  } else if (a.kind === 'RUN') {
+    body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:280px"><col style="width:104px"><col style="width:104px"><col><col style="width:128px"></colgroup><thead><tr><th>日時</th><th>処理</th><th>結果</th><th class="num">かかった時間</th><th>エラー</th><th></th></tr></thead><tbody>'
+      + rows.map(function(o, i){ var okRun = /^(OK|DONE)$/.test(o.status); return '<tr><td>' + esc(logTime(o)) + '</td><td>' + esc(actionName(String(o.kind).replace(/^JOB:/, ''))) + '</td><td><span class="chip ' + (okRun ? 'ok' : 'ng') + '">' + esc(o.status) + '</span></td>'
+        + '<td class="num">' + (Number(o.duration_ms) / 1000).toFixed(1) + ' 秒</td><td class="ws">' + esc(String(o.error || '').slice(0, 160)) + '</td><td><button class="btn btn-ghost btn-sm" onclick="S.au.sel=' + i + ';render()">中身</button></td></tr>'; }).join('');
+  } else {
+    body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:180px"><col style="width:200px"><col><col style="width:128px"></colgroup><thead><tr><th>日時</th><th>人</th><th>場所</th><th>エラー</th><th></th></tr></thead><tbody>'
+      + rows.map(function(o, i){ return '<tr><td>' + esc(logTime(o)) + '</td><td>' + esc(String(o.actor_email).split('@')[0]) + '</td><td>' + esc(actionName(o.where)) + '</td><td class="ws">' + esc(String(o.message).slice(0, 200)) + '</td><td><button class="btn btn-ghost btn-sm" onclick="S.au.sel=' + i + ';render()">中身</button></td></tr>'; }).join('');
+  }
+  html += '<div class="tblwrap">' + body + (rows.length ? '' : '<tr><td colspan="6" class="note">この月の記録はありません</td></tr>') + '</tbody></table></div>'
+    + '<p class="note mt8">' + esc(String(d.month).replace('_', '/')) + ' の ' + rows.length + ' 件（新しい順に 1000 件まで）。前の月は「月」で選びます。</p></div>';
+  var sel = a.sel !== null && a.sel !== undefined ? rows[a.sel] : null;
+  if (sel) html += logDetail(sel);
+  return html;
+}
+function prettyJson(t){ if (!t) return ''; try { return JSON.stringify(JSON.parse(t), null, 2); } catch (e) { return String(t); } }
+/** 変更前と変更後の違う項目（1 段目の項目どうしで比べる） */
+function jsonDiff(b, a){
+  var x, y; try { x = b ? JSON.parse(b) : null; } catch (e) { x = null; } try { y = a ? JSON.parse(a) : null; } catch (e) { y = null; }
+  if (!x || !y || typeof x !== 'object' || typeof y !== 'object') return [];
+  var keys = Object.keys(x).concat(Object.keys(y)).filter(function(k, i, s){ return s.indexOf(k) === i; });
+  return keys.filter(function(k){ return JSON.stringify(x[k]) !== JSON.stringify(y[k]); }).map(function(k){ return [k, x[k], y[k]]; });
+}
+function logDetail(o){
+  var diff = jsonDiff(o.before_json, o.after_json);
+  var blk = function(t, v){ return v ? '<div class="field mt12"><label>' + t + '</label><pre class="pre logjson">' + esc(prettyJson(v)) + '</pre></div>' : ''; };
+  return '<div class="card"><div class="card-head"><h2>記録の中身</h2><button class="btn btn-ghost btn-sm" onclick="S.au.sel=null;render()">閉じる</button></div>'
+    + '<p class="note">' + esc(logTime(o)) + (o.request_id ? '・要求 ' + esc(o.request_id) : '') + (o.app_version ? '・版 ' + esc(o.app_version) : '') + (o.row_hash ? '・ハッシュ ' + esc(String(o.row_hash).slice(0, 12)) + '…' : '') + '</p>'
+    + (diff.length ? '<div class="tblwrap mt12"><table class="tbl"><colgroup><col style="width:200px"><col><col></colgroup><thead><tr><th>変わった項目</th><th>変更前</th><th>変更後</th></tr></thead><tbody>'
+      + diff.map(function(d){ return '<tr><td>' + esc(d[0]) + '</td><td class="ws">' + esc(JSON.stringify(d[1])) + '</td><td class="ws">' + esc(JSON.stringify(d[2])) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '')
+    + blk('内容', o.detail_json) + blk('変更前', o.before_json) + blk('変更後', o.after_json) + blk('エラー', o.error || o.message) + blk('場所', o.stack_head) + '</div>';
 }
 
 function migChip(x){
@@ -937,11 +977,37 @@ function viewHealth(){
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table>'
     + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
-    + '<div class="card"><h2>操作の記録（今月）</h2>' + (a.ok ? '<span class="chip ok">改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>') + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + ' <span class="note">' + (a.rows || 0) + ' 行</span></div>'
-    + '<div class="card"><h2>バックアップ</h2>' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>') + ' <span class="note">' + (b.count || 0) + ' 世代 / 最新: ' + esc(b.latest || 'なし') + '</span>'
+    + hlAuditCard(a) + hlHousekeepingCard(h.housekeeping, h)
+    + '<div class="card"><h2>バックアップ</h2><div class="row c mt0">' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>')
+    + (b.ageHours !== null && b.ageHours !== undefined ? (b.ageHours > 26 ? '<span class="chip warn">最新は ' + b.ageHours + ' 時間前</span>' : '<span class="chip ok">最新は ' + b.ageHours + ' 時間前</span>') : '')
+    + '<span class="note">' + (b.count || 0) + ' 世代（新しい ' + (b.keep || 14) + ' 世代を残す）/ 最新: ' + esc(b.latest || 'なし') + '。月の最初の写しは、アーカイブのフォルダに月ごとに残します。</span></div>'
     + '<div class="card-foot">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
     + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐバックアップ</button></div></div>'
     + '<div class="card"><h2>ファイル</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note mt8">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
+}
+
+function hlAuditCard(a){
+  var v = S.verify;
+  var html = '<div class="card"><div class="card-head"><h2>操作の記録の鎖</h2><span class="note">記録の書き換え・削除に気づくための、つながったハッシュ</span></div><div class="row c mt0">'
+    + (a.ok ? '<span class="chip ok">今月は改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>')
+    + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + '<span class="note">今月 ' + (a.rows || 0) + ' 行</span></div>';
+  if (v) html += '<div class="tblwrap mt12"><table class="tbl"><colgroup><col style="width:120px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>月</th><th class="num">行</th><th>鎖</th><th>締めの控え</th><th>メモ</th></tr></thead><tbody>'
+    + v.months.slice().reverse().map(function(m){ return '<tr><td>' + esc(String(m.month).replace('_', '/')) + '</td><td class="num">' + (m.rows || 0) + '</td><td>' + (m.ok ? '<span class="chip ok">正しい</span>' : '<span class="chip ng">要確認</span>') + '</td><td>' + (m.anchored ? '<span class="chip ok">控えあり</span>' : '<span class="note">-</span>') + '</td><td class="ws">' + esc(m.note || '') + '</td></tr>'; }).join('')
+    + '</tbody></table></div><p class="note mt8">' + (v.ok ? '全部の月の鎖がつながっています（' + v.rows + ' 行）。' : '要確認の月があります。') + (v.anchored && v.anchored.length ? '締まった月 ' + v.anchored.length + ' つの最後のハッシュを、データ本体に控えました。' : '') + '</p>';
+  return html + '<div class="card-foot"><button class="btn btn-ghost" ' + (S.verifying ? 'disabled ' : '') + 'onclick="hlVerify()">' + (S.verifying ? '確かめています…' : '全部の月を確かめる') + '</button>'
+    + '<span class="note">月どうしのつながりと、締まった月の控えとの一致も確かめます。毎日の手入れでも確かめています。</span></div></div>';
+}
+function hlVerify(){ S.verifying = true; render(); call('apiVerifyAudit', [], function(r){ S.verifying = false; S.verify = r; toast(r.ok ? '全部の月の鎖がつながっています' : '要確認の月があります', !r.ok); }, function(){ S.verifying = false; render(); }); }
+function hlHousekeepingCard(k, h){
+  var html = '<div class="card"><div class="card-head"><h2>毎日の手入れ</h2><span class="note">毎日 3 時ごろ、バックアップの後に動きます</span></div>';
+  if (!k) html += '<p class="note">まだ動いていません。</p>';
+  else html += '<div class="row c mt0">' + (k.ok ? '<span class="chip ok">問題なし</span>' : '<span class="chip warn">要確認 ' + (k.problems || []).length + '</span>') + '<span class="note">' + esc(String(k.at || '').replace('T', ' ').slice(0, 16)) + '・'
+    + (k.errors !== undefined ? 'エラー（24 時間） ' + k.errors + ' 件・' : '') + (k.openStarts !== undefined ? '途中で止まった操作 ' + k.openStarts + ' 件' : '') + '</span></div>'
+    + ((k.problems || []).length ? '<ul class="mt8">' + k.problems.map(function(p){ return '<li class="warn-text">' + esc(p) + '</li>'; }).join('') + '</ul>' : '');
+  html += '<p class="note mt8">定期処理: ' + ((h.triggers || []).filter(function(t){ return t !== 'triggerRunJob'; }).map(esc).join('、') || 'なし') + '・処理の記録 ' + (h.jobs === null || h.jobs === undefined ? '-' : h.jobs) + ' 件'
+    + (h.journal ? '・<span class="warn-text">書きかけの保存あり（' + esc(h.journal.label || '') + '）</span>' : '') + '</p>';
+  return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiRunHousekeeping\', [], function(r){ toast(r.ok ? \'手入れが終わりました\' : \'手入れで要確認があります\', !r.ok); go(\'health\'); })">今すぐ手入れする</button>'
+    + '<span class="note">古い処理の記録とトリガーの片付け・記録の鎖の確認・前の年度より古いログをアーカイブへ・月次の写し。どれも消しません。</span></div></div>';
 }
 
 render();

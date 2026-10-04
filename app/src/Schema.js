@@ -6,7 +6,7 @@
  * 版 4（段階2-3）で、予測のほかの保存・実行（入力・予算・検証・四半期レビューなど）の記録（PLAN_ACTIONS）を足した。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  */
-const APP_SCHEMA_VERSION = 6;
+const APP_SCHEMA_VERSION = 7;
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -73,6 +73,11 @@ const APP_TABLES = {
     key: ['action_id'],
     columns: ['action_id', 'plan_id', 'action', 'status', 'engine_version', 'engine_sha256', 'web_sha256', 'seed', 'as_of', 'input_hash',
       'changed_sheets_json', 'result_json', 'started_at', 'finished_at', 'actor_email']
+  },
+  AUDIT_ANCHORS: {
+    // 締まった月の監査の鎖の最後のハッシュ（ログのファイルとは別のファイルに控え、締まった月の書き換え・切り詰めに気づく）
+    key: ['month'],
+    columns: ['month', 'rows', 'first_prev', 'last_hash', 'anchored_at', 'anchored_by']
   },
   CLIENT_NAMES: {
     // 画面に出すクライアントの名前を、管理者が決めたもの（無ければ ZAC の名前から自動で作る: 半角カナを全角に・株式会社などを除く）。

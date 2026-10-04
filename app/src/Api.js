@@ -74,9 +74,20 @@ function apiSaveSetting(input) {
     after: res => res.saved }, ctx => appSaveSetting_(ctx, input));
 }
 
+/** ログ（操作の記録 AUDIT・実行 RUN・エラー ERROR）の、選んだ月の行。月の一覧つき */
 function apiListAudit(input) {
-  return api_('AUDIT.LIST', { minRole: 'ADMIN', audit: false },
-    () => ({ rows: appRecentAudit_(Math.min(500, Number(input && input.limit) || 200), input && input.query) }));
+  return api_('AUDIT.LIST', { minRole: 'ADMIN', audit: false }, () => appLogList_(input));
+}
+
+/** 監査の鎖を全部の月で確かめ、締まった月のハッシュを控える */
+function apiVerifyAudit() {
+  return api_('AUDIT.VERIFY', { minRole: 'ADMIN', entityType: 'SYSTEM', after: res => ({ ok: res.ok, months: res.months.length, rows: res.rows, anchored: res.anchored }) },
+    ctx => { const v = appVerifyAuditAll_(); v.anchored = v.ok ? appWithLock_(() => appAnchorClosedMonths_(ctx, v)) : []; return v; });
+}
+
+/** 毎日の手入れを、今すぐ動かす */
+function apiRunHousekeeping() {
+  return api_('HOUSEKEEPING.RUN', { minRole: 'ADMIN', entityType: 'SYSTEM', after: res => ({ ok: res.ok, problems: res.problems }) }, ctx => appHousekeeping_(ctx));
 }
 
 function apiHealth() {
@@ -158,7 +169,7 @@ function triggerRunJob(e) {
  */
 function triggerDailyBackup(e) {
   return api_('BACKUP.DAILY', { minRole: 'ADMIN', entityType: 'SYSTEM', trigger: { event: e, handler: 'triggerDailyBackup' },
-    after: res => res }, ctx => appBackup_(ctx));
+    after: res => res }, ctx => appDailyMaintenance_(ctx));
 }
 
 /**
