@@ -204,7 +204,7 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
@@ -369,19 +369,20 @@ function pfTable(rows, pct1){
   var sum = function(k){ return rows.reduce(function(a, p){ return a + (p[k] || 0); }, 0); };
   var body = rows.map(function(p){
     var ch = pfChange(p), gap = p.budget !== null && p.p50 !== null ? p.budget / p.p50 - 1 : null;
-    var steps = p.stepErrors.length ? '<span class="chip ng" title="' + esc(p.stepErrors.join('、')) + '">エラー</span>' : '<span class="note">' + p.stepsDone + ' / ' + p.stepsTotal + '</span>';
-    return '<tr><td>' + esc(p.clientName) + (p.source === 'app' ? ' <span class="chip off">新規</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
+    var off = p.officialNo ? '<span class="chip ok">v' + p.officialNo + '</span>' : '<span class="note">-</span>';
+    if (p.pendingNo) off += ' <span class="chip warn" title="承認待ち">v' + p.pendingNo + '</span>';
+    return '<tr><td class="wrap">' + esc(p.clientName) + (p.source === 'app' ? ' <span class="chip off">新規</span>' : '') + (p.stepErrors.length ? ' <span class="chip ng" title="' + esc(p.stepErrors.join('、')) + '">手順のエラー</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
       + '<td class="num">' + yen(p.p50) + '</td><td class="num">' + (ch === null ? '-' : Math.abs(ch) >= 0.05 ? '<span class="chip warn">' + pct1(ch) + '</span>' : pct1(ch)) + '</td>'
       + '<td class="num">' + yen(p.budget) + '</td><td class="num">' + pct1(gap) + '</td>'
       + '<td class="num">' + (p.mape === null ? '-' : (p.mape >= 0.2 ? '<span class="chip warn">' : '') + (p.mape * 100).toFixed(1) + '%' + (p.mape >= 0.2 ? '</span>' : '') + '<div class="note">' + p.mapeMonths + ' か月</div>') + '</td>'
-      + '<td>' + steps + '</td><td>' + esc(String(p.lastRunAt || '').replace('T', ' ').slice(5, 16) || '-') + '</td>'
+      + '<td>' + off + '</td><td>' + esc(String(p.lastRunAt || '').replace('T', ' ').slice(5, 16) || '-') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.planId=\'' + esc(p.planId) + '\';S.fc.view=null;S.fc.data=null;go(\'forecast\')">開く</button></td></tr>';
   }).join('');
   var foot = S.pfFy ? '<tr class="total"><td>合計（' + rows.length + ' 件）</td><td>FY' + esc(S.pfFy) + '</td><td class="num">' + yen(sum('p50')) + '</td><td></td><td class="num">' + yen(sum('budget')) + '</td><td colspan="5"></td></tr>' : '';
   return '<table class="tbl wide"><colgroup><col><col style="width:88px"><col style="width:120px"><col style="width:88px"><col style="width:120px"><col style="width:80px"><col style="width:96px"><col style="width:96px"><col style="width:120px"><col style="width:128px"></colgroup>'
-    + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>手順</th><th>最後の予測</th><th></th></tr></thead><tbody>'
+    + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>公式版</th><th>最後の予測</th><th></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>'
-    + '<p class="note mt8">P50 は最新の予測の年度合計（新アプリで予測していない計画は、取り込んだ旧ブックの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。</p>';
+    + '<p class="note mt8">P50 は最新の予測の年度合計（新アプリで予測していない計画は、取り込んだ旧ブックの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。公式版は承認済みの版（オレンジは承認待ち）。</p>';
 }
 function pfCreateCard(){
   var c = S.pfCand;
@@ -546,7 +547,8 @@ function viewMigrate(){
 function loadForecast(planId, force){
   if (planId !== S.fc.planId || force) { S.fc.view = null; S.fc.data = null; }
   S.fc.planId = planId;
-  S.fc.draft = {}; S.fc.inputDirty = {}; S.fc.budget = {}; S.fc.ins = {}; S.fc.dec = {};
+  S.fc.draft = {}; S.fc.inputDirty = {}; S.fc.budget = {}; S.fc.ins = {}; S.fc.dec = {}; S.fc.verCmp = null;
+  if (S.fc.tab === 'version') fcLoadVersions();
   var L = S.fc.load = { latest: { start: Date.now() }, view: { start: Date.now() } };
   var fail = function(k){ return function(e){ if (S.fc.load === L) { L[k].error = (e && e.message) || String(e); render(); } }; };
   call('apiForecastLatest', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.latest.done = Date.now(); S.fc.data = r; } }, fail('latest'));
@@ -554,7 +556,7 @@ function loadForecast(planId, force){
   setTimeout(fcWaitTick, 1000);
 }
 // ---- 予測（計画の画面: 旧来の Web アプリと同じ中身を、データ本体の上で見る・保存する・実行する） ----
-var FC_TABS = [['forecast','予測と予算'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['steps','進み']];
+var FC_TABS = [['forecast','予測と予算'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['version','公式版'],['steps','進み']];
 var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
 function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
@@ -566,7 +568,7 @@ function viewForecast(){
   html += '<div class="tabs" role="tablist">' + FC_TABS.map(function(t){ return '<button class="tab' + (f.tab === t[0] ? ' on' : '') + '" role="tab" aria-selected="' + (f.tab === t[0]) + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
   var wait = fcWaitBox();
   if (!d || !v) return html + wait;
-  var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
+  var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, version: fcVersionTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
   // タブの表示で失敗しても、前の画面のまま止まらずに理由を出す（2026-10-02「進み」が表示されなかった）
   try { return html + body(d, v); } catch (e) {
     return html + '<div class="card alert"><h2 class="err-text">このタブを表示できませんでした</h2><p class="note">' + esc((e && e.message) || e) + '</p><p class="note mt4">この文を管理者に伝えてください。ほかのタブは使えます。</p></div>';
@@ -602,7 +604,7 @@ function fcWaitTick(){
   if (S.view === 'forecast' && $('fcWait')) $('fcWait').outerHTML = fcWaitBox();
   if (busyNow) fcWaitT = setTimeout(fcWaitTick, 1000);
 }
-function fcTab(t){ S.fc.tab = t; render(); }
+function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
@@ -654,6 +656,71 @@ function fcForecastTab(d, v){
     + '</tbody></table></div>'
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
   return html;
+}
+// ---- 公式版（確定した予測と予算）と承認 ----
+var VER_STATE = { SUBMITTED: ['承認待ち', 'warn'], APPROVED: ['公式版', 'ok'], REJECTED: ['却下', 'ng'], SUPERSEDED: ['置き換え済み', 'off'], WITHDRAWN: ['取り下げ', 'off'] };
+function verChip(st){ var x = VER_STATE[st] || [st, 'off']; return '<span class="chip ' + x[1] + '">' + x[0] + '</span>'; }
+function fcLoadVersions(){ var id = S.fc.planId; S.fc.ver = null; call('apiVersionList', [{ planId: id }], function(r){ if (S.fc.planId === id) S.fc.ver = r; }); }
+function verWho(email, at){ return email ? esc(String(email).split('@')[0]) + '<div class="note">' + esc(String(at || '').replace('T', ' ').slice(5, 16)) + '</div>' : '-'; }
+function verDiff(a, b){ return a === null || b === null || a === undefined || b === undefined ? '-' : (a - b > 0 ? '+' : '') + yen(a - b); }
+function fcVersionTab(d, v){
+  var r = S.fc.ver;
+  if (!r || r.planId !== S.fc.planId) return '<div class="card note">読み込み中…</div>';
+  var off = r.official, pend = r.pending, cur = r.current, html = '';
+  // いまの公式版
+  html += '<div class="kpis">' + fcKpi('公式版の最終予算' + (off ? '（v' + off.no + '）' : ''), off ? off.budget.final : null, true) + fcKpi('公式版の P50', off ? off.annual.p50 : null)
+    + fcKpi('今の最終予算', cur ? cur.budget.final : null) + fcKpi('今の P50', cur ? cur.annual.p50 : null) + '</div>';
+  // 承認待ち
+  if (pend) {
+    var mine = pend.submittedBy === r.me && !B.user.isOwner;
+    html += '<div class="card caution"><div class="card-head"><h2>承認待ち（v' + pend.no + '）</h2>' + verChip('SUBMITTED') + '</div>'
+      + '<p>最終予算 ' + yen(pend.budget.final) + ' 円・P50 ' + yen(pend.annual.p50) + ' 円　出した人: ' + esc(String(pend.submittedBy).split('@')[0]) + '（' + esc(String(pend.submittedAt).replace('T', ' ').slice(0, 16)) + '）</p>'
+      + (pend.note ? '<p class="note mt4">メモ: ' + esc(pend.note) + '</p>' : '')
+      + (r.pendingChanged ? '<p class="warn-text mt8">出した後に計画が変わっています。承認するのは、出した時点の数字です。</p>' : '')
+      + (r.can.approve && !mine ? '<div class="field mt12"><label for="ver_note">判断のメモ（却下のときは理由を書く）</label><input class="inp lg" id="ver_note"></div>'
+        + '<div class="card-foot"><button class="btn" onclick="verDecide(\'APPROVED\')">承認する</button><button class="btn btn-ghost" onclick="verDecide(\'REJECTED\')">却下する</button>'
+        + '<span class="note">承認すると、この版が公式版になり、前の公式版は置き換わります。</span></div>'
+        : '<p class="note mt8">' + (mine ? '自分で出した版は、ほかの承認者が承認します。' : '承認者が承認します。') + '</p>') + '</div>';
+  }
+  // 今の内容を出す
+  if (r.can.submit) {
+    var base = off || null;
+    html += '<div class="card"><div class="card-head"><h2>今の内容を公式版として出す</h2><span class="note">' + (base ? '公式版（v' + base.no + '）との差' : 'まだ公式版がありません') + '</span></div>'
+      + (cur ? '<div class="tblwrap"><table class="tbl"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup><thead><tr><th></th><th class="num">今</th><th class="num">公式版</th><th class="num">差</th></tr></thead><tbody>'
+        + [['最終予算', cur.budget.final, base && base.budget.final], ['採用予測', cur.budget.adopted, base && base.budget.adopted], ['上乗せ', cur.budget.uplift, base && base.budget.uplift], ['P50（年度）', cur.annual.p50, base && base.annual.p50]]
+          .map(function(x){ return '<tr><td>' + x[0] + '</td><td class="num">' + yen(x[1]) + '</td><td class="num">' + (base ? yen(x[2]) : '-') + '</td><td class="num">' + (base ? verDiff(x[1], x[2]) : '-') + '</td></tr>'; }).join('')
+        + '</tbody></table></div>' : '<p class="note">予測がまだありません。予測を実行してから出してください。</p>')
+      + '<div class="field mt12"><label for="ver_submit_note">メモ（何を見直したか）</label><input class="inp lg" id="ver_submit_note"></div>'
+      + '<div class="card-foot"><button class="btn" ' + (cur ? '' : 'disabled ') + 'onclick="verSubmit()">公式版として出す</button>'
+      + '<span class="note">今の予測と予算の数字を、そのまま残して承認待ちにします。' + (pend ? '承認待ちの v' + pend.no + ' は取り下げます。' : '') + '</span></div></div>';
+  }
+  // 版の一覧
+  html += '<div class="card"><h2>版の一覧</h2>' + (r.versions.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:64px"><col style="width:120px"><col style="width:136px"><col style="width:136px"><col style="width:128px"><col style="width:128px"><col><col style="width:136px"></colgroup>'
+    + '<thead><tr><th>版</th><th>状態</th><th class="num">最終予算</th><th class="num">P50</th><th>出した人</th><th>判断した人</th><th>メモ</th><th></th></tr></thead><tbody>'
+    + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
+      + '<td title="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
+      + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.verCmp=\'' + esc(x.versionId) + '\';render()">今と比べる</button></td></tr>'; }).join('')
+    + '</tbody></table></div>' : '<p class="note">まだ版がありません。</p>') + '</div>';
+  // 比べる（月ごと）
+  var cmp = S.fc.verCmp && r.versions.filter(function(x){ return x.versionId === S.fc.verCmp; })[0];
+  if (cmp && cur) {
+    html += '<div class="card"><div class="card-head"><h2>v' + cmp.no + ' と今の比べ（月ごと）</h2><button class="btn btn-ghost btn-sm" onclick="S.fc.verCmp=null;render()">閉じる</button></div>'
+      + '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col><col><col></colgroup><thead><tr><th>月</th><th class="num">最終予算 v' + cmp.no + '</th><th class="num">最終予算 今</th><th class="num">差</th><th class="num">P50 v' + cmp.no + '</th><th class="num">P50 今</th><th class="num">差</th></tr></thead><tbody>'
+      + cur.monthly.map(function(m, i){ var o = cmp.monthly[i] || {}; return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(o.final) + '</td><td class="num">' + yen(m.final) + '</td><td class="num">' + verDiff(m.final, o.final) + '</td><td class="num">' + yen(o.p50) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + verDiff(m.p50, o.p50) + '</td></tr>'; }).join('')
+      + '<tr class="total"><td>年度</td><td class="num">' + yen(cmp.budget.final) + '</td><td class="num">' + yen(cur.budget.final) + '</td><td class="num">' + verDiff(cur.budget.final, cmp.budget.final) + '</td><td class="num">' + yen(cmp.annual.p50) + '</td><td class="num">' + yen(cur.annual.p50) + '</td><td class="num">' + verDiff(cur.annual.p50, cmp.annual.p50) + '</td></tr>'
+      + '</tbody></table></div></div>';
+  }
+  return html;
+}
+function verSubmit(){
+  var r = S.fc.ver; if (!confirm('今の予測と予算を、公式版として出しますか？（承認待ちになります）')) return;
+  call('apiVersionSubmit', [{ planId: r.planId, note: $('ver_submit_note').value, inputHash: r.inputHash }], function(x){ toast('v' + x.version.no + ' を出しました（承認待ち）'); fcLoadVersions(); });
+}
+function verDecide(decision){
+  var r = S.fc.ver, p = r.pending, note = $('ver_note').value;
+  if (decision === 'REJECTED' && !String(note).trim()) { toast('却下の理由を書いてください', true); return; }
+  if (!confirm('v' + p.no + ' を' + (decision === 'APPROVED' ? '承認' : '却下') + 'しますか？')) return;
+  call('apiVersionDecide', [{ versionId: p.versionId, decision: decision, note: note, rowVersion: p.rowVersion }], function(x){ toast('v' + x.version.no + ' を' + (decision === 'APPROVED' ? '公式版にしました' : '却下しました')); fcLoadVersions(); });
 }
 function fcConfirmRun(){ var c = S.fc.confirm; S.fc.confirm = null; startJob('FORECAST.RUN', { planId: c.planId, confirms: c.confirms.concat([c.key]) }); }
 function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = val; var btn = document.querySelector('[onclick="fcSaveBudget()"]'); if (btn) btn.disabled = !!S.job; }

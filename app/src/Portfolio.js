@@ -113,6 +113,7 @@ function appPortfolio_() {
   });
   const steps = {};
   appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
+  const ver = appVersionSummary_();
   const num = x => { if (!x) return null; const t = x.charAt(0); if (t !== 'n') return null; const v = Number(x.slice(1)); return isFinite(v) ? v : null; };
   return appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').map(p => {
     const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)));
@@ -139,7 +140,9 @@ function appPortfolio_() {
       budget: adopted === null && uplift === null ? null : (adopted || 0) + (uplift || 0),
       mape: a.length ? a.reduce((x, y) => x + y, 0) / a.length : null, mapeMonths: a.length,
       stepsDone: st.filter(s => String(s.status).toLowerCase() === 'success').length, stepsTotal: st.length, stepErrors: errors,
-      createdAt: p.created_at
+      createdAt: p.created_at,
+      officialNo: (ver[p.plan_id] || {}).officialNo || null, officialFinal: (ver[p.plan_id] || {}).officialFinal === undefined ? null : ver[p.plan_id].officialFinal,
+      pendingNo: (ver[p.plan_id] || {}).pendingNo || null
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }

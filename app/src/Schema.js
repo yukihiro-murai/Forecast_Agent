@@ -6,7 +6,7 @@
  * 版 4（段階2-3）で、予測のほかの保存・実行（入力・予算・検証・四半期レビューなど）の記録（PLAN_ACTIONS）を足した。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  */
-const APP_SCHEMA_VERSION = 4;
+const APP_SCHEMA_VERSION = 5;
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -73,6 +73,15 @@ const APP_TABLES = {
     key: ['action_id'],
     columns: ['action_id', 'plan_id', 'action', 'status', 'engine_version', 'engine_sha256', 'web_sha256', 'seed', 'as_of', 'input_hash',
       'changed_sheets_json', 'result_json', 'started_at', 'finished_at', 'actor_email']
+  },
+  PLAN_VERSIONS: {
+    // 公式版: 計画のある時点の予測と予算を確定した版。出したら中身は変えない（状態と判断だけが変わる）。
+    // 状態: SUBMITTED（承認待ち）→ APPROVED（公式版。前の公式版は SUPERSEDED）/ REJECTED。出し直すと前の承認待ちは WITHDRAWN
+    key: ['version_id'],
+    columns: ['version_id', 'plan_id', 'version_no', 'state', 'input_hash', 'forecast_run_id', 'annual_p10', 'annual_p50', 'annual_p90',
+      'budget_adopted', 'budget_uplift', 'budget_final', 'monthly_json', 'note', 'submitted_at', 'submitted_by', 'decided_at', 'decided_by',
+      'decision_note', 'updated_at', 'updated_by', 'row_version'],
+    types: { version_no: 'int', annual_p10: 'num', annual_p50: 'num', annual_p90: 'num', budget_adopted: 'num', budget_uplift: 'num', budget_final: 'num' }
   },
   FORECAST_MONTHLY: {
     // 予測 1 回の月ごとの P10/P50/P90（混合と、過去売上のみ）。旧来の OUTPUT の行から取る

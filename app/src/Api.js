@@ -95,6 +95,25 @@ function apiPortfolio() {
   return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolio_() }));
 }
 
+/** 計画の公式版の一覧と、今の数字 */
+function apiVersionList(input) {
+  return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appVersionList_(ctx, input));
+}
+
+/** 今の予測と予算を、公式版として出す（予算策定担当。その計画のクライアントの担当でもよい） */
+function apiVersionSubmit(input) {
+  return api_('VERSION.SUBMIT', { minRole: 'PLANNER', clientId: appJobPlanClient_({ planId: input && input.planId }), entityType: 'PLAN_VERSION',
+    detail: { planId: input && input.planId, note: input && input.note }, after: res => ({ versionNo: res.version.no, budgetFinal: res.version.budget.final,
+      p50: res.version.annual.p50, withdrawn: res.withdrawn }) }, ctx => appVersionSubmit_(ctx, input));
+}
+
+/** 承認待ちの版を承認・却下する（承認者） */
+function apiVersionDecide(input) {
+  return api_('VERSION.DECIDE', { minRole: 'APPROVER', clientId: appVersionClient_(input), entityType: 'PLAN_VERSION',
+    detail: { versionId: input && input.versionId, decision: input && input.decision, note: input && input.note },
+    after: res => ({ versionNo: res.version.no, state: res.version.state, superseded: res.superseded, selfApproved: res.selfApproved }) }, ctx => appVersionDecide_(ctx, input));
+}
+
 /** 新しい計画のクライアントの候補（ZAC の実績から） */
 function apiPlanCandidates(input) {
   return api_('PLAN.CANDIDATES', { minRole: 'ADMIN', audit: false }, ctx => appPlanCandidates_(ctx, input));

@@ -290,6 +290,15 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま予測を実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
+  // 公式版のタブ（版がまだ無いとき・出したとき）
+  ui.__ver = env.call('apiVersionList(__in)', { __in: { planId } });
+  const verHtml = vm.runInContext(`S.fc.ver = __ver; S.fc.tab = 'version'; viewForecast()`, ui);
+  assert.match(verHtml, /公式版の最終予算[\s\S]*今の内容を公式版として出す[\s\S]*まだ版がありません/);
+  env.call('apiVersionSubmit(__in)', { __in: { planId, note: 'テスト' } });
+  ui.__ver = env.call('apiVersionList(__in)', { __in: { planId } });
+  const verHtml2 = vm.runInContext(`S.fc.ver = __ver; S.fc.verCmp = __ver.versions[0].versionId; viewForecast()`, ui);
+  assert.match(verHtml2, /承認待ち（v1）[\s\S]*v1 と今の比べ/);
+  assert.ok(!/undefined|NaN/.test(verHtml2), '公式版のタブに undefined や NaN を出さない');
   // 計画の一覧（全部の計画）と「計画を作る」
   ui.__pf = env.call('apiPortfolio()').plans;
   const pfHtml = vm.runInContext(`S.pf = __pf; S.pfFy = __pf[0].fy; B.user.isAdmin = true; viewPlans()`, ui);
