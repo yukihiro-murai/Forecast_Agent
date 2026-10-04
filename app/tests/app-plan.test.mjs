@@ -290,6 +290,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま予測を実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
+  // 根拠のタブ
+  ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
+  const basisHtml = vm.runInContext(`S.fc.basis = __basis; S.fc.tab = 'basis'; viewForecast()`, ui);
+  assert.match(basisHtml, /月ごとの内訳[\s\S]*補正[\s\S]*AI 調査の根拠[\s\S]*前回の予測からの変化/);
+  assert.ok(!/undefined|NaN/.test(basisHtml), '根拠のタブに undefined や NaN を出さない');
   // 公式版のタブ（版がまだ無いとき・出したとき）
   ui.__ver = env.call('apiVersionList(__in)', { __in: { planId } });
   const verHtml = vm.runInContext(`S.fc.ver = __ver; S.fc.tab = 'version'; viewForecast()`, ui);

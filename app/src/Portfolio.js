@@ -116,7 +116,7 @@ function appPortfolio_() {
   const ver = appVersionSummary_();
   const num = x => { if (!x) return null; const t = x.charAt(0); if (t !== 'n') return null; const v = Number(x.slice(1)); return isFinite(v) ? v : null; };
   return appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').map(p => {
-    const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)));
+    const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row);
     const o = outRows[p.plan_id] || {};
     let adopted = null, uplift = null;
     for (let r = 29; r <= 40; r++) {

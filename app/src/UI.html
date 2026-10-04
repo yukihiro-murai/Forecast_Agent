@@ -205,7 +205,7 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
@@ -598,6 +598,7 @@ function loadForecast(planId, force){
   S.fc.planId = planId;
   S.fc.draft = {}; S.fc.inputDirty = {}; S.fc.budget = {}; S.fc.ins = {}; S.fc.dec = {}; S.fc.verCmp = null;
   if (S.fc.tab === 'version') fcLoadVersions();
+  if (S.fc.tab === 'basis') fcLoadBasis();
   var L = S.fc.load = { latest: { start: Date.now() }, view: { start: Date.now() } };
   var fail = function(k){ return function(e){ if (S.fc.load === L) { L[k].error = (e && e.message) || String(e); render(); } }; };
   call('apiForecastLatest', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.latest.done = Date.now(); S.fc.data = r; } }, fail('latest'));
@@ -605,7 +606,7 @@ function loadForecast(planId, force){
   setTimeout(fcWaitTick, 1000);
 }
 // ---- 予測（計画の画面: 旧来の Web アプリと同じ中身を、データ本体の上で見る・保存する・実行する） ----
-var FC_TABS = [['forecast','予測と予算'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['version','公式版'],['steps','進み']];
+var FC_TABS = [['forecast','予測と予算'],['basis','根拠'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['version','公式版'],['steps','進み']];
 var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
 function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
@@ -617,7 +618,7 @@ function viewForecast(){
   html += '<div class="tabs" role="tablist">' + FC_TABS.map(function(t){ return '<button class="tab' + (f.tab === t[0] ? ' on' : '') + '" role="tab" aria-selected="' + (f.tab === t[0]) + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
   var wait = fcWaitBox();
   if (!d || !v) return html + wait;
-  var body = { forecast: fcForecastTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, version: fcVersionTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
+  var body = { forecast: fcForecastTab, basis: fcBasisTab, input: fcInputTab, eval: fcEvalTab, quarterly: fcQuarterlyTab, version: fcVersionTab, steps: fcStepsTab }[f.tab] || fcForecastTab;
   // タブの表示で失敗しても、前の画面のまま止まらずに理由を出す（2026-10-02「進み」が表示されなかった）
   try { return html + body(d, v); } catch (e) {
     return html + '<div class="card alert"><h2 class="err-text">このタブを表示できませんでした</h2><p class="note">' + esc((e && e.message) || e) + '</p><p class="note mt4">この文を管理者に伝えてください。ほかのタブは使えます。</p></div>';
@@ -653,7 +654,7 @@ function fcWaitTick(){
   if (S.view === 'forecast' && $('fcWait')) $('fcWait').outerHTML = fcWaitBox();
   if (busyNow) fcWaitT = setTimeout(fcWaitTick, 1000);
 }
-function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); render(); }
+function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); if (t === 'basis') fcLoadBasis(); render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
@@ -706,6 +707,46 @@ function fcForecastTab(d, v){
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
   return html;
 }
+// ---- 予測の根拠 ----
+function fcLoadBasis(){ var id = S.fc.planId; S.fc.basis = null; call('apiForecastBasis', [{ planId: id }], function(r){ if (S.fc.planId === id) S.fc.basis = r; }); }
+function sgn(n){ return n === null || n === undefined ? '-' : (n > 0 ? '+' : '') + yen(n); }
+function pctStep(x){ return (x > 0 ? '+' : '') + (x * 100).toFixed(1) + '%'; }
+function fcBasisTab(d, v){
+  var r = S.fc.basis;
+  if (!r || r.planId !== S.fc.planId) return '<div class="card note">読み込み中…</div>';
+  var a = r.annual, html = '';
+  html += '<div class="kpis">' + fcKpi('過去の売上だけの予測（P50）', a.objective) + fcKpi('最終の予測（P50）', a.p50, true)
+    + fcKpi('入力・AI・スポットの効き', a.p50 !== null && a.objective !== null ? a.p50 - a.objective : null) + fcKpi('前回からの変化', a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + '</div>';
+  html += '<div class="card"><div class="card-head"><h2>月ごとの内訳</h2><span class="note">' + (r.latestRunAt ? '最新の予測 ' + esc(String(r.latestRunAt).replace('T', ' ').slice(0, 16)) : '') + '</span></div>'
+    + '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:128px"><col style="width:128px"><col style="width:128px"><col style="width:120px"><col style="width:112px"><col style="width:96px"><col><col style="width:120px"></colgroup>'
+    + '<thead><tr><th>月</th><th class="num">過去の売上だけ</th><th class="num">最終（P50）</th><th class="num">差</th><th class="num">うちスポット確定</th><th class="num">AI の倍率</th><th>入力・AI の押し</th><th class="num">前回から</th></tr></thead><tbody>'
+    + r.monthly.map(function(m){
+      var src = m.sources.length ? m.sources.map(function(s){ return '<span class="chip' + (s.step > 0 ? ' ok' : s.step < 0 ? ' warn' : '') + '" title="' + esc(s.keys.join('\n')) + '">' + esc(s.label) + ' ' + pctStep(s.step) + '</span>'; }).join(' ') : '<span class="note">なし</span>';
+      return '<tr><td>' + esc(m.month) + (m.source === 'actual' ? ' <span class="chip off">実績</span>' : '') + '</td><td class="num">' + yen(m.objective) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + sgn(m.diff) + '</td>'
+        + '<td class="num">' + yen(m.spot) + '</td><td class="num">' + (m.kAi === null ? '-' : m.kAi.toFixed(3) + (m.aiNeutralized ? '<div class="note">打ち消し</div>' : '')) + '</td><td class="wrap">' + src + (m.opinion ? '<div class="note mt4">見解: ' + esc(m.opinion) + '</div>' : '') + '</td><td class="num">' + sgn(m.change) + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    + '<p class="note mt8">過去の売上だけ = 入力・AI を入れない予測。差 = 入力（製品・クライアント・見解）・AI・スポット・補正の効きの合計。押しの割合は月ごとの合計で、チップに触れると内訳が出ます。「実績」の月は実績の確定した月です。</p></div>';
+  // 補正
+  var c = r.calibration, ap = r.applied;
+  html += '<div class="card"><h2>補正（自動学習・四半期レビュー）</h2>' + (c ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><tbody>'
+    + '<tr><td>偏りの補正（全体の倍率）</td><td class="num">' + (c.factor === null ? '-' : c.factor.toFixed(3)) + '</td><td class="note">1 より小さいと予測を下げる。過去の予測が実績より高かったとき</td></tr>'
+    + '<tr><td>月ごとの偏りの補正</td><td class="num">' + Object.keys(c.monthBias || {}).length + ' か月</td><td class="note ws">' + esc(Object.keys(c.monthBias || {}).sort().map(function(k){ return k + ' ' + pctStep(Number(c.monthBias[k])); }).join('、')) + '</td></tr>'
+    + '<tr><td>AI の重み（上書き）</td><td class="num">' + (c.aiWeight === null ? '既定' : c.aiWeight) + '</td><td class="note">' + (c.aiMax === null ? '' : 'AI の効きの上限 ' + c.aiMax) + '</td></tr>'
+    + '</tbody></table></div><p class="note mt8">更新 ' + esc(String(c.updatedAt).replace('T', ' ').slice(0, 16)) + (c.quarter ? '・最後に適用した四半期 ' + esc(c.quarter) : '') + (ap ? '・最新の予測は、この補正で計算しました' : '') + '</p>' : '<p class="note">補正はまだありません。</p>') + '</div>';
+  // AI 調査の根拠
+  html += '<div class="card"><h2>AI 調査の根拠</h2>' + (r.research.length ? '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:120px"><col style="width:88px"><col style="width:88px"><col style="width:88px"><col></colgroup><thead><tr><th>話題</th><th>向き</th><th class="num">点数</th><th class="num">確からしさ</th><th>根拠</th></tr></thead><tbody>'
+    + r.research.map(function(x){ return '<tr><td>' + esc(x.topic) + (x.rowType ? '<div class="note">' + esc(x.rowType) + '</div>' : '') + '</td><td>' + esc(x.direction) + '</td><td class="num">' + (x.score === null ? (x.impact === null ? '-' : x.impact) : x.score.toFixed(2)) + '</td><td class="num">' + (x.confidence === null ? '-' : x.confidence.toFixed(2)) + '</td>'
+      + '<td class="wrap">' + esc(x.evidence) + (x.reason ? '<div class="note mt4">' + esc(x.reason) + '</div>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div><p class="note mt8">' + esc(r.research[0].asOf) + ' の A-4 AI 調査の結果です。</p>' : '<p class="note">AI 調査の結果はまだありません（「進み」の A-4）。</p>')
+    + (r.vertex && r.vertex.rationale ? '<div class="field mt12"><label>Vertex の補正の説明（' + esc(String(r.vertex.at).replace('T', ' ').slice(0, 16)) + (r.vertex.confidence !== null ? '・確からしさ ' + r.vertex.confidence : '') + '）</label><p class="pre">' + esc(r.vertex.rationale) + '</p></div>' : '') + '</div>';
+  // 前回からの変化
+  html += '<div class="card"><h2>前回の予測からの変化</h2>' + (r.prevRunAt ? '<p>前回 ' + esc(String(r.prevRunAt).replace('T', ' ').slice(0, 16)) + ' → 今回 ' + esc(String(r.latestRunAt).replace('T', ' ').slice(0, 16)) + '：年度の P50 ' + sgn(a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + ' 円'
+    + (r.inputChanged ? '' : '<span class="note">（この間に計画への操作はありません。変化は、予測の乱数による揺れです）</span>') + '</p>'
+    + (r.between.length ? '<div class="tblwrap mt8"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>この間の操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
+      + r.between.map(function(x){ return '<tr><td>' + esc(String(x.at).replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(x.label) + '</td><td>' + esc(String(x.actor || '').split('@')[0]) + '</td><td>' + esc((x.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note mt8">この間に、計画への操作はありませんでした。</p>')
+    : '<p class="note">新アプリで予測を 2 回以上実行すると、前回からの変化が出ます。</p>') + '</div>';
+  return html;
+}
+
 // ---- 公式版（確定した予測と予算）と承認 ----
 var VER_STATE = { SUBMITTED: ['承認待ち', 'warn'], APPROVED: ['公式版', 'ok'], REJECTED: ['却下', 'ng'], SUPERSEDED: ['置き換え済み', 'off'], WITHDRAWN: ['取り下げ', 'off'] };
 function verChip(st){ var x = VER_STATE[st] || [st, 'off']; return '<span class="chip ' + x[1] + '">' + x[0] + '</span>'; }

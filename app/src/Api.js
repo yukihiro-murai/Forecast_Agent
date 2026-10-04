@@ -112,6 +112,11 @@ function apiPortfolio() {
   return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolio_() }));
 }
 
+/** 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化）。閲覧は社内全員 */
+function apiForecastBasis(input) {
+  return api_('FORECAST.BASIS', { minRole: 'VIEWER', audit: false }, () => appForecastBasis_(input && input.planId));
+}
+
 /** 計画の公式版の一覧と、今の数字 */
 function apiVersionList(input) {
   return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appVersionList_(ctx, input));

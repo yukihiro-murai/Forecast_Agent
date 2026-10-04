@@ -72,7 +72,7 @@ function appVersionSubmit_(ctx, input) {
     withdrawn.forEach(v => appUpdateByKey_('PLAN_VERSIONS', { version_id: v.version_id }, { state: 'WITHDRAWN', decided_at: now, decided_by: ctx.actor,
       decision_note: '新しい版を出したため取り下げ' }, v.row_version, ctx.actor));
     const run = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id && r.status === 'DONE')
-      .sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)))[0];
+      .sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row)[0];
     const row = { version_id: appId_('VER'), plan_id: plan.plan_id, version_no: (versions.length ? versions[0].version_no : 0) + 1, state: 'SUBMITTED',
       input_hash: inputHash, forecast_run_id: run ? run.run_id : '', annual_p10: nums.annual.p10, annual_p50: nums.annual.p50, annual_p90: nums.annual.p90,
       budget_adopted: nums.budget.adopted, budget_uplift: nums.budget.uplift, budget_final: nums.budget.final, monthly_json: nums.monthly, note: note,
