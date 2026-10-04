@@ -2,7 +2,7 @@
  * app-learning.test.mjs — 精度の推移・全計画で縮めた偏りの補正（影）・幅の較正・情報源の信頼度の事前分布（ベータ二項）。
  */
 import assert from 'node:assert/strict';
-import { setUpEnv } from './gas-mock.mjs';
+import { setUpEnv, STATS } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const env = setUpEnv();
@@ -86,4 +86,16 @@ assert.equal(pv2.current[ids['乙製薬']]['reliability:opinion'].value, 1.2);
 assert.ok(env.audit().some((x) => x.action === 'LEARN.POOL' && x.phase === 'END' && x.result === 'OK'));
 // 計画を組み立て直しても同じ（データ本体と計算用ブックが合う）
 assert.equal(env.call('apiPlanView(__in)', { __in: { planId: ids['甲製薬'] } }).pendingWrite || null, null);
+// ==== 4. 表が大きいときは、計画の行だけを探して読む（結果は全部読んだときと同じ・読むセルは少ない） ====
+const load = (id) => env.run(`(() => { APP_STORE_CACHE_ = {}; return JSON.stringify(appEngLoadPlanSheets_('${id}')); })()`);
+const reset = () => { for (const k of Object.keys(STATS)) STATS[k] = k === 'bySheet' ? {} : 0; };
+reset(); const full = load(ids['乙製薬']); const fullCells = STATS.readCells;
+env.run('appPlanReadMinRows_ = () => 0');
+reset(); const part = load(ids['乙製薬']); const partCells = STATS.readCells;
+assert.equal(part, full, '計画の行だけ読んでも同じ');
+assert.ok(partCells < fullCells * 0.7, '読むセルが減る: ' + fullCells + ' → ' + partCells);
+assert.equal(env.call('apiLearningView(__in)', { __in: { planId: ids['甲製薬'] } }).accuracy.n, 11, '計画ごとに読んでも同じ結果');
+const again = env.runJob('LEARN.POOL', {});
+assert.equal(again.status, 'DONE', again.error);
+env.run('appPlanReadMinRows_ = () => 3000');
 console.log('app-learning: all tests passed');

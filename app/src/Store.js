@@ -115,8 +115,45 @@ function appRawTable_(name) {
 
 /** 書いた表の控えを捨てる（name を省くと全部） */
 function appStoreForget_(name) {
+  if (APP_STORE_CACHE_.plan) {
+    if (name) Object.keys(APP_STORE_CACHE_.plan).forEach(k => { if (k.split('\u0001')[0] === name) delete APP_STORE_CACHE_.plan[k]; });
+    else APP_STORE_CACHE_.plan = {};
+  }
   if (!APP_STORE_CACHE_.raw) return;
   if (name) delete APP_STORE_CACHE_.raw[name]; else APP_STORE_CACHE_.raw = {};
+}
+
+/** これより行の多い表は、計画の行だけを探して読む（少ない表は全部読んで控える方が速い）。テストで差し替える */
+function appPlanReadMinRows_() { return 3000; }
+
+/**
+ * 計画 1 つ分の行（plan_id が 1 列目の表）。表が大きいときは、1 列目で計画の ID を探し（TextFinder）、続いている行のかたまりごとに読む。
+ * 計画が増えても、読む量はその計画の分だけで済む
+ */
+function appReadPlanTable_(name, planId) {
+  const def = APP_TABLES[name];
+  if (def.columns[0] !== 'plan_id') throw new Error('計画ごとに読めない表です: ' + name);
+  const mine = o => o.plan_id === planId;
+  if (APP_STORE_CACHE_.raw && APP_STORE_CACHE_.raw[name]) return appReadTable_(name).filter(mine);
+  const sh = appTableSheet_(name, false);
+  const last = sh.getLastRow();
+  if (last - 1 <= appPlanReadMinRows_()) return appReadTable_(name).filter(mine);
+  const cache = APP_STORE_CACHE_.plan || (APP_STORE_CACHE_.plan = {});
+  const key = name + '\u0001' + planId;
+  if (!cache[key]) {
+    const rowsNo = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(planId)).matchEntireCell(true).matchCase(true).findAll().map(r => r.getRow()).sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < rowsNo.length;) {
+      let j = i;
+      while (j + 1 < rowsNo.length && rowsNo[j + 1] === rowsNo[j] + 1) j++;
+      sh.getRange(rowsNo[i], 1, j - i + 1, def.columns.length).getValues().forEach((r, k) => {
+        out.push({ row: rowsNo[i] + k, cells: r.map(v => (v === null || v === undefined ? '' : String(v))) });
+      });
+      i = j + 1;
+    }
+    cache[key] = out;
+  }
+  return cache[key].map(x => { const o = appRowToObject_(def, x.cells); o._row = x.row; return o; }).filter(o => def.key.some(k => o[k] !== '') && mine(o));
 }
 
 /** シートの列数をちょうど n にする（足りなければ足し、余りは消してセルの上限を節約する） */

@@ -196,6 +196,13 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         getValues: () => { stat(sh, 'reads', nr * nc); return grid((y, x) => at(rows, y, x, '')); },
         getValue: () => at(rows, r - 1, col - 1, ''),
         getNumRows: () => nr, getNumColumns: () => nc, getRow: () => r, getColumn: () => col, getLastRow: () => r + nr - 1, getLastColumn: () => col + nc - 1,
+        createTextFinder: (text) => {
+          const tf = { entire: false, kase: false, matchEntireCell: (b) => { tf.entire = b; return tf; }, matchCase: (b) => { tf.kase = b; return tf; },
+            findAll: () => { const out = []; each((y, x) => { const v = String(at(rows, y, x, '')); const t = String(text);
+              const hit = tf.entire ? (tf.kase ? v === t : v.toLowerCase() === t.toLowerCase()) : (tf.kase ? v.indexOf(t) >= 0 : v.toLowerCase().indexOf(t.toLowerCase()) >= 0);
+              if (hit && v !== '') out.push({ getRow: () => y + 1, getColumn: () => x + 1 }); }); stat(sh, 'reads', 0); return out; } };
+          return tf;
+        },
         getNotes: () => grid(() => ''),
         getNote: () => '',
         getFormulas: () => grid((y, x) => at(fmls, y, x, '') || ''),

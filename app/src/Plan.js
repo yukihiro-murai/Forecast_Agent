@@ -141,9 +141,8 @@ function appViewSheet_(dec, parent) {
  */
 function appStoreBook_(plan) {
   const planId = plan.plan_id;
-  const mine = r => r.plan_id === planId;
   const meta = {};
-  appReadTable_('ENG_SHEETS').filter(mine).forEach(r => { meta[r.sheet] = r; });
+  appReadPlanTable_('ENG_SHEETS', planId).forEach(r => { meta[r.sheet] = r; });
   const loaded = {};
   let segs = null;
   let book = null;
@@ -153,9 +152,9 @@ function appStoreBook_(plan) {
     if (!m) return (loaded[name] = null);
     if (!segs) {
       segs = {};
-      appReadTable_('ENG_ROWS').filter(mine).forEach(r => { (segs[r.sheet] = segs[r.sheet] || []).push(r); });
+      appReadPlanTable_('ENG_ROWS', planId).forEach(r => { (segs[r.sheet] = segs[r.sheet] || []).push(r); });
     }
-    const rows = m.mode === 'table' ? appReadTable_('ENG_' + name).filter(mine) : [];
+    const rows = m.mode === 'table' ? appReadPlanTable_('ENG_' + name, planId) : [];
     const dec = appEngDecodeSheet_(Object.assign({}, m, { fmt_columns: '0' }), rows, segs[name] || [], []);
     return (loaded[name] = appViewSheet_(dec, book));
   };

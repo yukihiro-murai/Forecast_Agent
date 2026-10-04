@@ -201,18 +201,17 @@ function appEngCompare_(snap, dec) {
 
 /** データ本体から、計画 1 つ分の旧来のシートをすべて（only を渡すとそのシートだけ）組み立てる（{ シート名: 組み立てた中身 }） */
 function appEngLoadPlanSheets_(planId, only) {
-  const mine = r => r.plan_id === planId;
-  const sheets = appReadTable_('ENG_SHEETS').filter(r => mine(r) && (!only || only.indexOf(r.sheet) >= 0));
+  const sheets = appReadPlanTable_('ENG_SHEETS', planId).filter(r => !only || only.indexOf(r.sheet) >= 0);
   const group = (name) => {
     const by = {};
-    appReadTable_(name).filter(mine).forEach(r => { (by[r.sheet] = by[r.sheet] || []).push(r); });
+    appReadPlanTable_(name, planId).forEach(r => { (by[r.sheet] = by[r.sheet] || []).push(r); });
     return by;
   };
   const segs = group('ENG_ROWS');
   const fmts = group('ENG_FORMATS');
   const out = {};
   sheets.forEach(s => {
-    const rows = s.mode === 'table' ? appReadTable_('ENG_' + s.sheet).filter(mine) : [];
+    const rows = s.mode === 'table' ? appReadPlanTable_('ENG_' + s.sheet, planId) : [];
     out[s.sheet] = appEngDecodeSheet_(s, rows, segs[s.sheet] || [], fmts[s.sheet] || []);
   });
   return out;

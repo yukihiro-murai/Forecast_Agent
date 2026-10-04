@@ -32,6 +32,11 @@ assert.equal(v.ok, false);
 assert.match(v.months[0].note, /締めの控え/);
 env.run(`appReplaceWhole_('AUDIT_ANCHORS', [])`);
 
+// 毎日の確かめ（速い方）: 控えのある前の月は、端の行だけ見る。端の値は全部の行で確かめたときと同じ
+const ends = env.run(`(() => { const sh = appAuditSheets_('AUDIT')[0].sheet; const f = appVerifyAuditSheet_(sh), e = appAuditSheetEnds_(sh); return [f.rows === e.rows, f.firstPrev === e.firstPrev, f.lastHash === e.lastHash, e.ok]; })()`);
+assert.equal(JSON.stringify(ends), '[true,true,true,true]');
+assert.equal(env.run('appVerifyAuditAll_(true).ok'), true);
+
 // ==== 2. 毎日の手入れ: 月次のバックアップ（月に 1 つ）・古いログはアーカイブへ・結果を状態に出す ====
 // 3 年前の年度のログのファイルがある
 const oldLog = env.run(`(() => { const ss = SpreadsheetApp.create('old log'); const p = appProps_(); const f = JSON.parse(p.getProperty(APP_PROP.logFiles)); f['FY' + (appFy_(new Date()) - 3)] = ss.getId(); p.setProperty(APP_PROP.logFiles, JSON.stringify(f)); return ss.getId(); })()`);

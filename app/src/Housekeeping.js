@@ -35,15 +35,21 @@ function appAuditSheets_(kind) {
  * 監査の鎖を全部の月で確かめる。各月の中のつながりとハッシュ、月の最初の prev_hash が前の月の最後と同じか、
  * 最後の月の最後が控えの最新ハッシュと同じか、締まった月が控え（AUDIT_ANCHORS）と同じか
  */
-function appVerifyAuditAll_() {
+/**
+ * quick = true なら、今月と先月だけを全部の行で確かめ、それより前の控えのある月は、行の数・最初の prev_hash・最後のハッシュだけを見る
+ * （毎日の手入れ。全部の行は週に 1 回）。控えの無い月は、いつも全部の行で確かめる
+ */
+function appVerifyAuditAll_(quick) {
   const anchors = {};
   try { appReadTable_('AUDIT_ANCHORS').forEach(a => { anchors[a.month] = a; }); } catch (e) { /* 表がまだ無い */ }
   const months = [];
   let prevLast = null;
   let ok = true;
+  const now = new Date();
+  const recent = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - 1, 1), APP_TZ, 'yyyy_MM');
   appAuditSheets_('AUDIT').forEach(m => {
     if (m.error) { months.push({ month: m.month, ok: false, note: m.error }); ok = false; return; }
-    const v = appVerifyAuditSheet_(m.sheet);
+    const v = quick && anchors[m.month] && m.month < recent ? appAuditSheetEnds_(m.sheet) : appVerifyAuditSheet_(m.sheet);
     const r = { month: m.month, rows: v.rows, ok: v.ok, brokenAt: v.brokenAt, lastHash: v.lastHash, firstPrev: v.firstPrev, note: v.ok ? '' : v.brokenAt + ' 行目で鎖が切れている' };
     if (v.ok && v.rows && prevLast !== null && v.firstPrev !== prevLast) { r.ok = false; r.note = '前の月の最後とつながっていない'; }
     const a = anchors[m.month];
@@ -56,7 +62,19 @@ function appVerifyAuditAll_() {
   const latest = String(appProps_().getProperty(APP_PROP.auditLastHash) || '');
   const matchesLatest = prevLast === null || prevLast === latest;
   if (!matchesLatest) ok = false;
-  return { ok: ok, months: months, matchesLatest: matchesLatest, rows: months.reduce((s, m) => s + (m.rows || 0), 0), checkedAt: appNowIso_() };
+  return { ok: ok, months: months, matchesLatest: matchesLatest, rows: months.reduce((s, m) => s + (m.rows || 0), 0), checkedAt: appNowIso_(), quick: !!quick };
+}
+
+/** 月の監査シートの、行の数・最初の prev_hash・最後のハッシュだけ（全部の行を読まない） */
+function appAuditSheetEnds_(sh) {
+  const columns = APP_LOG_TABLES.AUDIT;
+  const last = sh.getLastRow();
+  if (last < 2) return { rows: 0, ok: true, brokenAt: 0, firstPrev: '', lastHash: '' };
+  const ip = columns.indexOf('prev_hash'), ih = columns.indexOf('row_hash');
+  const first = sh.getRange(2, 1, 1, columns.length).getValues()[0].map(String);
+  const end = sh.getRange(last, 1, 1, columns.length).getValues()[0].map(String);
+  const ok = appSha256Hex_(end[ip] + '\n' + JSON.stringify(end.slice(0, ip))) === end[ih];
+  return { rows: last - 1, ok: ok, brokenAt: ok ? 0 : last, firstPrev: first[ip], lastHash: end[ih] };
 }
 
 /** 締まった月（今月より前）で、確かめて正しかった月の最後のハッシュを控える（すでに控えた月はそのまま） */
@@ -136,7 +154,7 @@ function appHousekeeping_(ctx) {
     return { before: before, after: appJobList_().length };
   });
   step('audit', () => {
-    const v = appVerifyAuditAll_();
+    const v = appVerifyAuditAll_(new Date().getDay() !== 0);   // 日曜は全部の行で確かめる
     if (!v.ok) res.problems.push('監査の鎖: ' + v.months.filter(m => !m.ok).map(m => m.month + ' ' + m.note).join(' / ') + (v.matchesLatest ? '' : '（最新のハッシュと合わない）'));
     const anchored = v.ok ? appWithLock_(() => appAnchorClosedMonths_(ctx, v)) : [];
     return { ok: v.ok, months: v.months.length, rows: v.rows, anchored: anchored };
