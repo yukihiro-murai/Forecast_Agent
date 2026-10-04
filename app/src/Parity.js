@@ -93,8 +93,7 @@ function appParityB_(ctx, p) {
 
 /** 計画の一覧（管理画面: 取り込み・一致の確認の対象） */
 function appListPlans_() {
-  const clients = {};
-  appReadTable_('CLIENTS').forEach(c => { clients[c.client_id] = c.client_name; });
+  const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   return appReadTable_('PLANS').map(p => {
     const last = appLastImport_(p.plan_id);
     return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state,

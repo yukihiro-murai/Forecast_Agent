@@ -16,7 +16,9 @@ function appRequireInternalEmail_(ctx, email) {
 function appListDirectory_(ctx) {
   const members = appReadTable_('MEMBERS').map(appStripRow_);
   const roles = appReadTable_('ROLES').map(appStripRow_);
-  const clients = appReadTable_('CLIENTS').map(appStripRow_);
+  const ov = appClientNameOverrides_();
+  const clients = appReadTable_('CLIENTS').map(appStripRow_).map(c => Object.assign(c, { display_name: ov[c.client_id] ? ov[c.client_id].display_name : appClientDisplayName_(c.client_name),
+    display_auto: !ov[c.client_id], display_row_version: ov[c.client_id] ? ov[c.client_id].row_version : '' }));
   return { members: members, roles: roles, clients: clients, owner: ctx.user.owner, grantable: APP_GRANTABLE_ROLES, roleLabels: APP_ROLE_LABELS };
 }
 
@@ -92,6 +94,51 @@ function appNormalizeName_(s) {
     .replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)/g, '')   // NFKC で ㈱・（株） は (株) になる
     .replace(/[\s・.,、。()「」'"’”\-‐－]/g, '')
     .toLowerCase();
+}
+
+// ---- 画面に出すクライアントの名前 ----
+
+/**
+ * ZAC の名前から、ふつうに使う表記を作る: 半角カナ・全角英数を直す（NFKC）、株式会社・（株）・合同会社などを除く、空白をそろえる。
+ * 例: ｱｽﾄﾗｾﾞﾈｶ(株) → アストラゼネカ。合わないものは管理者が「クライアント」の画面で決める（CLIENT_NAMES）
+ */
+function appClientDisplayName_(raw) {
+  return String(raw || '').normalize('NFKC')
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|\((株|有|同|資|名)\)/g, ' ')
+    .replace(/[\s\u3000]+/g, ' ').trim() || String(raw || '').trim();
+}
+
+/** 管理者が決めた名前（{ client_id: 行 }）。表がまだ無ければ空 */
+function appClientNameOverrides_() {
+  const out = {};
+  try { appReadTable_('CLIENT_NAMES').forEach(r => { if (r.display_name) out[r.client_id] = r; }); } catch (e) { if (!/表がありません/.test(String(e && e.message))) throw e; }
+  return out;
+}
+
+/** { client_id: 画面に出す名前 } */
+function appClientNameMap_() {
+  const ov = appClientNameOverrides_();
+  const out = {};
+  appReadTable_('CLIENTS').forEach(c => { out[c.client_id] = ov[c.client_id] ? ov[c.client_id].display_name : appClientDisplayName_(c.client_name); });
+  return out;
+}
+
+/** 画面に出す名前を決める（空にすると自動の名前に戻す） */
+function appSaveClientName_(ctx, input) {
+  const id = String(input && input.clientId || '');
+  const name = String(input && input.displayName || '').normalize('NFKC').replace(/[\s\u3000]+/g, ' ').trim().slice(0, 100);
+  appPlanCheckArgs_([name]);
+  return appWithLock_(() => {
+    const client = appReadTable_('CLIENTS').filter(c => c.client_id === id)[0];
+    if (!client) throw new Error('クライアントが見つかりません。');
+    const auto = appClientDisplayName_(client.client_name);
+    const cur = appClientNameOverrides_()[id];
+    const now = appNowIso_();
+    const value = name === auto ? '' : name;   // 自動の名前と同じなら、決めた名前は持たない
+    if (cur) appUpdateByKey_('CLIENT_NAMES', { client_id: id }, { display_name: value }, input && input.rowVersion, ctx.actor);
+    else if (value) appInsertRows_('CLIENT_NAMES', [{ client_id: id, display_name: value, updated_at: now, updated_by: ctx.actor, row_version: 1 }]);
+    return { clientId: id, displayName: value || auto, auto: !value, before: { displayName: cur ? cur.display_name : auto }, audit: { entityId: id, clientId: id } };
+  });
 }
 
 /** クライアントを足す・直す */

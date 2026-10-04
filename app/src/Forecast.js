@@ -163,8 +163,7 @@ function appStoredHeadline_(planId) {
 /** 画面: 計画の最新の予測（新アプリで動かした記録）と、データ本体の OUTPUT の結果 */
 function appForecastLatest_(planId) {
   const plan = appPlanOf_(planId);
-  const clients = {};
-  appReadTable_('CLIENTS').forEach(c => { clients[c.client_id] = c.client_name; });
+  const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   const runs = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id).map(appStripRow_)
     .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1));
   const latest = runs[0] || null;

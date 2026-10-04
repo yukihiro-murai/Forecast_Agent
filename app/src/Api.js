@@ -49,6 +49,12 @@ function apiRevokeRole(input) {
     after: res => res.role }, ctx => appRevokeRole_(ctx, input));
 }
 
+/** 画面に出すクライアントの名前を決める（管理者） */
+function apiSaveClientName(input) {
+  return api_('CLIENT.NAME', { minRole: 'ADMIN', entityType: 'CLIENT', entityId: input && input.clientId, detail: input,
+    after: res => ({ displayName: res.displayName, auto: res.auto }) }, ctx => appSaveClientName_(ctx, input));
+}
+
 function apiSaveClient(input) {
   return api_('CLIENT.SAVE', { minRole: 'ADMIN', entityType: 'CLIENT', entityId: input && input.clientId, detail: input,
     after: res => res.client }, ctx => appSaveClient_(ctx, input));

@@ -386,7 +386,7 @@ function pfTable(rows, pct1){
 }
 function pfCreateCard(){
   var c = S.pfCand;
-  var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' : '';
+  var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n.display) + '">' + (n.display !== n.zac ? esc(n.zac) : '') + '</option>'; }).join('') + '</datalist>' : '';
   return '<div class="card"><div class="card-head"><h2>計画を作る</h2><span class="note">旧ブックを使わずに、新アプリで新しいクライアント × 年度の計画を作ります</span></div>'
     + '<div class="row mt0"><div class="field"><label for="pc_client">クライアント（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
     + '<div class="field"><label for="pc_fy">年度（FY）</label><input class="inp sm num" id="pc_fy" type="number" min="2000" max="2100" value="' + esc(S.pcFy || (c ? c.defaultFy : pfDefaultFy())) + '" oninput="S.pcFy=this.value"></div>'
@@ -400,16 +400,19 @@ function pfCreateCard(){
 function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
 function pfLoadCandidates(){ S.pcLoading = true; render(); call('apiPlanCandidates', [{ refresh: !!S.pfCand }], function(r){ S.pcLoading = false; S.pfCand = r; if (!S.pcFy) S.pcFy = String(r.defaultFy); }, function(){ S.pcLoading = false; render(); }); }
 function pfCreate(){
-  var c = String($('pc_client').value || '').trim(), fy = String($('pc_fy').value || '').trim(), people = String($('pc_people').value || '').trim();
-  if (!c || !fy || !people) { toast('クライアント・年度・担当者を入れてください', true); return; }
-  if (!confirm(c + ' FY' + fy + ' の計画を作りますか？')) return;
+  var typed = String($('pc_client').value || '').trim(), fy = String($('pc_fy').value || '').trim(), people = String($('pc_people').value || '').trim();
+  if (!typed || !fy || !people) { toast('クライアント・年度・担当者を入れてください', true); return; }
+  // 候補から選んだときは ZAC の名前で作る（売上の取り込みで照合するため）。画面にはふつうの表記を出す
+  var hit = S.pfCand && S.pfCand.candidates.filter(function(n){ return n.display === typed || n.zac === typed; })[0];
+  var c = hit ? hit.zac : typed;
+  if (!confirm((hit ? hit.display : typed) + ' FY' + fy + ' の計画を作りますか？' + (hit && hit.zac !== hit.display ? '\n（ZAC の名前: ' + hit.zac + '）' : ''))) return;
   startJob('PLAN.CREATE', { clientName: c, fy: Number(fy), peopleCsv: people });
 }
 
 function viewMembers(){
   var d = S.dir;
   if (!d) return '<h1>メンバーと役割</h1><div class="card note">読み込み中…</div>';
-  var clientName = {}; d.clients.forEach(function(c){ clientName[c.client_id] = c.client_name; });
+  var clientName = {}; d.clients.forEach(function(c){ clientName[c.client_id] = c.display_name || c.client_name; });
   var rows = d.members.map(function(m){
     var rs = d.roles.filter(function(r){ return r.email === m.email && r.is_active; }).map(function(r){
       return '<span class="chip">' + esc(d.roleLabels[r.role]) + (r.scope_type === 'CLIENT' ? '：' + esc(clientName[r.client_id] || r.client_id) : '') + '</span>'
@@ -420,7 +423,7 @@ function viewMembers(){
   }).join('');
   var memberOpts = d.members.filter(function(m){ return m.is_active; }).map(function(m){ return '<option value="' + esc(m.email) + '">' + esc(m.display_name) + '（' + esc(m.email) + '）</option>'; }).join('');
   var roleOpts = d.grantable.map(function(r){ return '<option value="' + r + '">' + esc(d.roleLabels[r]) + '</option>'; }).join('');
-  var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.client_name) + '</option>'; }).join('');
+  var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.display_name || c.client_name) + '</option>'; }).join('');
   return '<h1>メンバーと役割</h1>'
     + '<div class="card"><h2>メンバー</h2><p class="note">社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録してください。</p>'
     + '<table class="tbl mt12"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
@@ -439,11 +442,17 @@ function revoke(id, ver){ if (!confirm('この役割を外しますか？')) ret
 function viewClients(){
   var d = S.dir;
   if (!d) return '<h1>クライアント</h1><div class="card note">読み込み中…</div>';
-  var rows = d.clients.map(function(c){ return '<tr><td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>'; }).join('');
-  return '<h1>クライアント</h1><div class="card"><table class="tbl"><colgroup><col style="width:300px"><col style="width:160px"><col></colgroup><thead><tr><th>名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="note">まだ登録がありません</td></tr>') + '</tbody></table>'
-    + '<div class="row foot"><div class="field"><label>クライアント名</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
-    + '<button class="btn" onclick="saveClient()">クライアントを追加</button></div><p class="note mt8">旧アプリのクライアントは、段階2で移すときにまとめて登録します。</p></div>';
+  var rows = d.clients.map(function(c, i){
+    return '<tr><td><div class="row c nowrap mt0"><input class="inp" id="cn_' + i + '" value="' + esc(c.display_name) + '" aria-label="画面の名前">'
+      + '<button class="btn btn-ghost" onclick="saveClientName(' + i + ')">保存</button></div>' + (c.display_auto ? '' : '<div class="note mt4">手で決めた名前（空にして保存すると自動に戻る）</div>') + '</td>'
+      + '<td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>';
+  }).join('');
+  return '<h1>クライアント</h1><div class="card"><p class="note">画面には「画面の名前」を出します。ZAC の名前から、半角カナを全角に直し、株式会社・（株）などを除いて自動で作ります。ふつうの表記と違うときだけ直してください。ZAC の名前は売上の取り込みで使うので変わりません。</p>'
+    + '<div class="tblwrap mt12"><table class="tbl"><colgroup><col style="width:440px"><col style="width:280px"><col style="width:140px"><col></colgroup><thead><tr><th>画面の名前</th><th>ZAC の名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="4" class="note">まだ登録がありません</td></tr>') + '</tbody></table></div>'
+    + '<div class="row foot"><div class="field"><label>クライアント名（ZAC の名前）</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
+    + '<button class="btn" onclick="saveClient()">クライアントを追加</button></div><p class="note mt8">計画を作る・旧ブックを取り込むと、クライアントは自動で登録されます。</p></div>';
 }
+function saveClientName(i){ var c = S.dir.clients[i]; call('apiSaveClientName', [{ clientId: c.client_id, displayName: $('cn_' + i).value, rowVersion: c.display_row_version }], function(r){ toast(r.auto ? '自動の名前にしました' : '名前を保存しました'); go('clients'); }); }
 function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, zacCode: $('c_zac').value }], function(){ toast('追加しました'); go('clients'); }); }
 
 function viewSettings(){

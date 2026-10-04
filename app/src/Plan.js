@@ -174,8 +174,7 @@ function appStoreBook_(plan) {
 /** 計画の画面の中身（旧来の Web アプリの webGetBootstrap_ と同じもの）。入力が同じなら覚えておいたものを返す */
 function appPlanView_(ctx, planId) {
   const plan = appPlanOf_(planId);
-  const clients = {};
-  appReadTable_('CLIENTS').forEach(c => { clients[c.client_id] = c.client_name; });
+  const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   const roles = ctx.roles || [];
   const pending = appJournalPending_();
   if (pending) {

@@ -26,7 +26,8 @@ function appPlanCandidates_(ctx, input) {
     names = appLegacyCall_({}, { asOfMs: new Date().getTime(), seed: 'candidates', actor: ctx.actor }, 'getClientCandidatesForSetup_', []).value || [];
     try { cache.put(APP_CANDIDATES_CACHE_KEY, JSON.stringify(names), 21600); } catch (e) { /* 大きすぎれば控えない */ }
   }
-  return { candidates: names, defaultFy: appFy_(new Date()) + (new Date().getMonth() >= 9 ? 1 : 0), existing: appListPlans_().map(p => ({ clientName: p.clientName, fy: p.fy })) };
+  // 画面には、ふつうの表記を出す（作るときは ZAC の名前を使う。売上の取り込みで照合するため）
+  return { candidates: names.map(n => ({ zac: n, display: appClientDisplayName_(n) })), defaultFy: appFy_(new Date()) + (new Date().getMonth() >= 9 ? 1 : 0), existing: appListPlans_().map(p => ({ clientName: p.clientName, fy: p.fy })) };
 }
 
 function appPlanCreateCheck_(p) {
@@ -42,7 +43,7 @@ function appPlanCreateCheck_(p) {
   const normalized = appNormalizeName_(clientName);
   const client = appReadTable_('CLIENTS').filter(c => c.normalized_name === normalized)[0] || null;
   if (client && appReadTable_('PLANS').some(x => x.client_id === client.client_id && String(x.fy) === String(fy) && x.state !== 'ARCHIVED')) {
-    throw new Error(client.client_name + ' の FY' + fy + ' の計画は、すでにあります。');
+    throw new Error(appClientDisplayName_(client.client_name) + ' の FY' + fy + ' の計画は、すでにあります。');
   }
   return { clientName: clientName, fy: fy, peopleCsv: people.join(','), client: client, normalized: normalized };
 }
@@ -88,7 +89,7 @@ function appPlanCreateSave_(ctx, p) {
       people_csv: c.peopleCsv, source_book_id: '', locale: appNewPlanTz_().locale, time_zone: appNewPlanTz_().time_zone, state: 'ACTIVE', note: '新アプリで作成',
       created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }] });
     const written = appJournalRun_(ctx, '計画の作成（' + c.clientName + ' FY' + c.fy + '）', planId, ops);
-    return { planId: planId, clientName: c.clientName, fy: c.fy, sheets: cap.changed.length, written: written, engine: p.engine,
+    return { planId: planId, clientName: appClientDisplayName_(c.clientName), fy: c.fy, sheets: cap.changed.length, written: written, engine: p.engine,
       timing: { buildMs: p.buildMs, saveMs: new Date().getTime() - t0 }, audit: { entityId: planId, clientId: client.client_id } };
   });
 }
@@ -97,8 +98,7 @@ function appPlanCreateSave_(ctx, p) {
 
 /** 全部の計画の要点（最新の予測・前回からの変化・予算・精度・手順の進み） */
 function appPortfolio_() {
-  const clients = {};
-  appReadTable_('CLIENTS').forEach(c => { clients[c.client_id] = c.client_name; });
+  const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   const runs = {};
   appReadTable_('FORECAST_RUNS').filter(r => r.status === 'DONE').forEach(r => { (runs[r.plan_id] = runs[r.plan_id] || []).push(r); });
   const outRows = {};
