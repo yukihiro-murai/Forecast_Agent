@@ -54,7 +54,7 @@ function appPlanCreateBuild_(ctx, p) {
   return appWithLock_(() => {
     appJournalRecover_(ctx);
     const c = appPlanCreateCheck_(p);
-    const scratch = appParityScratch_(appNewPlanTz_());
+    const scratch = appWorkScratch_(appNewPlanTz_());
     const token = appId_('SCR');
     appScratchReset_(scratch, token);
     const asOfMs = new Date().getTime();
@@ -95,6 +95,17 @@ function appPlanCreateSave_(ctx, p) {
 }
 
 // ---- 一覧 ----
+
+/** 計画の一覧（予測の画面の計画を選ぶ欄・旧ブックから移す画面） */
+function appListPlans_() {
+  const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
+  return appReadTable_('PLANS').map(p => {
+    const last = appLastImport_(p.plan_id);
+    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state,
+      lastImportedAt: last ? last.finished_at : '', source: p.source_book_id ? 'book' : 'app' };
+  });
+}
+
 
 /** 全部の計画の要点（最新の予測・前回からの変化・予算・精度・手順の進み） */
 function appPortfolio_() {

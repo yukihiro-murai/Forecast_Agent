@@ -281,7 +281,7 @@ function appPlanEdit_(ctx, p) {
     if (p.inputHash && p.inputHash !== inputHash) {
       throw new Error('画面を開いた後に、ほかの人の操作でデータが変わりました。画面を開き直して、もう一度入力してください。');
     }
-    const scratch = appParityScratch_(plan);
+    const scratch = appWorkScratch_(plan);
     const build = appScratchFromStore_(scratch, plan.plan_id, act.sheets);
     const t1 = new Date().getTime();
     const call = act.local ? appPlanLocalCall_(scratch, act.local, act.args(args || {}))
@@ -321,7 +321,7 @@ function appPlanRunBuild_(ctx, p) {
     if (p.build && inputHash !== p.inputHash) throw new Error('組み立てている間にデータ本体が変わりました。もう一度実行してください。');
     const actionId = p.actionId || appId_('ACT');
     const asOfMs = p.asOfMs || jobStart;
-    const step = appScratchBuildStep_(appParityScratch_(plan), plan.plan_id, act.sheets || null, p.build || null, appBuildDeadline_(jobStart));
+    const step = appScratchBuildStep_(appWorkScratch_(plan), plan.plan_id, act.sheets || null, p.build || null, appBuildDeadline_(jobStart));
     const payload = { planId: plan.plan_id, action: p.action, actionId: actionId, seed: actionId, asOfMs: asOfMs, inputHash: inputHash,
       startedAt: Utilities.formatDate(new Date(asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), build: step.state,
       buildMs: Number(p.buildMs || 0) + (new Date().getTime() - jobStart), aiAttempt: Number(p.aiAttempt || 0) };
@@ -340,7 +340,7 @@ function appPlanRunCalc_(ctx, p) {
     const fetcher = act.ai ? appAiFetcher_(p.actionId, appAiDeadline_(t0)) : null;
     let call;
     try {
-      call = appLegacyCall_(appParityScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
+      call = appLegacyCall_(appWorkScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
     } catch (e) {
       if (!fetcher || !fetcher.stopped()) {
         const f = fetcher ? fetcher.failures() : [];
@@ -370,7 +370,7 @@ function appPlanRunSave_(ctx, p) {
     appJournalRecover_(ctx);   // 書きかけの控えを先に書き終える（途中の表から控えを作らない）
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const cap = appCaptureChanged_(appParityScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id), act.sheets);
+    const cap = appCaptureChanged_(appWorkScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id), act.sheets);
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId);
@@ -396,50 +396,4 @@ function appPlanCheckArgs_(args) {
   };
   walk(args);
   return args;
-}
-
-// ---- 画面の中身の確認（所有者）: 読むだけのブックと、計算用ブックで、旧来の画面の中身が同じか ----
-
-/** 2 つの値の違う場所（a.b[3].c の形。limit 件まで） */
-function appJsonDiff_(a, b, path, out, limit) {
-  if (out.length >= limit) return out;
-  const ta = Array.isArray(a) ? 'array' : a === null ? 'null' : typeof a;
-  const tb = Array.isArray(b) ? 'array' : b === null ? 'null' : typeof b;
-  if (ta !== tb) { out.push({ path: path || '(全体)', a: appJsonShort_(a), b: appJsonShort_(b) }); return out; }
-  if (ta === 'array') {
-    if (a.length !== b.length) out.push({ path: path + '.length', a: a.length, b: b.length });
-    for (let i = 0; i < Math.min(a.length, b.length); i++) appJsonDiff_(a[i], b[i], path + '[' + i + ']', out, limit);
-  } else if (ta === 'object') {
-    Object.keys(Object.assign({}, a, b)).forEach(k => appJsonDiff_(a[k], b[k], path ? path + '.' + k : k, out, limit));
-  } else if (a !== b) {
-    out.push({ path: path || '(全体)', a: appJsonShort_(a), b: appJsonShort_(b) });
-  }
-  return out;
-}
-
-function appJsonShort_(v) {
-  const s = v === undefined ? '(なし)' : JSON.stringify(v);
-  return s.length > 120 ? s.slice(0, 120) + '…' : s;
-}
-
-/** 計算用ブックに全部のシートを組み立てて旧来の webGetBootstrap_ を動かし、読むだけのブックで動かしたものと比べる（どちらにも書かない） */
-function appPlanViewCheck_(ctx, p) {
-  const plan = appPlanOf_(p.planId);
-  const t0 = new Date().getTime();
-  const strip = v => { const x = appSerialize_(v); delete x.user; delete x.bookUrl; delete x.access; return x; };
-  return appWithLock_(() => {
-    appJournalRecover_(ctx);
-    const scratch = appParityScratch_(plan);
-    const build = appScratchFromStore_(scratch, plan.plan_id);
-    const t1 = new Date().getTime();
-    const opts = { asOfMs: t0, seed: 'view:' + plan.plan_id, actor: ctx.actor };
-    const real = strip(appLegacyCall_(scratch, opts, 'webGetBootstrap_', []).value);
-    const t2 = new Date().getTime();
-    const view = strip(appLegacyCall_(appStoreBook_(plan), opts, 'webGetBootstrap_', []).value);
-    const t3 = new Date().getTime();
-    const diffs = appJsonDiff_(real, view, '', [], 30);
-    return { planId: plan.plan_id, same: diffs.length === 0, diffs: diffs,
-      build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
-      timing: { buildMs: t1 - t0, realMs: t2 - t1, viewMs: t3 - t2 }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
-  });
 }

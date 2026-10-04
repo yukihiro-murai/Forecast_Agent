@@ -209,9 +209,8 @@ var READS = { apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVer
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
-  'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）',
   'FORECAST.RUN': '予測の準備をしています（1/3 データの組み立て）', 'FORECAST.RUN_CALC': '予測を計算しています（2/3）', 'FORECAST.RUN_SAVE': '予測を保存しています（3/3）',
-  'PLAN.VIEW_CHECK': '画面の中身を確かめています', 'SYSTEM.RECOVER': '保存の続きを書いています',
+  'SYSTEM.RECOVER': '保存の続きを書いています',
   'LEARN.POOL': '学習の事前分布を各計画に書いています', 'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
 var PLAN_STEP = { 'PLAN.RUN': '準備しています（1/3 データの組み立て）', 'PLAN.RUN_CALC': '実行しています（2/3）', 'PLAN.RUN_SAVE': '保存しています（3/3）' };
 /** 処理の表示名（計画への保存・実行は操作の名前で） */
@@ -226,7 +225,6 @@ function jobLabel(j){
 var JOB_DONE = {
   'MIGRATION.DRYRUN': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.dry = r; },
   'MIGRATION.IMPORT': function(r, payload){ S.view = 'migrate'; S.mig.url = payload.bookUrl || S.mig.url; S.mig.result = r; toast(r.unchanged ? '変更はありませんでした' : '取り込みました'); loadPlans(); },
-  'FORECAST.PARITY_B': function(r){ S.view = 'migrate'; S.mig.parity = r; toast(r.same ? '計算が完全に一致しました' : '計算に違いがありました', !r.same); },
   // 旧来の計算が入力の確認を求めたとき（極端な入力値など）は、内容を見せて、続けるときだけもう一度動かす（計算の処理が返す）
   'FORECAST.RUN_CALC': function(r, payload){ JOB_DONE['FORECAST.RUN'](r, payload); },
   'FORECAST.RUN': function(r, payload){
@@ -238,7 +236,6 @@ var JOB_DONE = {
     toast('予測の前に確認があります', false);
   },
   'FORECAST.RUN_SAVE': function(r){ S.view = 'forecast'; toast('予測を保存しました'); loadForecast(r.planId, true); },
-  'PLAN.VIEW_CHECK': function(r){ S.view = 'migrate'; S.mig.viewCheck = r; toast(r.same ? '画面の中身は旧来と同じでした' : '画面の中身に違いがありました', !r.same); },
   'PLAN.EDIT': function(r){ S.view = 'forecast'; toast(r.changed && r.changed.length ? '保存しました' : '変更はありませんでした'); loadForecast(r.planId, true); },
   'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId, true); },
   'LEARN.POOL': function(r){ toast('事前分布を ' + r.plans.length + ' 計画に入れました'); S.pfPool = null; },
@@ -594,7 +591,6 @@ function viewMigrate(){
       + (d.timing ? '<p class="note">読むのにかかった時間: ' + Math.round(d.timing.totalMs / 1000) + ' 秒</p>' : '')
       + '<div class="row"><button class="btn" ' + (d.lossless && !S.job ? '' : 'disabled ') + 'onclick="migImport()">取り込む</button></div></div>';
   }
-  html += viewParity();
   if (m.result) {
     var r = m.result;
     var total = r.written ? Object.keys(r.written).reduce(function(a, k){ return a + r.written[k]; }, 0) : 0;
@@ -979,53 +975,6 @@ function fcStepsTab(d, v){
 function loadPlans(){ call('apiListPlans', [], function(r){ S.mig.plans = r.plans; }); }
 function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLocaleString('ja-JP'); }
 function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 100).toFixed(2) + '%'; }
-function viewParity(){
-  var m = S.mig, html = '';
-  var books = (m.plans || []).filter(function(p){ return p.source !== 'app'; });   // 旧ブックから取り込んだ計画だけ（新アプリで作った計画には比べる旧ブックがない）
-  if (books.length) {
-    html += '<div class="card"><h2>取り込んだ計画</h2><table class="tbl"><colgroup><col style="width:220px"><col style="width:88px"><col style="width:152px"><col></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>取り込み</th><th>確かめる</th></tr></thead><tbody>'
-      + books.map(function(p){
-        return '<tr><td>' + esc(p.clientName) + '</td><td>FY' + esc(p.fy) + '</td><td>' + esc((p.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td><div class="row c mt0">'
-          + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="startParity(\'' + esc(p.planId) + '\')">計算の一致を確かめる</button>'
-          + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="S.mig.viewCheck=null;startJob(\'PLAN.VIEW_CHECK\', { planId: \'' + esc(p.planId) + '\' })">画面の中身を確かめる</button></div></td></tr>';
-      }).join('') + '</tbody></table><p class="note mt8">旧ブックをそのまま写したものと、データ本体から組み立てたもので、同じ乱数・同じ時刻で予測を 2 回動かし、計算後の全シートを比べます（3〜5 分ほど。どちらにも書き込みません）。</p></div>';
-  }
-  var vc = m.viewCheck;
-  if (vc) {
-    html += '<div class="card"><h2>画面の中身の確認</h2><div class="row c mt0">' + (vc.same ? '<span class="chip ok">旧来の画面と同じ</span>' : '<span class="chip ng">違いあり（' + vc.diffs.length + (vc.diffs.length >= 30 ? ' 以上' : '') + '）</span>') + '</div>'
-      + (vc.diffs.length ? '<p class="note mt8 err-text">左が計算用ブックで読んだもの、右がデータ本体から読んだもの:<br>' + vc.diffs.map(function(d){ return esc(d.path) + '：' + esc(d.a) + ' / ' + esc(d.b); }).join('<br>') + '</p>' : '')
-      + '<p class="note mt8">旧来の画面の読み取り（webGetBootstrap_）を、データ本体から組み立てた計算用ブックと、データ本体から直接読むもので動かして比べました（どちらにも書きません）。かかった時間: '
-      + Math.round((vc.timing.buildMs + vc.timing.realMs + vc.timing.viewMs) / 1000) + ' 秒（データ本体から直接読むのは ' + (vc.timing.viewMs / 1000).toFixed(1) + ' 秒）。</p></div>';
-  }
-  var r = m.parity;
-  if (r) {
-    var verdict = r.same ? '<span class="chip ok">完全に一致</span>' : '<span class="chip ng">違いあり（' + r.diff.length + ' シート）</span>';
-    var row = function(label, h){ return '<tr><td>' + label + '</td><td>' + yen(h && h.annual.p10) + '</td><td>' + yen(h && h.annual.p50) + '</td><td>' + yen(h && h.annual.p90) + '</td></tr>'; };
-    var diffText = function(list){ return (list || []).map(function(d){
-      var cells = d.formatCells && d.formatCells.samples.length ? '：' + d.formatCells.samples.map(function(x){ return x.cells + ' 「' + x.a + '」/「' + x.b + '」'; }).join('、') + (d.formatCells.count > d.formatCells.samples.length ? ' ほか' : '') : '';
-      return esc(d.sheet) + (d.missing ? '（片方にない）' : '（値の違う行 ' + d.rowCount + (d.size ? '・大きさ ' + esc(d.size) : '') + (d.formats ? '・表示形式' + esc(cells) : '') + '）');
-    }).join('<br>'); };
-    var diffs = diffText(r.diff);
-    var preDiffs = r.preDiff ? diffText(r.preDiff) : '';
-    var sec = r.timing ? Math.round((r.timing.a.copyMs + r.timing.a.runMs + r.timing.a.digestMs + r.timing.b.buildMs + r.timing.b.runMs + r.timing.b.compareMs) / 1000) : 0;
-    html += '<div class="card"><h2>計算の一致の確認</h2><div class="row c mt0">' + verdict
-      + (r.legacyChangedAfterImport ? '<span class="chip warn">取り込みの後に旧ブックが変わっています（取り込み直してから確かめてください）</span>' : '') + '</div>'
-      + '<table class="tbl mt12"><colgroup><col style="width:300px"><col><col><col></colgroup><thead><tr><th>年度合計（シミュレーション予測）</th><th>Downside（P10）</th><th>Baseline（P50）</th><th>Upside（P90）</th></tr></thead><tbody>'
-      + row('旧ブックの写しで実行', r.legacy) + row('データ本体から組み立てて実行', r.store)
-      + row('<span class="note">参考: 旧ブックで前回に実行した結果</span>', r.previous) + '</tbody></table>'
-      + (diffs ? '<p class="note mt8 err-text">計算の後に違いのあったシート（左が旧ブックの写し、右がデータ本体）:<br>' + diffs + '</p>' : '')
-      + (r.preDiff ? (r.preSame ? '<p class="note">計算の前の状態: 全シート一致</p>' : '<p class="note err-text">計算の前から違っていたシート:<br>' + preDiffs + '</p>') : '')
-      + (r.build && r.build.length ? '<p class="note">データ本体から組み立てたときに書き方を変えたセル:<br>' + r.build.map(function(b){
-          return esc(b.sheet) + '（' + [b.formatFixed ? '表示形式を直した ' + b.formatFixed : '', b.blankMethod ? '空の形式は「' + esc(b.blankMethod) + '」で直った' : '',
-            b.formatMismatches ? '表示形式が直らない ' + b.formatMismatches + '：' + esc((b.formatSamples || []).join('、')) : '', b.mismatch ? '値が直らない ' + b.mismatch : '',
-            b.forcedText ? '文字列に固定 ' + b.forcedText : ''].filter(Boolean).join('・') + '）';
-        }).join('<br>') + '</p>' : '')
-      + '<p class="note mt8">上の 2 行は同じ乱数・同じ時刻（' + esc(String(r.asOf || '').replace('T', ' ').slice(0, 16)) + '）で動かした結果です。前回の結果は乱数と実行日が違うので、少し違って正常です'
-      + (r.previous && r.legacy ? '（P50 の差 ' + pct(r.legacy.annual.p50, r.previous.annual.p50) + '）' : '') + '。かかった時間: ' + sec + ' 秒。</p></div>';
-  }
-  return html;
-}
-function startParity(planId){ S.mig.parity = null; startJob('FORECAST.PARITY', { planId: planId }); render(); }
 function migDry(){
   S.mig.url = $('mig_url').value; S.mig.dry = null; S.mig.result = null;
   startJob('MIGRATION.DRYRUN', { bookUrl: S.mig.url });

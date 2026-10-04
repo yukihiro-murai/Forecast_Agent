@@ -14,6 +14,7 @@ import path from 'node:path';
 import { repoRoot, OWNER, MEMBER, J, isDate, makeEnv, setUpEnv } from './gas-mock.mjs';
 
 const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
+const archivedSrc = await readFile(path.join(repoRoot, 'archive', 'legacy-2026-10-04', 'Forecast_Agent.js'), 'utf8');   // 新アプリで使わない部分を除く前の元
 
 // ==== 1. 移すシートの一覧と見出しは旧来のコードと同じ ====
 {
@@ -30,7 +31,8 @@ const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8
   for (const [name, d] of Object.entries(reg)) {
     if (d.mode !== 'table') continue;
     const pattern = new RegExp('\\[\\s*' + d.header.map((h) => "'" + h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "'").join('\\s*,\\s*') + '\\s*\\]');
-    assert.match(legacySrc, pattern, `${name} の見出しが Forecast_Agent.js の定義と違う`);
+    // POOL_PRIOR の見出しは、新アプリで使わない管理ハブの集約（2026-10-04 に archive/ へ移した）にだけ書かれていた
+    assert.ok(pattern.test(legacySrc) || pattern.test(archivedSrc), `${name} の見出しが Forecast_Agent.js の定義と違う`);
   }
   // ENG_ の表の列 = 計画・行番号・見出し・型の並び（文字列のまま持つ）
   const tables = J(env.run('APP_TABLES'));

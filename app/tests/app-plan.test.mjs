@@ -108,12 +108,6 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // 日本語の多い大きな結果も覚えておける（CacheService の上限はバイト数。2026-10-02 画面が読み込み中のまま）
   env.run(`appJobPutResult_('BIG', { t: '日本語'.repeat(40000) })`);
   assert.equal(J(env.run(`appJobGetResult_('BIG')`)).value.t.length, 120000);
-  // 所有者の確認: 計算用ブックに組み立てて読んだものと同じ
-  const chk = env.runJob('PLAN.VIEW_CHECK', { planId });
-  assert.equal(chk.status, 'DONE', chk.error);
-  assert.deepEqual(chk.result.diffs, []);
-  assert.equal(chk.result.same, true);
-  assert.deepEqual(J(env.run(`appJsonDiff_({ a: [1, 2], b: 'x' }, { a: [1, 3, 4], c: 1 }, '', [], 10)`)).map((d) => d.path), ['a.length', 'a[1]', 'b', 'c']);
 }
 
 // ==== 3. 保存: 旧来の webSave* を本物のまま動かし、変わったシートだけを戻す ====

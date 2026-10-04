@@ -224,13 +224,13 @@ const logOf = (ctx) => {
 
 // ---- 7. 書き込み・実行の 17 関数はすべて記録つき。読むだけの関数は包まない ----
 {
-  const wrapped = ['webSaveSetup', 'webRunImportSales', 'webRunAggregate', 'webRunAiResearch', 'webSaveInputs', 'webRunForecast',
+  // 旧 Web アプリの入口（doGet・設定・予測・Vertex アシスト・学習の検算）は、新アプリで使わないので 2026-10-04 に除いた（archive/ に元）
+  const wrapped = ['webRunImportSales', 'webRunAggregate', 'webRunAiResearch', 'webSaveInputs',
     'webSaveBudget', 'webRunImportActuals', 'webRunEvalReport', 'webRunDashboard', 'webRunInsights', 'webSaveEvalInsights',
-    'webRunQuarterly', 'webSaveQuarterlyDecisions', 'webApplyQuarterly', 'webRunMonthlyLearn', 'webRunVertexAssist'];
+    'webRunQuarterly', 'webSaveQuarterlyDecisions', 'webApplyQuarterly', 'webRunMonthlyLearn'];
   for (const n of wrapped) assert.match(extractFunction(webSrc, n), new RegExp(`^function ${n}\\([^)]*\\) \\{\\n  return webAudited_\\('`), `${n} は webAudited_ を通す`);
-  for (const n of ['webGetBootstrap', 'webGetClientCandidates', 'webRunLearningBacktest']) assert.doesNotMatch(extractFunction(webSrc, n), /webAudited_/, `${n} は読むだけ`);
   const pub = [...webSrc.matchAll(/^function (web[A-Za-z]+)\(/gm)].map((m) => m[1]);
-  assert.deepEqual(pub.filter((n) => !wrapped.includes(n) && !['webGetBootstrap', 'webGetClientCandidates', 'webRunLearningBacktest'].includes(n)), [],
+  assert.deepEqual(pub.filter((n) => !wrapped.includes(n)), [],
     '新しい公開関数を足したら、記録つきにするか読むだけかをここに足す');
 }
 

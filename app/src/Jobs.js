@@ -18,15 +18,12 @@ function appJobSpec_(kind) {
   const specs = {
     'MIGRATION.DRYRUN': { ownerOnly: true, label: '旧ブックの試し読み' },
     'MIGRATION.IMPORT': { ownerOnly: true, label: '旧ブックの取り込み' },
-    'FORECAST.PARITY': { ownerOnly: true, label: '計算の一致の確認' },
-    'FORECAST.PARITY_B': { ownerOnly: true, label: '計算の一致の確認', internal: true },   // 続きの処理（画面からは始めない）
     // 予測の実行: 予算策定担当（その計画のクライアントの担当でもよい）以上
     // 組み立て（続きは同じ処理を続けて動かす）→ 計算 → 保存の 3 つ（Forecast.js）
     'FORECAST.RUN': { minRole: 'PLANNER', planScoped: true, label: '予測の実行' },
     'FORECAST.RUN_CALC': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     // 計画への保存・実行（Plan.js）: 操作ごとの役割（予算策定担当・承認者）。その計画のクライアントの担当でもよい
-    'PLAN.VIEW_CHECK': { ownerOnly: true, label: '画面の中身の確認' },
     'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存' },
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
     'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
@@ -112,18 +109,6 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'FORECAST.RUN.SAVE', { entityType: 'FORECAST_RUN', entityId: p.runId, detail: { planId: p.planId, runId: p.runId, inputHash: p.inputHash, jobId: job.id },
         after: res => ({ runId: res.runId, changed: res.changed, written: res.written, annual: res.headline && res.headline.annual, timing: res.timing }) },
         () => appForecastRunSave_(ctx, p));
-    case 'FORECAST.PARITY':
-      return appAudited_(ctx, 'FORECAST.PARITY.A', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
-        after: res => ({ next: res.__next.kind, seed: res.__next.payload.seed, legacyAnnual: res.__next.payload.legacy && res.__next.payload.legacy.annual,
-          timing: res.__next.payload.timingA }) }, () => appParityA_(ctx, p, job));
-    case 'FORECAST.PARITY_B':
-      return appAudited_(ctx, 'FORECAST.PARITY.B', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id, parentJobId: p.parentJobId },
-        after: res => ({ same: res.same, diffSheets: res.diff.length, preSame: res.preSame, diff: res.diff.map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })),
-          preDiff: (res.preDiff || []).map(d => ({ sheet: d.sheet, rowCount: d.rowCount, formatCells: d.formatCells })), seed: res.seed, asOf: res.asOf, storeAnnual: res.store && res.store.annual,
-          legacyAnnual: res.legacy && res.legacy.annual, timing: res.timing }) }, () => appParityB_(ctx, p));
-    case 'PLAN.VIEW_CHECK':
-      return appAudited_(ctx, 'PLAN.VIEW_CHECK', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, jobId: job.id },
-        after: res => ({ same: res.same, diffs: res.diffs.length, timing: res.timing }) }, () => appPlanViewCheck_(ctx, p));
     case 'PLAN.EDIT':
       return appAudited_(ctx, 'PLAN.' + p.action, { entityType: 'PLAN', entityId: p.planId,
         detail: { planId: p.planId, action: p.action, args: appJobArgs_(p), jobId: job.id },

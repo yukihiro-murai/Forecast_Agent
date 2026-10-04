@@ -35,7 +35,7 @@ function appForecastRunBuild_(ctx, p, job) {
     if (p.build && inputHash !== p.inputHash) throw new Error('組み立てている間にデータ本体が変わりました。もう一度実行してください。');
     const runId = p.runId || appId_('RUN');
     const asOfMs = p.asOfMs || jobStart;
-    const step = appScratchBuildStep_(appParityScratch_(plan), plan.plan_id, null, p.build || null, appBuildDeadline_(jobStart));
+    const step = appScratchBuildStep_(appWorkScratch_(plan), plan.plan_id, null, p.build || null, appBuildDeadline_(jobStart));
     const payload = { planId: plan.plan_id, confirms: (p.confirms || []).map(String), runId: runId, seed: runId, asOfMs: asOfMs, inputHash: inputHash,
       startedAt: Utilities.formatDate(new Date(asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), build: step.state,
       buildMs: Number(p.buildMs || 0) + (new Date().getTime() - jobStart) };
@@ -51,7 +51,7 @@ function appForecastRunCalc_(ctx, p) {
   return appWithLock_(() => {
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const scratch = appParityScratch_(plan);
+    const scratch = appWorkScratch_(plan);
     const run = appRunLegacyForecast_(scratch, { asOfMs: p.asOfMs, seed: p.seed, confirms: p.confirms || [], actor: ctx.actor });
     if (!run.ok) return { needConfirm: run.needConfirm, planId: plan.plan_id, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
     const payload = Object.assign({}, p, { engine: { version: run.version, sourceSha256: run.sourceSha256 }, headline: appForecastHeadline_(scratch),
@@ -68,7 +68,7 @@ function appForecastRunSave_(ctx, p) {
     appJournalRecover_(ctx);   // 書きかけの控えを先に書き終える（途中の表から控えを作らない）
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const cap = appCaptureChanged_(appParityScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id));
+    const cap = appCaptureChanged_(appWorkScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id));
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const h = p.headline || { annual: {}, objective: {}, monthly: [], objectiveMonthly: [] };

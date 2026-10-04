@@ -281,21 +281,16 @@ function appLegacyCall_(book, opts, fnName, args) {
 
 // ---- 計算用ブックの準備と、計算後の中身の控え ----
 
-/** 旧ブックの計算に使うシートを、そのまま（書式・数式・注記ごと）計算用ブックに写す（一致の確認の「元」側） */
-function appScratchCopyLegacy_(scratch, legacy) {
-  const placeholder = appScratchReset_(scratch);
-  const copied = [];
-  Object.keys(APP_ENGINE_SHEETS).forEach(name => {
-    const sh = legacy.getSheetByName(name);
-    if (!sh) return;
-    sh.copyTo(scratch).setName(name);
-    copied.push(name);
-  });
-  if (scratch.getSheets().length > 1) scratch.deleteSheet(placeholder);
-  return copied;
+/** 計算用ブック（計画の地域・時差に合わせる）。予測・実行・計画の作成で使う */
+function appWorkScratch_(plan) {
+  const scratch = appScratchBook_();
+  try { scratch.setSpreadsheetTimeZone(plan.time_zone || APP_TZ); if (plan.locale) scratch.setSpreadsheetLocale(plan.locale); } catch (e) {
+    Logger.log('計算用ブックの地域設定: ' + (e && e.message ? e.message : e));
+  }
+  return scratch;
 }
 
-/** データ本体の計画 1 つ分から、計算用ブックを組み立てる（一致の確認の「新」側・新アプリでの予測の実行）。only を渡すとそのシートだけ */
+/** データ本体の計画 1 つ分から、計算用ブックを組み立てる（予測・実行）。only を渡すとそのシートだけ */
 function appScratchFromStore_(scratch, planId, only) {
   const sheets = appEngLoadPlanSheets_(planId, only);
   const placeholder = appScratchReset_(scratch);
@@ -327,80 +322,6 @@ function appFastHash_(str) {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
   return ('00000000000000' + n.toString(16)).slice(-14);
-}
-
-/** 計算用ブックの計算に使うシートの控え（シートごとのハッシュと行ごとの短いハッシュ）。2 つの実行の結果を比べる */
-function appScratchDigest_(scratch) {
-  const out = {};
-  scratch.getSheets().forEach(sh => {
-    const name = sh.getName();
-    const reg = APP_ENGINE_SHEETS[name];
-    const snap = appSheetSnapshot_(sh, reg && reg.header ? reg.header.length : 0);
-    const rows = [];
-    for (let r = 0; r < snap.lastRow; r++) {
-      const cells = [];
-      for (let c = 0; c < snap.lastCol; c++) cells.push(appCellEncode_(snap.values[r][c], snap.formulas[r] && snap.formulas[r][c]).join(''));
-      rows.push(appFastHash_(JSON.stringify(cells)));
-    }
-    const fmt = appSha256Hex_(JSON.stringify(snap.formats));
-    // 表示形式は列ごとの続いた範囲で持つ（違ったときにセルと形式を示すため）
-    const fmtRuns = {};
-    for (let c = 0; c < snap.fmtCols; c++) {
-      const runs = [];
-      for (let r = 0; r < snap.maxRows; r++) {
-        const f = String((snap.formats[r] || [])[c] || '');
-        const last = runs[runs.length - 1];
-        if (last && last[2] === f) last[1] = r + 1; else runs.push([r + 1, r + 1, f]);
-      }
-      fmtRuns[c + 1] = runs;
-    }
-    out[name] = { rows: rows, formats: fmt, fmtRuns: fmtRuns, size: [snap.maxRows, snap.maxCols, snap.lastRow, snap.lastCol].join('x'),
-      hash: appSha256Hex_(JSON.stringify([rows, fmt, snap.maxRows, snap.maxCols, snap.lastRow, snap.lastCol])) };
-  });
-  return out;
-}
-
-/** 2 つの控えの違い（シートごと: 大きさ・表示形式・違う行の番号） */
-function appDigestDiff_(a, b) {
-  const names = Object.keys(a).concat(Object.keys(b).filter(n => !a[n])).sort();
-  const out = [];
-  names.forEach(n => {
-    const x = a[n];
-    const y = b[n];
-    if (!x || !y) { out.push({ sheet: n, missing: !x ? 'A' : 'B' }); return; }
-    if (x.hash === y.hash) return;
-    const rows = [];
-    for (let i = 0; i < Math.max(x.rows.length, y.rows.length); i++) if (x.rows[i] !== y.rows[i]) rows.push(i + 1);
-    const d = { sheet: n, size: x.size === y.size ? '' : x.size + ' / ' + y.size, formats: x.formats !== y.formats, rows: rows.slice(0, 20), rowCount: rows.length };
-    if (d.formats && x.fmtRuns && y.fmtRuns) d.formatCells = appFormatCellsDiff_(x.fmtRuns, y.fmtRuns, 8);
-    out.push(d);
-  });
-  return out;
-}
-
-/** 表示形式が違うセル（最大 limit 個）と、それぞれの形式 */
-function appFormatCellsDiff_(ra, rb, limit) {
-  const out = [];
-  let count = 0;
-  const cols = Object.keys(ra).concat(Object.keys(rb).filter(c => !ra[c])).map(Number).sort((p, q) => p - q);
-  const at = (runs, r) => { for (let i = 0; i < (runs || []).length; i++) if (runs[i][0] <= r && r <= runs[i][1]) return runs[i][2]; return '(なし)'; };
-  cols.forEach(c => {
-    const a = ra[c] || [];
-    const b = rb[c] || [];
-    const maxRow = Math.max(a.length ? a[a.length - 1][1] : 0, b.length ? b[b.length - 1][1] : 0);
-    // 範囲の境目だけを調べればよい（境目の間は同じ形式が続く）
-    const points = {};
-    a.concat(b).forEach(run => { points[run[0]] = true; });
-    Object.keys(points).map(Number).sort((p, q) => p - q).forEach((r0, i, arr) => {
-      const r1 = i + 1 < arr.length ? arr[i + 1] - 1 : maxRow;
-      const fa = at(a, r0);
-      const fb = at(b, r0);
-      if (fa === fb) return;
-      count += r1 - r0 + 1;
-      if (out.length < limit) out.push({ cells: appA1_(r0 - 1, c - 1) + (r1 > r0 ? ':' + appA1_(r1 - 1, c - 1) : ''), a: fa, b: fb });
-    });
-  });
-  return { count: count, samples: out };
 }
 
 /** 予測の主な結果（OUTPUT の年度合計と月ごとの P10/P50/P90。旧来の行の位置のとおり） */

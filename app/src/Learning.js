@@ -181,7 +181,7 @@ function appPoolApply_(ctx, p) {
     appWithLock_(() => {
       appJournalRecover_(ctx);
       const plan = appPlanOf_(planId);
-      const scratch = appParityScratch_(plan);
+      const scratch = appWorkScratch_(plan);
       let st = null;
       do { st = appScratchBuildStep_(scratch, planId, ['POOL_PRIOR'], st && st.state, new Date().getTime() + 60000); } while (!st.complete);
       let sh = scratch.getSheetByName('POOL_PRIOR');

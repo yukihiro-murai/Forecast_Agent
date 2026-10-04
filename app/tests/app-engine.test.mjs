@@ -98,11 +98,9 @@ const webSrc = await readFile(path.join(repoRoot, 'Forecast_WebApp.js'), 'utf8')
   assert.equal(eng.WEB_SOURCE_SHA256, sha(webSrc));
   // 旧来の年度の数え方（FY N = N 年 4 月〜）を、差し替えた Date のもとでも同じに使う
   assert.equal(J(eng.getForecastFYStart_(2026)), new Date(2026, 3, 1).toISOString());
-  assert.equal(env.run('appParseIso_("2026-10-01T22:40:00+0900").toISOString()'), '2026-10-01T13:40:00.000Z');
-  assert.equal(env.run('appParseIso_("x")'), null);
 }
 
-// ==== 3. 計算の一致の確認（2 段の処理）: 同じなら「完全に一致」、データ本体が違えばそのシートを示す ====
+// ==== 3. 取り込んだ計画から組み立てた計算用ブックは、旧ブックと同じ。データ本体が違えばそのシートが違う ====
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 function legacyBook(env) {
   return env.makeBook('クライアント別売上予測', {
@@ -119,6 +117,24 @@ function legacyBook(env) {
       ['テスト製薬', D(2026, 9, 1), 'auto', '', '', '[]', 0.98, '', '{}', '', '', 1, '']],
     },
   });
+}
+/** データ本体から組み立てた計算用ブックが、旧ブックと同じか（値・数式・表示形式・大きさ）。違うシートとセルを返す */
+function storeVsBook(env, book, planId) {
+  return JSON.parse(env.run(`(() => {
+    APP_STORE_CACHE_ = {};
+    const s = appWorkScratch_(appPlanOf_('${planId}'));
+    appScratchFromStore_(s, '${planId}');
+    const out = [];
+    Object.keys(APP_ENGINE_SHEETS).forEach(name => {
+      const a = __book.getSheetByName(name), b = s.getSheetByName(name);
+      if (!a) return;
+      if (!b) { out.push({ sheet: name, missing: true }); return; }
+      const reg = APP_ENGINE_SHEETS[name], n = reg.header ? reg.header.length : 0;
+      const bad = appEngCompare_(appSheetSnapshot_(a, n), appSheetSnapshot_(b, n));
+      if (bad.length) out.push({ sheet: name, cells: bad.slice(0, 10) });
+    });
+    return JSON.stringify(out);
+  })()`, { __book: book }));
 }
 /** 旧来の予測の代わり（モックでは本物を動かさない）: 入力と乱数・「今」・ID から決まる値を書く */
 const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
@@ -151,93 +167,31 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   const planId = imp.result.planId;
   const plans = env.call('apiListPlans()').plans;
   assert.deepEqual(plans.map((p) => [p.planId, p.clientName, p.fy]), [[planId, 'テスト製薬', '2026']]);
-  env.run(STUB_ENGINE);
-  const dataBefore = env.data().getSheets().map((s) => [s.name, s.rows.length]);
-  const bookBefore = JSON.stringify(book.getSheets().map((s) => [s.name, s.rows]));
-  const st = env.runJob('FORECAST.PARITY', { planId });
-  assert.equal(st.status, 'DONE', st.error);
-  const r = st.result;
-  assert.equal(r.same, true, JSON.stringify(r.diff));
-  assert.deepEqual(r.diff, []);
-  assert.equal(r.planId, planId);
-  assert.ok(r.store.annual.p50 > 0);
-  assert.deepEqual(r.store, r.legacy, '同じ種・同じ時刻なら旧ブックの写しとデータ本体で同じ結果');
-  assert.equal(r.previous, null, '旧ブックの前回の結果（OUTPUT が短いので無し）');
-  assert.equal(r.legacyChangedAfterImport, false);
-  assert.match(r.seed, /^PARITY:/);
-  assert.equal(r.store.monthly.length, 12);
-  assert.ok(!r.build.some((b) => b.sheet === 'OUTPUT' && b.mismatch), '数式のセルは、計算後の値を「空のはず」と比べない（2026-10-02 OUTPUT の 15 件）');
-  assert.equal(r.store.monthly[0].month, '2026/04');
-  // データ本体と旧ブックには書かない
-  assert.deepEqual(env.data().getSheets().map((s) => [s.name, s.rows.length]), dataBefore);
-  assert.equal(JSON.stringify(book.getSheets().map((s) => [s.name, s.rows])), bookBefore);
-  // 記録: A と B の両方を残す
-  const au = env.audit().filter((a) => /^FORECAST\.PARITY/.test(a.action) && a.phase === 'END');
-  assert.deepEqual(au.map((a) => [a.action, a.result]), [['FORECAST.PARITY.A', 'OK'], ['FORECAST.PARITY.B', 'OK']]);
-  assert.equal(JSON.parse(au[1].after_json).same, true);
-  // データ本体の値が旧ブックと違えば、そのシートを示す
+  assert.deepEqual(storeVsBook(env, book, planId), [], '値・数式・表示形式・大きさが同じ');
+  // データ本体の値が旧ブックと違えば、そのシートが違う
   const cal = env.data().getSheetByName('ENG_CALIBRATION_STATE');
   const col = cal.rows[0].indexOf('bias_correction_factor');
   cal.rows[1][col] = '0.5';
-  const st2 = env.runJob('FORECAST.PARITY', { planId });
-  assert.equal(st2.status, 'DONE', st2.error);
-  assert.equal(st2.result.same, false);
-  const sheetsWithDiff = st2.result.diff.map((d) => d.sheet).sort();
-  assert.deepEqual(sheetsWithDiff, ['CALIBRATION_STATE', 'OUTPUT']);
-  assert.ok(st2.result.diff.find((d) => d.sheet === 'CALIBRATION_STATE').rows.includes(2));
-  assert.notEqual(st2.result.store.annual.p10, st2.result.legacy.annual.p10);
-  // 取り込みの後に旧ブックが変わったら知らせる
-  env.files[book.getId()].updated = new Date(Date.now() + 3600e3);
-  const st3 = env.runJob('FORECAST.PARITY', { planId });
-  assert.equal(st3.result.legacyChangedAfterImport, true);
-  // 続きの処理は画面から始められない・計画が無ければ止まる・所有者だけ
-  assert.throws(() => env.call(`apiStartJob({ kind: 'FORECAST.PARITY_B', payload: {} })`), /画面から始められません/);
-  const bad = env.runJob('FORECAST.PARITY', { planId: 'PL-none' });
-  assert.deepEqual([bad.status, /計画が見つかりません/.test(bad.error)], ['FAILED', true]);
+  assert.deepEqual(storeVsBook(env, book, planId).map((d) => d.sheet), ['CALIBRATION_STATE']);
   assert.equal(env.state.lockHeld, false);
-  assert.equal(env.run('Math.random === __r', { __r: env.run('Math.random') }), true);
 }
 
-// ==== 4. 控えの比べ方 ====
+// ==== 5. データ本体の表示形式が旧ブックと違えば、組み立てた計算用ブックでもそのセルが違う ====
 {
-  const env = makeEnv();
-  const d = (rows, extra) => Object.assign({ rows, formats: 'f', size: '10x5x' + rows.length + 'x5', hash: rows.join('|') }, extra || {});
-  const a = { S1: d(['a', 'b', 'c']), S2: d(['x']), S3: d(['y']) };
-  const b = { S1: d(['a', 'B', 'c', 'd']), S2: d(['x']), S4: d(['z']) };
-  const diff = J(env.run('appDigestDiff_(__a, __b)', { __a: a, __b: b }));
-  assert.deepEqual(diff, [
-    { sheet: 'S1', size: '10x5x3x5 / 10x5x4x5', formats: false, rows: [2, 4], rowCount: 2 },
-    { sheet: 'S3', missing: 'B' },
-    { sheet: 'S4', missing: 'A' },
-  ]);
-}
-
-// ==== 5. 表示形式の違いをセルで示す・計算の前から違うのか計算で違ったのかを分ける ====
-{
-  const env = makeEnv();
-  const a = { 1: [[1, 10, 'General']], 2: [[1, 10, '@']] };
-  const b = { 1: [[1, 4, 'General'], [5, 6, '0.0%'], [7, 10, 'General']], 2: [[1, 10, '@']] };
-  assert.deepEqual(J(env.run('appFormatCellsDiff_(__a, __b, 8)', { __a: a, __b: b })), { count: 2, samples: [{ cells: 'A5:A6', a: 'General', b: '0.0%' }] });
-  assert.deepEqual(J(env.run('appFormatCellsDiff_(__a, __a, 8)', { __a: a })), { count: 0, samples: [] });
-  // データ本体の表示形式が旧ブックと違えば、計算の前の違いとして、そのセルと両方の形式を示す
   const env2 = setUpEnv();
   const book = legacyBook(env2);
   const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
   const dry = env2.runJob('MIGRATION.DRYRUN', { bookUrl: url });
   const imp = env2.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  env2.run(STUB_ENGINE);
   const fm = env2.data().getSheetByName('ENG_FORMATS');
   const H = fm.rows[0];
   const row = fm.rows.findIndex((r, i) => i > 0 && r[H.indexOf('sheet')] === 'CALIBRATION_STATE' && r[H.indexOf('col')] === '7');
   const orig = JSON.parse(fm.rows[row][H.indexOf('runs_json')]);
   assert.deepEqual(orig, [[1, 1000, '0.###############']], '何もしていない列は「自動」（本物は 0.############### と返す）');
   fm.rows[row][H.indexOf('runs_json')] = JSON.stringify([[1, 1, '0.###############'], [2, 2, '0.00'], [3, 1000, '0.###############']]);
-  const st = env2.runJob('FORECAST.PARITY', { planId: imp.result.planId });
-  assert.equal(st.status, 'DONE', st.error);
-  assert.equal(st.result.preSame, false);
-  const pre = st.result.preDiff.find((d) => d.sheet === 'CALIBRATION_STATE');
-  assert.deepEqual(pre.formatCells.samples[0], { cells: 'G2', a: '0.###############', b: '0.00' });
-  assert.equal(pre.rowCount, 0, '値は同じで表示形式だけが違う');
+  const d = storeVsBook(env2, book, imp.result.planId);
+  assert.deepEqual(d.map((x) => x.sheet), ['CALIBRATION_STATE']);
+  assert.ok(d[0].cells.some((c) => /^format G2/.test(c)), JSON.stringify(d));
 }
 
 // ==== 6. 形式を消したセル（空の表示形式）も、組み立て直すと同じになる（2026-10-02 DASHBOARD!B17・PROCESS_STATUS!B8） ====
@@ -277,11 +231,14 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   scratch.deleteSheet(t);
   const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
   assert.equal(imp.status, 'DONE', imp.error);
-  env.run(STUB_ENGINE);
-  const st = env.runJob('FORECAST.PARITY', { planId: imp.result.planId });
-  assert.equal(st.status, 'DONE', st.error);
-  assert.deepEqual([st.result.preSame, st.result.same], [true, true], JSON.stringify(st.result.preDiff));
-  assert.deepEqual(st.result.build, [], '組み立てで直せなかったセルはない');
+  assert.deepEqual(storeVsBook(env, book, imp.result.planId), [], '組み立てると旧ブックと同じ（形式を消したセルも）');
+}
+
+// ==== 7. 旧来のコードに、新アプリから届かない関数を残さない（2026-10-04 に除いた。元は archive/legacy-2026-10-04/） ====
+{
+  const { analyze } = await import('../tools/engine-usage.mjs');
+  const r = await analyze();
+  assert.deepEqual(r.unused.map((x) => x.file + ' ' + x.name), [], '使わない関数を足したら、使うか archive/ へ移す');
 }
 
 console.log('app-engine: all tests passed');

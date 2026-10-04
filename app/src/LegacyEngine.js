@@ -1,7 +1,7 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 bd3f1572534a98888a5e63c797965dc406a8615b36877181a3634eb99577ccff）
- *               Forecast_WebApp.js（SHA-256 5f0d3842cdb4b195b20535df9043781c8392c713f3cde5851c2ff71f34b028ff）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 6e11a12b4695764e4d068326c8b5de33ea349efcc50b5dbfae4229a7ffd6d708）
+ *               Forecast_WebApp.js（SHA-256 1cb37eb8dd9a155bcc0b2c6d810b3a1a3b5f9c753120fe515f10f871c266f695）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
 function appLegacyEngine_(__appSvc) {
@@ -307,47 +307,6 @@ const SUBJECTIVE_OVERLAY_TARGET_HIGH = 0.12;
  *    （updatePhase1Dashboard は本体・ガード step4_status とも不変）。
  * 7) A-9 の OUTPUT 年度合計・月次 P10/P50/P90 が本変更の前後で不変であること（表記/配置のみ・予測非影響）。
  */
-/** ====== メニュー ====== */
-function onOpen() {
-  // vNextで初期化済みのbookは、役割と状態に応じた最小メニューだけを表示する。
-  // legacy bookは従来メニューへフォールバックし、既存運用を勝手に変更しない。
-  try {
-    if (typeof vNextHandleOnOpen_ === 'function' && vNextHandleOnOpen_()) return;
-  } catch (err) {
-    Logger.log(`vNext onOpen fallback: ${err && err.stack ? err.stack : err}`);
-  }
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu(MENU_NAME)
-    .addItem('A-1 初期セットアップ', 'setupForecastBook')
-    .addSeparator()
-    .addItem('A-2 売上データを取り込む', 'importSalesInputMonthly')
-    .addItem('A-3 予測用に売上データを加工', 'aggregateSalesData')
-    .addItem('A-4 AI調査を取り込む', 'runVertexAIResearch')
-    .addItem('A-5 製品ごとの動向を入力', 'openProductTrendEntryDialog')
-    .addItem('A-6 クライアント動向を入力', 'openClientTrendEntryDialog')
-    .addItem('A-7 担当者意見を入力', 'openOpinionsEntryDialog')
-    .addItem('A-8 開発/スポット要因を入力', 'openDevEntryDialog')
-    .addItem('A-9 予測を実行', 'runPhase1Forecast')
-    .addItem('A-10 予算を策定', 'gotoBudgetEntry')
-    .addSeparator()
-    .addItem('B-1 検証用に実績データを取り込み', 'importActualEvalMonthly')
-    .addItem('B-2 検証レポートを更新', 'updatePhase1EvaluationReport')
-    .addItem('B-3 予測ダッシュボードを更新', 'updatePhase1Dashboard')
-    .addItem('B-4 検証インサイトを更新', 'updatePhase1LearningInsights')
-    .addItem('B-5 自動学習（月次補正の更新）', 'runMonthlyAutoLearn')
-    .addSeparator()
-    .addItem('C-1 四半期レビューを実行（3か月に1回）', 'runQuarterlyReview')
-    .addItem('C-2 承認済み提案を適用', 'applyQuarterlyProposals')
-    .addItem('C-3 過去の提案履歴を開く', 'openQuarterlyReviewLog')
-    .addToUi();
-  // vNext移行前のlegacy bookでは、所有者/管理者だけが実行できる
-  // 非破壊bootstrapへの入口を別menuとして提示する。
-  try {
-    if (typeof vNextBuildLegacySetupMenu_ === 'function') vNextBuildLegacySetupMenu_();
-  } catch (err) {
-    Logger.log(`vNext legacy setup menu skipped: ${err && err.stack ? err.stack : err}`);
-  }
-}
 
 /**
  * HOW TO TEST (nav polish)
@@ -363,395 +322,6 @@ function onOpen() {
  * 6) A-9 の OUTPUT 年度合計・月次 P10/P50/P90（A〜G列）および予算列 H/I/J の値・数式が本変更の前後で不変
  *    であること（表示・ナビ・トーストのみ・予測非影響）。
  */
-/** A-10 予算を策定：OUTPUT の予算策定欄（H24:J40）へ移動する（ナビゲーションのみ・予測非影響）。 */
-function gotoBudgetEntry() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.OUTPUT);
-  if (!sh) {
-    SpreadsheetApp.getUi().alert('OUTPUT がありません。先に A-9 予測を実行 を実行してください。');
-    return;
-  }
-  const outputTitle = String(sh.getRange(1, 1).getValue() || '').trim();
-  if (!outputTitle) {
-    SpreadsheetApp.getUi().alert('まだ予測が実行されていません。先に A-9 予測を実行 を実行してから A-10 予算を策定 を実行してください。');
-    return;
-  }
-  try { sh.showSheet(); } catch (e) {}
-  ss.setActiveSheet(sh);
-  SpreadsheetApp.flush();
-  // 予算ブロック（H24:J40）が画面の中ほどに収まる位置へ決定論的にスクロールする。
-  // 直接 H24:J40 を activate すると、直前のスクロール位置に依存してブロックが画面端（特に下端でヘッダ行だけ
-  // 見える状態）へ寄ってしまう。これを避けるため：
-  //   (1) ブロックより十分下の行へ一度ジャンプし（下方向スクロール）、
-  //   (2) ブロックの数行上（H21=AI coverage 注記）を上方向スクロールで画面最上部へアンカーし、
-  //   (3) 予算ブロック H24:J40 を選択する。
-  // (3) の時点で H24 は既に可視（最上部の数行下）のため再スクロールが起きず、(2) のアンカー位置
-  // （上に文脈を残した中ほど表示）が保たれる。アクティブセルは範囲左上の H24。
-  const budgetJumpRow = Math.max(80, sh.getLastRow());
-  sh.getRange(budgetJumpRow, 8).activate();
-  SpreadsheetApp.flush();
-  sh.getRange('H21').activate();
-  SpreadsheetApp.flush();
-  sh.getRange('H24:J40').activate();
-  ss.toast('予算策定欄（H24〜J40）に移動しました。Adopted Forecast と Sales Uplift を入力してください。', MENU_NAME, 6);
-}
-
-/**
- * 【管理者用】GUIDEだけを作成/更新し、GUIDE以外のタブを削除します。
- * - ユーザ配布前に、管理者が1回だけ実行する想定
- * - メニューには出しません（誤操作防止）
- */
-function adminSetupGuideOnly() {
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.alert(
-    '管理者用：GUIDEのみ作成',
-    'GUIDEシートを作成/更新し、GUIDE以外のタブシートはすべて削除します。\n※削除したシートは元に戻せません。\n続行しますか？',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (res !== ui.Button.OK) return;
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  getOrCreateSheet_(ss, SHEETS.GUIDE);
-  buildGUIDE_();
-
-  const guide = ss.getSheetByName(SHEETS.GUIDE);
-  ss.setActiveSheet(guide);
-
-  ss.getSheets().forEach(sh => {
-    if (sh.getName() !== SHEETS.GUIDE) {
-      ss.deleteSheet(sh);
-    }
-  });
-
-  ui.alert('完了', 'GUIDEシートを作成し、他のタブシートを削除しました。', ui.ButtonSet.OK);
-}
-
-/**
- * 【管理者用】DLM状態を48ヶ月BASE実績から初期化し、バックテスト結果を永続化します。
- * - メニューには出しません（STEP2では既存予測に接続しない）
- */
-function adminInitDLMAndBacktest() {
-  const started = new Date();
-  const ui = SpreadsheetApp.getUi();
-  let client = '';
-
-  try {
-    ensureSetupDone_();
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const cfg = ss.getSheetByName(SHEETS.CONFIG);
-    client = normalizeClientName_(String(cfg.getRange('B2').getValue() || '').trim());
-    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
-
-    const res = ui.alert(
-      '管理者用：DLM初期化',
-      `${client} / FY${fy} のBASE48ヶ月履歴からDLMを初期化し、DLM_STATEとBACKTEST_REPORTへ保存します。\n\n※A-9予測値には反映しません。続行しますか？`,
-      ui.ButtonSet.OK_CANCEL
-    );
-    if (res !== ui.Button.OK) return;
-
-    const sales = ss.getSheetByName(SHEETS.SALES_MONTHLY);
-    if (!sales) throw new Error('SALES_MONTHLYシートがありません。先にA-3 予測用に売上データを加工 を実行してください。');
-
-    const salesData = readSales48Months_(sales);
-    if (!salesData.isComplete48) throw new Error('SALES_MONTHLYシートに48ヶ月分の列がありません。先にA-3を再実行してください。');
-
-    const tuning = readModelTuningFromConfig_();
-    const ctx = getForecastContext_(fy, new Date(), salesData.headerMonths);
-    const result = dlmFitAndBacktest_(salesData.baseSeries48, salesData.headerMonths[0], ctx.lastClosedMonthStart, tuning);
-
-    if (!result.ready) {
-      const min = Number(result.minMonths || tuning.dlmBacktestMinMonths || 24);
-      const msg = `実績が ${min} ヶ月分必要です（現在 ${Number(result.nClosed || 0)} ヶ月）。`;
-      ui.alert('DLM初期化：実績不足', msg, ui.ButtonSet.OK);
-      safeLogRun_('adminInitDLMAndBacktest', client, 'success', 0, started, msg);
-      return;
-    }
-
-    writeDlmState_(ss, client, fy, result);
-    appendDlmBacktestReport_(ss, client, fy, result);
-
-    const msg = [
-      `DLM初期化が完了しました（${client} / FY${fy}）。`,
-      `n_closed=${result.nClosed}, n_points=${result.metrics.nPoints}`,
-      `sMAPE=${formatRateForMessage_(result.metrics.smape)}, WAPE=${formatRateForMessage_(result.metrics.wape)}, coverage=${formatRateForMessage_(result.metrics.coverage)}`
-    ].join('\n');
-    ui.alert('完了', msg, ui.ButtonSet.OK);
-    safeLogRun_('adminInitDLMAndBacktest', client, 'success', result.metrics.nPoints, started, `n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`);
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e);
-    ui.alert('エラー', msg, ui.ButtonSet.OK);
-    safeLogRun_('adminInitDLMAndBacktest', client, 'error', 0, started, msg);
-  }
-}
-
-/**
- * 【管理者用】このbookを横断集約ハブとして初期化します。
- * - メニューには出しません（スクリプトエディタから手動実行）
- */
-function adminSetupPoolHub() {
-  const ui = SpreadsheetApp.getUi();
-  const res = ui.alert(
-    '管理者用：POOL集約ハブ初期化',
-    'この book を横断集約のハブにします。POOL_REGISTRY / POOL_AGGREGATION_LOG / POOL_PRIOR を作成します。\n続行しますか？',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (res !== ui.Button.OK) return;
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const registry = getOrCreateSheet_(ss, SHEETS.REGISTRY);
-  const registryHeaders = getPoolRegistryHeaders_();
-  ensureSheetHeaders_(registry, registryHeaders);
-  registry.getRange('A:A').setNumberFormat('@');
-  registry.setFrozenRows(1);
-  if (registry.getLastRow() < 2) {
-    registry.getRange(2, 1, 1, registryHeaders.length).setValues([['book_idをここに貼付', 'client_name例', 1, 'サンプル行。実運用前に実IDへ置換してください。']]);
-    registry.getRange(2, 1, 1, registryHeaders.length).setNotes([[
-      '各クライアントbookのURL /d/ と /edit の間のIDを貼り付けます。',
-      'ログ表示用の任意名です。',
-      '1 / TRUE の行だけ集約対象です。',
-      '運用メモ欄です。'
-    ]]);
-  }
-  registry.getRange(1, 1).setNote('book_id は各クライアントbookのURL /d/ と /edit の間のID。enabled=1 の行だけ集約対象。');
-
-  const log = getOrCreateSheet_(ss, SHEETS.POOL_AGGREGATION_LOG);
-  ensureSheetHeaders_(log, getPoolAggregationLogHeaders_());
-  log.setFrozenRows(1);
-
-  const pool = getOrCreateSheet_(ss, SHEETS.POOL_PRIOR);
-  ensureSheetHeaders_(pool, getPoolPriorHeaders_());
-  pool.setFrozenRows(1);
-
-  ui.alert('完了', 'POOL集約ハブ用のシートを作成/確認しました。POOL_REGISTRY に各クライアントbookの book_id を登録してください。', ui.ButtonSet.OK);
-}
-
-/**
- * 【管理者用】登録済みクライアントbookの raw hit/n を集約し、POOL_PRIORへfan-outします。
- * - メニューには出しません（スクリプトエディタから手動実行）
- */
-function adminAggregatePoolPriorAcrossBooks() {
-  const started = new Date();
-  const ui = SpreadsheetApp.getUi();
-  const runId = Utilities.getUuid();
-  const runAt = new Date();
-  const runBy = Session.getActiveUser().getEmail() || 'unknown';
-
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const registry = ss.getSheetByName(SHEETS.REGISTRY);
-    if (!registry) {
-      ui.alert('POOL_REGISTRY 未設定', 'POOL_REGISTRY を作成し、book_id を登録してください（POOL_SETUP 参照）。', ui.ButtonSet.OK);
-      return;
-    }
-    ensureSheetHeaders_(registry, getPoolRegistryHeaders_());
-    const registryRows = readEnabledPoolRegistryRows_(registry);
-    if (!registryRows.length) {
-      ui.alert('POOL_REGISTRY 未設定', 'POOL_REGISTRY を作成し、book_id を登録してください（POOL_SETUP 参照）。', ui.ButtonSet.OK);
-      return;
-    }
-
-    const tuning = readModelTuningFromConfig_();
-    const rMin = isFinite(Number(tuning.reliabilityRMin)) ? Number(tuning.reliabilityRMin) : 0;
-    const rMax = isFinite(Number(tuning.reliabilityRMax)) ? Number(tuning.reliabilityRMax) : 1.5;
-    const shrinkageK = isFinite(Number(tuning.reliabilityShrinkageK)) ? Number(tuning.reliabilityShrinkageK) : 4;
-    const minSamples = isFinite(Number(tuning.reliabilityMinSamples)) ? Number(tuning.reliabilityMinSamples) : 2;
-    const minClients = isFinite(Number(tuning.poolMinClients)) ? Number(tuning.poolMinClients) : POOL_MIN_CLIENTS_DEFAULT;
-    const sourceSet = new Set(RELIABILITY_POOL_SOURCE_TYPES);
-    const perType = {};
-    RELIABILITY_POOL_SOURCE_TYPES.forEach(t => {
-      perType[t] = { sumHit: 0, sumN: 0, clients: new Set() };
-    });
-
-    const bookLogs = [];
-    registryRows.forEach(reg => {
-      const bookLog = {
-        book_id: reg.book_id,
-        client_name: reg.client_name,
-        status: '',
-        rows_read: 0,
-        rows_skipped: 0,
-        fanout_status: '',
-        note: ''
-      };
-      try {
-        if (!reg.book_id) {
-          bookLog.status = 'excluded';
-          bookLog.note = 'book_id空欄';
-          bookLogs.push(bookLog);
-          return;
-        }
-        const ext = SpreadsheetApp.openById(reg.book_id);
-        const sh = ext.getSheetByName(SHEETS.RELIABILITY_EVIDENCE);
-        if (!sh || sh.getLastRow() < 2) {
-          bookLog.status = 'empty';
-          bookLogs.push(bookLog);
-          return;
-        }
-        const values = sh.getDataRange().getValues();
-        const idx = headerIndexMap_(values[0] || []);
-        if (!hasHeaderIndexes_(idx, ['source_type','n','hit'])) {
-          bookLog.status = 'no_columns';
-          bookLog.note = 'source_type/n/hit列なし';
-          bookLogs.push(bookLog);
-          return;
-        }
-        values.slice(1).forEach(r => {
-          const t = String(r[idx.source_type] || '').trim();
-          const n = Number(r[idx.n]);
-          const hit = Number(r[idx.hit]);
-          if (!sourceSet.has(t) || !isFinite(n) || !isFinite(hit) || n < 0 || hit < 0 || hit > n) {
-            bookLog.rows_skipped += 1;
-            return;
-          }
-          perType[t].sumHit += hit;
-          perType[t].sumN += n;
-          perType[t].clients.add(reg.book_id);
-          bookLog.rows_read += 1;
-        });
-        bookLog.status = 'ok';
-        bookLogs.push(bookLog);
-      } catch (err) {
-        bookLog.status = 'excluded';
-        bookLog.note = String((err && err.message) || err);
-        bookLogs.push(bookLog);
-      }
-    });
-
-    const results = RELIABILITY_POOL_SOURCE_TYPES.map(t => {
-      const g = perType[t];
-      const nClients = g.clients.size;
-      const sumHit = g.sumHit;
-      const sumN = g.sumN;
-      const scope = `reliability:${t}`;
-      if (nClients < minClients) {
-        return { scope, param_key: 'reliability_r', written: false, reason: 'min_clients', nClients, sumHit, sumN, hitRate: '', pooled: '', precision: '' };
-      }
-      if (sumN < minSamples) {
-        return { scope, param_key: 'reliability_r', written: false, reason: 'min_samples', nClients, sumHit, sumN, hitRate: '', pooled: '', precision: '' };
-      }
-      const h = sumHit / sumN;
-      const pooled = clamp_(2 * h, rMin, rMax);
-      return { scope, param_key: 'reliability_r', written: true, reason: '', nClients, sumHit, sumN, hitRate: h, pooled, precision: shrinkageK };
-    });
-    const writtenResults = results.filter(r => r.written);
-
-    upsertPoolPriorResultsToSpreadsheet_(ss, writtenResults, runAt, runBy);
-
-    bookLogs.filter(b => b.status === 'ok').forEach(b => {
-      try {
-        if (!writtenResults.length) {
-          b.fanout_status = 'no_written_scopes';
-          return;
-        }
-        const ext = SpreadsheetApp.openById(b.book_id);
-        upsertPoolPriorResultsToSpreadsheet_(ext, writtenResults, runAt, runBy);
-        b.fanout_status = 'ok';
-      } catch (err) {
-        b.fanout_status = 'error';
-        const msg = String((err && err.message) || err);
-        b.note = b.note ? `${b.note}; fanout=${msg}` : `fanout=${msg}`;
-      }
-    });
-
-    writePoolAggregationLog_(ss, runId, runAt, runBy, bookLogs, results);
-
-    const okCount = bookLogs.filter(b => b.status === 'ok').length;
-    const excludedCount = bookLogs.length - okCount;
-    const writtenLines = writtenResults.length
-      ? writtenResults.map(r => `${r.scope}=${Number(r.pooled).toFixed(3)}`).join('\n')
-      : 'なし';
-    const skippedLines = results.filter(r => !r.written).length
-      ? results.filter(r => !r.written).map(r => `${r.scope}: ${r.reason}`).join('\n')
-      : 'なし';
-    ui.alert(
-      'POOL_PRIOR 横断集約完了',
-      `対象book数=${registryRows.length}\nok=${okCount}\n除外=${excludedCount}\n\n書込scope:\n${writtenLines}\n\n未書込scope:\n${skippedLines}`,
-      ui.ButtonSet.OK
-    );
-    safeLogRun_('adminAggregatePoolPriorAcrossBooks', '', 'success', writtenResults.length, started, `books=${registryRows.length}; ok=${okCount}; excluded=${excludedCount}`);
-  } catch (err) {
-    const msg = String((err && err.message) || err);
-    ui.alert('POOL_PRIOR 横断集約エラー', msg, ui.ButtonSet.OK);
-    safeLogRun_('adminAggregatePoolPriorAcrossBooks', '', 'error', 0, started, msg);
-  }
-}
-
-function getPoolRegistryHeaders_() {
-  return ['book_id','client_name','enabled','note'];
-}
-
-function getPoolPriorHeaders_() {
-  return ['pool_scope','param_key','pooled_value','precision','n_clients','updated_at','updated_by','note'];
-}
-
-function getPoolAggregationLogHeaders_() {
-  return ['run_id','run_at','run_by','type','book_id','client_name','status','rows_read','rows_skipped','fanout_status','scope','written','reason','n_clients','sum_hit','sum_n','hit_rate','pooled_value','precision','note'];
-}
-
-function isPoolRegistryEnabled_(value) {
-  if (value === true) return true;
-  if (isFinite(Number(value)) && Number(value) > 0) return true;
-  const s = String(value || '').trim().toUpperCase();
-  return s === 'TRUE' || s === '1';
-}
-
-function readEnabledPoolRegistryRows_(sh) {
-  const values = sh.getDataRange().getValues();
-  const idx = headerIndexMap_(values[0] || []);
-  if (!hasHeaderIndexes_(idx, ['book_id','client_name','enabled'])) return [];
-  return values.slice(1)
-    .filter(r => isPoolRegistryEnabled_(r[idx.enabled]))
-    .map(r => ({
-      book_id: String(r[idx.book_id] || '').trim(),
-      client_name: String(r[idx.client_name] || '').trim()
-    }));
-}
-
-function upsertPoolPriorResultsToSpreadsheet_(ss, results, updatedAt, updatedBy) {
-  if (!results || !results.length) return 0;
-  const sh = getOrCreateSheet_(ss, SHEETS.POOL_PRIOR);
-  const headers = getPoolPriorHeaders_();
-  ensureSheetHeaders_(sh, headers);
-  const values = sh.getDataRange().getValues();
-  const idx = headerIndexMap_(values[0] || headers);
-  const rowByKey = new Map();
-  for (let i = 1; i < values.length; i++) {
-    const key = [
-      String(values[i][idx.pool_scope] || '').trim(),
-      String(values[i][idx.param_key] || '').trim()
-    ].join('|');
-    if (key) rowByKey.set(key, i + 1);
-  }
-
-  const updates = [];
-  const appends = [];
-  results.filter(r => r.written).forEach(r => {
-    const note = `v1.9 cross-book agg; clients=${r.nClients}; sumHit=${r.sumHit}; sumN=${r.sumN}`;
-    const row = [r.scope, 'reliability_r', r.pooled, r.precision, r.nClients, updatedAt, updatedBy, note];
-    const key = [r.scope, 'reliability_r'].join('|');
-    const rowNo = rowByKey.get(key);
-    if (rowNo) updates.push({ rowNo, row });
-    else appends.push(row);
-  });
-  writeContiguousRowUpdates_(sh, updates, headers.length);
-  if (appends.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, appends, 500);
-  return updates.length + appends.length;
-}
-
-function writePoolAggregationLog_(ss, runId, runAt, runBy, bookLogs, results) {
-  const sh = getOrCreateSheet_(ss, SHEETS.POOL_AGGREGATION_LOG);
-  const headers = getPoolAggregationLogHeaders_();
-  ensureSheetHeaders_(sh, headers);
-  const rows = [];
-  (bookLogs || []).forEach(b => {
-    rows.push([runId, runAt, runBy, 'book', b.book_id || '', b.client_name || '', b.status || '', Number(b.rows_read || 0), Number(b.rows_skipped || 0), b.fanout_status || '', '', '', '', '', '', '', '', '', '', b.note || '']);
-  });
-  (results || []).forEach(r => {
-    rows.push([runId, runAt, runBy, 'scope', '', '', '', '', '', '', r.scope || '', r.written ? 1 : 0, r.reason || '', Number(r.nClients || 0), Number(r.sumHit || 0), Number(r.sumN || 0), r.hitRate === '' ? '' : Number(r.hitRate || 0), r.pooled === '' ? '' : Number(r.pooled || 0), r.precision === '' ? '' : Number(r.precision || 0), '']);
-  });
-  if (rows.length) writeRowsInChunks_(sh, sh.getLastRow() + 1, 1, rows, 500);
-}
 
 function writeContiguousRowUpdates_(sh, updates, width) {
   if (!updates || !updates.length) return;
@@ -780,108 +350,6 @@ function writeContiguousRowUpdates_(sh, updates, width) {
 // DONE(step-3c-3c-1): raw hit/n を RELIABILITY_EVIDENCE に永続化（予測不変 / 集約の前提）。
 // DONE(step-3c-3c): POOL_PRIORのクライアント横断自動更新（adminAggregatePoolPriorAcrossBooks で実装済み / 中央集約book→各bookへfan-out）。
 
-/**
- * Step列の表示ゆらぎ対策：
- * - ユーザが「10%」「0.1」「-0.3」「+10」などで入力しても
- *   常に「+10%」「-30%」のような表示に正規化する（右寄せ）
- */
-function onEdit(e) {
-  try {
-    const r = e.range;
-    const sh = r.getSheet();
-    const name = sh.getName();
-    const row = r.getRow();
-    const col = r.getColumn();
-    if (row < 2) return;
-
-    const isStepCell =
-      (name === SHEETS.PRODUCT && col === 4) ||
-      (name === SHEETS.CLIENT && col === 3) ||
-      (name === SHEETS.OPINIONS && col === 3);
-
-    if (!isStepCell) return;
-
-    const v = r.getValue();
-    const norm = normalizeStepDisplay_(v);
-    if (norm === null) return;
-
-    r.setNumberFormat('@');
-    r.setHorizontalAlignment('right');
-    r.setValue(norm);
-  } catch (err) {
-    // noop
-  }
-}
-
-/** ====== A-1 初期セットアップ ====== */
-function setupForecastBook() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ui = SpreadsheetApp.getUi();
-
-  const res = ui.alert(
-    '初期セットアップ（全上書き）',
-    '初期セットアップで全て上書きされますがよろしいですか？\n\n※既存のシートタブは削除されます。',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (res !== ui.Button.OK) return;
-
-  const order = [
-    SHEETS.GUIDE,
-    SHEETS.CONFIG,
-    SHEETS.SALES_INPUT,
-    SHEETS.SALES_MONTHLY,
-    SHEETS.AI_RESEARCH,
-    SHEETS.PRODUCT,
-    SHEETS.CLIENT,
-    SHEETS.OPINIONS,
-    SHEETS.DEV_SPOT,
-    SHEETS.OUTPUT,
-    SHEETS.DASHBOARD,
-    SHEETS.ACTUAL_EVAL_MONTHLY,
-    SHEETS.EVAL_COMPARE_MONTHLY,
-    SHEETS.EVAL_LOG,
-    SHEETS.EVAL_INSIGHTS,
-    SHEETS.QUARTERLY_REVIEW,
-    SHEETS.QUARTERLY_REVIEW_LOG,
-    SHEETS.AI_RESEARCH_STRUCTURED,
-    SHEETS.RUN_LOG,
-    SHEETS.FORECAST_SNAPSHOT,
-    SHEETS.PROCESS_STATUS,
-    SHEETS.AI_SCORE_HISTORY,
-    SHEETS.AI_IMPACT_HISTORY,
-    SHEETS.SUBJECTIVE_IMPACT_HISTORY,
-    SHEETS.CALIBRATION_STATE,
-    SHEETS.CALIBRATION_HISTORY,
-    SHEETS.SOURCE_RELIABILITY,
-    SHEETS.RELIABILITY_EVIDENCE
-  ];
-
-  try {
-    resetWorkbookSheets_(ss, order);
-    clearAllNotesOnSheets_(ss, order);
-
-    buildGUIDE_();
-    buildCONFIG_();
-    buildSALES_();
-    buildFACTORS_PRODUCT_();
-    buildFACTORS_CLIENT_();
-    buildOPINIONS_();
-    buildDEV_();
-    buildPhase1Sheets_();
-    buildOUTPUT_();
-    normalizeAllSheetNotes_();
-    validateNotesIntegrity_();
-    applyDefaultAlignmentForAllSheets_();
-    clearAllTabColors_();
-    hideNonUserSheets_();
-    const guide = ss.getSheetByName(SHEETS.GUIDE);
-    if (guide) ss.setActiveSheet(guide);
-
-    showInitialSetupDialog_();
-  } catch (e) {
-    ui.alert('初期セットアップでエラー', `${e && e.message ? e.message : e}`);
-  }
-}
 
 function resetWorkbookSheets_(ss, order) {
   var required = {};
@@ -924,119 +392,6 @@ function safeMoveSheet_(ss, sh, targetIndex) {
   }
 }
 
-/** 初期設定ダイアログ（メーカー選択＋予測年度＋担当者） */
-function showInitialSetupDialog_() {
-  const ui = SpreadsheetApp.getUi();
-
-  const defaultFY = getDefaultFY_();
-  const clients = getClientCandidatesForSetup_();
-
-  const esc = s => escapeHtml_(s);
-  const optionsHtml = clients.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <base target="_top">
-  <style>
-    body { font-family: sans-serif; padding: 14px; }
-    h2 { margin: 0 0 10px 0; font-size: 16px; }
-    .hint { color: #666; font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
-    .block { margin: 12px 0; }
-    label { display: block; font-weight: 700; margin-bottom: 6px; }
-    select, input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-    .grid { display: grid; grid-template-columns: 36px 1fr; gap: 8px; align-items: center; }
-    .grid .num { text-align: right; color: #666; font-size: 12px; }
-    .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-    button { padding: 10px; border: none; border-radius: 4px; font-weight: 700; cursor: pointer; }
-    .primary { background: #4CAF50; color: #fff; }
-    .secondary { background: #ddd; }
-    .status { margin-top: 10px; font-size: 12px; color: #666; }
-  </style>
-</head>
-<body>
-  <h2>初期設定</h2>
-
-  <div class="block">
-    <label>メーカー名を入力してください。</label>
-    <select id="client">
-      <option value="" disabled selected>メーカーを選択してください</option>
-      ${optionsHtml}
-    </select>
-    <div class="hint">
-      ※クライアント名の候補は外部実績シートから自動抽出しています。
-    </div>
-  </div>
-
-  <div class="block">
-    <label>何年度（FY）を予測しますか？</label>
-    <input id="fy" type="number" />
-    <div class="hint">※ 空欄の場合デフォルト年度（${defaultFY}年）を使用。（決算月：${defaultFY + 1}年3月）</div>
-  </div>
-
-  <div class="block">
-    <label>担当者設定</label>
-    <div class="hint">シミュレーションするメーカー担当者の苗字を入力<br>※原則として全員の意見を反映するためです</div>
-
-    <div class="grid">
-      ${['鷹野','鶴田','鳩山','鷲尾','鴨下','鵜飼','鷺沼','雁屋','鴻池','鶉野'].map((nm,i)=>`
-        <div class="num">${i+1}.</div>
-        <input id="p${i+1}" type="text" placeholder="例：${nm}" />
-      `).join('')}
-    </div>
-    <div class="hint">空欄は無視され、CONFIG!B4 にカンマ区切りで保存されます。</div>
-  </div>
-
-  <div class="btns">
-    <button class="secondary" onclick="skip()">スキップ</button>
-    <button class="primary" onclick="save()">決定</button>
-  </div>
-
-  <div class="status" id="status"></div>
-
-<script>
-function save(){
-  const client = document.getElementById('client').value;
-  let fy = document.getElementById('fy').value;
-  if(!fy) fy = '${defaultFY}';
-  fy = String(fy).trim();
-
-  const people = [];
-  for(let i=1;i<=10;i++){
-    const v = document.getElementById('p'+i).value;
-    if(v && v.trim()) people.push(v.trim());
-  }
-  const peopleCSV = people.join(',');
-
-  if(!client){
-    alert('メーカーを選択してください。');
-    return;
-  }
-
-  document.getElementById('status').textContent = '反映中…';
-
-  google.script.run
-    .withSuccessHandler(function(){
-      google.script.host.close();
-    })
-    .withFailureHandler(function(e){
-      document.getElementById('status').textContent = '';
-      alert('エラー: ' + e.message);
-    })
-    .saveInitialSetupSettings(client, fy, peopleCSV);
-}
-
-function skip(){
-  google.script.host.close();
-}
-</script>
-
-</body>
-</html>`;
-
-  ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(420).setHeight(680), '初期設定');
-}
 
 /** 初期設定をCONFIGへ保存 */
 function saveInitialSetupSettings(clientName, fyStr, peopleCSV) {
@@ -1188,181 +543,6 @@ function isSameClient_(a, b) {
   return normalizeClientName_(a) === normalizeClientName_(b);
 }
 
-/** ====== A-5〜A-8：シート整形＋使い方案内（ポップアップは説明のみ） ====== */
-function openProductTrendEntryDialog() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  const people = getPeopleListFromConfig_();
-  if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
-    return;
-  }
-  const products = getProductNameListFromSales_();
-  if (products.length === 0) {
-    SpreadsheetApp.getUi().alert('SALES_MONTHLYに製品名がありません。\nA-2〜A-3 を先に実行してください。');
-    return;
-  }
-
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = getForecastFYStart_(fy);
-
-  const sh = ss.getSheetByName(SHEETS.PRODUCT);
-  ensureFactorsProductTemplate_(sh, products, people, defaultDate);
-
-  ss.setActiveSheet(sh);
-
-  showInfoDialog_(
-    'A-5 製品動向を入力',
-    [
-      'PRODUCT を入力してください（青色のセルが対象です）。',
-      '1) A列：担当者を選択',
-      '2) C列：影響が出る日付（この日付以降に反映）',
-      '3) D列：増減率（例：-30% = 今後30%減りそう）',
-      '4) E列：根拠を短く',
-      '※ B列の製品名はSALES_MONTHLYから自動で入っています。',
-      '※ Stepは入力ゆらぎが出ないよう自動で「+10%/-30%」形式に整えます。'
-    ]
-  );
-}
-
-function openClientTrendEntryDialog() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  const people = getPeopleListFromConfig_();
-  if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
-    return;
-  }
-
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = getForecastFYStart_(fy);
-
-  const sh = ss.getSheetByName(SHEETS.CLIENT);
-  ensureFactorsClientTemplate_(sh, people, defaultDate);
-
-  ss.setActiveSheet(sh);
-
-  showInfoDialog_(
-    'A-6 クライアント動向を入力',
-    [
-      'CLIENT を入力してください（青色のセルが対象です）。',
-      '1) A列：担当者を選択',
-      '2) B列：影響が出る日付（この日付以降に反映）',
-      '3) C列：増減率（例：-10% = 予算圧縮で10%減りそう）',
-      '4) D列：根拠を短く',
-      '※ Stepは入力ゆらぎが出ないよう自動で「+10%/-30%」形式に整えます。'
-    ]
-  );
-}
-
-function openOpinionsEntryDialog() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  const people = getPeopleListFromConfig_();
-  if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
-    return;
-  }
-
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = getForecastFYStart_(fy);
-
-  const sh = ss.getSheetByName(SHEETS.OPINIONS);
-  ensureOpinionsTemplate_(sh, people, defaultDate);
-
-  ss.setActiveSheet(sh);
-
-  showInfoDialog_(
-    'A-7 メーカー担当者意見を入力',
-    [
-      'OPINIONS を入力してください（青色のセルが対象です）。',
-      '※原則として担当者全員の入力が必要です（未入力があるとA-9が実行できません）。',
-      '入力手順：',
-      '1) B列：影響が出る日付（この日付以降に反映）',
-      '2) C列：増減率（例：+20% = 今後20%増えそう）',
-      '3) D列：信頼度（0..1）',
-      '4) E列：所感を短く',
-      '※ 意見はそのまま固定反映されず、シミュレーション内でランダムに活用されます。'
-    ]
-  );
-}
-
-function openDevEntryDialog() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  const people = getPeopleListFromConfig_();
-  if (people.length === 0) {
-    SpreadsheetApp.getUi().alert('CONFIG!B4 に担当者が設定されていません。\nA-1 初期セットアップで担当者を入力してください。');
-    return;
-  }
-
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-  const defaultDate = getForecastFYStart_(fy);
-
-  const sh = ss.getSheetByName(SHEETS.DEV_SPOT);
-  ensureDevTemplate_(sh, people, defaultDate);
-
-  ss.setActiveSheet(sh);
-
-  showInfoDialog_(
-    'A-8 開発/スポット要因を入力',
-    [
-      'DEV_SPOT を入力してください（青色のセルが対象です）。',
-      '開発案件だけでなく、スポット要因（例：法改定による差し替え等）もここに入力してください。',
-      '入力手順：',
-      '1) A列：担当者を選択',
-      '2) B列：売上が立つ日付（この日付の月に反映）',
-      '3) C列：案件名/スポット要因名',
-      '4) D列：金額（円）',
-      '5) E列：確度（0..1）',
-      '※ DEV_SPOTは「金額×確度」で固定加算されます（運用のシミュレーションには混ぜません）。'
-    ]
-  );
-}
-
-/** 説明だけの統一ポップアップ（キャンセル左／決定右） */
-function showInfoDialog_(title, lines) {
-  const ui = SpreadsheetApp.getUi();
-  const esc = s => escapeHtml_(s);
-  const body = lines.map(l => esc(l)).join('<br>');
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <base target="_top">
-  <style>
-    body { font-family: sans-serif; padding: 14px; }
-    h2 { margin: 0 0 10px 0; font-size: 16px; }
-    .box { color:#333; font-size: 12.5px; line-height:1.6; background:#fafafa; border:1px solid #ddd; border-radius:6px; padding: 10px; }
-    .btns { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-    button { padding:10px; border:none; border-radius:4px; font-weight:700; cursor:pointer; }
-    .primary { background:#4CAF50; color:#fff; }
-    .secondary { background:#ddd; }
-  </style>
-</head>
-<body>
-  <h2>${esc(title)}</h2>
-  <div class="box">${body}</div>
-  <div class="btns">
-    <button class="secondary" onclick="closeIt()">キャンセル</button>
-    <button class="primary" onclick="closeIt()">決定</button>
-  </div>
-<script>
-function closeIt(){ google.script.host.close(); }
-</script>
-</body>
-</html>`;
-  ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(360), title);
-}
 
 /** ====== 予測コア ====== */
 function runForecastFYCore_(fy, clientName) {
@@ -3944,15 +3124,6 @@ function readPoolPrior_(scope) {
   return { value: 1.0, precision: null };
 }
 
-function getProductNameListFromSales_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const salesInput = ss.getSheetByName(SHEETS.SALES_INPUT);
-  if (!salesInput) return [];
-  const last = salesInput.getLastRow();
-  if (last < 2) return [];
-  const vals = salesInput.getRange(2, 3, last - 1, 1).getValues().map(r => String(r[0] || '').trim()).filter(Boolean);
-  return Array.from(new Set(vals)).sort();
-}
 
 function findMissingPeopleOpinionsByValidRows_(requiredPeople) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -4494,78 +3665,6 @@ function dlmSeasonalByMonth_(aFinal, lastObservedMonth) {
   const out = {};
   for (let m = 1; m <= DLM_SEASONAL_PERIOD; m++) out[String(m)] = Number(vals[m] || 0) - mean;
   return out;
-}
-
-function writeDlmState_(ss, client, fy, result) {
-  const sh = getOrCreateSheet_(ss, SHEETS.DLM_STATE);
-  const headers = ['client','fy','updated_at','updated_by','last_observed_month','level_mu','trend_beta','seasonal_json','covariance_json','hyperparams_json','note'];
-  ensureSheetHeaders_(sh, headers);
-
-  const now = new Date();
-  const user = Session.getActiveUser().getEmail() || 'unknown';
-  const hyperparams = {
-    qLevel: result.qLevel,
-    qTrend: result.qTrend,
-    qSeasonal: result.qSeasonal,
-    sigma2Obs: result.sigma2Obs,
-    nll: result.nll,
-    stateDim: DLM_STATE_DIM
-  };
-  const row = [
-    client,
-    fy,
-    now,
-    user,
-    fmtYM_(result.lastObservedMonth),
-    result.levelMu,
-    result.trendBeta,
-    JSON.stringify(result.seasonalByMonth),
-    JSON.stringify(result.PFinal),
-    JSON.stringify(hyperparams),
-    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}`
-  ];
-
-  let targetRow = sh.getLastRow() + 1;
-  if (sh.getLastRow() >= 2) {
-    const vals = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
-    for (let i = 0; i < vals.length; i++) {
-      if (isSameClient_(vals[i][0], client)) {
-        targetRow = i + 2;
-        break;
-      }
-    }
-  }
-  sh.getRange(targetRow, 1, 1, row.length).setValues([row]);
-}
-
-function appendDlmBacktestReport_(ss, client, fy, result) {
-  const sh = getOrCreateSheet_(ss, SHEETS.BACKTEST_REPORT);
-  const headers = ['client','fy','run_at','run_by','n_points','smape','wape','bias_rate','coverage_rate','hyperparams_json','note'];
-  ensureSheetHeaders_(sh, headers);
-
-  const user = Session.getActiveUser().getEmail() || 'unknown';
-  const hyperparams = {
-    qLevel: result.qLevel,
-    qTrend: result.qTrend,
-    qSeasonal: result.qSeasonal,
-    sigma2Obs: result.sigma2Obs,
-    nll: result.nll,
-    stateDim: DLM_STATE_DIM
-  };
-  const row = [
-    client,
-    fy,
-    new Date(),
-    user,
-    result.metrics.nPoints,
-    result.metrics.smape,
-    result.metrics.wape,
-    result.metrics.biasRate,
-    result.metrics.coverage,
-    JSON.stringify(hyperparams),
-    `init backtest n_closed=${result.nClosed}; stage=${DLM_BUILD_STAGE}; note=hyperparams_in_sample(metrics_optimistic)`
-  ];
-  sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
 }
 
 
@@ -5991,20 +5090,6 @@ function resetOutputSheet_(sh) {
 }
 
 // [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
-function validateOutputLayout_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.OUTPUT);
-  if (!sh) throw new Error('OUTPUTがありません。');
-  const out = {
-    staleNotes: sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).getNotes().flat().filter(Boolean).length,
-    hasB7LineBreak: String(sh.getRange('A6').getValue() || '').indexOf('\n') >= 0,
-    aiScoreLabels: sh.getRange(13, 1, 4, 1).getValues().flat(),
-    aiScoreValues: sh.getRange(13, 2, 4, 1).getValues().flat(),
-    kpiLabel: String(sh.getRange(8, 1).getValue() || '')
-  };
-  Logger.log(JSON.stringify(out, null, 2));
-  return out;
-}
 
 function applySheetVisualStandards_(sh, profile) {
   if (!sh) return;
@@ -6020,30 +5105,6 @@ function applySheetVisualStandards_(sh, profile) {
 }
 
 // [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
-function validateAiParsing_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEETS.AI_RESEARCH_STRUCTURED);
-  if (!sh) throw new Error('AI_RESEARCH_STRUCTUREDがありません。');
-  const vals = sh.getDataRange().getValues();
-  const hdr = vals[0];
-  const tIdx = hdr.indexOf('topic');
-  const eIdx = hdr.indexOf('event_score');
-  const bIdx = hdr.indexOf('benchmark_score');
-  const reportIdx = hdr.indexOf('report_text');
-  let validEvent = 0, validBench = 0;
-  const topics = { Market: 0, Competitor: 0, Channel: 0, DX: 0 };
-  for (let i = 1; i < vals.length; i++) {
-    const topic = String(vals[i][tIdx] || '').trim();
-    if (topics[topic] !== undefined) topics[topic]++;
-    if (isFinite(Number(vals[i][eIdx]))) validEvent++;
-    if (isFinite(Number(vals[i][bIdx]))) validBench++;
-  }
-  const rep = reportIdx >= 0 ? String(vals[1] && vals[1][reportIdx] || '') : '';
-  const out = { validEvent, validBench, topics, b7StartsLikeReport: /^(【|[0-9]+\.)/.test(rep.trim()) };
-  Logger.log(JSON.stringify(out, null, 2));
-  return out;
-}
-
 
 /** 製品要因：製品別step合算 → 構成比で加重 → 1+加重step */
 function productFactorsMultiplier_(factorsProduct, targetMonth, productWeights, reliabilityMap) {
@@ -6179,14 +5240,6 @@ function getOrCreateSheet_(ss, name) {
   return sh;
 }
 
-function escapeHtml_(s) {
-  return String(s || '')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#039;');
-}
 
 function fmtYM_(d) {
   return Utilities.formatDate(d, TZ, 'yyyy/MM');
@@ -6778,70 +5831,6 @@ function initializeProcessStatus_() {
   sh.getRange(2,1,rows.length,7).setValues(rows);
 }
 
-function importSalesInputMonthly() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const cfg = ss.getSheetByName(SHEETS.CONFIG);
-    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-    const result = importMonthlyFromExternal_(SHEETS.SALES_INPUT, true);
-    refreshManualInputSheets_(fy);
-    const sh = ss.getSheetByName(SHEETS.SALES_INPUT);
-    if (sh) ss.setActiveSheet(sh);
-    SpreadsheetApp.getUi().alert('完了', `売上データを取り込みました（${result.count}件 / ${result.range}）。
-次は A-3 予測用に売上データを加工 を実行してください。`, SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch (e) {
-    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
-
-/**
- * A-3: SALES_INPUT のデータを SALES_MONTHLY シートに集計（BASE/SPOT × 48ヶ月横持ち）
- */
-function aggregateSalesData() {
-  try {
-    ensureSetupDone_();
-    requireStepSuccess_('step1_status', '先にA-2 売上データを取り込む を実行してください。');
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const cfg = ss.getSheetByName(SHEETS.CONFIG);
-    const client = String(cfg.getRange('B2').getValue() || '').trim();
-    const fy = Number(cfg.getRange('B3').getValue()) || getDefaultFY_();
-
-    if (!client) throw new Error('CONFIG!B2 にクライアントを設定してください。');
-
-    syncSalesFromSalesInput_(fy, client);
-
-    // 集計結果を確認
-    const sales = ss.getSheetByName(SHEETS.SALES_MONTHLY);
-    const salesData = sales.getDataRange().getValues();
-    let nonZeroCount = 0;
-    for (let r = 1; r < salesData.length; r++) {
-      for (let c = 1; c < salesData[r].length; c++) {
-        if (Number(salesData[r][c] || 0) !== 0) nonZeroCount++;
-      }
-    }
-
-    ss.setActiveSheet(sales);
-    updateProcessStatus_('step1a_status', nonZeroCount === 0 ? 'warning' : 'success', client, nonZeroCount, nonZeroCount === 0 ? '集計結果がすべて0です' : '');
-
-    if (nonZeroCount === 0) {
-      SpreadsheetApp.getUi().alert(
-        '警告',
-        'SALES_MONTHLYシートに集計しましたが、すべての値が0です。\n\n考えられる原因：\n・SALES_INPUT の service_type（B列）が BASE/SPOT になっていない\n・SALES_INPUT の target_month（D列）が予測FYの範囲外\n\nSALES_INPUT の内容を確認してください。',
-        SpreadsheetApp.getUi().ButtonSet.OK
-      );
-    } else {
-      SpreadsheetApp.getUi().alert(
-        '完了',
-        `SALES_MONTHLYシートにBASE/SPOT × 48ヶ月の売上データを集計しました（非ゼロセル: ${nonZeroCount}）。
-次は A-4 AI調査 / A-5〜A-8 入力 / A-9 予測 を順番に実行してください。`,
-        SpreadsheetApp.getUi().ButtonSet.OK
-      );
-    }
-  } catch (e) {
-    try { updateProcessStatus_('step1a_status', 'error', '', 0, String(e && e.message || e)); } catch (e2) { /* ステータス更新失敗は握り潰す */ }
-    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
 
 function refreshManualInputSheets_(fy) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -6860,17 +5849,6 @@ function refreshManualInputSheets_(fy) {
   ensureDevTemplate_(ss.getSheetByName(SHEETS.DEV_SPOT), people, defaultDate);
 }
 
-function importActualEvalMonthly() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    importMonthlyFromExternal_(SHEETS.ACTUAL_EVAL_MONTHLY, false);
-    const sh = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY);
-    if (sh) ss.setActiveSheet(sh);
-    SpreadsheetApp.getUi().alert('完了', '検証実績を更新しました。次は B-2 予測検証レポート更新 を実行できます。', SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch (e) {
-    SpreadsheetApp.getUi().alert('エラー', e.message || e, SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
 
 function writeRowsInChunks_(sh, startRow, startCol, rows, chunkSize) {
   if (!rows || !rows.length) return;
@@ -8575,50 +7553,6 @@ function readStep3aWarningSummary_() {
 }
 
 // [dev診断] 手動実行用。メニュー非掲載のため未参照に見えるが削除しないこと。
-function diagnoseLastAIParse_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const statusSh = ss.getSheetByName(SHEETS.PROCESS_STATUS);
-  const promptSh = ss.getSheetByName(SHEETS.AI_RESEARCH);
-  const summary = readStep3aWarningSummary_();
-  const samples = promptSh ? promptSh.getRange(2, 6, 3, 1).getValues().flat().filter(v => String(v || '').trim()) : [];
-  const parsed = {
-    raw: summary,
-    ai_rows: null,
-    valid_event: null,
-    valid_benchmark: null,
-    invalid: null,
-    warn_clamp: null,
-    warn_coerced: null,
-    topics_missing_benchmark: [],
-    invalid_reasons: {},
-    invalid_samples: samples
-  };
-  String(summary || '').split(';').map(s => s.trim()).forEach(part => {
-    if (!part) return;
-    const m = part.match(/^([a-z_]+)=(.*)$/i);
-    if (!m) return;
-    const key = m[1];
-    const val = String(m[2] || '').trim();
-    if (key === 'topics_missing_benchmark') {
-      parsed.topics_missing_benchmark = val.replace(/^\[/, '').replace(/\]$/, '').split(',').map(v => String(v || '').trim()).filter(Boolean);
-      return;
-    }
-    if (key === 'invalid_reasons') {
-      const inner = val.replace(/^\{/, '').replace(/\}$/, '');
-      inner.split(',').forEach(kv => {
-        const p = kv.split(':');
-        if (p.length < 2) return;
-        parsed.invalid_reasons[String(p[0] || '').trim()] = Number(p[1] || 0);
-      });
-      return;
-    }
-    if (parsed.hasOwnProperty(key)) parsed[key] = Number(val);
-  });
-  Logger.log(JSON.stringify(parsed, null, 2));
-  if (statusSh) Logger.log(`step3a_status summary: ${summary}`);
-  if (samples.length) Logger.log(`invalid samples: ${samples.join(' | ')}`);
-  return parsed;
-}
 
 function requireStepSuccess_(stepKey, message) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.PROCESS_STATUS);
@@ -8645,11 +7579,6 @@ function safeLogRun_(fn, client, status, count, startedAt, err) {
   }
 }
 
-function formatRateForMessage_(v) {
-  const n = Number(v);
-  if (!isFinite(n)) return 'n/a';
-  return `${Math.round(n * 1000) / 10}%`;
-}
 
 function safeSetNote_(sh, row, col, note) {
   if (!sh || !note) return;
@@ -9575,35 +8504,6 @@ function runMonthlyAutoLearn_(client, opts) {
   };
 }
 
-/** B-5 メニュー/Webからの公開入口。 */
-function runMonthlyAutoLearn() {
-  const started = new Date();
-  let client = '';
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
-    const res = runMonthlyAutoLearn_(client, {});
-    if (!res.ready) {
-      const msg = res.skipped === 'auto_update_disabled'
-        ? 'auto_update_enabled=0 のため自動学習は無効です。'
-        : `中立シナリオの評価月が不足しています（${res.n || 0}/${AUTOLEARN_MIN_EVAL_MONTHS}）。B-1/B-2で実績評価を3か月分蓄積してから実行してください。`;
-      logRun_('runMonthlyAutoLearn', client, 'success', res.n || 0, started, `skipped:${res.skipped}`);
-      updateProcessStatus_('learn_status', 'success', client, res.n || 0, `skipped:${res.skipped}`);
-      alertOrThrow_('自動学習をスキップ', msg);
-      return;
-    }
-    updateProcessStatus_('learn_status', 'success', client, res.n, '');
-    logRun_('runMonthlyAutoLearn', client, 'success', res.n, started, '');
-    alertOrThrow_(
-      '自動学習 完了',
-      `全体補正係数: ${res.prevFactor.toFixed(4)} → ${res.factor.toFixed(4)}\n暦月バイアス: ${Object.keys(res.monthBias).length} 件\n評価月数: ${res.n}\n（次回 A-9 予測から反映）`
-    );
-  } catch (e) {
-    try { updateProcessStatus_('learn_status', 'error', client, 0, String(e && e.message || e)); } catch (ignore) {}
-    logRun_('runMonthlyAutoLearn', client, 'error', 0, started, String(e && e.message || e));
-    alertOrThrow_('自動学習エラー', String(e && e.message || e));
-  }
-}
 
 /**
  * B-2 の末尾から自動呼び出し（評価蓄積→学習の閉ループ）。
@@ -9634,56 +8534,6 @@ function autoLearnAfterEvalReport_(client) {
 // 再フィットの完全再現ではない（その旨を結果に明記）。
 // ============================================================
 
-function runLearningBacktest_(client, opts) {
-  const o = opts || {};
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const target = String(client || '').trim();
-  const pairs = collectNeutralEvalPairs_(ss, target)
-    .sort((a, b) => (a.ym < b.ym ? -1 : 1));
-  const res = {
-    ready: false,
-    client: target,
-    n: pairs.length,
-    months: [],
-    wapeBefore: null,
-    wapeAfter: null,
-    note: 'final_predを当月までの学習係数で再スケールする簡易検算（モデル再フィットではない）'
-  };
-  if (pairs.length < AUTOLEARN_BACKTEST_MIN_MONTHS) {
-    res.reason = 'insufficient_eval_months';
-    return res;
-  }
-  let absBefore = 0; let absAfter = 0; let den = 0;
-  for (let t = AUTOLEARN_MIN_EVAL_MONTHS; t < pairs.length; t++) {
-    const hist = pairs.slice(0, t);
-    const st = autoLearnComputeState_(hist, { curFactor: 1.0 });
-    if (!st.ready) continue;
-    const cur = pairs[t];
-    const dt = parseYM_(cur.ym);
-    const mb = dt ? Number(st.monthBias[String(dt.getMonth() + 1)] || 0) : 0;
-    const k = st.factor * (1 + clamp_(mb, -AUTOLEARN_FORECAST_BIAS_CAP, AUTOLEARN_FORECAST_BIAS_CAP));
-    const errBefore = Math.abs(cur.pred - cur.actual);
-    const errAfter = Math.abs(cur.pred * k - cur.actual);
-    absBefore += errBefore;
-    absAfter += errAfter;
-    den += Math.abs(cur.actual);
-    res.months.push({
-      ym: cur.ym,
-      factor: Number(st.factor.toFixed(4)),
-      monthBias: Number(mb.toFixed(4)),
-      errBefore: Math.round(errBefore),
-      errAfter: Math.round(errAfter)
-    });
-  }
-  if (!res.months.length || den <= 0) {
-    res.reason = 'no_evaluable_months';
-    return res;
-  }
-  res.ready = true;
-  res.wapeBefore = absBefore / den;
-  res.wapeAfter = absAfter / den;
-  return res;
-}
 
 // ============================================================
 // Vertex AI 予測アシスト（ルールベース定量 + AI のハイブリッド）
@@ -10510,55 +9360,7 @@ function appendCalibrationHistory_(client, quarterLabel, reviewId, factorName, o
   }
 }
 
-function openQuarterlyReviewLog() {
-  const started = new Date();
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW_LOG);
-    if (!sh) throw new Error('QUARTERLY_REVIEW_LOG がありません');
-    sh.showSheet();
-    ss.setActiveSheet(sh);
-    ss.toast('閲覧を終えたら閉じるかシートを非表示にできます', MENU_NAME, 6);
-    logRun_('openQuarterlyReviewLog', '', 'success', Math.max(0, sh.getLastRow() - 1), started, '');
-  } catch (err) {
-    logRun_('openQuarterlyReviewLog', '', 'error', 0, started, String(err.message || err));
-    SpreadsheetApp.getUi().alert('C-3 エラー', err.message || err, SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
 
-
-/**
- * CONFIG の VERTEX_GEMINI_MODEL を gemini-3.8-flash へ更新する (2026-09-03)。
- * @return {{previous:string, next:string, updated:boolean}}
- */
-function migrateVertexGeminiModelTo38() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const cfg = ss.getSheetByName(SHEETS.CONFIG);
-  if (!cfg) throw new Error('CONFIG シートがありません。');
-  const last = cfg.getLastRow();
-  if (last < 1) throw new Error('CONFIG が空です。');
-  const rows = cfg.getRange(1, 1, last, 2).getValues();
-  let previous = '';
-  let updated = false;
-  for (let i = 0; i < rows.length; i += 1) {
-    if (configKeyOf_(rows[i][0]) !== 'VERTEX_GEMINI_MODEL') continue;
-    previous = String(rows[i][1] == null ? '' : rows[i][1]).trim();
-    if (previous === 'gemini-3.8-flash') break;
-    cfg.getRange(i + 1, 2).setValue('gemini-3.8-flash');
-    updated = true;
-    break;
-  }
-  const msg = updated
-    ? ('VERTEX_GEMINI_MODEL: ' + previous + ' → gemini-3.8-flash')
-    : ('変更なし（現行=' + (previous || '未検出') + '）');
-  Logger.log('migrateVertexGeminiModelTo38: ' + msg);
-  try {
-    SpreadsheetApp.getUi().alert(msg);
-  } catch (e) {
-    Logger.log('(ダイアログ省略) ' + msg);
-  }
-  return { previous: previous, next: 'gemini-3.8-flash', updated: updated };
-}
 
   // ===== Forecast_Agent.js ここまで =====
   // ===== Forecast_WebApp.js ここから（変更しない） =====
@@ -10584,29 +9386,6 @@ function migrateVertexGeminiModelTo38() {
 
 // ===== doGet =====
 
-function doGet(e) {
-  const t = HtmlService.createTemplateFromFile('Forecast_WebAppUI');
-  t.bootJson = webJson_(webGetBootstrap_());
-  const out = t.evaluate()
-    .setTitle('クライアント別売上予測')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  return webSetFavicon_(out);
-}
-
-/**
- * タブのアイコンを案内キャラ「よみ」にする（下の FORECAST_FAVICON_URL）。
- * ページ内の <link rel="icon"> は Apps Script に無視されるため HtmlOutput.setFaviconUrl で渡す。
- * 失敗しても画面は止めず、既定のアイコンのまま返す。
- */
-function webSetFavicon_(out) {
-  try {
-    out.setFaviconUrl(FORECAST_FAVICON_URL);
-  } catch (err) {
-    Logger.log('webSetFavicon_: ' + (err && err.message ? err.message : err));
-  }
-  return out;
-}
 
 // ===== タブのアイコン（自動生成: assets/characters/src/build.py。この区間は手で編集しない） =====
 // 案内キャラ「よみ」の頭を枠いっぱいに描いた 64x64 の PNG（assets/characters/favicon/yomi_favicon_64.png）。
@@ -10615,15 +9394,9 @@ function webSetFavicon_(out) {
 const FORECAST_FAVICON_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAKpElEQVR4nNybC3RUxRnH/3N3s3ktG4J5kITdBCLZjSARCSgiRSrq8RUQ5aXnFNGjlKrVWrX21HOatrZie+yp1WPPSVsStEpNlAq14IOHvCRgIgQICc9kNyE8hSTkudnd6Tc33XST7OPu7l0I/HI2d+/MN/fOfDPzzTeP1UIFCsu5AWgt6L0zrC28mbVCbcwFwxIMsdvoW15fGOcbWipK70AYaKECLjRvZWByxjiaq+hyA9Tkunk6Q5z0GTwLTzg4fx5hIiFMCndfuMFdeIH4LsKgGoWSIV76mDHc4hnKwUvbK8v2I0zCbwGcDXqG08U0UAnD5Jq/M+C+fq8Ed9oZfxkqoEoX8MnUebF6h3S3BtzMOaKDScoZs9Ilhwr/6OBYVtS1u7QOKhAxBSRMWpCNHmykPpEpdwyGIKF6BqrsLjZfw9hZz5g2R9deqETEFMAZ3mJy4UODyX/I0zFeQpp4oaXyw78gAoRtBH3C+BSoAWNxlMt3EvIXbI6buDAdKhNJGxB0ow8E10I14+omcgrgqCQVhOWk9D6Hd1B/ilgXiJwNAH7FwG+lhhCLEBAmkHO2zwH2GhnBU/r8hbe54zTdUlXL/g8uQAUipoCLFaU7MGleml5it2s4t5BCdO44GhLTyUA+4SlPxS0is3ey756GQepD2TqGVbI6PYl2FtH/pVCByPoBlWUtbcDqgcEJExfmQ8v7KYA5eVHLt6WVg2TzF4ykrvS4Zxhn/PGYKfOWd+0uC9sXiNwooBItFblPcs7XeoZRS9FEc+l1qED4lpo66i/LmxtpuJKHKGqsR359U4KZ7vu1W9P71sR4u5TEuZTceWzvzd22mjc0cfFyAmdnO2Iyc5+PGZtXzlz8XCf0Z+uXJDb3JZYnQ2wjY+xWz2c6XK4J4c4HVBmqCnc155MiejMn4avCKYl7c1ecuJEz520Uchv5BDOo1gwICk5Gjm1xMf4VPXTzod89VZcwLPZryvH4PgnOv2ytKL0TYaDqWG0psS2ibM2lx86kB18DFSEjeYaeu5E8zA8PLTatgUqoogDLSutSWhR4iZroGFwKOD9I/5fXLMl8D2ESsgJGlTbE6tv5MmreL1DzTsNlgFpFHbj0Wm3WqGLMZA6EQEgKyCm2zZEY3qbEGRgKcBxxSvyxw4sztyNIglJAVvGF4bG4WEKpZmMIIpyp2kczg3KQFCvAvLJhguRyraXhLeQp7qWAvMwql8TuPbzYeEKJvCJHyFLcMFfivGqoF15ALnaeyKtlxYlblMgHVICl2EYrr7wMVxDyEMwcm8wltgIFsr4RhSeNvoErFOoOLuoO91F3WO9LxqcCzCsbH2LcVcoisLBxKSFPu1NimmkHF2fs8RbvtXCWlY05jDvJx2Y6XAXQ6HCSO+PMhx5PvjgwbvB0uJRr0N7wEVkTv4V3tDWjy3oIzuYzcLZegKurHZcSKSYeGkMiNMNTaCJlhlY/3Kes7KhpOsUawqLBcQMgw/ELsoyv+nqY/UwDWneug73xKIYSulHXwjD1HuhSjD5laPJUULsk89+eYf0UcF3xmZEudNaTT+91E6Otahtat6/FUMZwawH0edO9R3JurckyXevpNvcbBjk6f++t8NzlQsu2NUO+8AKRR5FXqu3BkeTHWOobfuwZ1KeA7HdPpZDAIm8P7Ti4C+37gnazLxsirx3V5V7jaFh/1vO+TwFRvGcZvBjF7qY60ugnuNIQebafbfQWZcotabzXffP/LuByea39i5UbRByuOCjPreU+/B/uXOD+Ktd4zsqGDMa5eaBcz4XTsNsOQwmSRoOps+9Ddt4EpGePwfmmkzh+oBrbP/4Xuto7EApxCQbcMvt+jLl+PEakjUTT0WM4tm8/dq75FC6nM2B6kfee1vOIMozoF06rSne5v8ujAE12nqA1zKKBD1Bq9UeOzkLBU0uRPmb0oLiW787jk7feQd2+AwiGnMk3omDZUuiHJwyKazpeh9V/ehvnGgNP+BJmzEX8+KmDwmktd0LtEuN+uQtQ4W/ylrjnXOAXREVHY/5Lz3stvJyBa0Zg4csvIjE1FUoZnpqMB3/yrNfCC8S7Hv75S/K7A2E/bfUaTt7hZHGV/nfj9UiL8PACMWPeXIxITfErEx0TjXuffAxKuZ9qXqTxx4i0VEyfOweBcHZc9BpOlS4f6+ltATQKBpPYk+yJyo4DmcblQquLCignZIyWHChhTN71AWVcHW3eIziTbV5vC+DwuoEpRQWeCyVnKNuy1+l0SM0KvJ4iZISsElKyTIGVKnlf8qAWYJKje29YUOd3PDlVb1UkZ7fbcVqB7Jl6G41gHEoQsg57D0KBKn2UuIa9N3iqrl6RnNLM9pCizp88CSUofbc3qNKHiWvYCij/z3rYu7sVySllS9nqgDLinTs/XYdwCVsBYixe99cVfmV2froeB7btgFL2b90up/HH2neK8N2JJoSLKucD9m7aAmt1De6hoW70uHGyYRL9uOnYMXy24l00HlLmTXry+YqVOFxRidsfWUieZTbZMiZ3obrqaqwrWoELp89ADVQ7ICEy9P5vlkMTpUWqyYhz5ArbO7sQDsJ7/Nu+V6CLjUFSehpO2xrg7AlpB8wnqp8QERlsOtZ7cCPFaMSM+Q/CWlODPRs2ywZOCVE0DE6cNROZ1+Vi8z/L5G7mfqba+FWAJNbZziraYPHKw6/8DMOTkzBu2s2y17bh/VWo2rzVb5q8md/DrEcWYdiIRPleNP83lz2DUNHEJ/iN96uAqKR0dNdVIxRGjs6UC+9GFOiBZ36ESXfMwr6t23DW1khN2ibPIpMzMpBC3WbCjOkwmsf2e04izQuSTaNk+VAQZfCHXwXoMshD/uZLhMKpOitNXQ8ge8L4fuEmcnNNCl1dwfH91SEXXiCXwQ9+h8HotCxoEpIQKqt++zq+/McqdIawHiDSiLQfvLocoaKhdYDotNF+ZdwtQCzqxw+MZJIG+vzvo2VjKULB0dODHavX4NvPN2A6zRqn3H0XtFH+7a4Y6nav/wLbPlpNSghvr0E/eRaVwWcdy7MkOTe0gnra1/GWuJwb0VaxCc6WcwgVUZAvSt7D5lWlyBibjVE5Y+WP0ZwDp8Mp+wsNh4/ghPw5qni08Ieo/bicSb4FOGR/210dp+jjVQGiFSTNfQrnyt6Es60Z4dBD7mv9gYPyJ5JI+gQkPfSMv9oXawCyAnolGNvl53nQxOlxzZylpFVVD35FBJHHpDk/hCZW71+Qc7nMvdNhLgXs5FoyhkkPPo3orFwMVUTeRB61Cgy3OG4nrn1bY5YS2zd0kw8FiL2CztoKdNlq4WpX/yeCwSDFGxBjsiDWko/o9NGK0pDN+5r2CKeJ730mmdYFn6NdVEXbP+JF7pe57N1wXLwMu8PRcdCSoZN0wa/lSJL2aff3fpujlmLrn2k0CN3vvAKglaA/1i4x/dR9389M1lpNz9GlHFcv5bVW44ueAf3HiULmsku62aQn1X6WNnTge5w67f2ijJ6hXo/IiGOwwzpctCXEZuEqgJr9523x7IHG+cbOgXHMTyqWU9IwW+o9CzwNVyBk2Hdwxv5w6AfGtQN/v+BG0Qkw83snzMzheICk7yRliPX0kfAyd7jMiGHoJA1xNibhC7ik1TVLjEcCJfovAAAA//9ywHZgAAAABklEQVQDAOzLvek/jGZmAAAAAElFTkSuQmCC#favicon.png';
 // ===== /タブのアイコン =====
 
-function webJson_(obj) {
-  return JSON.stringify(obj).replace(/</g, '\\u003c');
-}
 
 // ===== bootstrap / parsers =====
 
-function webGetBootstrap() {
-  return webGetBootstrap_();
-}
 
 function webGetBootstrap_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -11038,25 +9811,6 @@ function webParseRunLog_(ss) {
 
 // ===== setup =====
 
-/** A-1 相当：設定の保存（シートの全消去は Web では行わない）。 */
-function webSaveSetup(p) {
-  return webAudited_('SETUP.SAVE', () => {
-    const client = String(p && p.client || '').trim();
-    const fy = Number(p && p.fy);
-    const people = String(p && p.peopleCsv || '').trim();
-    if (!client) throw new Error('クライアント（メーカー名）を選択してください。');
-    if (!fy || !isFinite(fy)) throw new Error('予測年度（FY）を選択してください。');
-    saveInitialSetupSettings(client, String(fy), people);
-    return webGetBootstrap_();
-  }, { detail: { client: p && p.client, fy: p && p.fy, peopleCsv: p && p.peopleCsv },
-    before: () => { const cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG); return cfg ? { client: cfg.getRange('B2').getValue(), fy: cfg.getRange('B3').getValue(), peopleCsv: cfg.getRange('B4').getValue() } : null; } });
-}
-
-/** セットアップのクライアント候補（外部実績SSから遅延取得）。 */
-function webGetClientCandidates() {
-  const list = getClientCandidatesForSetup_();
-  return { candidates: list };
-}
 
 // ===== 準備アクション =====
 
@@ -11148,28 +9902,6 @@ function webYmToDate_(ym) {
 
 // ===== 予測 =====
 
-/**
- * A-9 相当：予測実行。確認が必要な入力（48ヶ月未満／極端な入力）があると
- * {needConfirm:{key,title,message}} を返し、クライアント確認後に
- * confirms=[key] を付けて再実行する。
- */
-function webRunForecast(confirms) {
-  return webAudited_('FORECAST.RUN', () => {
-    Object.keys(WEB_UI_CONFIRMS_).forEach(k => { delete WEB_UI_CONFIRMS_[k]; });
-    (confirms || []).forEach(k => { WEB_UI_CONFIRMS_[String(k)] = true; });
-    try {
-      runPhase1Forecast();
-    } catch (e) {
-      // 確認要否は例外ではなく戻り値で返す（google.script.run は throw の custom props を保持しない）
-      if (e && e.webConfirm) return { needConfirm: e.webConfirm };
-      throw e;
-    } finally {
-      Object.keys(WEB_UI_CONFIRMS_).forEach(k => { delete WEB_UI_CONFIRMS_[k]; });
-    }
-    return { boot: webGetBootstrap_() };
-  }, { detail: { confirms: confirms || [] },
-    after: (res) => (res && res.needConfirm ? { needConfirm: res.needConfirm.key } : { done: true }) });
-}
 
 /** A-10 相当：OUTPUT の予算列（H=Adopted / I=Uplift）を保存。J列（Final）は数式のまま触らない。 */
 function webSaveBudget(rows) {
@@ -11379,30 +10111,6 @@ function webRunMonthlyLearn() {
   }, { after: (res) => res && res.result });
 }
 
-/** Vertexアシスト単体実行（A-4と同じログを残し、A-9は次回実行時に自動反映）。 */
-function webRunVertexAssist() {
-  return webAudited_('AI.ASSIST', () => {
-    ensureSetupDone_();
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
-    const vertex = readVertexConfig_();
-    if (!vertex.geminiReady) throw new Error('Vertex の必須設定が未入力です（CONFIG: VERTEX_PROJECT_ID / VERTEX_LOCATION / VERTEX_GEMINI_MODEL）。');
-    ensureAIResearchRuntimeSheets_(ss);
-    const res = runVertexForecastAssist_(client, ss, vertex, null);
-    if (res.skipped === 'disabled') throw new Error('CONFIG の VERTEX_FORECAST_ENABLED を 1 にしてください。');
-    if (!res.ok) throw new Error('Vertexアシスト失敗: ' + (res.error || res.skipped || 'unknown'));
-    safeLogRun_('runVertexForecastAssist_', client, 'success', 12, new Date(), `manual conf=${res.confidence}`);
-    return { result: res, boot: webGetBootstrap_() };
-  }, { after: (res) => ({ ok: res.result && res.result.ok, confidence: res.result && res.result.confidence }) });
-}
-
-/** カウンターファクト学習バックテスト（EVAL_LOG walk-forward 簡易検算）。 */
-function webRunLearningBacktest() {
-  ensureSetupDone_();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
-  return { result: runLearningBacktest_(client, {}) };
-}
 
 // ===== 操作の記録（監査ログ）と実行者の確認 — 段階0（DESIGN_data_platform_JA.md 10章） =====
 // Web からの書き込み・実行は webAudited_ を通す。実行前の「開始」を記録できなければ処理しない（fail-closed）。
@@ -11653,7 +10361,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: 'bd3f1572534a98888a5e63c797965dc406a8615b36877181a3634eb99577ccff',
-    WEB_SOURCE_SHA256: '5f0d3842cdb4b195b20535df9043781c8392c713f3cde5851c2ff71f34b028ff'
+    SOURCE_SHA256: '6e11a12b4695764e4d068326c8b5de33ea349efcc50b5dbfae4229a7ffd6d708',
+    WEB_SOURCE_SHA256: '1cb37eb8dd9a155bcc0b2c6d810b3a1a3b5f9c753120fe515f10f871c266f695'
   };
 }
