@@ -765,7 +765,7 @@ function webParseLearning_(ss, client) {
   };
   try {
     const cal = readCalibrationState_(client);
-    res.autoUpdate = Number(cal.auto_update_enabled || 1) === 1;
+    res.autoUpdate = calibrationNumberOr_(cal.auto_update_enabled, 1) === 1;   // 0 を 1 にしない
     res.biasFactor = isFinite(Number(cal.bias_correction_factor)) ? Number(cal.bias_correction_factor) : 1.0;
     res.monthBias = parseResidualMonthBiasJson_(cal.residual_month_bias_json);
     res.lastAppliedQuarter = String(cal.last_applied_quarter || '');

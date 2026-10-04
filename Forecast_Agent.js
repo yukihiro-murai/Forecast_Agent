@@ -17,7 +17,7 @@
 const VERSION = '2.4.0-dev';
 const BUILD_STAGE = 'bayesian-autolearn-vertex-hybrid';
 const MENU_NAME = 'Forecast Agent';
-const EVALUATION_POLICY_VERSION = 'policy-2026H1-v1';
+const EVALUATION_POLICY_VERSION = 'policy-2026H1-v2';   // v2（2026-10-04）: 実績の締まった月の記録（予測 = 実績）は検証に使わない。P10/P90 はクライアントごとに引く
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
 const RANGE_EXPLANATION_ROLE = 'P10-P90';
 const ANNUAL_ABS_ERROR_CONSTRAINT = 0.10;
@@ -7985,7 +7985,9 @@ function writeForecastArtifacts_(result, client) {
   scenarios.forEach(sc=>{
     result.months.forEach((m,i)=>{
       const deterministicAdj = (result.spotFixedByMonth && isFinite(result.spotFixedByMonth[i])) ? result.spotFixedByMonth[i] : (result.devFixedByMonth[i] || 0);
-      rows.push([sid,runDate,client,fmtYM_(m),sc.name,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||''}),null,JSON.stringify(buildCalibrationAppliedPayload_(result))]);
+      // forecast_source: actual_closed = 実績の締まった月（予測は実績に置き換え済み）。検証（B-2）はこの行を使わない
+      const source = result.sourceByMonth ? (result.sourceByMonth[i] || 'forecast_open') : 'forecast_open';
+      rows.push([sid,runDate,client,fmtYM_(m),sc.name,result.mixed.p50[i],0,0,deterministicAdj,sc.arr[i],result.mixed.p10[i],result.mixed.p90[i],JSON.stringify({opinion:result.opinionsSummaryByMonth[i]||'', forecast_source: source}),null,JSON.stringify(buildCalibrationAppliedPayload_(result))]);
     });
   });
   const r0 = snap.getLastRow()+1;
@@ -7993,6 +7995,43 @@ function writeForecastArtifacts_(result, client) {
   // 実績側の文字列キーとの結合が壊れるのを防ぐ）
   snap.getRange(r0, 4, rows.length, 1).setNumberFormat('@');
   snap.getRange(r0,1,rows.length,rows[0].length).setValues(rows);
+}
+
+/**
+ * 検証に使う FORECAST_SNAPSHOT の行を選ぶ（クライアント × 月ごとに、1 回の予測 = snapshot_id の行をまとめて）。
+ * 実績の締まった月の記録は使わない:
+ *   - key_factors_json の forecast_source が actual_closed の行（2026-10-04 から記録）
+ *   - それより前の行で forecast_source が無いものは、P50 が実績とまったく同じ回（締まった後に予測し直して、実績に置き換わった回）
+ * 使える回のうち、一番新しい回（シートの下の行）の行だけを返す。使える回が無い月は検証しない。
+ * snapRows: FORECAST_SNAPSHOT の行（見出しを除く）、actualMap: client|ym → 実績の合計
+ */
+function selectEvalSnapshotRows_(snapRows, actualMap) {
+  const groups = new Map();   // client|ym → [{ sid, rows, closed }]（シートの順）
+  snapRows.forEach(r => {
+    const ym = ymKey_(r[3]);
+    if (!ym) return;
+    const key = [normalizeClientName_(r[2]), ym].join('|');
+    const sid = String(r[0] || '');
+    if (!groups.has(key)) groups.set(key, []);
+    const list = groups.get(key);
+    let g = list.length && list[list.length - 1].sid === sid ? list[list.length - 1] : null;
+    if (!g) { g = { sid: sid, rows: [], closed: false }; list.push(g); }
+    g.rows.push(r);
+    let source = '';
+    try { source = String((JSON.parse(String(r[12] || '{}')) || {}).forecast_source || ''); } catch (e) { source = ''; }
+    if (source === 'actual_closed') g.closed = true;
+    if (!source && String(r[4] || '') === 'neutral') {
+      const act = actualMap ? actualMap.get(key) : undefined;
+      const pred = Number(r[9]);
+      if (act !== undefined && act !== null && isFinite(pred) && Math.abs(pred - Number(act)) < 1e-6) g.closed = true;
+    }
+  });
+  const out = [];
+  groups.forEach(list => {
+    const use = list.filter(g => !g.closed);
+    if (use.length) use[use.length - 1].rows.forEach(r => out.push(r));
+  });
+  return out;
 }
 
 /**
@@ -8005,23 +8044,26 @@ function updatePhase1EvaluationReport() {
   requireStepSuccess_('step4_status', '先にA-9 予測実行を実行してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const actual = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY).getDataRange().getValues().slice(1);
-  const snap = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT).getDataRange().getValues().slice(1);
+  const snapAll = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT).getDataRange().getValues().slice(1);
   const mapA = new Map();
   actual.forEach(r=>{
     const k = [normalizeClientName_(r[0]), ymKey_(r[3])].join('|');
     mapA.set(k, (mapA.get(k) || 0) + Number(r[4] || 0));
   });
+  // 月ごとに、実績が締まる前の最後の予測だけを使う（締まった月の記録は予測 = 実績なので、検証と学習に入れると誤差 0 になる）
+  const snap = selectEvalSnapshotRows_(snapAll, mapA);
   const p10Map = new Map();
   const p50Map = new Map();
   const p90Map = new Map();
   snap.forEach(r => {
     const ym = ymKey_(r[3]);
+    const key = [normalizeClientName_(r[2]), ym].join('|');   // クライアントごとに引く
     const sc = String(r[4] || '');
     const pred = Number(r[9] || 0);
     if (!ym || !isFinite(pred)) return;
-    if (sc === 'nega') p10Map.set(ym, pred);
-    if (sc === 'neutral') p50Map.set(ym, pred);
-    if (sc === 'posi') p90Map.set(ym, pred);
+    if (sc === 'nega') p10Map.set(key, pred);
+    if (sc === 'neutral') p50Map.set(key, pred);
+    if (sc === 'posi') p90Map.set(key, pred);
   });
 
   const evalRows=[];
@@ -8036,7 +8078,7 @@ function updatePhase1EvaluationReport() {
     const absErr = Math.abs(signed);
     const scenario = String(r[4] || '');
     const role = scenario === 'neutral' ? 'P50' : (scenario === 'nega' ? 'P10' : (scenario === 'posi' ? 'P90' : ''));
-    const rangeContains = (p10Map.has(ymCanon) && p90Map.has(ymCanon)) ? ((act >= p10Map.get(ymCanon) && act <= p90Map.get(ymCanon)) ? 1 : 0) : '';
+    const rangeContains = (p10Map.has(key) && p90Map.has(key)) ? ((act >= p10Map.get(key) && act <= p90Map.get(key)) ? 1 : 0) : '';
     const isPlanningPoint = (scenario === 'neutral') ? 1 : 0;
     const constraintRelevant = (scenario === 'neutral') ? 1 : 0;
     evalRows.push([
@@ -9278,12 +9320,14 @@ function readCalibrationState_(client) {
         ai_weight_override: rows[i][idx.ai_weight_override],
         ai_max_abs_effect_override: rows[i][idx.ai_max_abs_effect_override],
         ai_topic_disable_json: rows[i][idx.ai_topic_disable_json] || '[]',
-        bias_correction_factor: Number(rows[i][idx.bias_correction_factor] || 1),
+        // 空は既定値。0 などの数は、そのまま読む（以前は Number(x || 1) で 0 を 1 にしていた）。倍率は正の数だけ
+        bias_correction_factor: (() => { const v = calibrationNumberOr_(rows[i][idx.bias_correction_factor], 1); return v > 0 ? v : 1; })(),
+        // 予約の列（今は予測に効かない。3c-1 で主観の帯の合わせを外したため。calibrateSubjectiveContinuousDelta_ はいつも 1）
         qual_scale_override: rows[i][idx.qual_scale_override],
         residual_month_bias_json: rows[i][idx.residual_month_bias_json] || '',
         last_applied_quarter: rows[i][idx.last_applied_quarter] || '',
         last_applied_review_id: rows[i][idx.last_applied_review_id] || '',
-        auto_update_enabled: Number(rows[i][idx.auto_update_enabled] || 1),
+        auto_update_enabled: calibrationNumberOr_(rows[i][idx.auto_update_enabled], 1) === 1 ? 1 : 0,   // 0 で自動学習を止める
         note: rows[i][idx.note] || ''
       };
     }
@@ -9295,6 +9339,13 @@ function readCalibrationState_(client) {
   } catch (err) {
     throw err;
   }
+}
+
+/** CALIBRATION_STATE の数の列: 空（・読めない値）は既定値、0 を含む数はそのまま */
+function calibrationNumberOr_(v, def) {
+  if (v === '' || v === null || v === undefined) return def;
+  const n = Number(v);
+  return isFinite(n) ? n : def;
 }
 
 function writeCalibrationState_(client, partial) {
@@ -9471,7 +9522,7 @@ function runMonthlyAutoLearn_(client, opts) {
   const target = String(client || '').trim();
   if (!target) throw new Error('client が未指定です。');
   const cal = readCalibrationState_(target);
-  if (Number(cal.auto_update_enabled || 1) !== 1 && !o.force) {
+  if (calibrationNumberOr_(cal.auto_update_enabled, 1) !== 1 && !o.force) {
     return { ready: false, skipped: 'auto_update_disabled', client: target };
   }
   const pairs = collectNeutralEvalPairs_(ss, target);
@@ -10386,7 +10437,7 @@ function applyQuarterlyProposals() {
     const by = Session.getActiveUser().getEmail() || 'unknown';
     const client = String(logRows[0][idx.client] || '');
     const cal = readCalibrationState_(client);
-    const autoUpdate = Number(cal.auto_update_enabled || 1) === 1;
+    const autoUpdate = calibrationNumberOr_(cal.auto_update_enabled, 1) === 1;
     let a=0,d=0,p=0;
     const logData = logSh.getDataRange().getValues();
     for (let r = 1; r < logData.length; r++) {
