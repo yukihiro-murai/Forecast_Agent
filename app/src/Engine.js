@@ -87,9 +87,55 @@ function appScratchBook_() {
 function appScratchReset_(ss, token) {
   // 空にした時点で、前の処理の中身ではなくなる（その処理の続きは appScratchOwnedBy_ で止まる）
   appProps_().setProperty(APP_PROP.scratchOwner, token || appId_('SCR'));
+  appProps_().deleteProperty(APP_SCRATCH_STATE_PROP);
   const keep = ss.insertSheet('_EMPTY_' + Utilities.getUuid().slice(0, 8));
   ss.getSheets().forEach(s => { if (s.getSheetId() !== keep.getSheetId()) ss.deleteSheet(s); });
   return keep;
+}
+
+// ---- 計算用ブックの使い回し（組み立ては処理でいちばん時間がかかる） ----
+// 保存し終えた時点の計算用ブックは、データ本体と同じ中身。その後データ本体が変わっていなければ（入力のハッシュが同じ）、
+// 同じ計画の次の処理は組み立て直さずに使う。使い始めたら控えを消し（計算で中身が変わるため）、保存し終えたらまた控える
+const APP_SCRATCH_STATE_PROP = 'APP_SCRATCH_STATE';
+
+function appScratchState_() {
+  try { return JSON.parse(appProps_().getProperty(APP_SCRATCH_STATE_PROP) || 'null'); } catch (e) { return null; }
+}
+
+/**
+ * 計算用ブックを使い回せるなら、新しい印（token）で自分のものにして返す（使えなければ null）。
+ * needed: 処理が使うシート（null = 全部）。控えの scope（null = 全部）に含まれていること
+ */
+function appScratchTryReuse_(scratch, planId, needed, token) {
+  const st = appScratchState_();
+  if (!st || st.planId !== planId) return null;
+  if (st.scope && (!needed || needed.some(n => st.scope.indexOf(n) < 0))) return null;
+  if (appPlanInputHash_(planId) !== st.inputHash) return null;
+  // 旧来の計算が作った、データ本体に移さないシート（AI_RESEARCH_RAW など）は除く（組み立てたときと同じにする）
+  scratch.getSheets().forEach(s => { if (!APP_ENGINE_SHEETS[s.getName()] && scratch.getSheets().length > 1) scratch.deleteSheet(s); });
+  appProps_().setProperty(APP_PROP.scratchOwner, token);
+  appProps_().deleteProperty(APP_SCRATCH_STATE_PROP);
+  return { token: token, scope: st.scope };
+}
+
+/** 保存し終えた後: 計算用ブックがデータ本体の計画 planId と同じ中身であることを控える（scope = 控えたシート。null = 全部） */
+function appScratchMarkSynced_(planId, token, scope) {
+  if (!appScratchOwnedBy_(token)) return;
+  appProps_().setProperty(APP_SCRATCH_STATE_PROP, JSON.stringify({ planId: planId, inputHash: appPlanInputHash_(planId), scope: scope || null, at: appNowIso_() }));
+}
+
+/**
+ * 保存し終えた後に控える。captured = 保存の対象にしたシート（null = 全部）。
+ * 使い回した計算用ブックがそれより広い範囲（reusedScope）を持っていたら、対象の外のシートもデータ本体と同じか読んで確かめ、
+ * 同じなら広い範囲のまま控える（読むのは、組み立て直すよりずっと速い）
+ */
+function appScratchMarkAfterSave_(scratch, planId, token, captured, reused, reusedScope) {
+  let scope = captured || null;
+  if (reused && captured && (reusedScope === null || reusedScope === undefined || reusedScope.some(n => captured.indexOf(n) < 0))) {
+    const others = appCaptureChanged_(scratch, planId, appStoredHashes_(planId), reusedScope || null);
+    if (!others.changed.length) scope = reusedScope || null;
+  }
+  appScratchMarkSynced_(planId, token, scope);
 }
 
 /** 計算用ブックの中身が、token の処理が組み立てたままか */
@@ -113,7 +159,10 @@ function appBuildDeadline_(jobStartMs) {
 function appScratchBuildStep_(scratch, planId, only, state, deadlineMs) {
   let st = state;
   if (!st) {
-    st = { token: appId_('SCR'), done: [], problems: [] };
+    const token = appId_('SCR');
+    const reused = appScratchTryReuse_(scratch, planId, only, token);
+    if (reused) return { state: { token: token, done: Object.keys(APP_ENGINE_SHEETS).filter(n => !only || only.indexOf(n) >= 0), problems: [], reused: true, scope: reused.scope }, complete: true };
+    st = { token: token, done: [], problems: [], scope: only || null };
     appScratchReset_(scratch, st.token);
   } else if (!appScratchOwnedBy_(st.token)) {
     throw new Error('組み立てている間に、計算用ブックがほかの処理で使われました。もう一度実行してください。');
@@ -291,9 +340,9 @@ function appWorkScratch_(plan) {
 }
 
 /** データ本体の計画 1 つ分から、計算用ブックを組み立てる（予測・実行）。only を渡すとそのシートだけ */
-function appScratchFromStore_(scratch, planId, only) {
+function appScratchFromStore_(scratch, planId, only, token) {
   const sheets = appEngLoadPlanSheets_(planId, only);
-  const placeholder = appScratchReset_(scratch);
+  const placeholder = appScratchReset_(scratch, token);
   const report = [];
   Object.keys(APP_ENGINE_SHEETS).forEach(name => {
     const dec = sheets[name];

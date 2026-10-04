@@ -73,7 +73,7 @@ let SHEET_SEQ = 0;
  * strict でないシートは、書式が '@' でないセルに書いた文字列を本物のように変換する。
  */
 /** 見た目だけの操作（色・幅・入力規則・枠線・表示/非表示など）は何もしない（計算の結果に関係しない）。値と表示形式は本物のとおりに扱う */
-const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation)$/;
+const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation|setDescription|setWarningOnly)$/;
 function looks(obj) {
   const p = new Proxy(obj, { get(t, k) {
     if (k in t || typeof k === 'symbol') return t[k];
@@ -291,6 +291,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     Object.assign(f, {
       getId: () => f.id, getName: () => f.name, getUrl: () => 'https://drive.google.com/drive/folders/' + f.id,
       createFolder: (n) => makeFolder(n, f.id),
+      getFoldersByName: (n) => iter(Object.values(files).filter((x) => x.kind === 'folder' && x.parent === f.id && x.name === n)),
       // 文字のファイル（保存の控え）。本物と同じく、中身は getBlob().getDataAsString() で読む
       createFile: (n, content, mime) => {
         const x = makeFile(newId('FILE'), n, f.id);
@@ -309,7 +310,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   function makeFile(id, name, parent) {
     const f = { kind: 'file', id, name, mime: SHEETS_MIME, parent, trashed: false, created: new Date(state.clock += 60000) };
     Object.assign(f, {
-      getId: () => f.id, getName: () => f.name, setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed, getMimeType: () => f.mime,
+      getId: () => f.id, getName: () => f.name, getUrl: () => 'https://docs.google.com/spreadsheets/d/' + f.id + '/edit', setName: (n) => { f.name = n; return f; }, getDateCreated: () => f.created, isTrashed: () => f.trashed, getMimeType: () => f.mime,
       getLastUpdated: () => f.updated || f.created,
       setTrashed: (b) => { f.trashed = !!b; return f; },
       moveTo: (folder) => { f.parent = folder.getId(); return f; },

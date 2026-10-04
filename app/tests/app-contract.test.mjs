@@ -21,7 +21,7 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
+  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiLegacyBooks', 'apiArchiveLegacyBooks', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
 /** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */
 const WRAPPED = ['LegacyEngine.js'];
 
@@ -313,46 +313,43 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
 // ==== 9. 設定（既定値は旧来の値・範囲の確認・上書きしない履歴） ====
 {
   const env = setUpEnv();
-  const legacy = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
-  const legacyUi = await readFile(path.join(repoRoot, 'Forecast_WebAppUI.html'), 'utf8');
-  const num = (src, name) => Number(new RegExp(name + '\\s*=\\s*([0-9.]+)').exec(src)[1]);
+  // 数・整数・する/しないの型を確かめるため、テストだけの設定を足す（本番の設定は ZAC のスプレッドシートだけ）
+  env.run(`Object.assign(APP_SETTING_DEFS, {
+    'test.rate': { label: '割合', type: 'number', min: 0, max: 1, def: 0.12, unit: '割合' },
+    'test.rate2': { label: '割合2', type: 'number', min: 0, max: 1, def: 0.05, unit: '割合' },
+    'test.months': { label: '月数', type: 'int', min: 1, max: 24, def: 3, unit: 'か月' },
+    'test.flag': { label: 'フラグ', type: 'bool', def: false, unit: 'する / しない' } })`);
   const cur = () => Object.fromEntries(env.call('apiListSettings()').settings.map((s) => [s.key, s]));
   let s = cur();
-  assert.equal(s['eval.annual_abs_error_max'].value, num(legacy, 'ANNUAL_ABS_ERROR_CONSTRAINT'));
-  assert.equal(s['eval.half_wape_max'].value, num(legacy, 'HALF_WAPE_CONSTRAINT'));
-  assert.equal(s['eval.overforecast_rate_max'].value, num(legacy, 'OVERFORECAST_RATE_CONSTRAINT'));
-  assert.equal(s['weather.min_months'].value, num(legacyUi, 'WX_MIN_MONTHS'));
-  assert.equal(s['weather.tenpen_ape'].value, num(legacyUi, 'WX_TENPEN_APE'));
-  assert.equal(s['weather.taifuu_ape'].value, num(legacyUi, 'WX_TAIFUU_APE'));
-  assert.equal(s['audit.retention_years'].value, 7);
+  assert.deepEqual(Object.keys(s).filter((k) => !/^test\./.test(k)), ['source.zac_spreadsheet'], '本番の設定は使うものだけ');
   assert.ok(Object.values(s).every((x) => x.isDefault));
   for (const [key, value, re] of [
-    ['eval.half_wape_max', '1.5', /0〜1 の範囲/], ['eval.half_wape_max', 'abc', /数値で入力/], ['eval.half_wape_max', '', /数値で入力/],
-    ['weather.min_months', '2.5', /整数で入力/], ['audit.log_views', 'maybe', /する \/ しない/], ['no.such', '1', /未定義の設定/],
+    ['test.rate', '1.5', /0〜1 の範囲/], ['test.rate', 'abc', /数値で入力/], ['test.rate', '', /数値で入力/],
+    ['test.months', '2.5', /整数で入力/], ['test.flag', 'maybe', /する \/ しない/], ['no.such', '1', /未定義の設定/],
   ]) {
     assert.throws(() => env.call('apiSaveSetting(__in)', { __in: { key, value } }), re, `${key}=${value}`);
   }
-  assert.throws(() => env.call(`apiSaveSetting({ key: 'eval.half_wape_max', value: '0.2', effectiveFrom: '2026/10/01' })`), /yyyy-MM-dd/);
+  assert.throws(() => env.call(`apiSaveSetting({ key: 'test.rate', value: '0.2', effectiveFrom: '2026/10/01' })`), /yyyy-MM-dd/);
   assert.equal(env.table('SETTINGS').length, 0, 'だめな値は保存しない');
-  env.call(`apiSaveSetting({ key: 'eval.half_wape_max', value: '0.15' })`);
-  env.call(`apiSaveSetting({ key: 'eval.half_wape_max', value: 0.11 })`);
+  env.call(`apiSaveSetting({ key: 'test.rate', value: '0.15' })`);
+  env.call(`apiSaveSetting({ key: 'test.rate', value: 0.11 })`);
   s = cur();
-  assert.deepEqual([s['eval.half_wape_max'].value, s['eval.half_wape_max'].isDefault, s['eval.half_wape_max'].effectiveFrom], [0.11, false, TODAY],
+  assert.deepEqual([s['test.rate'].value, s['test.rate'].isDefault, s['test.rate'].effectiveFrom], [0.11, false, TODAY],
     '同じ日に 2 回変えたら後の値');
   assert.equal(env.table('SETTINGS').length, 2, '上書きせず行を足す');
   const end = env.audit().filter((a) => a.action === 'SETTING.SAVE' && a.result === 'OK')[1];
   assert.equal(JSON.parse(end.before_json).value, 0.15);
   assert.equal(JSON.parse(end.after_json).value, '0.11');
-  env.call(`apiSaveSetting({ key: 'weather.min_months', value: 6, effectiveFrom: '${TOMORROW}' })`);
+  env.call(`apiSaveSetting({ key: 'test.months', value: 6, effectiveFrom: '${TOMORROW}' })`);
   s = cur();
-  assert.equal(s['weather.min_months'].value, 3, '先の日付の設定はその日まで効かない');
-  assert.deepEqual(s['weather.min_months'].scheduled, [{ value: '6', effectiveFrom: TOMORROW }]);
-  env.call(`apiSaveSetting({ key: 'audit.log_views', value: 'true' })`);
-  assert.equal(cur()['audit.log_views'].value, true);
-  assert.equal(env.run(`appSettingValue_('eval.half_wape_max')`), 0.11);
+  assert.equal(s['test.months'].value, 3, '先の日付の設定はその日まで効かない');
+  assert.deepEqual(s['test.months'].scheduled, [{ value: '6', effectiveFrom: TOMORROW }]);
+  env.call(`apiSaveSetting({ key: 'test.flag', value: 'true' })`);
+  assert.equal(cur()['test.flag'].value, true);
+  assert.equal(env.run(`appSettingValue_('test.rate')`), 0.11);
   // 表に紛れ込んだ不正な値は使わず既定値に戻す
-  env.run(`appInsertRows_('SETTINGS', [{ setting_id: 'ST-X', key: 'eval.overforecast_rate_max', value: '9', scope: 'GLOBAL', scope_id: '', effective_from: '${TODAY}', note: '', created_at: '', created_by: '' }])`);
-  assert.equal(cur()['eval.overforecast_rate_max'].value, 0.05);
+  env.run(`appInsertRows_('SETTINGS', [{ setting_id: 'ST-X', key: 'test.rate2', value: '9', scope: 'GLOBAL', scope_id: '', effective_from: '${TODAY}', note: '', created_at: '', created_by: '' }])`);
+  assert.equal(cur()['test.rate2'].value, 0.05);
 }
 
 // ==== 10. 操作の記録（鎖・改ざんの検出・一覧） ====
@@ -519,7 +516,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.match(html, /var CHAR_SVG = \{/);
   assert.match(html, /var YOMI_POSE = \{/);
   assert.doesNotMatch(html, /<\?/);
-  assert.equal(env.audit().length, 1, '画面を開くだけでは記録しない（設定 audit.log_views は既定で しない）');
+  assert.equal(env.audit().length, 1, '画面を開くだけでは記録しない（読むだけの操作は記録しない）');
   env.as(OUTSIDER);
   const b2 = JSON.parse(/var B = (.*);\n/.exec(env.run('doGet({})').getContent())[1]);
   assert.deepEqual([b2.allowed, b2.user.roles, b2.user.isAdmin], [false, [], false], '社外の人には役割も出さない');

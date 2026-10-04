@@ -99,7 +99,7 @@ function appJobExecute_(ctx, job) {
     case 'FORECAST.RUN':
       return appAudited_(ctx, 'FORECAST.RUN.BUILD', { entityType: 'PLAN', entityId: p.planId,
         detail: { planId: p.planId, confirms: p.confirms || [], runId: p.runId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
-        after: res => ({ runId: res.__next.payload.runId, next: res.__next.kind, built: res.__next.payload.build.done.length, problems: res.__next.payload.build.problems,
+        after: res => ({ runId: res.__next.payload.runId, next: res.__next.kind, built: res.__next.payload.build.done.length, reused: !!res.__next.payload.build.reused, problems: res.__next.payload.build.problems,
           buildMs: res.__next.payload.buildMs }) }, () => appForecastRunBuild_(ctx, p, job));
     case 'FORECAST.RUN_CALC':
       return appAudited_(ctx, 'FORECAST.RUN.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, runId: p.runId, confirms: p.confirms || [], jobId: job.id },
@@ -117,7 +117,7 @@ function appJobExecute_(ctx, job) {
     case 'PLAN.RUN':
       return appAudited_(ctx, 'PLAN.' + p.action + '.BUILD', { entityType: 'PLAN', entityId: p.planId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
-        after: res => ({ actionId: res.__next.payload.actionId, next: res.__next.kind, built: res.__next.payload.build.done.length, problems: res.__next.payload.build.problems,
+        after: res => ({ actionId: res.__next.payload.actionId, next: res.__next.kind, built: res.__next.payload.build.done.length, reused: !!res.__next.payload.build.reused, problems: res.__next.payload.build.problems,
           buildMs: res.__next.payload.buildMs }) }, () => appPlanRunBuild_(ctx, p));
     case 'PLAN.RUN_CALC':
       return appAudited_(ctx, 'PLAN.' + p.action + '.CALC', { entityType: 'PLAN', entityId: p.planId, detail: { planId: p.planId, action: p.action, actionId: p.actionId, jobId: job.id },

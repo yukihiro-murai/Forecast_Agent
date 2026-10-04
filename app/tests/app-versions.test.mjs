@@ -87,4 +87,16 @@ env.as('someone@bigm2y.com');
 assert.equal(env.call('apiVersionList(__in)', { __in: { planId } }).can.submit, false);
 assert.throws(() => env.call('apiVersionSubmit(__in)', { __in: { planId } }), /権限/);
 env.as(OWNER);
+// ==== 7. 取り込んだ旧ブックは、アーカイブのフォルダの「旧ブック」へ移せる（所有者だけ。消さない） ====
+const books = env.call('apiLegacyBooks()').books;
+assert.equal(books.length, 1);
+assert.equal(books[0].archived, false);
+const ar = env.call('apiArchiveLegacyBooks()');
+assert.equal(ar.moved, 1);
+assert.equal(env.files[book.getId()].trashed, false, '消さない');
+assert.equal(env.call('apiLegacyBooks()').books[0].archived, true);
+assert.equal(env.call('apiArchiveLegacyBooks()').moved, 0, '2 回目は何もしない');
+env.as(APPROVER);
+assert.throws(() => env.call('apiArchiveLegacyBooks()'), /権限/);
+env.as(OWNER);
 console.log('app-versions: all tests passed');

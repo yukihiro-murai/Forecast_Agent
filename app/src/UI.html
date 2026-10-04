@@ -205,7 +205,7 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiLegacyBooks: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
@@ -332,7 +332,7 @@ function viewHome(){
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
   var links = [['plans', '計画の一覧', 'すべてのクライアント・年度の予測と予算を並べて見る。新しい計画もここで作る'], ['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
     .filter(function(x){ return !x[3] || B.user.isAdmin; });
-  return '<h1>ホーム</h1>' + guide('guide', 'Trends2Targets は、売上予測と予算策定のアプリです。左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを、旧アプリと同じ中身で見られます。AI 調査は、まだ旧アプリで行います。<div class="row c"><span class="note">あなたの役割</span>' + roles + '</div>')
+  return '<h1>ホーム</h1>' + guide('guide', 'Trends2Targets は、売上予測と予算策定のアプリです。左の「計画の一覧」で全部のクライアント × 年度を見比べ、「予測」で計画ごとの予測・根拠・予算・入力・検証・四半期レビュー・公式版を見て、保存・実行します。<div class="row c"><span class="note">あなたの役割</span>' + roles + '</div>')
     + '<div class="card"><h2>よく使う画面</h2><div class="actions">' + links.map(function(x){ return '<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button><div class="desc">' + x[2] + '</div>'; }).join('') + '</div></div>';
 }
 
@@ -381,7 +381,7 @@ function pfTable(rows, pct1){
   return '<table class="tbl wide"><colgroup><col><col style="width:88px"><col style="width:120px"><col style="width:88px"><col style="width:120px"><col style="width:80px"><col style="width:96px"><col style="width:96px"><col style="width:120px"><col style="width:128px"></colgroup>'
     + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>公式版</th><th>最後の予測</th><th></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>'
-    + '<p class="note mt8">P50 は最新の予測の年度合計（新アプリで予測していない計画は、取り込んだ旧ブックの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。公式版は承認済みの版（オレンジは承認待ち）。</p>';
+    + '<p class="note mt8">P50 は最新の予測の年度合計（まだ予測していない計画は、取り込んだときの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。公式版は承認済みの版（オレンジは承認待ち）。</p>';
 }
 function pfPoolCard(){
   var p = S.pfPool;
@@ -396,14 +396,14 @@ function pfPoolCard(){
 function pfCreateCard(){
   var c = S.pfCand;
   var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n.display) + '">' + (n.display !== n.zac ? esc(n.zac) : '') + '</option>'; }).join('') + '</datalist>' : '';
-  return '<div class="card"><div class="card-head"><h2>計画を作る</h2><span class="note">旧ブックを使わずに、新アプリで新しいクライアント × 年度の計画を作ります</span></div>'
+  return '<div class="card"><div class="card-head"><h2>計画を作る</h2><span class="note">新しいクライアント × 年度の計画を作ります</span></div>'
     + '<div class="row mt0"><div class="field"><label for="pc_client">クライアント（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
     + '<div class="field"><label for="pc_fy">年度（FY）</label><input class="inp sm num" id="pc_fy" type="number" min="2000" max="2100" value="' + esc(S.pcFy || (c ? c.defaultFy : pfDefaultFy())) + '" oninput="S.pcFy=this.value"></div>'
     + '<div class="field"><label for="pc_people">担当者（カンマ区切り）</label><input class="inp" id="pc_people" value="' + esc(S.pcPeople || '') + '" oninput="S.pcPeople=this.value"></div>'
     + '<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す' : '候補を読み込む') + '</button></div>'
     + (c ? '<p class="note mt8">ZAC の実績にある直近 2 年のクライアント ' + c.candidates.length + ' 件を候補に出しています。</p>' : '')
     + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="pfCreate()">計画を作る</button>'
-    + '<span class="note">旧来の A-1 初期セットアップと同じシートを作ります（1〜3 分ほど）。作った後は「進み」で A-2 → A-3 → 予測の順に実行します。</span></div></div>';
+    + '<span class="note">A-1 初期セットアップと同じシートを作ります（1〜3 分ほど）。作った後は「進み」で A-2 → A-3 → 予測の順に実行します。</span></div></div>';
 }
 /** 新しい計画の年度の目安（10 月からは次の年度） */
 function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
@@ -488,7 +488,7 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加',
   'AUDIT.VERIFY': '記録の鎖の確認', 'HOUSEKEEPING.RUN': '手入れ', 'HOUSEKEEPING': '毎日の手入れ', 'BACKUP': 'バックアップ', 'JOURNAL.RECOVER': '保存の続き（自動）',
   'PLAN.CREATE.BUILD': '計画の作成（準備）', 'PLAN.CREATE.SAVE': '計画の作成（保存）', 'VERSION.SUBMIT': '公式版を出す', 'VERSION.DECIDE': '公式版の承認・却下',
-  'CLIENT.NAME': 'クライアントの画面の名前', 'LEARN.POOL': '学習の事前分布', 'PORTFOLIO.LIST': '計画の一覧を見る' };
+  'CLIENT.NAME': 'クライアントの画面の名前', 'LEARN.POOL': '学習の事前分布', 'LEGACY.ARCHIVE': '旧ブックをアーカイブへ', 'PORTFOLIO.LIST': '計画の一覧を見る' };
 var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
   'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工', 'AI.RESEARCH': 'A-4 AI 調査',
   'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
@@ -584,7 +584,7 @@ function viewMigrate(){
     html += '<div class="card"><h2>試しに読んだ結果</h2><div class="row c mt0">'
       + '<span class="chip">' + esc(d.client) + '</span><span class="chip">FY' + esc(d.fy) + '</span><span class="chip">担当者 ' + d.peopleCount + ' 人</span>' + verdict + '</div>'
       + (d.existingPlan ? '<p class="note mt8">前に取り込んだ計画があります（' + esc((d.existingPlan.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '）。' + (d.existingPlan.unchanged ? '内容は前回と同じです。' : '取り込むと、この計画の中身を入れ替えます。') + '</p>' : '')
-      + (d.existingPlan && d.existingPlan.runsSinceImport ? '<p class="note warn-text">前回の取り込みの後に、新アプリで予測を ' + d.existingPlan.runsSinceImport + ' 回実行しています。取り込むと、計算用の表は旧ブックの内容に戻ります（予測の記録は残ります）。</p>' : '')
+      + (d.existingPlan && d.existingPlan.runsSinceImport ? '<p class="note warn-text">前回の取り込みの後に、予測を ' + d.existingPlan.runsSinceImport + ' 回実行しています。取り込むと、計算用の表は旧ブックの内容に戻ります（予測の記録は残ります）。</p>' : '')
       + '<table class="tbl mt12"><colgroup><col style="width:240px"><col style="width:90px"><col style="width:160px"><col></colgroup><thead><tr><th>シート</th><th>行数</th><th>持ち方</th><th>確かめた結果</th></tr></thead><tbody>' + rows + '</tbody></table>'
       + (d.missing.length ? '<p class="note mt8">旧ブックに無いシート: ' + esc(d.missing.join('、')) + '</p>' : '')
       + (d.notMigrated.length || d.unknown.length ? '<p class="note">移さないシート（計算で使わない）: ' + esc(d.notMigrated.concat(d.unknown).join('、')) + '</p>' : '')
@@ -598,6 +598,7 @@ function viewMigrate(){
       : '<p><span class="chip ng">読み戻すと旧ブックと違うシートがあります</span></p><p class="note">' + esc((r.verify || []).map(function(x){ return x.sheet + '（' + x.mismatch + '）'; }).join('、')) + '</p>');
     html += '<div class="card"><h2>取り込みの結果</h2>' + (r.unchanged ? '<p>前回と同じ内容なので、書き込みませんでした。</p>' : '<p>データ本体に ' + total + ' 行を書きました。</p>') + verifyHtml + '</div>';
   }
+  html += legacyBooksCard();
   return html;
 }
 function loadForecast(planId, force){
@@ -613,7 +614,7 @@ function loadForecast(planId, force){
   call('apiPlanView', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.view.done = Date.now(); S.fc.view = r; } }, fail('view'));
   setTimeout(fcWaitTick, 1000);
 }
-// ---- 予測（計画の画面: 旧来の Web アプリと同じ中身を、データ本体の上で見る・保存する・実行する） ----
+// ---- 予測（計画の画面: データ本体の上で見る・保存する・実行する） ----
 var FC_TABS = [['forecast','予測と予算'],['basis','根拠'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['version','公式版'],['steps','進み']];
 var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
 function viewForecast(){
@@ -696,10 +697,10 @@ function fcForecastTab(d, v){
     + '<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button><span class="note">入力を直す場合は「やめる」を押し、「入力」タブで直してから実行してください。</span></div></div>';
   html += '<div class="card"><div class="card-head"><h2>予測の実行</h2></div>'
     + '<p class="note">' + (l ? '最新の予測: ' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0])
-      : 'まだ新アプリで予測を実行していません。上の数字は、取り込んだ旧ブックで最後に実行した結果です。')
+      : 'まだ予測を実行していません。上の数字は、取り込んだときの結果です。')
     + '　過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yen(obj.p90) + ' 円</p>'
     + '<div class="actions mt12"><button class="btn" ' + (S.job || !canPlan ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(S.fc.planId) + '\' })">予測を実行</button>'
-    + '<div class="desc">データ本体の内容で旧来の予測を動かし、結果を残します（4〜6 分ほど。旧ブックは変わりません）。' + (canPlan ? '' : '<span class="note">予算策定担当が実行できます。</span>') + '</div></div>'
+    + '<div class="desc">データ本体の内容で予測を計算し、結果を残します（4〜6 分ほど。続けて実行するときは速くなります）。' + (canPlan ? '' : '<span class="note">予算策定担当が実行できます。</span>') + '</div></div>'
     + (d.runs.length > 1 ? '<p class="note mt12">これまでの実行: ' + d.runs.map(function(r){ return esc(String(r.finishedAt || '').replace('T', ' ').slice(5, 16)) + ' P50 ' + yen(r.p50); }).join('、') + '</p>' : '') + '</div>';
   // 予算（A-10: OUTPUT の H=採用 / I=上乗せ。J=最終は数式）
   if (!sec) return html + '<div class="card note">予算は、予測を実行すると入力できます。</div>';
@@ -735,11 +736,11 @@ function fcLearningCards(){
         + (m.leak ? '' : m.inside === null ? '-' : m.inside ? '<span class="chip ok">入った</span>' : '<span class="chip warn">外れた</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">検証の記録がまだありません（B-1 → B-2 を実行すると出ます）。</p>') + '</div>';
   html += '<div class="card"><div class="card-head"><h2>学習の影（予測には効いていません）</h2><span class="note">使ったらどうなるかを、過去の月で計っています</span></div>'
     + (sh ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:320px"><col style="width:160px"><col></colgroup><tbody>'
-      + '<tr><td>今の偏りの補正（旧来の自動学習）</td><td class="num">' + (r.factorNow === null ? '-' : r.factorNow.toFixed(3)) + '</td><td class="note wrap">計画の中だけで、偏り 0 へ縮めて学ぶ</td></tr>'
+      + '<tr><td>今の偏りの補正（自動学習 B-5）</td><td class="num">' + (r.factorNow === null ? '-' : r.factorNow.toFixed(3)) + '</td><td class="note wrap">計画の中だけで、偏り 0 へ縮めて学ぶ</td></tr>'
       + '<tr><td>全計画で縮めた偏りの補正（影）</td><td class="num">' + sh.factorShadow.toFixed(3) + '</td><td class="note wrap">' + (r.pooled ? r.pooledPlans + ' 計画の平均の偏り ' + pct1(r.mu) + ' へ、計画どうしのばらつきに応じて縮める（経験ベイズ）' : '計画が 2 つ以上になると、全計画の平均へ縮めます（今は計画の中だけ）') + '</td></tr>'
       + '<tr><td>過去の月に当てはめた誤差</td><td class="num">' + pct0(sh.mapeNow) + ' → ' + pct0(sh.mapeShadow) + '</td><td class="note wrap">補正なしの P50 と、影の補正を掛けた P50 の、月の誤差の平均（参考。同じ月で学んで当てるので、実際より良く見えます）</td></tr>'
       + '</tbody></table></div>' : '<p class="note">3 か月以上の検証の記録があると計ります。</p>')
-    + '<p class="note mt8">予測に効かせるのは、影の結果を見て決めてからにします（旧来の計算は変えていません）。</p></div>';
+    + '<p class="note mt8">予測に効かせるのは、影の結果を見て決めてからにします。</p></div>';
   return html;
 }
 
@@ -779,7 +780,7 @@ function fcBasisTab(d, v){
     + (r.inputChanged ? '' : '<span class="note">（この間に計画への操作はありません。変化は、予測の乱数による揺れです）</span>') + '</p>'
     + (r.between.length ? '<div class="tblwrap mt8"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>この間の操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
       + r.between.map(function(x){ return '<tr><td>' + esc(String(x.at).replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(x.label) + '</td><td>' + esc(String(x.actor || '').split('@')[0]) + '</td><td>' + esc((x.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note mt8">この間に、計画への操作はありませんでした。</p>')
-    : '<p class="note">新アプリで予測を 2 回以上実行すると、前回からの変化が出ます。</p>') + '</div>';
+    : '<p class="note">予測を 2 回以上実行すると、前回からの変化が出ます。</p>') + '</div>';
   return html;
 }
 
@@ -885,7 +886,7 @@ function fcInputTab(d, v){
       : '<tr><td colspan="' + (cols.length + 1) + '" class="empty">まだ入力がありません。' + (canPlan ? '「行を追加」で登録できます。' : '') + '</td></tr>')
     + '</tbody></table></div>'
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('入力を保存', 'fcSaveInput()', S.fc.inputDirty[kind]) + '<button class="btn btn-ghost" onclick="fcInputAdd()">行を追加</button>'
-      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存の変更があります</span>' : '') + '<span class="note">保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません（旧来と同じ）。</span></div>'
+      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存の変更があります</span>' : '') + '<span class="note">保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません。</span></div>'
       : '<p class="note mt12">入力は予算策定担当ができます。</p>')
     + '</div>';
   return html;
@@ -984,6 +985,20 @@ function migImport(){
   var d = S.mig.dry;
   if (!d || !confirm(d.client + ' FY' + d.fy + ' のデータを取り込みますか？')) return;
   startJob('MIGRATION.IMPORT', { bookUrl: S.mig.url, contentHash: d.contentHash });
+}
+
+/** 取り込んだ旧ブック（旧ブックは使わない）。アーカイブのフォルダの「旧ブック」へ移す（消さない） */
+function legacyBooksCard(){
+  var b = S.mig.books;
+  var html = '<div class="card"><div class="card-head"><h2>取り込んだ旧ブック</h2><span class="note">旧ブックは使わないので、アーカイブのフォルダへ移せます（消しません）</span></div>';
+  if (!b) return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiLegacyBooks\', [], function(r){ S.mig.books = r.books; })">一覧を見る</button></div></div>';
+  html += b.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:88px"><col><col style="width:200px"><col style="width:120px"></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>旧ブック</th><th>場所</th><th></th></tr></thead><tbody>'
+    + b.map(function(x){ return '<tr><td>' + esc(x.clientName) + '</td><td>FY' + esc(x.fy) + '</td><td>' + (x.url ? '<a target="_blank" href="' + esc(x.url) + '">' + esc(x.name) + '</a>' : esc(x.error || '')) + '</td><td>' + esc(x.folder || '') + '</td><td>'
+      + (x.archived ? '<span class="chip ok">移した</span>' : x.error ? '<span class="chip ng">開けない</span>' : '<span class="chip off">そのまま</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>'
+    : '<p class="note">取り込んだ旧ブックはありません。</p>';
+  var left = b.filter(function(x){ return !x.archived && !x.error && !x.trashed; }).length;
+  return html + '<div class="card-foot"><button class="btn" ' + (left ? '' : 'disabled ') + 'onclick="if(confirm(\'取り込んだ旧ブック ' + left + ' 冊を、アーカイブのフォルダの「旧ブック」へ移しますか？（消しません）\'))call(\'apiArchiveLegacyBooks\', [], function(r){ toast(r.moved + \' 冊を移しました\'); S.mig.books = null; call(\'apiLegacyBooks\', [], function(x){ S.mig.books = x.books; }); })">アーカイブへ移す</button>'
+    + '<span class="note">移した後も、計画のデータはこのアプリのデータ本体にあります。旧ブックは、アーカイブのフォルダから開けます。</span></div></div>';
 }
 
 function viewHealth(){

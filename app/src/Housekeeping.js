@@ -7,6 +7,7 @@
  *   ③ 開始だけで終わりの記録が無い操作（途中で止まった操作）を数える
  *   ④ 前の年度より古いログのファイルを、アーカイブのフォルダへ移す
  *   ⑤ その月の最初のバックアップを、月次としてアーカイブのフォルダに残す
+ *   ⑥ データ本体の表を整える（使っていない空の行を減らす・手で書き換えないよう警告つきで保護・タブの色）
  * 結果は実行ログ（RUN）と、状態の画面に出す控え（APP_HOUSEKEEPING）に残す。
  */
 const APP_HOUSEKEEPING_PROP = 'APP_HOUSEKEEPING';
@@ -166,6 +167,7 @@ function appHousekeeping_(ctx) {
   });
   step('errors', () => ({ last24h: appRecentLogRows_('ERROR', 24 * 3600 * 1000).length }));
   step('archive', () => ({ moved: appArchiveOldLogs_() }));
+  step('dataBook', () => appWithLock_(() => appOrganizeDataBook_()));
   step('monthly', () => ({ created: appMonthlyBackup_() }));
   step('journal', () => ({ pending: appJournalPending_() }));
   res.durationMs = new Date().getTime() - t0;

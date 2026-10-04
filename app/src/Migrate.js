@@ -193,3 +193,43 @@ function appMigrationImport_(ctx, input) {
       audit: { entityId: planId, clientId: client.client_id } };
   });
 }
+
+// ---- 取り込んだ旧ブックの片付け（旧ブックは使わない。2026-10-04 村井さん）。消さない: アーカイブのフォルダの「旧ブック」へ移す ----
+
+function appLegacyArchiveFolder_() {
+  const archiveId = appProps_().getProperty(APP_PROP.archiveFolderId);
+  if (!archiveId) throw new Error('アーカイブのフォルダがありません。「初期設定」をもう一度実行してください。');
+  const archive = DriveApp.getFolderById(archiveId);
+  const it = archive.getFoldersByName('旧ブック');
+  return it.hasNext() ? it.next() : archive.createFolder('旧ブック');
+}
+
+/** 取り込んだ旧ブックの一覧（名前・場所・アーカイブに移したか） */
+function appLegacyBooks_() {
+  const names = appClientNameMap_();
+  const archiveId = appProps_().getProperty(APP_PROP.archiveFolderId);
+  return appReadTable_('PLANS').filter(p => p.source_book_id).map(p => {
+    const o = { planId: p.plan_id, clientName: names[p.client_id] || p.client_label, fy: p.fy, bookId: p.source_book_id };
+    try {
+      const f = DriveApp.getFileById(p.source_book_id);
+      o.name = f.getName(); o.url = f.getUrl(); o.trashed = f.isTrashed();
+      const parents = [];
+      const it = f.getParents();
+      while (it.hasNext()) { const x = it.next(); parents.push({ id: x.getId(), name: x.getName() }); }
+      o.folder = parents.map(x => x.name).join('、');
+      o.archived = parents.some(x => x.name === '旧ブック') || parents.some(x => x.id === archiveId);
+    } catch (e) { o.error = '開けません（' + String(e && e.message ? e.message : e).slice(0, 80) + '）'; }
+    return o;
+  });
+}
+
+/** 取り込んだ旧ブックを、アーカイブのフォルダの「旧ブック」へ移す（消さない。移せないものは理由を返す） */
+function appArchiveLegacyBooks_(ctx) {
+  const folder = appLegacyArchiveFolder_();
+  const res = appLegacyBooks_().map(b => {
+    if (b.error || b.archived || b.trashed) return { bookId: b.bookId, name: b.name, skipped: b.error || (b.archived ? 'すでに移した' : 'ゴミ箱にある') };
+    try { DriveApp.getFileById(b.bookId).moveTo(folder); return { bookId: b.bookId, name: b.name, moved: true }; }
+    catch (e) { return { bookId: b.bookId, name: b.name, skipped: '移せません（' + String(e && e.message ? e.message : e).slice(0, 80) + '）' }; }
+  });
+  return { books: res, moved: res.filter(x => x.moved).length, audit: { entityId: 'LEGACY_BOOKS' } };
+}

@@ -156,6 +156,34 @@ function appReadPlanTable_(name, planId) {
   return cache[key].map(x => { const o = appRowToObject_(def, x.cells); o._row = x.row; return o; }).filter(o => def.key.some(k => o[k] !== '') && mine(o));
 }
 
+/**
+ * データ本体の表を整える（毎日の手入れ）: 使っていない空の行を減らす（セルの上限 1000 万と、開く・読む時間のため）、
+ * 手で書き換えないよう警告つきで保護する（アプリは書ける）、表の種類でタブの色を分ける。値は変えない
+ */
+function appOrganizeDataBook_() {
+  const ss = appDataSpreadsheet_();
+  const out = { trimmedRows: 0, protectedSheets: 0, sheets: 0 };
+  const sheetType = (typeof SpreadsheetApp.ProtectionType !== 'undefined') ? SpreadsheetApp.ProtectionType.SHEET : null;
+  Object.keys(APP_TABLES).forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    out.sheets++;
+    const keep = sh.getLastRow() + 200;
+    const max = sh.getMaxRows();
+    if (max - keep > 500) { sh.deleteRows(keep + 1, max - keep); out.trimmedRows += max - keep; }
+    try {
+      if (sheetType && !sh.getProtections(sheetType).length) {
+        sh.protect().setDescription('アプリだけが書く表（手で直さない。直すと操作の記録に残らない）').setWarningOnly(true);
+        out.protectedSheets++;
+      }
+      sh.setTabColor(name.indexOf('ENG_') === 0 ? '#94A3B8' : name === '_SCHEMA' ? '#5A6B7E' : '#0F3557');
+    } catch (e) { Logger.log('表の保護・色: ' + name + ' ' + (e && e.message ? e.message : e)); }
+  });
+  APP_STORE_CACHE_.sheets = {};
+  appStoreForget_();
+  return out;
+}
+
 /** シートの列数をちょうど n にする（足りなければ足し、余りは消してセルの上限を節約する） */
 function appFitColumns_(sh, n) {
   const max = sh.getMaxColumns();

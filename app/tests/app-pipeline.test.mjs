@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { J, OWNER, setUpEnv } from './gas-mock.mjs';
+import { J, OWNER, setUpEnv, STATS } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const SNAP_HEADER = ['snapshot_id', 'run_date', 'client', 'target_month', 'scenario', 'base_pred', 'subjective_adj', 'ai_adj', 'deterministic_adj', 'final_pred',
@@ -307,6 +307,39 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.equal(out.first, 'timeout');
   assert.equal(JSON.stringify(out.mid), '["A1","B1","B2","B1","B2"]', '止まった後はほかの計画の行が 2 度ある');
   assert.equal(JSON.stringify(out.after), '["A1","B1","B2"]', '書き直すと 1 つずつ');
+}
+
+// ==== 12. 計算用ブックの使い回し: データ本体が変わっていなければ、同じ計画の次の処理は組み立て直さない ====
+{
+  const { env, planId } = imported();
+  const builds = () => env.audit().filter((a) => a.action === 'FORECAST.RUN.BUILD' && a.phase === 'END').map((a) => JSON.parse(a.after_json));
+  const scratchWrites = () => Object.entries(STATS.bySheet).filter(([n]) => !/^(ENG_|PLANS|FORECAST_RUNS|FORECAST_MONTHLY|PLAN_|AUDIT|RUN_|ERROR_|_SCHEMA|CLIENTS|MEMBERS|ROLES|SETTINGS|IMPORT_)/.test(n)).reduce((s, [, b]) => s + b.writeCells, 0);
+  const reset = () => { for (const k of Object.keys(STATS)) STATS[k] = k === 'bySheet' ? {} : 0; };
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  reset();
+  const st = env.runJob('FORECAST.RUN', { planId });
+  assert.equal(st.status, 'DONE', st.error);
+  assert.equal(builds()[1].reused, true, '2 回目は組み立て直さない');
+  assert.ok(scratchWrites() < 200, '計算用ブックにはほとんど書かない: ' + scratchWrites());
+  storeMatchesScratch(env, planId, ['OUTPUT', 'FORECAST_SNAPSHOT', 'PROCESS_STATUS']);
+  // データ本体が変わったら（ほかの処理・手の書き換え）、組み立て直す
+  const meta = env.data().getSheetByName('ENG_SHEETS');
+  meta.rows[1][meta.rows[0].indexOf('content_hash')] = 'changed-by-someone';
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  assert.equal(builds()[2].reused, false, 'データ本体が変わったら組み立て直す');
+  // ほかの処理が計算用ブックを空にしたら、使い回さない
+  env.run('appScratchReset_(appScratchBook_())');
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  assert.equal(builds()[3].reused, false);
+  assert.equal(env.run('appScratchState_() !== null'), true, '保存し終えたら控える');
+  // 保存（担当者）で使い回しても、ほかのシートがデータ本体と同じなら、計画全部の控えのまま → 次の予測も組み立て直さない
+  const view = env.call('apiPlanView(__in)', { __in: { planId } });
+  const ed = env.runJob('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', inputHash: view.inputHash, args: { peopleCsv: '鷹野, 佐藤' } });
+  assert.equal(ed.status, 'DONE', ed.error);
+  assert.equal(env.run('JSON.stringify(appScratchState_().scope)'), 'null', '計画全部の控えのまま');
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  assert.equal(builds()[4].reused, true);
+  storeMatchesScratch(env, planId, ['CONFIG', 'OUTPUT']);
 }
 
 console.log('app-pipeline: all tests passed');

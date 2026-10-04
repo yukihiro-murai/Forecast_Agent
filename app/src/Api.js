@@ -146,6 +146,16 @@ function apiVersionDecide(input) {
     after: res => ({ versionNo: res.version.no, state: res.version.state, superseded: res.superseded, selfApproved: res.selfApproved }) }, ctx => appVersionDecide_(ctx, input));
 }
 
+/** 取り込んだ旧ブックの一覧（所有者） */
+function apiLegacyBooks() {
+  return api_('LEGACY.BOOKS', { ownerOnly: true, audit: false }, () => ({ books: appLegacyBooks_() }));
+}
+
+/** 取り込んだ旧ブックを、アーカイブのフォルダへ移す（所有者。消さない） */
+function apiArchiveLegacyBooks() {
+  return api_('LEGACY.ARCHIVE', { ownerOnly: true, entityType: 'SYSTEM', after: res => ({ moved: res.moved, books: res.books }) }, ctx => appArchiveLegacyBooks_(ctx));
+}
+
 /** 新しい計画のクライアントの候補（ZAC の実績から） */
 function apiPlanCandidates(input) {
   return api_('PLAN.CANDIDATES', { minRole: 'ADMIN', audit: false }, ctx => appPlanCandidates_(ctx, input));

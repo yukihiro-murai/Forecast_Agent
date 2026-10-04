@@ -4,15 +4,8 @@
  * 既定値は旧来の仕組みの値（Forecast_Agent.js の定数・空模様の判定）と同じにしてある。
  */
 const APP_SETTING_DEFS = {
-  'eval.annual_abs_error_max': { label: '年間誤差率の上限', type: 'number', min: 0, max: 1, def: 0.10, unit: '割合（0.10 = 10%）' },
-  'eval.half_wape_max': { label: '半期 WAPE の上限', type: 'number', min: 0, max: 1, def: 0.12, unit: '割合' },
-  'eval.overforecast_rate_max': { label: '過大予測率の上限', type: 'number', min: 0, max: 1, def: 0.05, unit: '割合' },
-  'weather.min_months': { label: '空模様を判定する最少の月数', type: 'int', min: 1, max: 24, def: 3, unit: 'か月' },
-  'weather.tenpen_ape': { label: '天変地異にする誤差率', type: 'number', min: 0.5, max: 10, def: 1.5, unit: '割合（1.5 = 150%）' },
-  'weather.taifuu_ape': { label: '台風で数える大きな誤差率', type: 'number', min: 0, max: 5, def: 0.3, unit: '割合' },
-  'audit.retention_years': { label: '操作の記録を残す年数', type: 'int', min: 1, max: 20, def: 7, unit: '年' },
-  'audit.log_views': { label: '閲覧も記録する', type: 'bool', def: false, unit: 'する / しない' },
-  // 売上・検証用実績の取り込み（A-2・B-1）の元。旧アプリの Admin Hub の「実績ソース」（FORECAST_SOURCE_SPREADSHEET_ID）と同じもの
+  // 売上・検証用実績の取り込み（A-2・B-1）の元（ZAC の実績のスプレッドシート）。
+  // 2026-10-04: 使っていなかった設定（検証の上限・空模様の判定・操作の記録）を外した。数・整数・する/しないの型は、足すときのために残す
   'source.zac_spreadsheet': { label: 'ZAC の実績のスプレッドシート', type: 'sheet', def: '', unit: 'スプレッドシートの URL（売上・実績の取り込みの元）' }
 };
 

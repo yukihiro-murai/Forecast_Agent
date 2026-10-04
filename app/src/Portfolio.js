@@ -89,6 +89,7 @@ function appPlanCreateSave_(ctx, p) {
       people_csv: c.peopleCsv, source_book_id: '', locale: appNewPlanTz_().locale, time_zone: appNewPlanTz_().time_zone, state: 'ACTIVE', note: '新アプリで作成',
       created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }] });
     const written = appJournalRun_(ctx, '計画の作成（' + c.clientName + ' FY' + c.fy + '）', planId, ops);
+    appScratchMarkSynced_(planId, p.token, null);   // 作った後の A-2 などは組み立て直さずに使える
     return { planId: planId, clientName: appClientDisplayName_(c.clientName), fy: c.fy, sheets: cap.changed.length, written: written, engine: p.engine,
       timing: { buildMs: p.buildMs, saveMs: new Date().getTime() - t0 }, audit: { entityId: planId, clientId: client.client_id } };
   });

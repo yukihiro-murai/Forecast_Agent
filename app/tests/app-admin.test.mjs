@@ -49,6 +49,14 @@ assert.equal(env.files[oldLog].parent, archiveId, '古いログはアーカイ�
 assert.equal(env.files[oldLog].trashed, false);
 const hk2 = env.call('apiRunHousekeeping()');
 assert.equal(hk2.steps.monthly.created, '', '同じ月に 2 つ目は作らない');
+// データ本体の表を整える: 使っていない空の行を減らす（値は変えない）
+assert.ok(hk.steps.dataBook.sheets > 10);
+const big = env.data().getSheetByName('MEMBERS');
+const rowsBefore = env.table('MEMBERS').length;
+big.insertRowsAfter(big.getMaxRows(), 5000);
+const hk3 = env.call('apiRunHousekeeping()');
+assert.ok(hk3.steps.dataBook.trimmedRows >= 4000, '空の行を減らす: ' + hk3.steps.dataBook.trimmedRows);
+assert.equal(env.table('MEMBERS').length, rowsBefore, '行の中身はそのまま');
 const health = env.call('apiHealth()');
 assert.equal(health.housekeeping.ok, true);
 assert.ok(health.backup.keep > 0);

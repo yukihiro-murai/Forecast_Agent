@@ -291,6 +291,13 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.ok(!/undefined|NaN/.test(evalHtml.split('検証の更新')[0]), '精度の推移に undefined や NaN を出さない');
   ui.__pool = env.call('apiPoolPreview()');
   assert.match(vm.runInContext(`S.pfPool = __pool; pfPoolCard()`, ui), /全計画での学習[\s\S]*各計画に入れる/);
+  // 取り込んだ旧ブックの片付けのカード
+  ui.__books = env.call('apiLegacyBooks()').books;
+  const lb = vm.runInContext(`S.mig.books = __books; legacyBooksCard()`, ui);
+  assert.match(lb, /取り込んだ旧ブック[\s\S]*テスト製薬[\s\S]*アーカイブへ移す/);
+  assert.match(vm.runInContext(`S.view = 'home'; viewHome()`, ui), /計画の一覧/);
+  assert.doesNotMatch(vm.runInContext(`viewHome()`, ui), /旧アプリ/, 'ホームに旧アプリの案内を出さない');
+  vm.runInContext(`S.view = 'forecast'`, ui);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
   const basisHtml = vm.runInContext(`S.fc.basis = __basis; S.fc.tab = 'basis'; viewForecast()`, ui);
