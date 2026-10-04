@@ -170,9 +170,14 @@ function appHousekeeping_(ctx) {
   step('journal', () => ({ pending: appJournalPending_() }));
   res.durationMs = new Date().getTime() - t0;
   res.ok = !res.problems.length;
-  appProps_().setProperty(APP_HOUSEKEEPING_PROP, JSON.stringify({ at: res.at, ok: res.ok, problems: res.problems.slice(0, 10),
-    audit: res.steps.audit, openStarts: res.steps.openStarts && res.steps.openStarts.count, errors: res.steps.errors && res.steps.errors.last24h,
-    monthly: res.steps.monthly, archive: res.steps.archive, durationMs: res.durationMs }).slice(0, 8000));
+  const keep = { at: res.at, ok: res.ok, problems: res.problems.slice(0, 10).map(p => String(p).slice(0, 200)),
+    audit: res.steps.audit && { ok: res.steps.audit.ok, months: res.steps.audit.months, rows: res.steps.audit.rows, anchored: res.steps.audit.anchored, error: res.steps.audit.error },
+    openStarts: res.steps.openStarts && res.steps.openStarts.count, errors: res.steps.errors && res.steps.errors.last24h,
+    monthly: res.steps.monthly, archive: res.steps.archive, durationMs: res.durationMs };
+  // 1 つの値の上限は約 9KB（バイト数）。超えるときは、問題の文を短くする
+  let text = JSON.stringify(keep);
+  if (appUtf8Bytes_(text) > 8000) { keep.problems = keep.problems.slice(0, 3).map(p => p.slice(0, 60)); text = JSON.stringify(keep); }
+  try { appProps_().setProperty(APP_HOUSEKEEPING_PROP, text); } catch (e) { Logger.log('手入れの結果を控えられません: ' + (e && e.message ? e.message : e)); }
   appRunLog_({ requestId: ctx.requestId, kind: 'HOUSEKEEPING', status: res.ok ? 'OK' : 'PROBLEMS', durationMs: res.durationMs, detail: res });
   return res;
 }

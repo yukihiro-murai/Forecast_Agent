@@ -68,6 +68,14 @@ assert.deepEqual(list.versions.map((v) => [v.no, v.state]), [[3, 'APPROVED'], [2
 assert.equal(list.official.no, 3);
 assert.equal(list.versions[2].monthly[11].final, 85, '出した版の月の数字が残る');
 
+// ==== 4b. 承認が止められたとき（画面が古い）は、前の公式版をそのまま残す ====
+env.as(PLANNER);
+const s4 = env.call('apiVersionSubmit(__in)', { __in: { planId, note: '4 回目' } });
+env.as(APPROVER);
+assert.throws(() => env.call('apiVersionDecide(__in)', { __in: { versionId: s4.version.versionId, decision: 'APPROVED', rowVersion: 99 } }), /先に更新しました/);
+assert.equal(env.call('apiVersionList(__in)', { __in: { planId } }).official.no, 3, '公式版は v3 のまま');
+env.call('apiVersionDecide(__in)', { __in: { versionId: s4.version.versionId, decision: 'REJECTED', note: '見直し中' } });
+
 // ==== 5. 一覧に公式版が出る。記録に残る ====
 const pf = env.call('apiPortfolio()').plans[0];
 assert.equal(pf.officialNo, 3);

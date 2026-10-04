@@ -284,4 +284,29 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.ok([runs[0].annual_p50, runs[1].annual_p50].map(Number).includes(pf.p50));
 }
 
+// ==== 11. 計画の行の入れ替えが、余りの行を消す前に止まっても、控えから書き直せる（ほかの計画の行が 2 度あっても 1 つにする） ====
+{
+  const env = setUpEnv();
+  const out = env.run(`(() => {
+    APP_STORE_CACHE_ = {};
+    const def = APP_TABLES.ENG_ROWS;
+    const mk = (p, r) => { const o = {}; def.columns.forEach(c => o[c] = ''); o.plan_id = p; o.sheet = 'X'; o.row_no = String(r); o.col_from = '1'; o.cells_json = '[]'; return o; };
+    appInsertRows_('ENG_ROWS', [mk('A', 1), mk('A', 2), mk('A', 3), mk('B', 1), mk('B', 2)]);
+    const op = { table: 'ENG_ROWS', mode: 'replacePlan', planId: 'A', sheets: ['X'], rows: [mk('A', 1)] };
+    const sh = appTableSheet_('ENG_ROWS', false);
+    const real = sh.getRange.bind(sh);
+    sh.getRange = function () { const r = real.apply(null, arguments); r.clearContent = () => { throw new Error('timeout'); }; return r; };
+    let first = ''; try { appJournalApply_([op]); } catch (e) { first = e.message; }
+    sh.getRange = real;
+    APP_STORE_CACHE_ = {};
+    const mid = appReadTable_('ENG_ROWS').map(r => r.plan_id + r.row_no);
+    appJournalApply_([op]);
+    APP_STORE_CACHE_ = {};
+    return { first, mid, after: appReadTable_('ENG_ROWS').map(r => r.plan_id + r.row_no) };
+  })()`);
+  assert.equal(out.first, 'timeout');
+  assert.equal(JSON.stringify(out.mid), '["A1","B1","B2","B1","B2"]', '止まった後はほかの計画の行が 2 度ある');
+  assert.equal(JSON.stringify(out.after), '["A1","B1","B2"]', '書き直すと 1 つずつ');
+}
+
 console.log('app-pipeline: all tests passed');

@@ -132,12 +132,13 @@ function appSaveClientName_(ctx, input) {
     const client = appReadTable_('CLIENTS').filter(c => c.client_id === id)[0];
     if (!client) throw new Error('クライアントが見つかりません。');
     const auto = appClientDisplayName_(client.client_name);
-    const cur = appClientNameOverrides_()[id];
+    let cur = null;   // 自動に戻した行（名前が空）も、同じ行を使う
+    try { cur = appReadTable_('CLIENT_NAMES').filter(r => r.client_id === id)[0] || null; } catch (e) { if (!/表がありません/.test(String(e && e.message))) throw e; }
     const now = appNowIso_();
     const value = name === auto ? '' : name;   // 自動の名前と同じなら、決めた名前は持たない
     if (cur) appUpdateByKey_('CLIENT_NAMES', { client_id: id }, { display_name: value }, input && input.rowVersion, ctx.actor);
     else if (value) appInsertRows_('CLIENT_NAMES', [{ client_id: id, display_name: value, updated_at: now, updated_by: ctx.actor, row_version: 1 }]);
-    return { clientId: id, displayName: value || auto, auto: !value, before: { displayName: cur ? cur.display_name : auto }, audit: { entityId: id, clientId: id } };
+    return { clientId: id, displayName: value || auto, auto: !value, before: { displayName: cur && cur.display_name ? cur.display_name : auto }, audit: { entityId: id, clientId: id } };
   });
 }
 

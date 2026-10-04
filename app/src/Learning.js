@@ -42,6 +42,16 @@ function appQuantile_(xs, q) {
   return s[pos];
 }
 
+/** 計画の精度を、入力のハッシュが同じあいだ 6 時間控える（全計画を見るので、毎回は計算しない） */
+function appAccuracyCached_(planId) {
+  const key = 'ACC_' + appSha256Hex_([planId, appPlanInputHash_(planId), APP_VERSION].join('|')).slice(0, 32);
+  const c = appJobGetResult_(key);
+  if (c.found) return c.value;
+  const v = appAccuracyOf_(planId);
+  try { appJobPutResult_(key, v); } catch (e) { /* 控えられなくても返す */ }
+  return v;
+}
+
 /** 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう） */
 function appAccuracyOf_(planId) {
   const ms = appEvalMonths_(planId).map(m => {
@@ -102,7 +112,7 @@ function appBiasShadow_(accs) {
 function appLearningView_(planId) {
   const plan = appPlanOf_(planId);
   const accs = {};
-  appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').forEach(p => { try { accs[p.plan_id] = appAccuracyOf_(p.plan_id); } catch (e) { /* 読めない計画は除く */ } });
+  appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').forEach(p => { try { accs[p.plan_id] = appAccuracyCached_(p.plan_id); } catch (e) { /* 読めない計画は除く */ } });
   const mine = accs[plan.plan_id] || appAccuracyOf_(plan.plan_id);
   const shadow = appBiasShadow_(accs);
   const cal = appEngTableObjects_(plan.plan_id, ['CALIBRATION_STATE']).CALIBRATION_STATE.slice(-1)[0] || null;
@@ -153,35 +163,49 @@ function appPoolPreview_() {
   return { types: types, plans: plans.length, current: current, ready: types.some(t => t.ok) };
 }
 
-/** 全計画の POOL_PRIOR に事前分布を書く（PLAN.RUN と同じく、計算用ブックで旧来の表の形のまま書き、控えを置いてから保存） */
-function appPoolApply_(ctx) {
-  const pv = appPoolPreview_();
-  const rowsFor = pv.types.filter(t => t.ok).map(t => ({ scope: 'reliability:' + t.type, value: t.pooledR, precision: t.precision, nClients: t.plans }));
+/**
+ * 全計画の POOL_PRIOR に事前分布を書く（PLAN.RUN と同じく、計算用ブックで旧来の表の形のまま書き、控えを置いてから保存）。
+ * 計画が多いときは、1 回の実行の目安（4 分）を過ぎたら残りの計画を続きの処理に回す。値が同じ行は書き直さない（更新日も変えない）
+ */
+function appPoolApply_(ctx, p) {
+  const t0 = new Date().getTime();
+  const rowsFor = p && p.rowsFor ? p.rowsFor : appPoolPreview_().types.filter(t => t.ok).map(t => ({ scope: 'reliability:' + t.type, value: t.pooledR, precision: t.precision, nClients: t.plans }));
   if (!rowsFor.length) throw new Error('事前分布を作れる情報源がまだありません（計画が ' + APP_POOL_MIN_PLANS + ' つ以上要ります）。');
+  const remaining = p && p.remaining ? p.remaining.slice() : appReadTable_('PLANS').filter(x => x.state !== 'ARCHIVED').map(x => x.plan_id);
+  const done = (p && p.done) || [];
   const header = APP_ENGINE_SHEETS.POOL_PRIOR.header;
-  const now = new Date();
-  const done = [];
-  appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').forEach(p => {
+  const col = h => header.indexOf(h);
+  while (remaining.length) {
+    if (done.length > (p && p.done ? p.done.length : 0) && new Date().getTime() - t0 > APP_BUILD_BUDGET_MS) break;
+    const planId = remaining.shift();
     appWithLock_(() => {
       appJournalRecover_(ctx);
-      const scratch = appParityScratch_(p);
+      const plan = appPlanOf_(planId);
+      const scratch = appParityScratch_(plan);
       let st = null;
-      do { st = appScratchBuildStep_(scratch, p.plan_id, ['POOL_PRIOR'], st && st.state, new Date().getTime() + 60000); } while (!st.complete);
+      do { st = appScratchBuildStep_(scratch, planId, ['POOL_PRIOR'], st && st.state, new Date().getTime() + 60000); } while (!st.complete);
       let sh = scratch.getSheetByName('POOL_PRIOR');
       if (!sh) { sh = scratch.insertSheet('POOL_PRIOR'); sh.getRange(1, 1, 1, header.length).setValues([header]); }
       const last = sh.getLastRow();
       const vals = last >= 2 ? sh.getRange(2, 1, last - 1, header.length).getValues() : [];
+      let changed = 0;
       rowsFor.forEach(x => {
+        const i = vals.findIndex(v => String(v[col('pool_scope')]) === x.scope && String(v[col('param_key')]) === 'reliability_r');
+        const same = i >= 0 && Number(vals[i][col('pooled_value')]) === x.value && Number(vals[i][col('precision')]) === x.precision && Number(vals[i][col('n_clients')]) === x.nClients;
+        if (same) return;
         const row = header.map(h => ({ pool_scope: x.scope, param_key: 'reliability_r', pooled_value: x.value, precision: x.precision, n_clients: x.nClients,
-          updated_at: now, updated_by: ctx.actor, note: '新アプリ: 全計画のベータ二項の経験ベイズ' })[h]);
-        const i = vals.findIndex(v => String(v[0]) === x.scope && String(v[1]) === 'reliability_r');
-        if (i >= 0) vals[i] = row.map((v, j) => (v === undefined ? vals[i][j] : v)); else vals.push(row.map(v => (v === undefined ? '' : v)));
+          updated_at: new Date(), updated_by: ctx.actor, note: '新アプリ: 全計画のベータ二項の経験ベイズ' })[h]);
+        if (i >= 0) vals[i] = row; else vals.push(row);
+        changed++;
       });
-      if (vals.length) sh.getRange(2, 1, vals.length, header.length).setValues(vals);
-      const cap = appCaptureChanged_(scratch, p.plan_id, appStoredHashes_(p.plan_id), ['POOL_PRIOR']);
-      if (cap.changed.length) appJournalRun_(ctx, '学習の事前分布（' + p.plan_id + '）', p.plan_id, appChangedOps_(ctx, p.plan_id, cap.changed, appId_('POOL')));
-      done.push({ planId: p.plan_id, changed: cap.changed.length > 0 });
+      if (changed) {
+        sh.getRange(2, 1, vals.length, header.length).setValues(vals);
+        const cap = appCaptureChanged_(scratch, planId, appStoredHashes_(planId), ['POOL_PRIOR']);
+        if (cap.changed.length) appJournalRun_(ctx, '学習の事前分布（' + planId + '）', planId, appChangedOps_(ctx, planId, cap.changed, appId_('POOL')));
+      }
+      done.push({ planId: planId, changed: changed > 0 });
     });
-  });
+  }
+  if (remaining.length) return { __next: { kind: 'LEARN.POOL', payload: { rowsFor: rowsFor, remaining: remaining, done: done } }, audit: { entityId: 'POOL_PRIOR' } };
   return { written: rowsFor, plans: done, audit: { entityId: 'POOL_PRIOR' } };
 }

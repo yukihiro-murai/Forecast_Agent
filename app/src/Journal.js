@@ -100,9 +100,17 @@ function appPlanRowsSwapped_(op) {
   const group = r => (r.sheet === undefined ? '' : String(r.sheet));
   const fresh = {};
   op.rows.forEach(r => { (fresh[group(r)] = fresh[group(r)] || []).push(r); });
+  const def = APP_TABLES[op.table];
+  const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
+  const seen = {};
   const out = [];
   appReadTable_(op.table).forEach(r => {
-    if (!hit(r)) { out.push(appStripRow_(r)); return; }
+    if (!hit(r)) {
+      // 前の書き込みが途中で止まると、ほかの計画の行が 2 度ある（上へ詰めた後、余りを消す前に止まった）。最初の 1 つだけ残す
+      const k = keyOf(r);
+      if (!seen[k]) { seen[k] = true; out.push(appStripRow_(r)); }
+      return;
+    }
     const g = group(r);
     if (fresh[g]) { fresh[g].forEach(x => out.push(x)); delete fresh[g]; }
   });

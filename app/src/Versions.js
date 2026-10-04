@@ -97,6 +97,10 @@ function appVersionDecide_(ctx, input) {
     if (!v) throw new Error('版が見つかりません。');
     if (v.state !== 'SUBMITTED') throw new Error('この版は承認待ちではありません（' + v.state + '）。画面を読み直してください。');
     if (v.submitted_by === ctx.actor && !ctx.user.isOwner) throw new Error('自分で出した版は承認・却下できません。ほかの承認者に頼んでください。');
+    // 前の公式版を置き換える前に確かめる（置き換えた後に止まると、公式版が無くなる）
+    if (input && input.rowVersion !== undefined && input.rowVersion !== null && input.rowVersion !== '' && Number(input.rowVersion) !== Number(v.row_version)) {
+      throw new Error('ほかの人が先に更新しました。画面を読み直してから、もう一度選んでください。');
+    }
     const plan = appPlanOf_(v.plan_id);
     const now = appNowIso_();
     const superseded = [];

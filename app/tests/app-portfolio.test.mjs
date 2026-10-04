@@ -61,6 +61,8 @@ const dir = env.call('apiListDirectory()').clients.filter((c) => c.client_id ===
 assert.equal(dir.display_auto, false);
 assert.equal(env.call('apiSaveClientName(__in)', { __in: { clientId: cid, displayName: '', rowVersion: dir.display_row_version } }).auto, true);
 assert.ok(env.call('apiPortfolio()').plans.some((p) => p.clientName === 'サンプル製薬'));
+assert.equal(env.call('apiSaveClientName(__in)', { __in: { clientId: cid, displayName: 'サンプル２' } }).displayName, 'サンプル2', '自動に戻した後も、また決められる');
+assert.equal(env.call('apiSaveClientName(__in)', { __in: { clientId: cid, displayName: '' } }).auto, true);
 // 同じ会社の別の書き方は、同じクライアントとして扱う（二重に作らない）
 assert.match(env.runJob('PLAN.CREATE', { clientName: 'サンプル製薬株式会社', fy: 2027, peopleCsv: '鷹野' }).error, /すでにあります/);
 

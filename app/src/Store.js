@@ -164,16 +164,20 @@ function appFitColumns_(sh, n) {
 }
 
 /** 行を 2 行目から書く（大きいときは分けて書く）。足りない行は足す */
-function appWriteBody_(sh, rows, width, offset) {
+function appWriteBody_(sh, rows, width, offset, bottomUp) {
   if (!rows.length) return;
   offset = offset || 0;
   const need = offset + rows.length + 1;
   if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
   const CHUNK = 5000;
-  for (let i = 0; i < rows.length; i += CHUNK) {
+  const starts = [];
+  for (let i = 0; i < rows.length; i += CHUNK) starts.push(i);
+  // 行が増えて下へずれるときは下から書く（途中で止まっても、まだ書いていない上の行は元のまま残り、控えから書き直せる）
+  if (bottomUp) starts.reverse();
+  starts.forEach(i => {
     const part = rows.slice(i, i + CHUNK);
     sh.getRange(2 + offset + i, 1, part.length, width).setNumberFormat('@').setValues(part);
-  }
+  });
 }
 
 function appRowToObject_(def, r) {
@@ -259,7 +263,7 @@ function appReplaceWhole_(name, rows) {
   let tail = 0;
   if (old.length === next.length) while (tail < next.length - head && same(next[next.length - 1 - tail], old[old.length - 1 - tail])) tail++;
   appStoreForget_(name);
-  appWriteBody_(sh, next.slice(head, next.length - tail), def.columns.length, head);
+  appWriteBody_(sh, next.slice(head, next.length - tail), def.columns.length, head, next.length > old.length);
   if (old.length > next.length) sh.getRange(next.length + 2, 1, old.length - next.length, def.columns.length).clearContent();
   return { rows: rows.length, written: next.length - head - tail };
 }

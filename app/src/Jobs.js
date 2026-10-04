@@ -63,7 +63,7 @@ function appJobMinRole_(spec, payload) {
  * 処理は数分以内に動くので、6 時間の保存期間で足りる
  */
 function appJobStashArgs_(payload) {
-  if (!payload || payload.args === undefined || JSON.stringify(payload).length <= 4000) return payload;
+  if (!payload || payload.args === undefined || appUtf8Bytes_(JSON.stringify(payload)) <= 4000) return payload;   // バイト数で見る（日本語は 1 文字 3 バイト）
   const ref = 'ARGS_' + Utilities.getUuid().replace(/-/g, '');
   appJobPutResult_(ref, payload.args);
   const out = Object.assign({}, payload, { argsRef: ref });
@@ -144,8 +144,9 @@ function appJobExecute_(ctx, job) {
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
         after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
     case 'LEARN.POOL':
-      return appAudited_(ctx, 'LEARN.POOL', { entityType: 'SYSTEM', detail: { jobId: job.id }, before: () => appPoolPreview_().current,
-        after: res => ({ written: res.written, plans: res.plans }) }, () => appPoolApply_(ctx));
+      return appAudited_(ctx, 'LEARN.POOL', { entityType: 'SYSTEM', detail: { jobId: job.id, remaining: p.remaining ? p.remaining.length : null },
+        after: res => (res.__next ? { next: res.__next.kind, done: res.__next.payload.done.length, remaining: res.__next.payload.remaining.length } : { written: res.written, plans: res.plans }) },
+        () => appPoolApply_(ctx, p));
     case 'PLAN.CREATE':
       return appAudited_(ctx, 'PLAN.CREATE.BUILD', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, peopleCsv: p.peopleCsv, jobId: job.id },
         after: res => ({ next: res.__next.kind, buildMs: res.__next.payload.buildMs }) }, () => appPlanCreateBuild_(ctx, p));
