@@ -33,6 +33,8 @@ function appJobSpec_(kind) {
     'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
     // 新しい計画を作る（旧ブックを経ずに。A-1 初期セットアップ → データ本体に保存）: 管理者
     'PLAN.CREATE': { minRole: 'ADMIN', label: '計画の作成' },
+    // 全計画の情報源の信頼度から事前分布を作り、各計画の POOL_PRIOR に書く（旧来の C-1 の提案が使う）: 管理者
+    'LEARN.POOL': { minRole: 'ADMIN', label: '学習の事前分布' },
     'PLAN.CREATE_SAVE': { minRole: 'ADMIN', label: '計画の作成', internal: true },
     // 途中で止まった保存の続きを、控え（Journal.js）のとおりに書く。予算策定担当以上（控えは、権限を確かめて始めた保存のもの）
     'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' }
@@ -141,6 +143,9 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
         after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
+    case 'LEARN.POOL':
+      return appAudited_(ctx, 'LEARN.POOL', { entityType: 'SYSTEM', detail: { jobId: job.id }, before: () => appPoolPreview_().current,
+        after: res => ({ written: res.written, plans: res.plans }) }, () => appPoolApply_(ctx));
     case 'PLAN.CREATE':
       return appAudited_(ctx, 'PLAN.CREATE.BUILD', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, peopleCsv: p.peopleCsv, jobId: job.id },
         after: res => ({ next: res.__next.kind, buildMs: res.__next.payload.buildMs }) }, () => appPlanCreateBuild_(ctx, p));

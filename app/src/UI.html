@@ -205,14 +205,14 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
   'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）',
   'FORECAST.RUN': '予測の準備をしています（1/3 データの組み立て）', 'FORECAST.RUN_CALC': '予測を計算しています（2/3）', 'FORECAST.RUN_SAVE': '予測を保存しています（3/3）',
   'PLAN.VIEW_CHECK': '画面の中身を確かめています', 'SYSTEM.RECOVER': '保存の続きを書いています',
-  'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
+  'LEARN.POOL': '学習の事前分布を各計画に書いています', 'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
 var PLAN_STEP = { 'PLAN.RUN': '準備しています（1/3 データの組み立て）', 'PLAN.RUN_CALC': '実行しています（2/3）', 'PLAN.RUN_SAVE': '保存しています（3/3）' };
 /** 処理の表示名（計画への保存・実行は操作の名前で） */
 function jobLabel(j){
@@ -241,6 +241,7 @@ var JOB_DONE = {
   'PLAN.VIEW_CHECK': function(r){ S.view = 'migrate'; S.mig.viewCheck = r; toast(r.same ? '画面の中身は旧来と同じでした' : '画面の中身に違いがありました', !r.same); },
   'PLAN.EDIT': function(r){ S.view = 'forecast'; toast(r.changed && r.changed.length ? '保存しました' : '変更はありませんでした'); loadForecast(r.planId, true); },
   'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId, true); },
+  'LEARN.POOL': function(r){ toast('事前分布を ' + r.plans.length + ' 計画に入れました'); S.pfPool = null; },
   'PLAN.CREATE_SAVE': function(r){ toast(r.clientName + ' FY' + r.fy + ' の計画を作りました'); S.pf = null; S.fc.plans = null; S.fc.planId = r.planId; S.fc.tab = 'steps'; go('forecast'); },
   'SYSTEM.RECOVER': function(r){ toast(r && r.nothing ? '書きかけの保存はありませんでした' : '保存の続きを書きました'); if (S.view === 'forecast' && S.fc.planId) loadForecast(S.fc.planId, true); }
 };
@@ -361,7 +362,7 @@ function viewPlans(){
     + '<div class="field"><label for="pf_sort">並べ方</label><select class="inp" id="pf_sort" onchange="S.pfSort=this.value;render()">'
     + PF_SORT.map(function(s){ return '<option value="' + s[0] + '"' + ((S.pfSort || 'client') === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div></div>'
     + '<div class="tblwrap mt12" id="pfTable">' + pfTable(rows, pct1) + '</div></div>';
-  if (B.user.isAdmin) html += pfCreateCard();
+  if (B.user.isAdmin) html += pfPoolCard() + pfCreateCard();
   return html;
 }
 function pfRefresh(){ var el = $('pfTable'); if (el) el.innerHTML = pfTable(pfRows(), function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }); }
@@ -384,6 +385,16 @@ function pfTable(rows, pct1){
     + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>公式版</th><th>最後の予測</th><th></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>'
     + '<p class="note mt8">P50 は最新の予測の年度合計（新アプリで予測していない計画は、取り込んだ旧ブックの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。公式版は承認済みの版（オレンジは承認待ち）。</p>';
+}
+function pfPoolCard(){
+  var p = S.pfPool;
+  var html = '<div class="card"><div class="card-head"><h2>全計画での学習（情報源の信頼度）</h2><span class="note">全部の計画の「当たった数」から、ベータ二項の経験ベイズで事前分布を作ります</span></div>';
+  if (!p) return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiPoolPreview\', [], function(r){ S.pfPool = r; })">作れるか見る</button><span class="note">書く前に、情報源ごとの当たる割合と事前分布の強さを見比べます。</span></div></div>';
+  html += '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:88px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>情報源</th><th class="num">計画</th><th class="num">数</th><th class="num">当たる割合</th><th class="num">事前分布の強さ</th><th class="num">信頼度 r</th><th>メモ</th></tr></thead><tbody>'
+    + p.types.map(function(t){ return '<tr><td>' + esc(t.label) + '</td><td class="num">' + t.plans + '</td><td class="num">' + t.n + '</td><td class="num">' + (t.ok ? pct0(t.hitRate) : '-') + '</td><td class="num">' + (t.ok ? t.precision : '-') + '</td><td class="num">' + (t.ok ? t.pooledR.toFixed(3) : '-') + '</td><td class="note ws">' + esc(t.note || '強さ = 何件分の重みで全体の割合に寄せるか') + '</td></tr>'; }).join('')
+    + '</tbody></table></div>';
+  return html + '<div class="card-foot"><button class="btn" ' + (p.ready && !S.job ? '' : 'disabled ') + 'onclick="if(confirm(\'全部の計画の POOL_PRIOR に事前分布を書きますか？\'))startJob(\'LEARN.POOL\', {})">各計画に入れる</button>'
+    + '<span class="note">四半期レビュー（C-1）の信頼度の提案が、この事前分布を使います。予測に効くのは、提案を承認（C-3）してからです。</span></div></div>';
 }
 function pfCreateCard(){
   var c = S.pfCand;
@@ -480,7 +491,7 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加',
   'AUDIT.VERIFY': '記録の鎖の確認', 'HOUSEKEEPING.RUN': '手入れ', 'HOUSEKEEPING': '毎日の手入れ', 'BACKUP': 'バックアップ', 'JOURNAL.RECOVER': '保存の続き（自動）',
   'PLAN.CREATE.BUILD': '計画の作成（準備）', 'PLAN.CREATE.SAVE': '計画の作成（保存）', 'VERSION.SUBMIT': '公式版を出す', 'VERSION.DECIDE': '公式版の承認・却下',
-  'CLIENT.NAME': 'クライアントの画面の名前', 'PORTFOLIO.LIST': '計画の一覧を見る' };
+  'CLIENT.NAME': 'クライアントの画面の名前', 'LEARN.POOL': '学習の事前分布', 'PORTFOLIO.LIST': '計画の一覧を見る' };
 var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
   'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工', 'AI.RESEARCH': 'A-4 AI 調査',
   'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
@@ -599,6 +610,7 @@ function loadForecast(planId, force){
   S.fc.draft = {}; S.fc.inputDirty = {}; S.fc.budget = {}; S.fc.ins = {}; S.fc.dec = {}; S.fc.verCmp = null;
   if (S.fc.tab === 'version') fcLoadVersions();
   if (S.fc.tab === 'basis') fcLoadBasis();
+  if (S.fc.tab === 'eval') fcLoadLearning();
   var L = S.fc.load = { latest: { start: Date.now() }, view: { start: Date.now() } };
   var fail = function(k){ return function(e){ if (S.fc.load === L) { L[k].error = (e && e.message) || String(e); render(); } }; };
   call('apiForecastLatest', [{ planId: planId }], function(r){ if (S.fc.load === L) { L.latest.done = Date.now(); S.fc.data = r; } }, fail('latest'));
@@ -654,7 +666,7 @@ function fcWaitTick(){
   if (S.view === 'forecast' && $('fcWait')) $('fcWait').outerHTML = fcWaitBox();
   if (busyNow) fcWaitT = setTimeout(fcWaitTick, 1000);
 }
-function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); if (t === 'basis') fcLoadBasis(); render(); }
+function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); if (t === 'basis') fcLoadBasis(); if (t === 'eval') fcLoadLearning(); render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
@@ -707,6 +719,34 @@ function fcForecastTab(d, v){
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
   return html;
 }
+// ---- 精度の推移と学習（影） ----
+function fcLoadLearning(){ var id = S.fc.planId; S.fc.learn = null; call('apiLearningView', [{ planId: id }], function(r){ if (S.fc.planId === id) S.fc.learn = r; }); }
+function pct1(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
+function pct0(v){ return v === null || v === undefined ? '-' : (v * 100).toFixed(1) + '%'; }
+function kpiText(label, text, main, note){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="k">' + label + '</div><div class="v">' + text + '</div>' + (note ? '<div class="note">' + note + '</div>' : '') + '</div>'; }
+function fcLearningCards(){
+  var r = S.fc.learn;
+  if (!r || r.planId !== S.fc.planId) return '<div class="card note">精度の推移を読み込み中…</div>';
+  var a = r.accuracy, sh = r.shadow, html = '';
+  var cov = a.coverage === null ? '-' : pct0(a.coverage), covWarn = a.coverage !== null && Math.abs(a.coverage - 0.8) > 0.15;
+  html += '<div class="kpis">' + kpiText('月の誤差（平均）', pct0(a.mape), true, a.n + ' か月' + (a.trend ? '・直近 ' + pct0(a.trend.recent) + '（前 ' + pct0(a.trend.before) + '）' : ''))
+    + kpiText('偏り（新しい月ほど重く）', pct1(a.bias), false, a.bias === null ? '' : a.bias > 0 ? '予測が実績より高め' : '予測が実績より低め')
+    + kpiText('P10〜P90 に入った割合', (covWarn ? '<span class="warn-text">' + cov + '</span>' : cov), false, '目標 80%（' + a.coverageN + ' か月）')
+    + kpiText('80% を入れる幅', a.widthScale === null ? '-' : '今の ' + a.widthScale.toFixed(2) + ' 倍', false, a.widthScale === null ? '3 か月以上で出ます' : a.widthScale > 1.1 ? '今の幅は狭すぎる' : a.widthScale < 0.9 ? '今の幅は広すぎる' : 'ちょうどよい') + '</div>';
+  html += '<div class="card"><div class="card-head"><h2>精度の推移</h2><span class="note">' + (a.leaks ? '締まった後の予測（予測 = 実績）' + a.leaks + ' か月は数えていません' : '') + '</span></div>'
+    + (a.months.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col><col style="width:104px"><col style="width:120px"></colgroup><thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">実績</th><th class="num">誤差</th><th>P10〜P90</th></tr></thead><tbody>'
+      + a.months.slice().reverse().map(function(m){ return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td><td class="num">' + yen(m.actual) + '</td><td class="num">' + (m.leak ? '<span class="chip off">除く</span>' : pct1(m.err)) + '</td><td>'
+        + (m.leak ? '' : m.inside === null ? '-' : m.inside ? '<span class="chip ok">入った</span>' : '<span class="chip warn">外れた</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">検証の記録がまだありません（B-1 → B-2 を実行すると出ます）。</p>') + '</div>';
+  html += '<div class="card"><div class="card-head"><h2>学習の影（予測には効いていません）</h2><span class="note">使ったらどうなるかを、過去の月で計っています</span></div>'
+    + (sh ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:320px"><col style="width:160px"><col></colgroup><tbody>'
+      + '<tr><td>今の偏りの補正（旧来の自動学習）</td><td class="num">' + (r.factorNow === null ? '-' : r.factorNow.toFixed(3)) + '</td><td class="note wrap">計画の中だけで、偏り 0 へ縮めて学ぶ</td></tr>'
+      + '<tr><td>全計画で縮めた偏りの補正（影）</td><td class="num">' + sh.factorShadow.toFixed(3) + '</td><td class="note wrap">' + (r.pooled ? r.pooledPlans + ' 計画の平均の偏り ' + pct1(r.mu) + ' へ、計画どうしのばらつきに応じて縮める（経験ベイズ）' : '計画が 2 つ以上になると、全計画の平均へ縮めます（今は計画の中だけ）') + '</td></tr>'
+      + '<tr><td>過去の月に当てはめた誤差</td><td class="num">' + pct0(sh.mapeNow) + ' → ' + pct0(sh.mapeShadow) + '</td><td class="note wrap">補正なしの P50 と、影の補正を掛けた P50 の、月の誤差の平均（参考。同じ月で学んで当てるので、実際より良く見えます）</td></tr>'
+      + '</tbody></table></div>' : '<p class="note">3 か月以上の検証の記録があると計ります。</p>')
+    + '<p class="note mt8">予測に効かせるのは、影の結果を見て決めてからにします（旧来の計算は変えていません）。</p></div>';
+  return html;
+}
+
 // ---- 予測の根拠 ----
 function fcLoadBasis(){ var id = S.fc.planId; S.fc.basis = null; call('apiForecastBasis', [{ planId: id }], function(r){ if (S.fc.planId === id) S.fc.basis = r; }); }
 function sgn(n){ return n === null || n === undefined ? '-' : (n > 0 ? '+' : '') + yen(n); }
@@ -861,7 +901,7 @@ function fcInputDel(i){ fcDraft(S.fc.inputKind).splice(i, 1); S.fc.inputDirty[S.
 function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: kind, rows: fcDraft(kind) }); }
 
 function fcEvalTab(d, v){
-  var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = '';
+  var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = fcLearningCards();
   html += '<div class="card"><div class="card-head"><h2>検証の更新</h2><span class="note">上から順に実行します</span></div>' + fcActions([
     ['IMPORT.ACTUALS', '確定した月の実績を、ZAC の実績から取り込み直します。', 'admin', fcSourceNote()],
     ['EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。'],

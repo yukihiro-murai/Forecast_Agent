@@ -290,6 +290,13 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま予測を実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
+  // 検証のタブの、精度の推移と学習の影
+  ui.__learn = env.call('apiLearningView(__in)', { __in: { planId } });
+  const evalHtml = vm.runInContext(`S.fc.learn = __learn; S.fc.tab = 'eval'; viewForecast()`, ui);
+  assert.match(evalHtml, /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/);
+  assert.ok(!/undefined|NaN/.test(evalHtml.split('検証の更新')[0]), '精度の推移に undefined や NaN を出さない');
+  ui.__pool = env.call('apiPoolPreview()');
+  assert.match(vm.runInContext(`S.pfPool = __pool; pfPoolCard()`, ui), /全計画での学習[\s\S]*各計画に入れる/);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
   const basisHtml = vm.runInContext(`S.fc.basis = __basis; S.fc.tab = 'basis'; viewForecast()`, ui);

@@ -117,6 +117,16 @@ function apiForecastBasis(input) {
   return api_('FORECAST.BASIS', { minRole: 'VIEWER', audit: false }, () => appForecastBasis_(input && input.planId));
 }
 
+/** 精度の推移と学習の影（月の誤差・偏り・P10〜P90 に入った割合・全計画で縮めた偏りの補正）。閲覧は社内全員 */
+function apiLearningView(input) {
+  return api_('LEARNING.VIEW', { minRole: 'VIEWER', audit: false }, () => appLearningView_(input && input.planId));
+}
+
+/** 全計画で作る、情報源の信頼度の事前分布（書かずに見比べる） */
+function apiPoolPreview() {
+  return api_('POOL.PREVIEW', { minRole: 'ADMIN', audit: false }, () => appPoolPreview_());
+}
+
 /** 計画の公式版の一覧と、今の数字 */
 function apiVersionList(input) {
   return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appVersionList_(ctx, input));
