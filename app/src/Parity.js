@@ -98,6 +98,6 @@ function appListPlans_() {
   return appReadTable_('PLANS').map(p => {
     const last = appLastImport_(p.plan_id);
     return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state,
-      lastImportedAt: last ? last.finished_at : '' };
+      lastImportedAt: last ? last.finished_at : '', source: p.source_book_id ? 'book' : 'app' };
   });
 }

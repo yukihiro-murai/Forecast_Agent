@@ -252,6 +252,23 @@ function appRunLegacyForecast_(book, opts) {
  * 旧来の関数（計算・Web アプリの保存や実行）を 1 つ、差し替えのもとで呼ぶ。種と「今」を固定する。
  * opts: { asOfMs, seed, actor }。返り値: { value, version, sourceSha256, webSha256 }
  */
+/** 計算用ブックの上で、旧来の A-1 初期セットアップ（setupForecastBook の中身。画面の確認とダイアログは除く）と設定の保存を動かす */
+function appLegacySetupBook_(book, opts, orderKeys, clientName, fy, peopleCsv) {
+  const svc = appLegacyServices_(book, opts);
+  return appWithSeededRandom_(opts.seed, () => {
+    const eng = appLegacyEngine_(svc);
+    const ss = svc.SpreadsheetApp.getActiveSpreadsheet();
+    const order = orderKeys.map(k => eng.SHEETS[k]);
+    eng.resetWorkbookSheets_(ss, order);
+    eng.clearAllNotesOnSheets_(ss, order);
+    ['buildGUIDE_', 'buildCONFIG_', 'buildSALES_', 'buildFACTORS_PRODUCT_', 'buildFACTORS_CLIENT_', 'buildOPINIONS_', 'buildDEV_',
+      'buildPhase1Sheets_', 'buildOUTPUT_', 'normalizeAllSheetNotes_', 'validateNotesIntegrity_', 'applyDefaultAlignmentForAllSheets_',
+      'clearAllTabColors_', 'hideNonUserSheets_'].forEach(fn => eng[fn]());
+    eng.saveInitialSetupSettings(clientName, String(fy), peopleCsv);
+    return { version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 };
+  });
+}
+
 function appLegacyCall_(book, opts, fnName, args) {
   const svc = appLegacyServices_(book, opts);
   return appWithSeededRandom_(opts.seed, () => {

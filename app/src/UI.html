@@ -152,6 +152,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixe
 .waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:13px}
 .ws{white-space:normal}
 .pre{white-space:pre-wrap;word-break:break-word}
+.tbl.wide{min-width:1080px}
 .row.foot{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line-soft)}
 .tbl.mt12{margin-top:var(--s3)}
 
@@ -203,13 +204,14 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1 };
+var READS = { apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = { 'MIGRATION.DRYRUN': '旧ブックを読んでいます', 'MIGRATION.IMPORT': '取り込んでいます',
   'FORECAST.PARITY': '計算の一致を確かめています（1/2 旧ブックの写し）', 'FORECAST.PARITY_B': '計算の一致を確かめています（2/2 データ本体）',
   'FORECAST.RUN': '予測の準備をしています（1/3 データの組み立て）', 'FORECAST.RUN_CALC': '予測を計算しています（2/3）', 'FORECAST.RUN_SAVE': '予測を保存しています（3/3）',
-  'PLAN.VIEW_CHECK': '画面の中身を確かめています', 'SYSTEM.RECOVER': '保存の続きを書いています' };
+  'PLAN.VIEW_CHECK': '画面の中身を確かめています', 'SYSTEM.RECOVER': '保存の続きを書いています',
+  'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
 var PLAN_STEP = { 'PLAN.RUN': '準備しています（1/3 データの組み立て）', 'PLAN.RUN_CALC': '実行しています（2/3）', 'PLAN.RUN_SAVE': '保存しています（3/3）' };
 /** 処理の表示名（計画への保存・実行は操作の名前で） */
 function jobLabel(j){
@@ -238,6 +240,7 @@ var JOB_DONE = {
   'PLAN.VIEW_CHECK': function(r){ S.view = 'migrate'; S.mig.viewCheck = r; toast(r.same ? '画面の中身は旧来と同じでした' : '画面の中身に違いがありました', !r.same); },
   'PLAN.EDIT': function(r){ S.view = 'forecast'; toast(r.changed && r.changed.length ? '保存しました' : '変更はありませんでした'); loadForecast(r.planId, true); },
   'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId, true); },
+  'PLAN.CREATE_SAVE': function(r){ toast(r.clientName + ' FY' + r.fy + ' の計画を作りました'); S.pf = null; S.fc.plans = null; S.fc.planId = r.planId; S.fc.tab = 'steps'; go('forecast'); },
   'SYSTEM.RECOVER': function(r){ toast(r && r.nothing ? '書きかけの保存はありませんでした' : '保存の続きを書きました'); if (S.view === 'forecast' && S.fc.planId) loadForecast(S.fc.planId, true); }
 };
 function startJob(kind, payload){
@@ -284,14 +287,14 @@ function call(fn, args, ok, fail){
   r[fn].apply(r, args || []);
 }
 
-var NAV_ADMIN = [['home','ホーム'],['forecast','予測'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
+var NAV_ADMIN = [['home','ホーム'],['plans','計画の一覧'],['forecast','予測'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
 var NAV_OWNER = [['migrate','旧ブックから移す']];
 function render(){
   $('hdrUser').innerHTML = B.user && B.user.email ? '<b>' + esc(B.user.email.split('@')[0]) + '</b>' : '';
   $('hdrVer').textContent = B.user && B.user.isAdmin && B.app ? 'v' + B.app.version : '';
-  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : B.setUp && B.allowed ? [['home','ホーム'],['forecast','予測']] : [['home','ホーム']];
+  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN.concat(B.user.isOwner ? NAV_OWNER : []) : B.setUp && B.allowed ? [['home','ホーム'],['plans','計画の一覧'],['forecast','予測']] : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button class="navbtn' + (S.view === n[0] ? ' on' : '') + '" onclick="go(\'' + n[0] + '\')">' + n[1] + '</button>'; }).join('');
-  var v = { home: viewHome, forecast: viewForecast, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
+  var v = { home: viewHome, plans: viewPlans, forecast: viewForecast, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth, migrate: viewMigrate }[S.view] || viewHome;
   // 知らせ（エラー・裏の処理の進み）は、画面の見出しのすぐ下に出す（見出しの位置をどの画面でもそろえる）
   var body = v();
   var m = body.match(/^(<div class="page-head">[\s\S]*?<\/h1>[\s\S]*?<\/div>|<h1>[\s\S]*?<\/h1>)/);
@@ -314,6 +317,7 @@ function go(v){
   else if (v === 'audit') loadAudit();
   else if (v === 'health') call('apiHealth', [], function(r){ S.health = r; });
   else if (v === 'migrate') loadPlans();
+  else if (v === 'plans') call('apiPortfolio', [], function(r){ S.pf = r.plans; if (S.pfFy === undefined) S.pfFy = r.plans.length ? r.plans[0].fy : ''; });
   else if (v === 'forecast') call('apiListPlans', [], function(r){ S.fc.plans = r.plans; if (!S.fc.planId && r.plans.length) S.fc.planId = r.plans[0].planId; if (S.fc.planId) loadForecast(S.fc.planId); });
   render();
 }
@@ -327,10 +331,78 @@ function viewHome(){
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
-  var links = [['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
+  var links = [['plans', '計画の一覧', 'すべてのクライアント・年度の予測と予算を並べて見る。新しい計画もここで作る'], ['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
     .filter(function(x){ return !x[3] || B.user.isAdmin; });
   return '<h1>ホーム</h1>' + guide('guide', 'Trends2Targets は、売上予測と予算策定のアプリです。左の「予測」から、計画ごとの予測・予算・入力・検証・四半期レビューを、旧アプリと同じ中身で見られます。AI 調査は、まだ旧アプリで行います。<div class="row c"><span class="note">あなたの役割</span>' + roles + '</div>')
     + '<div class="card"><h2>よく使う画面</h2><div class="actions">' + links.map(function(x){ return '<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button><div class="desc">' + x[2] + '</div>'; }).join('') + '</div></div>';
+}
+
+// ---- 計画の一覧（全部のクライアント × 年度）と、新しい計画を作る ----
+var PF_SORT = [['client', 'クライアント順'], ['p50', 'P50 の大きい順'], ['change', '前回からの変化の大きい順'], ['mape', '誤差の大きい順']];
+function pfChange(p){ return p.p50 !== null && p.prevP50 ? p.p50 / p.prevP50 - 1 : null; }
+function pfRows(){
+  var q = String(S.pfQ || '').trim().toLowerCase(), fy = S.pfFy || '';
+  var rows = (S.pf || []).filter(function(p){ return (!fy || p.fy === fy) && (!q || String(p.clientName).toLowerCase().indexOf(q) >= 0); });
+  var k = S.pfSort || 'client', val = function(p){ return k === 'p50' ? p.p50 : k === 'change' ? Math.abs(pfChange(p) || 0) : k === 'mape' ? p.mape : null; };
+  if (k !== 'client') rows = rows.slice().sort(function(a, b){ var x = val(a), y = val(b); return (y === null ? -Infinity : y) - (x === null ? -Infinity : x); });
+  return rows;
+}
+function viewPlans(){
+  if (!S.pf) return '<h1>計画の一覧</h1><div class="card note">読み込み中…</div>';
+  var fys = S.pf.map(function(p){ return p.fy; }).filter(function(x, i, a){ return a.indexOf(x) === i; });
+  var rows = pfRows();
+  var pct1 = function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
+  var html = '<h1>計画の一覧</h1>';
+  html += '<div class="card"><div class="row mt0">'
+    + '<div class="field"><label for="pf_q">クライアント</label><input class="inp" id="pf_q" value="' + esc(S.pfQ || '') + '" oninput="S.pfQ=this.value;pfRefresh()" placeholder="名前で絞り込む"></div>'
+    + '<div class="field"><label for="pf_fy">年度</label><select class="inp sm" id="pf_fy" onchange="S.pfFy=this.value;render()"><option value="">すべて</option>'
+    + fys.map(function(f){ return '<option value="' + esc(f) + '"' + (S.pfFy === f ? ' selected' : '') + '>FY' + esc(f) + '</option>'; }).join('') + '</select></div>'
+    + '<div class="field"><label for="pf_sort">並べ方</label><select class="inp" id="pf_sort" onchange="S.pfSort=this.value;render()">'
+    + PF_SORT.map(function(s){ return '<option value="' + s[0] + '"' + ((S.pfSort || 'client') === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div></div>'
+    + '<div class="tblwrap mt12" id="pfTable">' + pfTable(rows, pct1) + '</div></div>';
+  if (B.user.isAdmin) html += pfCreateCard();
+  return html;
+}
+function pfRefresh(){ var el = $('pfTable'); if (el) el.innerHTML = pfTable(pfRows(), function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }); }
+function pfTable(rows, pct1){
+  if (!rows.length) return '<p class="note">' + (S.pf.length ? '条件に合う計画がありません。' : 'まだ計画がありません。' + (B.user.isAdmin ? '下の「計画を作る」から作れます。' : '')) + '</p>';
+  var sum = function(k){ return rows.reduce(function(a, p){ return a + (p[k] || 0); }, 0); };
+  var body = rows.map(function(p){
+    var ch = pfChange(p), gap = p.budget !== null && p.p50 !== null ? p.budget / p.p50 - 1 : null;
+    var steps = p.stepErrors.length ? '<span class="chip ng" title="' + esc(p.stepErrors.join('、')) + '">エラー</span>' : '<span class="note">' + p.stepsDone + ' / ' + p.stepsTotal + '</span>';
+    return '<tr><td>' + esc(p.clientName) + (p.source === 'app' ? ' <span class="chip off">新規</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
+      + '<td class="num">' + yen(p.p50) + '</td><td class="num">' + (ch === null ? '-' : Math.abs(ch) >= 0.05 ? '<span class="chip warn">' + pct1(ch) + '</span>' : pct1(ch)) + '</td>'
+      + '<td class="num">' + yen(p.budget) + '</td><td class="num">' + pct1(gap) + '</td>'
+      + '<td class="num">' + (p.mape === null ? '-' : (p.mape >= 0.2 ? '<span class="chip warn">' : '') + (p.mape * 100).toFixed(1) + '%' + (p.mape >= 0.2 ? '</span>' : '') + '<div class="note">' + p.mapeMonths + ' か月</div>') + '</td>'
+      + '<td>' + steps + '</td><td>' + esc(String(p.lastRunAt || '').replace('T', ' ').slice(5, 16) || '-') + '</td>'
+      + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.planId=\'' + esc(p.planId) + '\';S.fc.view=null;S.fc.data=null;go(\'forecast\')">開く</button></td></tr>';
+  }).join('');
+  var foot = S.pfFy ? '<tr class="total"><td>合計（' + rows.length + ' 件）</td><td>FY' + esc(S.pfFy) + '</td><td class="num">' + yen(sum('p50')) + '</td><td></td><td class="num">' + yen(sum('budget')) + '</td><td colspan="5"></td></tr>' : '';
+  return '<table class="tbl wide"><colgroup><col><col style="width:88px"><col style="width:120px"><col style="width:88px"><col style="width:120px"><col style="width:80px"><col style="width:96px"><col style="width:96px"><col style="width:120px"><col style="width:128px"></colgroup>'
+    + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>手順</th><th>最後の予測</th><th></th></tr></thead><tbody>'
+    + body + foot + '</tbody></table>'
+    + '<p class="note mt8">P50 は最新の予測の年度合計（新アプリで予測していない計画は、取り込んだ旧ブックの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。</p>';
+}
+function pfCreateCard(){
+  var c = S.pfCand;
+  var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' : '';
+  return '<div class="card"><div class="card-head"><h2>計画を作る</h2><span class="note">旧ブックを使わずに、新アプリで新しいクライアント × 年度の計画を作ります</span></div>'
+    + '<div class="row mt0"><div class="field"><label for="pc_client">クライアント（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
+    + '<div class="field"><label for="pc_fy">年度（FY）</label><input class="inp sm num" id="pc_fy" type="number" min="2000" max="2100" value="' + esc(S.pcFy || (c ? c.defaultFy : pfDefaultFy())) + '" oninput="S.pcFy=this.value"></div>'
+    + '<div class="field"><label for="pc_people">担当者（カンマ区切り）</label><input class="inp" id="pc_people" value="' + esc(S.pcPeople || '') + '" oninput="S.pcPeople=this.value"></div>'
+    + '<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す' : '候補を読み込む') + '</button></div>'
+    + (c ? '<p class="note mt8">ZAC の実績にある直近 2 年のクライアント ' + c.candidates.length + ' 件を候補に出しています。</p>' : '')
+    + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="pfCreate()">計画を作る</button>'
+    + '<span class="note">旧来の A-1 初期セットアップと同じシートを作ります（1〜3 分ほど）。作った後は「進み」で A-2 → A-3 → 予測の順に実行します。</span></div></div>';
+}
+/** 新しい計画の年度の目安（10 月からは次の年度） */
+function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
+function pfLoadCandidates(){ S.pcLoading = true; render(); call('apiPlanCandidates', [{ refresh: !!S.pfCand }], function(r){ S.pcLoading = false; S.pfCand = r; if (!S.pcFy) S.pcFy = String(r.defaultFy); }, function(){ S.pcLoading = false; render(); }); }
+function pfCreate(){
+  var c = String($('pc_client').value || '').trim(), fy = String($('pc_fy').value || '').trim(), people = String($('pc_people').value || '').trim();
+  if (!c || !fy || !people) { toast('クライアント・年度・担当者を入れてください', true); return; }
+  if (!confirm(c + ' FY' + fy + ' の計画を作りますか？')) return;
+  startJob('PLAN.CREATE', { clientName: c, fy: Number(fy), peopleCsv: people });
 }
 
 function viewMembers(){
@@ -487,7 +559,7 @@ var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['
 function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
   if (!f.plans) return '<h1>予測</h1><div class="card note">読み込み中…</div>';
-  if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。「旧ブックから移す」で旧ブックを取り込んでください。');
+  if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。' + (B.user.isAdmin ? '「計画の一覧」の「計画を作る」で作るか、「旧ブックから移す」で旧ブックを取り込んでください。' : '管理者が計画を作ると、ここで見られます。'));
   var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
   var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel + '</div>';
   if (v && v.pendingWrite) return html + fcPendingBox(v);
@@ -712,9 +784,10 @@ function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLo
 function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 100).toFixed(2) + '%'; }
 function viewParity(){
   var m = S.mig, html = '';
-  if (m.plans && m.plans.length) {
+  var books = (m.plans || []).filter(function(p){ return p.source !== 'app'; });   // 旧ブックから取り込んだ計画だけ（新アプリで作った計画には比べる旧ブックがない）
+  if (books.length) {
     html += '<div class="card"><h2>取り込んだ計画</h2><table class="tbl"><colgroup><col style="width:220px"><col style="width:88px"><col style="width:152px"><col></colgroup><thead><tr><th>クライアント</th><th>年度</th><th>取り込み</th><th>確かめる</th></tr></thead><tbody>'
-      + m.plans.map(function(p){
+      + books.map(function(p){
         return '<tr><td>' + esc(p.clientName) + '</td><td>FY' + esc(p.fy) + '</td><td>' + esc((p.lastImportedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td><div class="row c mt0">'
           + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="startParity(\'' + esc(p.planId) + '\')">計算の一致を確かめる</button>'
           + '<button class="btn btn-sm btn-ghost" style="width:176px" ' + (S.job ? 'disabled ' : '') + 'onclick="S.mig.viewCheck=null;startJob(\'PLAN.VIEW_CHECK\', { planId: \'' + esc(p.planId) + '\' })">画面の中身を確かめる</button></div></td></tr>';

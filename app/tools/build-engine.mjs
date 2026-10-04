@@ -32,7 +32,11 @@ export const ENGINE_EXPORTS = [
   // 旧来の Web アプリ（Forecast_WebApp.js）
   'webGetBootstrap_', 'webSaveInputs', 'webSaveBudget', 'webSaveEvalInsights', 'webSaveQuarterlyDecisions',
   'webRunAggregate', 'webRunEvalReport', 'webRunDashboard', 'webRunInsights', 'webRunMonthlyLearn', 'webRunQuarterly', 'webApplyQuarterly',
-  'webRunImportSales', 'webRunImportActuals', 'webRunAiResearch'
+  'webRunImportSales', 'webRunImportActuals', 'webRunAiResearch',
+  // 新しい計画を作る（A-1 初期セットアップ setupForecastBook の中身。画面の確認とダイアログは除く）
+  'resetWorkbookSheets_', 'clearAllNotesOnSheets_', 'buildGUIDE_', 'buildCONFIG_', 'buildSALES_', 'buildFACTORS_PRODUCT_', 'buildFACTORS_CLIENT_',
+  'buildOPINIONS_', 'buildDEV_', 'buildPhase1Sheets_', 'buildOUTPUT_', 'normalizeAllSheetNotes_', 'validateNotesIntegrity_',
+  'applyDefaultAlignmentForAllSheets_', 'clearAllTabColors_', 'hideNonUserSheets_', 'saveInitialSetupSettings', 'getClientCandidatesForSetup_'
 ];
 
 /** 旧来の Web アプリの、新アプリが受け持つ関数（元の宣言は変えず、包んだ中で後から差し替える） */

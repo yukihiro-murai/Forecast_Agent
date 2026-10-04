@@ -90,6 +90,16 @@ function apiListPlans() {
   return api_('PLANS.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appListPlans_() }));
 }
 
+/** 全部の計画の要点（閲覧は社内全員） */
+function apiPortfolio() {
+  return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolio_() }));
+}
+
+/** 新しい計画のクライアントの候補（ZAC の実績から） */
+function apiPlanCandidates(input) {
+  return api_('PLAN.CANDIDATES', { minRole: 'ADMIN', audit: false }, ctx => appPlanCandidates_(ctx, input));
+}
+
 /** 計画の最新の予測（閲覧は社内全員） */
 function apiForecastLatest(input) {
   return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appForecastLatest_(input && input.planId));

@@ -275,6 +275,13 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.ok(st.result && st.result.runId, '最後の段の結果を返す');
   assert.equal(env.table('FORECAST_RUNS').length, 2);
   assert.equal(env.triggers.filter((t) => t.handler === 'triggerRunJob').length, 0, '使わなかったトリガーは消す');
+  // 全部の計画の一覧: 最新と前回の予測、予算（採用予測 + 上乗せの月の合計）
+  const runs = env.table('FORECAST_RUNS').sort((x, y) => String(y.finished_at).localeCompare(String(x.finished_at)) || String(y.run_id).localeCompare(String(x.run_id)));
+  const pf = env.call('apiPortfolio()').plans.filter((x) => x.planId === planId)[0];
+  assert.equal(pf.runs, 2);
+  assert.equal(pf.source, 'book');
+  assert.ok(pf.p50 > 0 && pf.prevP50 > 0, JSON.stringify(pf));
+  assert.ok([runs[0].annual_p50, runs[1].annual_p50].map(Number).includes(pf.p50));
 }
 
 console.log('app-pipeline: all tests passed');

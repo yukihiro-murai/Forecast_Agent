@@ -80,6 +80,7 @@ function looks(obj) {
     if (LOOKS.test(String(k))) return () => p;
     if (k === 'getFilter' || k === 'getDataValidation') return () => null;
     if (k === 'getMergedRanges') return () => [];
+    if (k === 'getCharts' || k === 'getConditionalFormatRules' || k === 'getProtections' || k === 'getDataValidations' || k === 'getNamedRanges' || k === 'getBandings') return () => [];
     if (k === 'isSheetHidden') return () => false;
     if (k === 'getFrozenRows' || k === 'getFrozenColumns') return () => 0;
     return undefined;
@@ -194,6 +195,9 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
       let range = {
         getValues: () => { stat(sh, 'reads', nr * nc); return grid((y, x) => at(rows, y, x, '')); },
         getValue: () => at(rows, r - 1, col - 1, ''),
+        getNumRows: () => nr, getNumColumns: () => nc, getRow: () => r, getColumn: () => col, getLastRow: () => r + nr - 1, getLastColumn: () => col + nc - 1,
+        getNotes: () => grid(() => ''),
+        getNote: () => '',
         getFormulas: () => grid((y, x) => at(fmls, y, x, '') || ''),
         getNumberFormats: () => grid((y, x) => fmtAt(y, x)),
         setNumberFormat: (f) => { if (sh.strict) assert.equal(f, '@', 'データ本体とログは書式なしテキスト'); each((y, x) => put(fmts, y, x, normFmt(f))); return range; },

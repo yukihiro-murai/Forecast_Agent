@@ -290,6 +290,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま予測を実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
+  // 計画の一覧（全部の計画）と「計画を作る」
+  ui.__pf = env.call('apiPortfolio()').plans;
+  const pfHtml = vm.runInContext(`S.pf = __pf; S.pfFy = __pf[0].fy; B.user.isAdmin = true; viewPlans()`, ui);
+  assert.match(pfHtml, /計画の一覧[\s\S]*テスト製薬[\s\S]*合計（1 件）[\s\S]*計画を作る/);
+  assert.ok(!/このタブを表示できませんでした|undefined|NaN/.test(pfHtml), '一覧に undefined や NaN を出さない');
 }
 
 console.log('app-plan: all tests passed');

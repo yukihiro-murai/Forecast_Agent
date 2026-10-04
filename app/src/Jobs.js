@@ -31,6 +31,9 @@ function appJobSpec_(kind) {
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
     'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
     'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
+    // 新しい計画を作る（旧ブックを経ずに。A-1 初期セットアップ → データ本体に保存）: 管理者
+    'PLAN.CREATE': { minRole: 'ADMIN', label: '計画の作成' },
+    'PLAN.CREATE_SAVE': { minRole: 'ADMIN', label: '計画の作成', internal: true },
     // 途中で止まった保存の続きを、控え（Journal.js）のとおりに書く。予算策定担当以上（控えは、権限を確かめて始めた保存のもの）
     'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' }
   };
@@ -138,6 +141,12 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
         after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
+    case 'PLAN.CREATE':
+      return appAudited_(ctx, 'PLAN.CREATE.BUILD', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, peopleCsv: p.peopleCsv, jobId: job.id },
+        after: res => ({ next: res.__next.kind, buildMs: res.__next.payload.buildMs }) }, () => appPlanCreateBuild_(ctx, p));
+    case 'PLAN.CREATE_SAVE':
+      return appAudited_(ctx, 'PLAN.CREATE.SAVE', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, jobId: job.id },
+        after: res => ({ planId: res.planId, sheets: res.sheets, written: res.written, timing: res.timing }) }, () => appPlanCreateSave_(ctx, p));
     case 'SYSTEM.RECOVER':
       return appAudited_(ctx, 'SYSTEM.RECOVER', { entityType: 'SYSTEM', detail: { jobId: job.id, pending: appJournalPending_() },
         after: res => res }, () => appWithLock_(() => appJournalRecover_(ctx) || { nothing: true }));
@@ -216,7 +225,7 @@ function appActiveJobOf_(email) {
 // ---- 始める・動かす・状態を返す ----
 
 /** 画面から渡せる項目（ほかは裏の処理どうしの受け渡し専用。画面から渡されたら捨てる） */
-const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'bookUrl', 'contentHash'];
+const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'bookUrl', 'contentHash', 'clientName', 'fy', 'peopleCsv'];
 
 function appJobClientPayload_(payload) {
   const out = {};
