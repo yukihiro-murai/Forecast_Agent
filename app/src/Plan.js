@@ -302,7 +302,8 @@ function appPlanEdit_(ctx, p) {
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
       inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })] });
     const written = appJournalRun_(ctx, act.label + '（' + actionId + '）', plan.plan_id, ops);
-    appScratchMarkAfterSave_(scratch, plan.plan_id, token, act.sheets || null, !!reused, reused && reused.scope);
+    appScratchMarkAfterSave_(scratch, plan.plan_id, token, act.sheets || null, !!reused, reused && reused.scope,
+      build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet));
     return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: result,
       build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
       timing: { buildMs: t1 - t0, runMs: t2 - t1, saveMs: new Date().getTime() - t2 },
@@ -379,7 +380,7 @@ function appPlanRunSave_(ctx, p) {
     const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId);
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))] });
     const written = appJournalRun_(ctx, act.label + '（' + p.actionId + '）', plan.plan_id, ops);
-    appScratchMarkAfterSave_(appWorkScratch_(plan), plan.plan_id, p.build.token, act.sheets || null, !!p.build.reused, p.build.scope);
+    appScratchMarkAfterSave_(appWorkScratch_(plan), plan.plan_id, p.build.token, act.sheets || null, !!p.build.reused, p.build.scope, p.build.problems);
     return { actionId: p.actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: p.result,
       unknown: cap.unknown, build: (p.build && p.build.problems) || [],
       timing: { buildMs: p.buildMs || 0, runMs: p.runMs || 0, captureMs: t1 - t0, saveMs: new Date().getTime() - t1 },

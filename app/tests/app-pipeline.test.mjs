@@ -340,6 +340,16 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
   assert.equal(builds()[4].reused, true);
   storeMatchesScratch(env, planId, ['CONFIG', 'OUTPUT']);
+  // 計算用ブックが作り直されたら（開けない・ゴミ箱）、空のブックを使い回さない
+  const sid = env.run('appProps_().getProperty(APP_PROP.scratchId)');
+  env.files[sid].trashed = true;
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  assert.equal(builds()[5].reused, false, '作り直したブックは組み立てる');
+  storeMatchesScratch(env, planId, ['CONFIG', 'OUTPUT', 'PROCESS_STATUS']);
+  // 計画の地域・版が変わったら使い回さない
+  env.run(`(() => { const st = appScratchState_(); st.version = 'old'; appProps_().setProperty('APP_SCRATCH_STATE', JSON.stringify(st)); })()`);
+  assert.equal(env.runJob('FORECAST.RUN', { planId }).status, 'DONE');
+  assert.equal(builds()[6].reused, false, '版が変わったら組み立てる');
 }
 
 console.log('app-pipeline: all tests passed');

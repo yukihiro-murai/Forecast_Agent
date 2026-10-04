@@ -202,7 +202,7 @@ function appPoolApply_(ctx, p) {
         sh.getRange(2, 1, vals.length, header.length).setValues(vals);
         const cap = appCaptureChanged_(scratch, planId, appStoredHashes_(planId), ['POOL_PRIOR']);
         if (cap.changed.length) appJournalRun_(ctx, '学習の事前分布（' + planId + '）', planId, appChangedOps_(ctx, planId, cap.changed, appId_('POOL')));
-        appScratchMarkAfterSave_(scratch, planId, st.state.token, ['POOL_PRIOR'], !!st.state.reused, st.state.scope);
+        appScratchMarkAfterSave_(scratch, planId, st.state.token, ['POOL_PRIOR'], !!st.state.reused, st.state.scope, st.state.problems);
       }
       done.push({ planId: planId, changed: changed > 0 });
     });

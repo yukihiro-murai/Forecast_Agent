@@ -7,7 +7,7 @@
 /** アプリの名前（社内の Web アプリと同じく英語 + 日本語。ブラウザのタブは英語だけ。2026-10-02 村井さん決定） */
 const APP_NAME = 'Trends2Targets';
 const APP_NAME_JA = '売上予測と予算策定';
-const APP_VERSION = '0.19.0';
+const APP_VERSION = '0.19.1';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {

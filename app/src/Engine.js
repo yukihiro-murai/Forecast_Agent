@@ -77,6 +77,9 @@ function appScratchBook_() {
   const ss = SpreadsheetApp.create(APP_FILES.scratch);
   DriveApp.getFileById(ss.getId()).moveTo(DriveApp.getFolderById(folderId));
   props.setProperty(APP_PROP.scratchId, ss.getId());
+  // 作り直したブックは空: 前の処理の続き（印）も、使い回しの控えも効かなくする
+  props.setProperty(APP_PROP.scratchOwner, appId_('SCR'));
+  props.deleteProperty(APP_SCRATCH_STATE_PROP);
   return ss;
 }
 
@@ -108,9 +111,12 @@ function appScratchState_() {
  */
 function appScratchTryReuse_(scratch, planId, needed, token) {
   const st = appScratchState_();
-  if (!st || st.planId !== planId) return null;
+  if (!st || st.planId !== planId || st.scratchId !== scratch.getId() || st.version !== APP_VERSION) return null;
   if (st.scope && (!needed || needed.some(n => st.scope.indexOf(n) < 0))) return null;
+  const plan = appPlanOf_(planId);
+  if (st.tz !== (plan.time_zone || '') || st.locale !== (plan.locale || '')) return null;
   if (appPlanInputHash_(planId) !== st.inputHash) return null;
+  if (appScratchMissing_(scratch, planId, needed).length) return null;   // データ本体にあるのに、ブックに無いシートがある
   // 旧来の計算が作った、データ本体に移さないシート（AI_RESEARCH_RAW など）は除く（組み立てたときと同じにする）
   scratch.getSheets().forEach(s => { if (!APP_ENGINE_SHEETS[s.getName()] && scratch.getSheets().length > 1) scratch.deleteSheet(s); });
   appProps_().setProperty(APP_PROP.scratchOwner, token);
@@ -119,9 +125,19 @@ function appScratchTryReuse_(scratch, planId, needed, token) {
 }
 
 /** 保存し終えた後: 計算用ブックがデータ本体の計画 planId と同じ中身であることを控える（scope = 控えたシート。null = 全部） */
-function appScratchMarkSynced_(planId, token, scope) {
+function appScratchMarkSynced_(planId, token, scope, problems) {
   if (!appScratchOwnedBy_(token)) return;
-  appProps_().setProperty(APP_SCRATCH_STATE_PROP, JSON.stringify({ planId: planId, inputHash: appPlanInputHash_(planId), scope: scope || null, at: appNowIso_() }));
+  // 組み立てで元どおりに書けなかったシートがあれば控えない（組み立て直したときと中身が違ってしまう）
+  if (problems && problems.length) { appProps_().deleteProperty(APP_SCRATCH_STATE_PROP); return; }
+  const plan = appPlanOf_(planId);
+  // データ本体を手で直すと、入力のハッシュが変わらないまま中身が変わる。データ本体の表は警告つきで保護している（appOrganizeDataBook_）
+  appProps_().setProperty(APP_SCRATCH_STATE_PROP, JSON.stringify({ planId: planId, inputHash: appPlanInputHash_(planId), scope: scope || null,
+    scratchId: appProps_().getProperty(APP_PROP.scratchId) || '', tz: plan.time_zone || '', locale: plan.locale || '', version: APP_VERSION, at: appNowIso_() }));
+}
+
+/** データ本体の計画にあるシート（scope の中）のうち、計算用ブックに無いもの */
+function appScratchMissing_(scratch, planId, scope) {
+  return appReadPlanTable_('ENG_SHEETS', planId).map(r => r.sheet).filter(n => (!scope || scope.indexOf(n) >= 0) && APP_ENGINE_SHEETS[n] && !scratch.getSheetByName(n));
 }
 
 /**
@@ -129,13 +145,13 @@ function appScratchMarkSynced_(planId, token, scope) {
  * 使い回した計算用ブックがそれより広い範囲（reusedScope）を持っていたら、対象の外のシートもデータ本体と同じか読んで確かめ、
  * 同じなら広い範囲のまま控える（読むのは、組み立て直すよりずっと速い）
  */
-function appScratchMarkAfterSave_(scratch, planId, token, captured, reused, reusedScope) {
+function appScratchMarkAfterSave_(scratch, planId, token, captured, reused, reusedScope, problems) {
   let scope = captured || null;
   if (reused && captured && (reusedScope === null || reusedScope === undefined || reusedScope.some(n => captured.indexOf(n) < 0))) {
     const others = appCaptureChanged_(scratch, planId, appStoredHashes_(planId), reusedScope || null);
-    if (!others.changed.length) scope = reusedScope || null;
+    if (!others.changed.length && !appScratchMissing_(scratch, planId, reusedScope || null).length) scope = reusedScope || null;
   }
-  appScratchMarkSynced_(planId, token, scope);
+  appScratchMarkSynced_(planId, token, scope, problems);
 }
 
 /** 計算用ブックの中身が、token の処理が組み立てたままか */
@@ -174,7 +190,7 @@ function appScratchBuildStep_(scratch, planId, only, state, deadlineMs) {
     const dec = sheets[names[i]];
     if (dec) {
       const w = appEngWriteSheet_(scratch, dec, null);
-      if (w.mismatches || w.formatMismatches) st.problems.push(names[i] + (w.mismatches ? ' 値 ' + w.mismatches : '') + (w.formatMismatches ? ' 表示形式 ' + w.formatMismatches : ''));
+      if (w.mismatches || w.formatMismatches || w.forcedText) st.problems.push(names[i] + (w.mismatches ? ' 値 ' + w.mismatches : '') + (w.formatMismatches ? ' 表示形式 ' + w.formatMismatches : '') + (w.forcedText ? ' 文字列に固定 ' + w.forcedText : ''));
     }
     st.done.push(names[i]);
   }

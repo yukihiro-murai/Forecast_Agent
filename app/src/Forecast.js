@@ -88,7 +88,7 @@ function appForecastRunSave_(ctx, p) {
         obj_p10: obj[m.month] ? num(obj[m.month].p10) : null, obj_p50: obj[m.month] ? num(obj[m.month].p50) : null, obj_p90: obj[m.month] ? num(obj[m.month].p90) : null })) }
     ]);
     const written = appJournalRun_(ctx, '予測の保存（' + p.runId + '）', plan.plan_id, ops);
-    appScratchMarkSynced_(plan.plan_id, p.build.token, null);   // 次の予測は組み立て直さずに使える
+    appScratchMarkSynced_(plan.plan_id, p.build.token, null, p.build.problems);   // 次の予測は組み立て直さずに使える
     return { runId: p.runId, planId: plan.plan_id, changed: names, written: written, headline: h, unknown: cap.unknown,
       build: (p.build && p.build.problems) || [],
       timing: { buildMs: p.buildMs || 0, runMs: p.runMs || 0, captureMs: t1 - t0, saveMs: new Date().getTime() - t1 },
