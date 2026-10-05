@@ -73,7 +73,7 @@ let SHEET_SEQ = 0;
  * strict でないシートは、書式が '@' でないセルに書いた文字列を本物のように変換する。
  */
 /** 見た目だけの操作（色・幅・入力規則・枠線・表示/非表示など）は何もしない（計算の結果に関係しない）。値と表示形式は本物のとおりに扱う */
-const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showSheet|hideSheet|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation|setDescription|setWarningOnly)$/;
+const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation|setDescription|setWarningOnly)$/;
 function looks(obj) {
   const p = new Proxy(obj, { get(t, k) {
     if (k in t || typeof k === 'symbol') return t[k];
@@ -81,7 +81,9 @@ function looks(obj) {
     if (k === 'getFilter' || k === 'getDataValidation') return () => null;
     if (k === 'getMergedRanges') return () => [];
     if (k === 'getCharts' || k === 'getConditionalFormatRules' || k === 'getProtections' || k === 'getDataValidations' || k === 'getNamedRanges' || k === 'getBandings') return () => [];
-    if (k === 'isSheetHidden') return () => false;
+    if (k === 'isSheetHidden') return () => !!t.__hidden;
+    if (k === 'hideSheet') return () => { t.__hidden = true; return p; };
+    if (k === 'showSheet') return () => { t.__hidden = false; return p; };
     if (k === 'getFrozenRows' || k === 'getFrozenColumns') return () => 0;
     return undefined;
   } });
@@ -270,6 +272,65 @@ export function extractFunction(src, name) {
 }
 
 /** 新アプリのコードを GAS のモックの上で読み込む */
+/**
+ * テストだけで使う関数（アプリには無い）。vm の中で、アプリのコードの後に読む。
+ * appEngCompare_: 2 つのシートの読み取り（appSheetSnapshot_ / appEngDecodeSheet_ の形）が同じか。違うセルの A1 を返す
+ * appTestSeedPlan_: 見本のブックの CONFIG（B2 クライアント・B3 年度・B4 担当者）とシートから、計画 1 つ分をデータ本体に書く
+ */
+const TEST_SUPPORT = `
+function appEngCompare_(snap, dec) {
+  const bad = [];
+  ['maxRows', 'maxCols', 'lastRow', 'lastCol', 'fmtCols'].forEach(k => { if (snap[k] !== dec[k]) bad.push(k); });
+  for (let r = 0; r < snap.lastRow; r++) {
+    for (let c = 0; c < snap.lastCol; c++) {
+      const f = (snap.formulas[r] && snap.formulas[r][c]) || '';
+      if (f ? f !== dec.formulas[r][c] : !appCellSame_(snap.values[r][c], dec.values[r][c])) bad.push(appA1_(r, c));
+    }
+  }
+  for (let r = 0; r < snap.maxRows; r++) {
+    for (let c = 0; c < snap.fmtCols; c++) {
+      if (String((snap.formats[r] || [])[c] || '') !== dec.formats[r][c]) { bad.push('format ' + appA1_(r, c)); break; }
+    }
+  }
+  return bad;
+}
+function appTestSeedPlan_(book) {
+  const ctx = { actor: Session.getActiveUser().getEmail() || 'test', requestId: 'TEST' };
+  return appWithLock_(() => {
+    const config = book.getSheetByName('CONFIG');
+    const clientName = String(config.getRange('B2').getValue()).trim();
+    const fy = Number(config.getRange('B3').getValue());
+    const people = String(config.getRange('B4').getValue() || '');
+    const now = appNowIso_();
+    const planId = appId_('PL');
+    const ops = [];
+    const normalized = appNormalizeName_(clientName);
+    let client = appReadTable_('CLIENTS').filter(c => c.normalized_name === normalized)[0];
+    if (!client) {
+      client = { client_id: appId_('CL'), client_name: clientName, zac_code: '', normalized_name: normalized, aliases_json: '[]', is_active: true, note: '',
+        created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 };
+      ops.push({ table: 'CLIENTS', mode: 'ensure', rows: [client] });
+    }
+    const encoded = Object.keys(APP_ENGINE_SHEETS).filter(n => book.getSheetByName(n)).map(n => {
+      const reg = APP_ENGINE_SHEETS[n];
+      return appEngEncodeSheet_(planId, appSheetSnapshot_(book.getSheetByName(n), reg.header ? reg.header.length : 0));
+    });
+    Object.keys(APP_ENGINE_SHEETS).filter(n => APP_ENGINE_SHEETS[n].mode === 'table').forEach(name => {
+      const enc = encoded.filter(e => e.sheetRow.sheet === name)[0];
+      ops.push(appOpReplacePlan_('ENG_' + name, planId, null, enc && enc.sheetRow.mode === 'table' ? enc.tableRows : []));
+    });
+    ops.push(appOpReplacePlan_('ENG_ROWS', planId, null, [].concat.apply([], encoded.map(e => e.rowSegs))));
+    ops.push(appOpReplacePlan_('ENG_FORMATS', planId, null, [].concat.apply([], encoded.map(e => e.formatRows))));
+    ops.push(appOpReplacePlan_('ENG_SHEETS', planId, null, encoded.map(e => Object.assign({}, e.sheetRow, { updated_at: now, updated_by: ctx.actor }))));
+    ops.push({ table: 'PLANS', mode: 'ensure', rows: [{ plan_id: planId, client_id: client.client_id, fy: String(fy), client_label: clientName, people_csv: people,
+      source_book_id: '', locale: book.getSpreadsheetLocale(), time_zone: book.getSpreadsheetTimeZone(), state: 'ACTIVE', note: '',
+      created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }] });
+    appJournalRun_(ctx, 'テストの計画', planId, ops);
+    return planId;
+  });
+}
+`;
+
 export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) {
   const state = { active, owner, locks: 0, lockHeld: false, uuid: 0, clock: Date.now() - 1e9, seq: 0 };
   const props = {};
@@ -422,6 +483,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   const ctx = vm.createContext(env);
   const names = order === 'reverse' ? [...jsFiles].reverse() : jsFiles;
   for (const n of names) vm.runInContext(sources[n], ctx, { filename: n });
+  vm.runInContext(TEST_SUPPORT, ctx, { filename: 'test-support.js' });
   const run = (code, extra) => { Object.assign(ctx, extra || {}); return vm.runInContext(code, ctx); };
   const call = (code, extra) => J(run(code, extra));
   const as = (email) => { state.active = email; };
@@ -465,8 +527,10 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
     }
     throw new Error('続きの処理が終わらない');
   };
+  /** テスト用の計画を、見本のブック（makeBook）の中身で作る（データ本体に直接。計画の ID を返す） */
+  const seedPlan = (book) => run('appTestSeedPlan_(__book)', { __book: book });
   return {
-    ctx, state, props, cache, files, sheetsById, triggers, logs, run, call, as, data, log, makeBook, fireTriggers, runJob,
+    ctx, state, props, cache, files, sheetsById, triggers, logs, run, call, as, data, log, makeBook, fireTriggers, runJob, seedPlan,
     table: (name) => objects(data().getSheetByName(name)),
     auditSheet: () => log().getSheetByName('AUDIT_' + MONTH),
     audit: () => objects(log() && log().getSheetByName('AUDIT_' + MONTH)),

@@ -189,7 +189,7 @@ function appScratchBuildStep_(scratch, planId, only, state, deadlineMs) {
     if (i > 0 && new Date().getTime() > deadlineMs) break;   // 1 回に 1 枚は必ず進める（同じところで止まり続けない）
     const dec = sheets[names[i]];
     if (dec) {
-      const w = appEngWriteSheet_(scratch, dec, null);
+      const w = appEngWriteSheet_(scratch, dec);
       if (w.mismatches || w.formatMismatches || w.forcedText) st.problems.push(names[i] + (w.mismatches ? ' 値 ' + w.mismatches : '') + (w.formatMismatches ? ' 表示形式 ' + w.formatMismatches : '') + (w.forcedText ? ' 文字列に固定 ' + w.forcedText : ''));
     }
     st.done.push(names[i]);
@@ -363,7 +363,7 @@ function appScratchFromStore_(scratch, planId, only, token) {
   Object.keys(APP_ENGINE_SHEETS).forEach(name => {
     const dec = sheets[name];
     if (!dec) return;
-    const w = appEngWriteSheet_(scratch, dec, null);
+    const w = appEngWriteSheet_(scratch, dec);
     report.push({ sheet: name, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, samples: w.samples,
       formatMismatches: w.formatMismatches, formatFixed: w.formatFixed, formatSamples: w.formatSamples, blankMethod: w.blankMethod });
   });

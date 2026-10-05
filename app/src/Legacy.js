@@ -1,7 +1,7 @@
 /**
- * Legacy.js — 旧ブックのシートと、データ本体の計算用の表（ENG_*）の相互変換（段階2）。
+ * Legacy.js — 計算用ブックのシートと、データ本体の計算用の表（ENG_*）の相互変換。
  * 旧来の計算は、セルの値の型（数値・文字列・日付）と表示形式（文字列が日付や数値に自動で変わるか）に依存する。
- * そこで値は型ごと、表示形式は列ごとの並びとして持ち、計算用ブックに旧ブックと同じ状態を組み立て直せるようにする。
+ * そこで値は型ごと、表示形式は列ごとの並びとして持ち、計算用ブックに保存したときと同じ状態を組み立て直せるようにする。
  * 表の形のシートは見出しと同じ列名の表に 1 行 = 1 件、表の形でないシートと表の外のセルは ENG_ROWS に行ごとに持つ。
  */
 
@@ -181,24 +181,6 @@ function appEngDecodeSheet_(sheetRow, tableRows, rowSegs, formatRows) {
     values: values, formulas: formulas, formats: formats };
 }
 
-/** 読んだシートと、保存して組み立て直したシートが同じか（値・数式・表示形式・大きさ）。違うセルの A1 を返す */
-function appEngCompare_(snap, dec) {
-  const bad = [];
-  ['maxRows', 'maxCols', 'lastRow', 'lastCol', 'fmtCols'].forEach(k => { if (snap[k] !== dec[k]) bad.push(k); });
-  for (let r = 0; r < snap.lastRow; r++) {
-    for (let c = 0; c < snap.lastCol; c++) {
-      const f = (snap.formulas[r] && snap.formulas[r][c]) || '';
-      if (f ? f !== dec.formulas[r][c] : !appCellSame_(snap.values[r][c], dec.values[r][c])) bad.push(appA1_(r, c));
-    }
-  }
-  for (let r = 0; r < snap.maxRows; r++) {
-    for (let c = 0; c < snap.fmtCols; c++) {
-      if (String((snap.formats[r] || [])[c] || '') !== dec.formats[r][c]) { bad.push('format ' + appA1_(r, c)); break; }
-    }
-  }
-  return bad;
-}
-
 /** データ本体から、計画 1 つ分の旧来のシートをすべて（only を渡すとそのシートだけ）組み立てる（{ シート名: 組み立てた中身 }） */
 function appEngLoadPlanSheets_(planId, only) {
   const sheets = appReadPlanTable_('ENG_SHEETS', planId).filter(r => !only || only.indexOf(r.sheet) >= 0);
@@ -231,8 +213,8 @@ function appFitGrid_(sh, rows, cols) {
 const APP_AUTO_FORMAT = '0.###############';
 
 /**
- * 組み立てたシートを計算用ブックに書く。表示形式 → 値 → 数式 の順（旧ブックと同じ自動変換になるように）。
- * 表示形式は、旧ブックで形式が付いていたセル（「自動」でも空でもないもの）にだけ付け、ほかは新しいシートのままにする。
+ * 組み立てたシートを計算用ブックに書く。表示形式 → 値 → 数式 の順（保存したときと同じ自動変換になるように）。
+ * 表示形式は、保存したときに形式が付いていたセル（「自動」でも空でもないもの）にだけ付け、ほかは新しいシートのままにする。
  * 形式の付いていないセルに日付を書くと Sheets は空の形式にし（旧来の DASHBOARD!B17 など）、「自動」を明示すると
  * 0.############### になるため（2026-10-02 に本物で確認）。
  * 書いた後に値と表示形式を読み戻し、元と違うセルは書き方を変えて直す:
@@ -241,7 +223,7 @@ const APP_AUTO_FORMAT = '0.###############';
  *   形式) 「自動」は「自動」を明示する。空は形式を消して書き直す → 形式を付けていないセルの形式を写して書き直す → 空の形式を付けて書き直す、の順に試す
  * 返り値: { mismatches, repaired, forcedText, samples, formatMismatches, formatFixed, formatSamples, blankMethod }
  */
-function appEngWriteSheet_(ss, dec, expected) {
+function appEngWriteSheet_(ss, dec) {
   let sh = ss.getSheetByName(dec.name);
   if (!sh) sh = ss.insertSheet(dec.name);
   appFitGrid_(sh, Math.max(1, dec.maxRows), Math.max(1, dec.maxCols));
@@ -267,15 +249,14 @@ function appEngWriteSheet_(ss, dec, expected) {
     for (let r = 0; r < dec.lastRow; r++) {
       for (let c = 0; c < dec.lastCol; c++) if (dec.formulas[r][c]) sh.getRange(r + 1, c + 1).setFormula(dec.formulas[r][c]);
     }
-    const want = expected || dec.values;
     const diff = () => {
       const back = sh.getRange(1, 1, dec.lastRow, dec.lastCol).getValues();
       const out = [];
       for (let r = 0; r < dec.lastRow; r++) {
         for (let c = 0; c < dec.lastCol; c++) {
-          // 数式のセルは、計算後の値が分かっているとき（expected）だけ比べる（保存したのは数式で、値は計算でできる）
-          if (!expected && dec.formulas[r][c]) continue;
-          if (!appCellSame_(want[r][c], back[r][c])) out.push([r, c]);
+          // 数式のセルは比べない（保存したのは数式で、値は計算でできる）
+          if (dec.formulas[r][c]) continue;
+          if (!appCellSame_(dec.values[r][c], back[r][c])) out.push([r, c]);
         }
       }
       return out;

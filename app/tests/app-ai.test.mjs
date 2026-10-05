@@ -19,12 +19,7 @@ const book = env.makeBook('クライアント別売上予測', {
   OPINIONS: { values: [['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Confidence(0..1)', 'Note']] },
   DEV_SPOT: { values: [['Person', 'Month(yyyy/mm/dd)', 'Project', 'Amount(JPY)', 'Confidence(0..1)']] },
 });
-const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-assert.equal(dry.status, 'DONE', dry.error);
-const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-assert.equal(imp.status, 'DONE', imp.error);
-const planId = imp.result.planId;
+const planId = env.seedPlan(book);
 
 env.run(`(() => {
   globalThis.__calls = [];

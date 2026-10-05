@@ -12,7 +12,6 @@ assert.equal(st.status, 'DONE', st.error);
 const planId = st.result.planId;
 const plan = env.table('PLANS').filter((p) => p.plan_id === planId)[0];
 assert.equal(plan.fy, '2027');
-assert.equal(plan.source_book_id, '', '旧ブックは無い');
 assert.equal(plan.people_csv, '鷹野,佐藤');
 assert.equal(env.table('CLIENTS').filter((c) => c.client_name === 'テスト製薬').length, 1);
 const sheets = env.table('ENG_SHEETS').filter((r) => r.plan_id === planId).map((r) => r.sheet);
@@ -40,7 +39,6 @@ assert.equal(env.table('CLIENTS').filter((c) => c.client_name === 'テスト製�
 // ==== 3. 一覧: 作った計画が並ぶ（新しい年度が上） ====
 const pf = env.call('apiPortfolio()');
 assert.deepEqual(pf.plans.map((p) => p.fy), ['2028', '2027']);
-assert.equal(pf.plans[1].source, 'app');
 assert.equal(pf.plans[1].p50, null, 'まだ予測していない');
 assert.ok(pf.plans[1].stepsTotal > 0, '手順の進みの行がある');
 

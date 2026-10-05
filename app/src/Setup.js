@@ -61,7 +61,7 @@ function appSetup_(ctx) {
 
 /**
  * 無い表を作り、_SCHEMA に記録する（何度実行しても同じ。列が定義と違う表があれば止まる）。作った表の名前を返す。
- * 版を上げて表を足したときは、初期設定をもう一度実行するか、表を使う処理（取り込みなど）がこれを呼ぶ。
+ * 版を上げて表を足したときは、初期設定をもう一度実行するか、最初の操作（appAutoEnsureTables_）がこれを呼ぶ。使わなくなった表は隠す。
  */
 function appEnsureTables_(ctx) {
   return appWithLock_(() => {
@@ -71,6 +71,7 @@ function appEnsureTables_(ctx) {
       if (!ss.getSheetByName(name)) made.push(name);
       appTableSheet_(name, true);
     });
+    appHideRetiredTables_(ss);
     ss.getSheets().forEach(sh => {
       if (!APP_TABLES[sh.getName()] && sh.getLastRow() === 0 && /^(シート|Sheet)\d+$/.test(sh.getName())) ss.deleteSheet(sh);
     });

@@ -1,7 +1,7 @@
 /**
- * Jobs.js — 時間のかかる処理（旧ブックの試し読み・取り込み、今後の予測の実行など）を、画面の通信から切り離して動かす。
+ * Jobs.js — 時間のかかる処理（予測の実行・計画への保存と実行・計画の作成など）を、画面の通信から切り離して動かす。
  * 画面から始めると、1 回だけ動く時間主導のトリガーを作り、裏で最後まで実行する。画面は数秒ごとに状態を尋ねて結果を受け取る。
- * 画面と 1 分以上つながったままにすると通信が切れる（HTTP 503）ことがあるため（2026-10-01 に旧ブックの試し読みで発生）。
+ * 画面と 1 分以上つながったままにすると通信が切れる（HTTP 503）ことがあるため（2026-10-01 に発生）。
  * 状態は Script Properties（APP_JOB_<id>、小さい）、結果は CacheService（6 時間）に置く。処理そのものの記録は監査ログに残る。
  */
 const APP_JOB_PREFIX = 'APP_JOB_';
@@ -16,8 +16,6 @@ const APP_JOB_STAGE_PROP = 'APP_STAGE_MS';   // 処理の段ごとの、最近�
 /** 処理の種類ごとの権限と中身 */
 function appJobSpec_(kind) {
   const specs = {
-    'MIGRATION.DRYRUN': { ownerOnly: true, label: '旧ブックの試し読み' },
-    'MIGRATION.IMPORT': { ownerOnly: true, label: '旧ブックの取り込み' },
     // 予測の実行: 予算策定担当（その計画のクライアントの担当でもよい）以上
     // 組み立て（続きは同じ処理を続けて動かす）→ 計算 → 保存の 3 つ（Forecast.js）
     'FORECAST.RUN': { minRole: 'PLANNER', planScoped: true, label: '予測の実行' },
@@ -28,7 +26,7 @@ function appJobSpec_(kind) {
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
     'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
     'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
-    // 新しい計画を作る（旧ブックを経ずに。A-1 初期セットアップ → データ本体に保存）: 管理者
+    // 新しい計画を作る（A-1 初期セットアップ → データ本体に保存）: 管理者
     'PLAN.CREATE': { minRole: 'ADMIN', label: '計画の作成' },
     // 全計画の情報源の信頼度から事前分布を作り、各計画の POOL_PRIOR に書く（旧来の C-1 の提案が使う）: 管理者
     'LEARN.POOL': { minRole: 'ADMIN', label: '学習の事前分布' },
@@ -45,7 +43,6 @@ function appJobSpec_(kind) {
 function appJobStartOpts_(input) {
   const spec = appJobSpec_(input && input.kind);
   if (spec.internal) throw new Error('この処理は画面から始められません: ' + input.kind);
-  if (spec.ownerOnly) return { ownerOnly: true, audit: false, detail: { kind: input.kind } };
   return { minRole: appJobMinRole_(spec, input.payload), clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
     detail: { kind: input.kind, planId: input.payload && input.payload.planId, action: input.payload && input.payload.action } };
 }
@@ -88,14 +85,6 @@ function appJobPlanClient_(payload) {
 function appJobExecute_(ctx, job) {
   const p = job.payload || {};
   switch (job.kind) {
-    case 'MIGRATION.DRYRUN':
-      return appAudited_(ctx, 'MIGRATION.DRYRUN', { entityType: 'PLAN', detail: { book: p.bookUrl, jobId: job.id },
-        after: res => ({ client: res.client, fy: res.fy, sheets: res.sheets.length, lossless: res.lossless, faithful: res.faithful,
-          contentHash: res.contentHash, timing: res.timing }) }, () => appMigrationDryRun_(ctx, p));
-    case 'MIGRATION.IMPORT':
-      return appAudited_(ctx, 'MIGRATION.IMPORT', { entityType: 'PLAN', detail: { book: p.bookUrl, contentHash: p.contentHash, jobId: job.id },
-        after: res => ({ planId: res.planId, unchanged: res.unchanged, written: res.written, verified: res.verified, verify: res.verify }) },
-        () => appMigrationImport_(ctx, p));
     case 'FORECAST.RUN':
       return appAudited_(ctx, 'FORECAST.RUN.BUILD', { entityType: 'PLAN', entityId: p.planId,
         detail: { planId: p.planId, confirms: p.confirms || [], runId: p.runId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
@@ -216,7 +205,7 @@ function appActiveJobOf_(email) {
 // ---- 始める・動かす・状態を返す ----
 
 /** 画面から渡せる項目（ほかは裏の処理どうしの受け渡し専用。画面から渡されたら捨てる） */
-const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'bookUrl', 'contentHash', 'clientName', 'fy', 'peopleCsv'];
+const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'clientName', 'fy', 'peopleCsv'];
 
 function appJobClientPayload_(payload) {
   const out = {};
@@ -346,7 +335,7 @@ function appRunJob_(id) {
     const ctx = appJobContext_(job);
     const spec = appJobSpec_(job.kind);
     const clientId = spec.planScoped ? appJobPlanClient_(job.payload) : undefined;
-    const allowed = spec.ownerOnly ? ctx.user.isOwner : appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId);
+    const allowed = appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId);
     if (!allowed) throw new Error('この操作をする権限がありません。');
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {

@@ -53,13 +53,8 @@ const STUB = `appLegacyEngine_ = function (svc) {
 function imported(stub = true) {
   const env = setUpEnv();
   const book = legacyBook(env);
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(dry.status, 'DONE', dry.error);
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
   if (stub) env.run(STUB);
-  return { env, planId: imp.result.planId };
+  return { env, planId: env.seedPlan(book) };
 }
 const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
 /** データ本体の計画を組み立て直して、計算用ブックと同じか（値・数式・表示形式・大きさ） */
@@ -279,7 +274,6 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
   const runs = env.table('FORECAST_RUNS').sort((x, y) => String(y.finished_at).localeCompare(String(x.finished_at)) || String(y.run_id).localeCompare(String(x.run_id)));
   const pf = env.call('apiPortfolio()').plans.filter((x) => x.planId === planId)[0];
   assert.equal(pf.runs, 2);
-  assert.equal(pf.source, 'book');
   assert.ok(pf.p50 > 0 && pf.prevP50 > 0, JSON.stringify(pf));
   assert.ok([runs[0].annual_p50, runs[1].annual_p50].map(Number).includes(pf.p50));
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /*
- * app-migration.test.mjs — 旧ブックの取り込み（段階2）の契約テスト。
- * 旧ブックのシート ↔ データ本体の ENG_* の相互変換が値・型・数式・表示形式を失わないこと、
- * 計算用ブックに組み立て直したときに自動変換で値が変わるセルを直せること、取り込みが冪等で所有者だけのものであることを確かめる。
- * GAS 上での実行の代わりではない（本物のシートの自動変換は、試しの取り込みの結果で確かめる）。
+ * app-codec.test.mjs — 計算用ブックのシート ↔ データ本体の ENG_* の相互変換と、表・裏の処理の仕組みの契約テスト。
+ * 変換が値・型・数式・表示形式を失わないこと、計算用ブックに組み立て直したときに自動変換で値が変わるセルを直せること、
+ * 使わなくなった表を隠すこと、裏で動かす処理（トリガー・状態・権限）を確かめる。
+ * GAS 上での実行の代わりではない（本物のシートの自動変換は、本物の計算用ブックで確かめる）。
+ * 2026-10-05: 旧ブックからの取り込み（試し読み・取り込み）を外した（このアプリだけを使う）。そのテストも外した。
  *
- *   node app/tests/app-migration.test.mjs
+ *   node app/tests/app-codec.test.mjs
  */
 
 import assert from 'node:assert/strict';
@@ -16,16 +17,16 @@ import { repoRoot, OWNER, MEMBER, J, isDate, makeEnv, setUpEnv } from './gas-moc
 const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
 const archivedSrc = await readFile(path.join(repoRoot, 'archive', 'legacy-2026-10-04', 'Forecast_Agent.js'), 'utf8');   // 新アプリで使わない部分を除く前の元
 
-// ==== 1. 移すシートの一覧と見出しは旧来のコードと同じ ====
+// ==== 1. データ本体に持つシートの一覧と見出しは旧来のコードと同じ ====
 {
   const env = makeEnv();
   const reg = J(env.run('APP_ENGINE_SHEETS'));
-  const notMigrated = J(env.run('APP_ENGINE_NOT_MIGRATED'));
-  // 旧来の SHEETS 定数のシート名をすべて「移す」か「移さない」に分けてある
+  const notStored = J(env.run('APP_ENGINE_NOT_STORED'));
+  // 旧来の SHEETS 定数のシート名をすべて「持つ」か「持たない」に分けてある
   const sheetsBlock = /const SHEETS = \{([\s\S]*?)\n\};/.exec(legacySrc)[1];
   const legacyNames = [...sheetsBlock.matchAll(/:\s*'([A-Z_]+)'/g)].map((m) => m[1]);
   assert.ok(legacyNames.length >= 30);
-  for (const n of legacyNames) assert.ok(reg[n] || notMigrated.includes(n), `旧来のシート ${n} の扱いが決まっていない`);
+  for (const n of legacyNames) assert.ok(reg[n] || notStored.includes(n), `旧来のシート ${n} の扱いが決まっていない`);
   for (const n of Object.keys(reg)) assert.ok(legacyNames.includes(n), `${n} は旧来のシートにない`);
   // 表の見出しは旧来のコードにそのままの並びで書かれている
   for (const [name, d] of Object.entries(reg)) {
@@ -61,7 +62,7 @@ const archivedSrc = await readFile(path.join(repoRoot, 'archive', 'legacy-2026-1
   assert.deepEqual(J(env.run('[appA1_(0, 0), appA1_(9, 25), appA1_(0, 26), appA1_(1, 701)]')), ['A1', 'Z10', 'AA1', 'ZZ2']);
 }
 
-// ---- 旧ブックの見本（値・表示形式・数式。中身は作り物） ----
+// ---- 計算用のシートの見本（値・表示形式・数式。中身は作り物） ----
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 function legacySpec() {
   return {
@@ -135,24 +136,6 @@ function legacySpec() {
     'メモ': { values: [['人が足したシート']] },
   };
 }
-function bookUrl(ss) { return 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/edit#gid=0'; }
-/** 試し読み・取り込みは裏で動く処理。始めてトリガーで動かし、終わった結果を返す */
-function dryRun(env, url) {
-  const st = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(st.status, 'DONE', st.error);
-  return st.result;
-}
-function importBook(env, url, contentHash) {
-  const st = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash });
-  assert.equal(st.status, 'DONE', st.error);
-  return st.result;
-}
-function jobError(env, kind, payload) {
-  const st = env.runJob(kind, payload);
-  assert.equal(st.status, 'FAILED');
-  return st.error;
-}
-
 // ==== 3. シート 1 枚: 保存の形にして戻すと元と同じ（値・数式・表示形式・大きさ） ====
 {
   const env = setUpEnv();
@@ -192,150 +175,48 @@ function jobError(env, kind, payload) {
   assert.equal(env.run('appEngEncodeSheet_("PL-OTHER", __s)', { __s: snap('SALES_INPUT') }).sheetRow.content_hash, si.sheetRow.content_hash);
 }
 
-// ==== 4. 試しの取り込み: データ本体に書かず、計算用ブックで組み立てを確かめる ====
+// ==== 4. 計算用ブックに書く: 自動変換で値が変わるセルは書き方を変えて直す ====
 {
   const env = setUpEnv();
-  const book = env.makeBook('クライアント別売上予測', legacySpec());
-  const before = { tables: env.data().getSheets().map((s) => [s.name, s.rows.length]), plans: env.table('PLANS').length };
-  const r = dryRun(env, bookUrl(book));
-  assert.deepEqual([r.client, r.fy, r.peopleCount], ['テスト製薬', 2027, 2]);
-  assert.equal(r.lossless, true, '保存の形にして戻すと元と同じ');
-  assert.equal(r.faithful, false, '文字列に固定したセルがあるので「そのまま」ではない');
-  const by = Object.fromEntries(r.sheets.map((x) => [x.sheet, x]));
-  assert.equal(by.SALES_INPUT.mismatch, 0);
+  const book = env.makeBook('見本', legacySpec());
+  const res = J(env.run(`(() => {
+    const ss = SpreadsheetApp.create('書き先');
+    return Object.keys(APP_ENGINE_SHEETS).filter(n => __b.getSheetByName(n)).map(n => {
+      const reg = APP_ENGINE_SHEETS[n];
+      const snap = appSheetSnapshot_(__b.getSheetByName(n), reg.header ? reg.header.length : 0);
+      const e = appEngEncodeSheet_('PL-T', snap);
+      const w = appEngWriteSheet_(ss, appEngDecodeSheet_(e.sheetRow, e.tableRows, e.rowSegs, e.formatRows));
+      const back = w.sheet.getRange(1, 1, snap.lastRow, snap.lastCol).getValues();
+      const diff = [];
+      snap.values.forEach((row, i) => row.forEach((v, j) => { if (!snap.formulas[i][j] && !appCellSame_(v, back[i][j])) diff.push(appA1_(i, j)); }));
+      return { sheet: n, mismatch: w.mismatches, repaired: w.repaired, forcedText: w.forcedText, diff: diff,
+        size: [w.sheet.getMaxRows(), w.sheet.getMaxColumns()], want: [snap.maxRows, snap.maxCols] };
+    });
+  })()`, { __b: book }));
+  const by = Object.fromEntries(res.map((x) => [x.sheet, x]));
+  for (const x of res) {
+    assert.deepEqual([x.mismatch, x.diff], [0, []], `${x.sheet} の値が元に戻らない`);
+    assert.deepEqual(x.size, x.want, `${x.sheet} の大きさ`);
+  }
   assert.equal(by.SALES_INPUT.repaired, 2, '書式なしテキストの列の日付は「書いてから形式を付ける」で直る');
   assert.equal(by.CONFIG.forcedText, 1, '自動の書式で文字列のまま残っていたセルは文字列に固定する');
-  assert.equal(by.CONFIG.mismatch, 0);
-  assert.equal(by.EVAL_LOG.mismatch + by.EVAL_LOG.repaired, 0, '書式なしテキストの列の文字列の月はそのまま');
-  assert.equal(by.OUTPUT.mismatch, 0, '数式は計算後の値が一致する');
-  assert.equal(by.DASHBOARD.mode, 'rows');
-  assert.ok(r.missing.includes('POOL_PRIOR') && r.missing.includes('FORECAST_SNAPSHOT'));
-  assert.deepEqual(r.notMigrated, ['GUIDE']);
-  assert.deepEqual(r.unknown, ['メモ']);
-  assert.match(r.contentHash, /^[0-9a-f]{64}$/);
-  assert.equal(r.existingPlan, null);
-  // 計算用ブックには旧ブックと同じ値が入っている
-  const scratch = env.scratch();
-  assert.ok(scratch && scratch.name === '売上予測アプリ 計算用（自動）');
-  assert.equal(env.files[scratch.id].parent, env.props.APP_FOLDER_ID, '計算用ブックはシステムのフォルダの中');
-  for (const name of Object.keys(by)) {
-    const a = book.getSheetByName(name); const b = scratch.getSheetByName(name);
-    const va = a.getRange(1, 1, a.getLastRow(), a.getLastColumn()).getValues();
-    const vb = b.getRange(1, 1, a.getLastRow(), a.getLastColumn()).getValues();
-    va.forEach((row, i) => row.forEach((v, j) => assert.ok(env.run('appCellSame_(__a, __b)', { __a: v, __b: vb[i][j] }), `${name} ${i + 1},${j + 1}`)));
-    assert.equal(b.getMaxRows(), a.getMaxRows());
-    assert.equal(b.getMaxColumns(), a.getMaxColumns());
-  }
-  assert.ok(!scratch.getSheets().some((s) => s.name.startsWith('_EMPTY_')), '空のシートは残さない');
-  // データ本体は変わらない
-  assert.deepEqual(env.data().getSheets().map((s) => [s.name, s.rows.length]), before.tables);
-  assert.equal(env.table('PLANS').length, before.plans);
-  const au = env.audit().filter((a) => a.action === 'MIGRATION.DRYRUN');
-  assert.deepEqual(au.map((a) => [a.phase, a.result]), [['START', ''], ['END', 'OK']]);
-  assert.equal(JSON.parse(au[1].after_json).contentHash, r.contentHash);
-  // 旧ブックは何も変えない
-  assert.deepEqual(book.getSheets().map((s) => s.name), Object.keys(legacySpec()));
-  // URL ではないもの・旧ブックでないもの
-  assert.match(jobError(env, 'MIGRATION.DRYRUN', { bookUrl: 'abc' }), /URL を入れてください/);
-  const other = env.makeBook('別のファイル', { Sheet1: { values: [['x']] } });
-  assert.match(jobError(env, 'MIGRATION.DRYRUN', { bookUrl: bookUrl(other) }), /CONFIG シートがありません/);
-  // 所有者だけ（管理者でも所有者でなければ拒否し、記録する）
-  env.call(`apiSaveMember({ email: '${MEMBER}', displayName: 'M' })`);
-  env.call(`apiGrantRole({ email: '${MEMBER}', role: 'ADMIN' })`);
-  env.as(MEMBER);
-  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: bookUrl(book) } } }), /権限がありません/);
-  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.IMPORT', payload: { bookUrl: bookUrl(book), contentHash: r.contentHash } } }), /権限がありません/);
-  assert.deepEqual(env.audit().slice(-2).map((a) => [a.action, a.result, JSON.parse(a.detail_json).kind]), [['JOB.START', 'DENIED', 'MIGRATION.DRYRUN'], ['JOB.START', 'DENIED', 'MIGRATION.IMPORT']]);
-  assert.equal(env.triggers.filter((t) => t.handler === 'triggerRunJob').length, 0, '拒否したときはトリガーを作らない');
-  assert.equal(env.state.lockHeld, false);
+  assert.equal(by.EVAL_LOG.repaired, 0, '書式なしテキストの列の文字列の月はそのまま');
+  assert.ok(!by.GUIDE && !by['メモ'], 'データ本体に持たないシートは書かない');
 }
 
-// ==== 5. 取り込み: 試しと同じ内容のときだけ・計画 1 つ分を入れ替える・同じ内容なら書かない ====
+// ==== 5. 使わなくなった表（IMPORT_BATCHES）は作らず、前からあるシートは消さずに隠す ====
 {
   const env = setUpEnv();
-  const book = env.makeBook('クライアント別売上予測', legacySpec());
-  const url = bookUrl(book);
-  assert.match(jobError(env, 'MIGRATION.IMPORT', { bookUrl: url }), /先に「試しに読む」/);
-  const dry = dryRun(env, url);
-  assert.match(jobError(env, 'MIGRATION.IMPORT', { bookUrl: url, contentHash: 'x'.repeat(64) }), /変わりました/);
-  assert.equal(env.table('PLANS').length, 0, '内容が違えば何も書かない');
-  assert.equal(env.table('CLIENTS').length, 0);
-  // ほかの計画の行は残る
-  env.run(`appInsertRows_('ENG_SALES_INPUT', [{ plan_id: 'PL-OTHER', seq: '2', client: 'x', _types: 's' }])`);
-  const res = importBook(env, url, dry.contentHash);
-  assert.equal(res.unchanged, false);
-  assert.deepEqual([res.verified, res.verify], [true, []], '書いた後にデータ本体から読み戻して照合する');
-  assert.equal(env.table('IMPORT_BATCHES')[0].status, 'OK');
-  const plans = env.table('PLANS');
-  assert.equal(plans.length, 1);
-  const plan = plans[0];
-  assert.equal(plan.plan_id, res.planId);
-  assert.deepEqual([plan.fy, plan.client_label, plan.people_csv, plan.source_book_id, plan.locale, plan.time_zone, plan.state],
-    ['2027', 'テスト製薬', '鷹野,鶴田', book.getId(), 'ja_JP', 'Asia/Tokyo', 'ACTIVE']);
-  const clients = env.table('CLIENTS');
-  assert.deepEqual(clients.map((c) => [c.client_id, c.client_name]), [[plan.client_id, 'テスト製薬']]);
-  assert.equal(env.table('ENG_SALES_INPUT').filter((x) => x.plan_id === plan.plan_id).length, 3);
-  assert.equal(env.table('ENG_SALES_INPUT').filter((x) => x.plan_id === 'PL-OTHER').length, 1, 'ほかの計画の行は残す');
-  assert.equal(env.table('ENG_DASHBOARD').length, 0, '見出しが違う表は ENG_ROWS に持つ');
-  assert.ok(env.table('ENG_ROWS').some((x) => x.sheet === 'DASHBOARD'));
-  assert.equal(env.table('ENG_SHEETS').length, dry.sheets.length);
-  assert.equal(env.table('IMPORT_BATCHES').length, 1);
-  assert.equal(env.table('IMPORT_BATCHES')[0].content_hash, dry.contentHash);
-  const imports = env.audit().filter((a) => a.action === 'MIGRATION.IMPORT' && a.phase === 'END');
-  assert.deepEqual(imports.map((a) => a.result), ['FAILED', 'FAILED', 'OK'], '止めた取り込みも記録する');
-  const end = imports[2];
-  assert.deepEqual([end.result, end.entity_id, end.client_id], ['OK', plan.plan_id, plan.client_id]);
-  // データ本体から組み立て直すと、旧ブックと同じ（保存した文字列から型ごと戻る）
-  const stored = (table, f) => env.run(`appReadTable_('${table}')`).filter(f);
-  for (const s of env.run('appReadTable_("ENG_SHEETS")').filter((x) => x.plan_id === plan.plan_id)) {
-    const name = s.sheet;
-    const tableRows = s.mode === 'table' ? stored('ENG_' + name, (x) => x.plan_id === plan.plan_id) : [];
-    const segs = stored('ENG_ROWS', (x) => x.plan_id === plan.plan_id && x.sheet === name);
-    const fmts = stored('ENG_FORMATS', (x) => x.plan_id === plan.plan_id && x.sheet === name);
-    const dec = env.run('appEngDecodeSheet_(__s, __t, __g, __f)', { __s: s, __t: tableRows, __g: segs, __f: fmts });
-    const snap = env.run('appSheetSnapshot_(__sh, __n)', { __sh: book.getSheetByName(name), __n: Number(s.fmt_columns) });
-    assert.deepEqual(J(env.run('appEngCompare_(__a, __b)', { __a: snap, __b: dec })), [], `${name} がデータ本体から元に戻らない`);
-  }
-  // 同じ内容をもう一度: 書かない
-  const rows0 = env.data().getSheets().map((s) => [s.name, s.rows.length]);
-  const again = importBook(env, url, dry.contentHash);
-  assert.equal(again.unchanged, true);
-  assert.equal(env.table('IMPORT_BATCHES').length, 1);
-  assert.deepEqual(env.data().getSheets().map((s) => [s.name, s.rows.length]), rows0);
-  // 旧ブックが変わったら、試しからやり直してから取り込む（同じ計画を入れ替える）
-  book.getSheetByName('SALES_INPUT').load({ values: [[], [], [], [], ['テスト製薬', 'BASE', '製品C', D(2023, 7), 1, 'closed', '']] });
-  assert.match(jobError(env, 'MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.contentHash }), /変わりました/);
-  const dry2 = dryRun(env, url);
-  assert.notEqual(dry2.contentHash, dry.contentHash);
-  assert.equal(dry2.existingPlan.planId, plan.plan_id);
-  assert.equal(dry2.existingPlan.unchanged, false);
-  const res2 = importBook(env, url, dry2.contentHash);
-  assert.equal(res2.planId, plan.plan_id, '同じ旧ブックは同じ計画');
-  assert.equal(env.table('ENG_SALES_INPUT').filter((x) => x.plan_id === plan.plan_id).length, 4, '入れ替えなので重ならない');
-  assert.equal(env.table('ENG_SALES_INPUT').filter((x) => x.plan_id === 'PL-OTHER').length, 1);
-  assert.equal(env.table('IMPORT_BATCHES').length, 2);
-  assert.equal(env.table('CLIENTS').length, 1);
-  const upd = env.audit().filter((a) => a.action === 'MIGRATION.IMPORT' && a.phase === 'END').slice(-1)[0];
-  assert.equal(JSON.parse(upd.before_json).plan_id, plan.plan_id, '計画の変更前を記録する');
-  assert.equal(env.state.lockHeld, false);
-}
-
-// ==== 5b. 読み戻しで違いが出たら、取り込みは「照合に失敗」として記録し、次の取り込みを止めない ====
-{
-  const env = setUpEnv();
-  const book = env.makeBook('クライアント別売上予測', legacySpec());
-  const url = bookUrl(book);
-  const dry = dryRun(env, url);
-  // データ本体に書くときに文字が変わる（本物のシートでしか起きない差）を真似する
-  const orig = env.run('appWriteBody_');
-  env.run(`appWriteBody_ = function (sh, rows, width) { return __orig(sh, rows.map(r => r.map(v => String(v).replace('"slevel"', '"sLEVEL"'))), width); }`, { __orig: orig });
-  const res = importBook(env, url, dry.contentHash);
-  assert.equal(res.verified, false);
-  assert.equal(res.verify[0].sheet, 'CONFIG');
-  assert.equal(env.table('IMPORT_BATCHES')[0].status, 'VERIFY_FAILED');
-  env.run('appWriteBody_ = __orig', { __orig: orig });
-  const again = importBook(env, url, dry.contentHash);
-  assert.deepEqual([again.unchanged, again.verified], [false, true], '照合に失敗した取り込みは「前回」に数えず、もう一度取り込める');
+  assert.equal(env.data().getSheetByName('IMPORT_BATCHES'), null, '新しく作らない');
+  assert.ok(!env.call('apiHealth()').tables.some((t) => t.name === 'IMPORT_BATCHES'));
+  const old = env.data().insertSheet('IMPORT_BATCHES');
+  old.getRange(1, 1, 2, 2).setNumberFormat('@').setValues([['batch_id', 'plan_id'], ['IB-1', 'PL-1']]);
+  env.props.APP_TABLES_VERSION = '7';   // 版を上げる前のデータ本体
+  env.call('apiHealth()');   // 最初の操作で表をそろえる
+  assert.equal(env.props.APP_TABLES_VERSION, '8');
+  assert.equal(old.isSheetHidden(), true, '隠す');
+  assert.deepEqual(old.getRange(2, 1, 1, 2).getValues(), [['IB-1', 'PL-1']], '中身はそのまま');
+  assert.ok(env.call('apiHealth()').tables.every((t) => t.ok));
 }
 
 // ==== 6. 表を足した版: 足りない表は「状態」に出て、初期設定をもう一度実行すると作られる ====
@@ -370,17 +251,17 @@ function jobError(env, kind, payload) {
 // ==== 8. 裏で動かす処理（画面の通信と切り離す。HTTP 503 を避ける） ====
 {
   const env = setUpEnv();
-  const book = env.makeBook('クライアント別売上予測', legacySpec());
-  const url = bookUrl(book);
-  const started = env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } });
+  const jobError = (kind, payload) => { const st = env.runJob(kind, payload); assert.equal(st.status, 'FAILED'); return st.error; };
+  const RECOVER = { kind: 'SYSTEM.RECOVER', payload: {} };   // すぐ終わる処理（保存の続き。書きかけが無ければ何もしない）
+  const started = env.call('apiStartJob(__in)', { __in: RECOVER });
   assert.equal(started.status, 'QUEUED');
   const jobTriggers = () => env.triggers.filter((t) => t.handler === 'triggerRunJob');
   assert.equal(jobTriggers().length, 1);
   assert.equal(jobTriggers()[0].afterMs, 1000, '1 回だけ動くトリガー');
   const st0 = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
-  assert.deepEqual([st0.status, st0.payload.bookUrl], ['QUEUED', url]);
+  assert.equal(st0.status, 'QUEUED');
   // 終わるまで次の処理は始めない
-  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } }), /ほかの処理（旧ブックの試し読み）が終わるまで/);
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: RECOVER }), /ほかの処理（保存の続き）が終わるまで/);
   // 画面を開き直したときに続きから待てる
   assert.equal(env.call('apiBootstrap()').activeJob.jobId, started.jobId);
   // トリガーの中では操作者のメールが空でも、自分で作ったトリガーなら所有者として動く
@@ -389,18 +270,17 @@ function jobError(env, kind, payload) {
   assert.equal(jobTriggers().length, 0, '動いたトリガーは消す');
   const st1 = env.call('apiJobStatus(__in)', { __in: { jobId: started.jobId } });
   assert.equal(st1.status, 'DONE');
-  assert.equal(st1.result.client, 'テスト製薬');
-  assert.ok(st1.result.timing.totalMs >= 0);
+  assert.equal(st1.result.nothing, true);
   assert.equal(env.call('apiBootstrap()').activeJob, null);
-  const audit = env.audit().filter((a) => a.action === 'MIGRATION.DRYRUN');
+  const audit = env.audit().filter((a) => a.action === 'SYSTEM.RECOVER');
   assert.deepEqual(audit.map((a) => [a.phase, a.result, a.actor_email]), [['START', '', OWNER], ['END', 'OK', OWNER]], '裏の処理も頼んだ人の名前で記録する');
-  assert.ok(env.runLog().some((r) => r.kind === 'JOB:MIGRATION.DRYRUN' && r.status === 'DONE'));
+  assert.ok(env.runLog().some((r) => r.kind === 'JOB:SYSTEM.RECOVER' && r.status === 'DONE'));
   // トリガーが一覧から先に消えていても、待っている処理の UID なら動く
-  const s2 = env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } });
+  const s2 = env.call('apiStartJob(__in)', { __in: RECOVER });
   env.fireTriggers('triggerRunJob', { dropFirst: true });
   assert.equal(env.call('apiJobStatus(__in)', { __in: { jobId: s2.jobId } }).status, 'DONE');
   // 偽の UID・社内の人がブラウザから呼んでも動かない
-  env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } });
+  env.call('apiStartJob(__in)', { __in: RECOVER });
   env.as('');
   assert.throws(() => env.call(`triggerRunJob({ triggerUid: 'forged' })`), /権限がありません/);
   env.as(MEMBER);
@@ -412,8 +292,8 @@ function jobError(env, kind, payload) {
   assert.throws(() => env.call(`apiStartJob({ kind: 'NOPE' })`), /未定義の処理/);
   assert.throws(() => env.call(`apiJobStatus({ jobId: 'JOB-none' })`), /見つかりません/);
   // 失敗はエラーの文言を返し、エラーのログにも残す
-  assert.match(jobError(env, 'MIGRATION.DRYRUN', { bookUrl: 'abc' }), /URL を入れてください/);
-  assert.ok(env.errors().some((e) => e.where === 'MIGRATION.DRYRUN'));
+  assert.match(jobError('PLAN.CREATE', {}), /クライアントを選んでください/);
+  assert.ok(env.errors().some((e) => e.where === 'PLAN.CREATE'));
   // 実行中のまま上限を超えたら止まったとみなす・始まらないまま 15 分たったら知らせる・結果が消えたら知らせる
   const job = (id) => JSON.parse(env.props['APP_JOB_' + id]);
   const put = (j) => { env.props['APP_JOB_' + j.id] = JSON.stringify(j); };
@@ -426,7 +306,7 @@ function jobError(env, kind, payload) {
   Object.keys(env.cache).forEach((k) => { if (k.includes(s2.jobId)) delete env.cache[k]; });
   assert.equal(env.call('apiJobStatus(__in)', { __in: { jobId: s2.jobId } }).status, 'LOST');
   // 頼んだ人の権限は動かす前に確かめ直す
-  const s3 = env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } });
+  const s3 = env.call('apiStartJob(__in)', { __in: RECOVER });
   put(Object.assign(job(s3.jobId), { requestedBy: MEMBER }));
   env.fireTriggers('triggerRunJob');
   const st3 = JSON.parse(env.props['APP_JOB_' + s3.jobId]);
@@ -438,11 +318,11 @@ function jobError(env, kind, payload) {
   // 1 日より前の記録と、待っている処理のないトリガーは片付ける
   put(Object.assign({}, j1, { id: 'JOB-OLD', status: 'DONE', createdAt: new Date(Date.now() - 25 * 3600e3).toISOString() }));
   env.run(`ScriptApp.newTrigger('triggerRunJob').timeBased().after(1000).create()`);
-  const s4 = env.call('apiStartJob(__in)', { __in: { kind: 'MIGRATION.DRYRUN', payload: { bookUrl: url } } });
+  const s4 = env.call('apiStartJob(__in)', { __in: RECOVER });
   assert.ok(!('APP_JOB_JOB-OLD' in env.props));
   assert.deepEqual(jobTriggers().map((t) => t.uid), [job(s4.jobId).triggerUid], '待っている処理のトリガーだけが残る');
   env.fireTriggers('triggerRunJob');
   assert.equal(env.state.lockHeld, false);
 }
 
-console.log('app-migration: all tests passed');
+console.log('app-codec: all tests passed');

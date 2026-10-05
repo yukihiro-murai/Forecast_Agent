@@ -24,11 +24,7 @@ const book = env.makeBook('クライアント別売上予測', {
   CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, ['テスト製薬', D(2026, 10, 1), 'owner', '', '', '', 0.97, '', '{"2026-05":-0.05}', '2026Q2', '', 1, '']] },
   PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step4_status', D(2026, 9, 1), 'owner', 'success', 'テスト製薬', 12, '']] },
 });
-const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-assert.equal(imp.status, 'DONE', imp.error);
-const planId = imp.result.planId;
+const planId = env.seedPlan(book);
 
 // 旧来の予測の代わり: OUTPUT と、記録のシート（旧来と同じ見出し）を 1 回分書く。2 回目は 5 月の見解が強くなる
 env.run(`(() => {

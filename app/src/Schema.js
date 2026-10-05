@@ -1,12 +1,19 @@
 /**
  * Schema.js — 表の定義（スキーマ登録）。表の列はここだけで決め、データ本体の 1 行目と一致しなければ書き込まない。
  * 1 表 = 1 シート、1 行目に英字の列名、2 行目から値だけ（数式・タイトル・説明・色は置かない）。
- * 段階1 はマスタと設定の表。段階2 で計画（PLANS）・取り込みの記録（IMPORT_BATCHES）と、旧来の計算が使う表（ENG_*）を足した。
+ * 段階1 はマスタと設定の表。段階2 で計画（PLANS）と、旧来の計算が使う表（ENG_*）を足した。
  * 版 3（段階2-2b）で、新アプリで動かした予測の記録（FORECAST_RUNS / FORECAST_MONTHLY）を足した。types = 数値の列（num）。
  * 版 4（段階2-3）で、予測のほかの保存・実行（入力・予算・検証・四半期レビューなど）の記録（PLAN_ACTIONS）を足した。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
+ * 版 8（2026-10-05）で、旧ブックからの取り込みの記録（IMPORT_BATCHES）を外した（このアプリだけを使う。取り込みの機能も外した）。
  */
-const APP_SCHEMA_VERSION = 7;
+const APP_SCHEMA_VERSION = 8;
+
+/**
+ * 使わなくなった表。データ本体のシートは消さずに隠す（中身はそのまま。バックアップにも残る）。
+ * 版を上げた後の最初の操作と、毎日の片付けで隠す（appHideRetiredTables_）
+ */
+const APP_RETIRED_TABLES = ['IMPORT_BATCHES'];
 
 const APP_TABLES = {
   _SCHEMA: {
@@ -34,15 +41,10 @@ const APP_TABLES = {
     columns: ['setting_id', 'key', 'value', 'scope', 'scope_id', 'effective_from', 'note', 'created_at', 'created_by']
   },
   PLANS: {
-    // 計画 = クライアント × 年度。旧ブック 1 冊が 1 つの計画になる（source_book_id）
+    // 計画 = クライアント × 年度。source_book_id は取り込みで作った計画の元（2026-10-05 から使わない。列は残す）
     key: ['plan_id'],
     columns: ['plan_id', 'client_id', 'fy', 'client_label', 'people_csv', 'source_book_id', 'locale', 'time_zone', 'state', 'note',
       'created_at', 'created_by', 'updated_at', 'updated_by', 'row_version']
-  },
-  IMPORT_BATCHES: {
-    // 取り込み 1 回（追記のみ）。content_hash が前回と同じなら書き込まない
-    key: ['batch_id'],
-    columns: ['batch_id', 'plan_id', 'source_type', 'source_id', 'content_hash', 'summary_json', 'status', 'started_at', 'finished_at', 'actor_email']
   },
   ENG_SHEETS: {
     // 計画ごとの旧来のシート 1 枚の情報（形・大きさ・内容のハッシュ）
@@ -103,10 +105,10 @@ const APP_TABLES = {
 };
 
 /**
- * 旧来の計算（Forecast_Agent.js）が読み書きするシート（段階2で移す）。並びは旧ブックのシートの並び。
+ * 旧来の計算（Forecast_Agent.js）が読み書きするシート。並びは、計算用ブックのシートの並び。
  * table = 1 行目が見出しの表（見出しは Forecast_Agent.js の定義と同じ。app/tests が原文と照合する）→ 表 ENG_シート名 に 1 行 = 1 件で持つ。
  * rows  = 表の形でないシート（CONFIG・OUTPUT・四半期レビューの画面など）→ ENG_ROWS に行ごとに持つ。
- * 計算で読まないシート（GUIDE・ハブ用・未使用・AI の生データとその記録）は移さない（旧ブックに残る）。
+ * 計算で読まないシート（GUIDE・ハブ用・未使用・AI の生データとその記録）はデータ本体に持たない（APP_ENGINE_NOT_STORED）。
  */
 const APP_ENGINE_SHEETS = {
   CONFIG: { mode: 'rows' },
@@ -140,7 +142,7 @@ const APP_ENGINE_SHEETS = {
   LANDING_FORECAST: { mode: 'table', header: ['client', 'fy', 'target_month', 'as_of_month', 'landing_p10', 'landing_p50', 'landing_p90', 'updated_at', 'source_run_id', 'note'] },
   VERTEX_FORECAST_LOG: { mode: 'table', header: ['run_id', 'run_at', 'client', 'fy', 'target_months_json', 'monthly_adj_json', 'confidence', 'rationale_ja', 'model', 'status', 'duration_sec', 'usage_json', 'note'] }
 };
-const APP_ENGINE_NOT_MIGRATED = ['GUIDE', 'POOL_REGISTRY', 'POOL_AGGREGATION_LOG', 'DLM_STATE', 'BACKTEST_REPORT', 'AI_RESEARCH_RAW', 'AI_RESEARCH_TASK_LOG'];
+const APP_ENGINE_NOT_STORED = ['GUIDE', 'POOL_REGISTRY', 'POOL_AGGREGATION_LOG', 'DLM_STATE', 'BACKTEST_REPORT', 'AI_RESEARCH_RAW', 'AI_RESEARCH_TASK_LOG'];
 
 // 表の形のシートごとに ENG_ の表を足す（列 = 計画・行番号・旧来の見出し・型の並び）
 Object.keys(APP_ENGINE_SHEETS).forEach(name => {

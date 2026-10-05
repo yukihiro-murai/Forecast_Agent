@@ -179,9 +179,21 @@ function appOrganizeDataBook_() {
       sh.setTabColor(name.indexOf('ENG_') === 0 ? '#94A3B8' : name === '_SCHEMA' ? '#5A6B7E' : '#0F3557');
     } catch (e) { Logger.log('表の保護・色: ' + name + ' ' + (e && e.message ? e.message : e)); }
   });
+  out.retired = appHideRetiredTables_(ss);
   APP_STORE_CACHE_.sheets = {};
   appStoreForget_();
   return out;
+}
+
+/** 使わなくなった表（APP_RETIRED_TABLES）のシートを隠す（消さない）。隠したシートの名前を返す */
+function appHideRetiredTables_(ss) {
+  const hidden = [];
+  APP_RETIRED_TABLES.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh || sh.isSheetHidden() || ss.getSheets().length < 2) return;
+    try { sh.setTabColor('#CBD5E1'); sh.hideSheet(); hidden.push(name); } catch (e) { Logger.log('使わない表を隠す: ' + name + ' ' + (e && e.message ? e.message : e)); }
+  });
+  return hidden;
 }
 
 /** シートの列数をちょうど n にする（足りなければ足し、余りは消してセルの上限を節約する） */

@@ -7,7 +7,6 @@
  *   計算（FORECAST.RUN_CALC）: 旧来の予測を動かす（データ本体には書かない）
  *   保存（FORECAST.RUN_SAVE）: 書き換わったシートを控えの形にし、計算の間にデータ本体が変わっていないことを確かめてから書く
  * 計算用ブックは処理の印（APP_SCRATCH_OWNER）で、組み立てたままかを確かめる。書くときは保存の控え（Journal.js）を置く。
- * 旧ブックは変えない。並行運用の間に旧ブックを取り込み直すと、計算用の表は旧ブックの内容に戻る（予測の記録は残る）。
  */
 
 function appPlanOf_(planId) {
@@ -146,7 +145,7 @@ function appChangedOps_(ctx, planId, changed, batchId) {
   return ops;
 }
 
-/** データ本体の OUTPUT（取り込んだ旧ブック、または最後の予測）から、主な結果を読む */
+/** データ本体の OUTPUT（計画を作ったとき、または最後の予測）から、主な結果を読む */
 function appStoredHeadline_(planId) {
   const segs = appReadTable_('ENG_ROWS').filter(r => r.plan_id === planId && r.sheet === 'OUTPUT');
   const rows = {};

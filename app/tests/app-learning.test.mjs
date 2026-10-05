@@ -31,11 +31,7 @@ function book(client, over, width, hit) {
 const ids = {};
 for (const [c, over, width, hit] of [['甲製薬', 1.10, 0.05, 0.7], ['乙製薬', 1.04, 0.15, 0.5], ['丙製薬', 0.97, 0.10, 0.6]]) {
   const b = book(c, over, width, hit);
-  const url = 'https://docs.google.com/spreadsheets/d/' + b.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
-  ids[c] = imp.result.planId;
+  ids[c] = env.seedPlan(b);
 }
 
 // ==== 1. 精度の推移（影）: 締まった後の予測（誤差 0）は除く ====

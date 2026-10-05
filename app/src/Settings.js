@@ -9,14 +9,21 @@ const APP_SETTING_DEFS = {
   'source.zac_spreadsheet': { label: 'ZAC の実績のスプレッドシート', type: 'sheet', def: '', unit: 'スプレッドシートの URL（売上・実績の取り込みの元）' }
 };
 
+/** URL か ID からスプレッドシートの ID を取り出す（取り出せなければ空） */
+function appParseBookId_(input) {
+  const s = String(input || '').trim();
+  const m = /\/spreadsheets\/d\/([a-zA-Z0-9_-]{20,})/.exec(s);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
+}
+
 /** 文字列や数値を設定の型に直し、範囲を確かめる。だめなら例外 */
 function appParseSettingValue_(key, raw) {
   const d = APP_SETTING_DEFS[key];
   if (!d) throw new Error('未定義の設定です: ' + key);
   if (d.type === 'sheet') {
     // URL か ID。開けるスプレッドシートであることを確かめ、ID で持つ
-    let id = '';
-    try { id = appParseBookId_(String(raw || '')); } catch (e) { id = ''; }
+    const id = appParseBookId_(raw);
     if (!id) throw new Error(d.label + ' は、スプレッドシートの URL で入力してください。');
     let file;
     try { file = DriveApp.getFileById(id); } catch (e) { throw new Error(d.label + ' を開けません（URL と共有を確かめてください）。'); }

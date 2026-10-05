@@ -100,7 +100,7 @@ const webSrc = await readFile(path.join(repoRoot, 'Forecast_WebApp.js'), 'utf8')
   assert.equal(J(eng.getForecastFYStart_(2026)), new Date(2026, 3, 1).toISOString());
 }
 
-// ==== 3. 取り込んだ計画から組み立てた計算用ブックは、旧ブックと同じ。データ本体が違えばそのシートが違う ====
+// ==== 3. データ本体の計画から組み立てた計算用ブックは、元のシートと同じ。データ本体が違えばそのシートが違う ====
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 function legacyBook(env) {
   return env.makeBook('クライアント別売上予測', {
@@ -159,12 +159,7 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
 {
   const env = setUpEnv();
   const book = legacyBook(env);
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(dry.status, 'DONE', dry.error);
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
-  const planId = imp.result.planId;
+  const planId = env.seedPlan(book);
   const plans = env.call('apiListPlans()').plans;
   assert.deepEqual(plans.map((p) => [p.planId, p.clientName, p.fy]), [[planId, 'テスト製薬', '2026']]);
   assert.deepEqual(storeVsBook(env, book, planId), [], '値・数式・表示形式・大きさが同じ');
@@ -176,20 +171,18 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   assert.equal(env.state.lockHeld, false);
 }
 
-// ==== 5. データ本体の表示形式が旧ブックと違えば、組み立てた計算用ブックでもそのセルが違う ====
+// ==== 5. データ本体の表示形式が元と違えば、組み立てた計算用ブックでもそのセルが違う ====
 {
   const env2 = setUpEnv();
   const book = legacyBook(env2);
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env2.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  const imp = env2.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
+  const planId = env2.seedPlan(book);
   const fm = env2.data().getSheetByName('ENG_FORMATS');
   const H = fm.rows[0];
   const row = fm.rows.findIndex((r, i) => i > 0 && r[H.indexOf('sheet')] === 'CALIBRATION_STATE' && r[H.indexOf('col')] === '7');
   const orig = JSON.parse(fm.rows[row][H.indexOf('runs_json')]);
   assert.deepEqual(orig, [[1, 1000, '0.###############']], '何もしていない列は「自動」（本物は 0.############### と返す）');
   fm.rows[row][H.indexOf('runs_json')] = JSON.stringify([[1, 1, '0.###############'], [2, 2, '0.00'], [3, 1000, '0.###############']]);
-  const d = storeVsBook(env2, book, imp.result.planId);
+  const d = storeVsBook(env2, book, planId);
   assert.deepEqual(d.map((x) => x.sheet), ['CALIBRATION_STATE']);
   assert.ok(d[0].cells.some((c) => /^format G2/.test(c)), JSON.stringify(d));
 }
@@ -213,12 +206,8 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
       cellFormats: { B3: null },   // 形式を付けていないセルに日付を書いた（旧来がシートを消してから書いた）セル。本物は空の形式と返す
     },
   });
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(dry.status, 'DONE', dry.error);
-  const ps = dry.result.sheets.find((x) => x.sheet === 'PROCESS_STATUS');
-  assert.deepEqual([ps.mismatch, ps.formatMismatches], [0, 0], '形式を消したセルも組み立て直すと同じ（値も表示形式も）');
-  assert.equal(dry.result.faithful, true);
+  const planId = env.seedPlan(book);
+  assert.deepEqual(storeVsBook(env, book, planId), [], '組み立てると元と同じ（形式を消したセルも。値も表示形式も）');
   const scratch = env.scratch();
   assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(3, 2).getNumberFormats()[0][0], '', '組み立てでも空の形式になる');
   assert.equal(scratch.getSheetByName('PROCESS_STATUS').getRange(2, 2).getNumberFormats()[0][0], 'yyyy/MM/dd H:mm:ss');
@@ -229,9 +218,6 @@ const STUB_ENGINE = `appLegacyEngine_ = function (svc) {
   t.getRange(3, 1).setValues([[new Date(2026, 8, 30)]]);
   assert.deepEqual(t.getRange(1, 1, 3, 1).getNumberFormats().map((r) => r[0]), ['0.###############', '0.###############', '']);
   scratch.deleteSheet(t);
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
-  assert.deepEqual(storeVsBook(env, book, imp.result.planId), [], '組み立てると旧ブックと同じ（形式を消したセルも）');
 }
 
 // ==== 7. 旧来のコードに、新アプリから届かない関数を残さない（2026-10-04 に除いた。元は archive/legacy-2026-10-04/） ====

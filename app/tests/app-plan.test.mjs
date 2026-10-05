@@ -51,12 +51,7 @@ function legacyBook(env) {
 function imported() {
   const env = setUpEnv();
   const book = legacyBook(env);
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(dry.status, 'DONE', dry.error);
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
-  return { env, book, url, planId: imp.result.planId };
+  return { env, book, planId: env.seedPlan(book) };
 }
 const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
 
@@ -291,10 +286,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.ok(!/undefined|NaN/.test(evalHtml.split('検証の更新')[0]), '精度の推移に undefined や NaN を出さない');
   ui.__pool = env.call('apiPoolPreview()');
   assert.match(vm.runInContext(`S.pfPool = __pool; pfPoolCard()`, ui), /全計画での学習[\s\S]*各計画に入れる/);
-  // 取り込んだ旧ブックの片付けのカード
-  ui.__books = env.call('apiLegacyBooks()').books;
-  const lb = vm.runInContext(`S.mig.books = __books; legacyBooksCard()`, ui);
-  assert.match(lb, /取り込んだ旧ブック[\s\S]*テスト製薬[\s\S]*アーカイブへ移す/);
+  // 旧ブックから移す画面・旧ブックの片付けは無い（このアプリだけを使う。2026-10-05）
+  assert.equal(vm.runInContext(`[typeof viewMigrate, typeof legacyBooksCard, typeof NAV_OWNER].join()`, ui), 'undefined,undefined,undefined');
+  assert.doesNotMatch(vm.runInContext(`JSON.stringify(NAV_ADMIN) + Object.keys(NAV_ICON)`, ui), /旧ブック|migrate/, 'メニューに旧ブックを出さない');
   assert.match(vm.runInContext(`S.view = 'home'; viewHome()`, ui), /計画の一覧/);
   assert.doesNotMatch(vm.runInContext(`viewHome()`, ui), /旧アプリ/, 'ホームに旧アプリの案内を出さない');
   vm.runInContext(`S.view = 'forecast'`, ui);

@@ -15,11 +15,7 @@ const book = env.makeBook('クライアント別売上予測', {
   CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', 'テスト製薬'], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
   OUTPUT: { values: output },
 });
-const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-assert.equal(imp.status, 'DONE', imp.error);
-const planId = imp.result.planId;
+const planId = env.seedPlan(book);
 const clientId = env.table('PLANS')[0].client_id;
 
 // 予算策定担当（このクライアント）と承認者を登録する
@@ -86,17 +82,5 @@ assert.ok(env.audit().some((a) => a.action === 'VERSION.DECIDE' && a.phase === '
 env.as('someone@bigm2y.com');
 assert.equal(env.call('apiVersionList(__in)', { __in: { planId } }).can.submit, false);
 assert.throws(() => env.call('apiVersionSubmit(__in)', { __in: { planId } }), /権限/);
-env.as(OWNER);
-// ==== 7. 取り込んだ旧ブックは、アーカイブのフォルダの「旧ブック」へ移せる（所有者だけ。消さない） ====
-const books = env.call('apiLegacyBooks()').books;
-assert.equal(books.length, 1);
-assert.equal(books[0].archived, false);
-const ar = env.call('apiArchiveLegacyBooks()');
-assert.equal(ar.moved, 1);
-assert.equal(env.files[book.getId()].trashed, false, '消さない');
-assert.equal(env.call('apiLegacyBooks()').books[0].archived, true);
-assert.equal(env.call('apiArchiveLegacyBooks()').moved, 0, '2 回目は何もしない');
-env.as(APPROVER);
-assert.throws(() => env.call('apiArchiveLegacyBooks()'), /権限/);
 env.as(OWNER);
 console.log('app-versions: all tests passed');

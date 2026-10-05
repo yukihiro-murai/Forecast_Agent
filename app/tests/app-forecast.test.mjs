@@ -65,13 +65,8 @@ const STUB = `appLegacyEngine_ = function (svc) {
 function imported() {
   const env = setUpEnv();
   const book = legacyBook(env);
-  const url = 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit';
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: url });
-  assert.equal(dry.status, 'DONE', dry.error);
-  const imp = env.runJob('MIGRATION.IMPORT', { bookUrl: url, contentHash: dry.result.contentHash });
-  assert.equal(imp.status, 'DONE', imp.error);
   env.run(STUB);
-  return { env, book, url, planId: imp.result.planId };
+  return { env, book, planId: env.seedPlan(book) };
 }
 const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
 const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').filter((r) => r.plan_id === planId).map((r) => [r.sheet, r]));
@@ -176,9 +171,6 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
   assert.notEqual(st3.result.runId, r.runId);
   const l2 = env.call('apiForecastLatest(__in)', { __in: { planId } });
   assert.equal(l2.runs.length, 2);
-  // 旧ブックを取り込み直す前に、新アプリで実行した数を知らせる
-  const dry = env.runJob('MIGRATION.DRYRUN', { bookUrl: 'https://docs.google.com/spreadsheets/d/' + env.table('PLANS')[0].source_book_id + '/edit' });
-  assert.equal(dry.result.existingPlan.runsSinceImport, 2);
   assert.equal(env.state.lockHeld, false);
 }
 

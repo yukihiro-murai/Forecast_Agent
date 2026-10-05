@@ -194,7 +194,7 @@ function appPlanView_(ctx, planId) {
     const book = appStoreBook_(plan);
     const call = appLegacyCall_(book, { asOfMs: t0, seed: 'view:' + plan.plan_id, actor: ctx.actor }, 'webGetBootstrap_', []);
     const boot = appSerialize_(call.value);
-    delete boot.user; delete boot.bookUrl; delete boot.access;   // 旧ブックの URL・旧来の管理者の判定は出さない
+    delete boot.user; delete boot.bookUrl; delete boot.access;   // 計算用ブックの URL・旧来の管理者の判定は出さない
     view = { boot: boot, engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
       builtMs: new Date().getTime() - t0 };
     // 覚えておけなくても画面は出す（次の表示がまた組み立てになるだけ）

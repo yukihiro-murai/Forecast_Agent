@@ -1,9 +1,9 @@
 /**
- * Portfolio.js — 計画（クライアント × 年度）の一覧と、新しい計画を新アプリで作る。
+ * Portfolio.js — 計画（クライアント × 年度）の一覧と、新しい計画を作る。
  *
- * 新しい計画は、旧ブックを経ずに作る: 計算用ブックの上で旧来の A-1 初期セットアップ（setupForecastBook の中身）と
+ * 新しい計画は、計算用ブックの上で旧来の A-1 初期セットアップ（setupForecastBook の中身）と
  * 設定の保存（saveInitialSetupSettings）を動かし、できたシートをデータ本体に計画として保存する。
- * その後は、A-2 売上データの取り込み → A-3 → 予測、と旧ブックから移した計画と同じに使える。
+ * その後は、A-2 売上データの取り込み → A-3 → 予測、と進める。
  */
 
 /** A-1 初期セットアップで作るシート（旧来の setupForecastBook の order と同じ順） */
@@ -77,7 +77,7 @@ function appPlanCreateSave_(ctx, p) {
     let client = c.client;
     if (!client) {
       client = { client_id: appId_('CL'), client_name: c.clientName, zac_code: '', normalized_name: c.normalized, aliases_json: '[]',
-        is_active: true, note: '新アプリで作成', created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 };
+        is_active: true, note: '', created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 };
       ops.push({ table: 'CLIENTS', mode: 'ensure', rows: [client] });
     }
     const cap = appCaptureChanged_(appScratchBook_(), planId, {});
@@ -86,7 +86,7 @@ function appPlanCreateSave_(ctx, p) {
     const batchId = appId_('NEW');
     appChangedOps_(ctx, planId, cap.changed, batchId).forEach(op => ops.push(op));
     ops.push({ table: 'PLANS', mode: 'ensure', rows: [{ plan_id: planId, client_id: client.client_id, fy: String(c.fy), client_label: c.clientName,
-      people_csv: c.peopleCsv, source_book_id: '', locale: appNewPlanTz_().locale, time_zone: appNewPlanTz_().time_zone, state: 'ACTIVE', note: '新アプリで作成',
+      people_csv: c.peopleCsv, source_book_id: '', locale: appNewPlanTz_().locale, time_zone: appNewPlanTz_().time_zone, state: 'ACTIVE', note: '',
       created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }] });
     const written = appJournalRun_(ctx, '計画の作成（' + c.clientName + ' FY' + c.fy + '）', planId, ops);
     appScratchMarkSynced_(planId, p.token, null);   // 作った後の A-2 などは組み立て直さずに使える
@@ -97,13 +97,11 @@ function appPlanCreateSave_(ctx, p) {
 
 // ---- 一覧 ----
 
-/** 計画の一覧（予測の画面の計画を選ぶ欄・旧ブックから移す画面） */
+/** 計画の一覧（予測の画面の計画を選ぶ欄） */
 function appListPlans_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   return appReadTable_('PLANS').map(p => {
-    const last = appLastImport_(p.plan_id);
-    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state,
-      lastImportedAt: last ? last.finished_at : '', source: p.source_book_id ? 'book' : 'app' };
+    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state };
   });
 }
 
@@ -143,7 +141,7 @@ function appPortfolio_() {
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     const a = ape[p.plan_id] || [];
     return {
-      planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, source: p.source_book_id ? 'book' : 'app',
+      planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy,
       p10: latest ? latest.annual_p10 : stored.p10 === undefined ? null : stored.p10,
       p50: latest ? latest.annual_p50 : stored.p50 === undefined ? null : stored.p50,
       p90: latest ? latest.annual_p90 : stored.p90 === undefined ? null : stored.p90,
