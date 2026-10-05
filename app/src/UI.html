@@ -22,6 +22,9 @@
   --radius:18px; --radius-s:12px; --pill:999px;
   --h-btn:44px; --h-btn-sm:40px; --h-input:44px; --h-cell:40px; --h-pill:36px; --h-chip:28px;
   --w-btn:160px; --w-btn-sm:104px; --w-action:248px; --w-tab:128px; --nav-w:220px; --top-h:64px; --bnav-h:64px;
+  --content-w:1200px; --gutter:40px; --w-inp-sm:160px; --w-inp:240px; --w-inp-md:320px; --w-inp-lg:480px; --w-char:72px;
+  /* プルダウンの印（下向きの山。濃紺） */
+  --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%230F3557' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 8 10 12.5 14.5 8'/%3E%3C/svg%3E");
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:28px; --s8:32px;
   /* 影・動き */
   --shadow:0 1px 2px rgba(15,53,87,.04), 0 4px 14px rgba(15,53,87,.04);
@@ -58,7 +61,8 @@ svg.i{width:20px;height:20px;flex:0 0 20px}
 .navbtn.on{background:var(--primary-soft);color:var(--navy)}
 .navbtn.on::before{content:"";position:absolute;left:-14px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:var(--primary)}
 .navbtn.on svg{color:var(--primary-dark)}
-.main{flex:1;min-width:0;padding:var(--s8) 40px 104px}
+/* 中身の幅は 1200px で止め、左右の余白をそろえる（広い画面では左右に同じだけ空ける。% は左のメニューを含む幅なので、メニューの幅を引く） */
+.main{flex:1;min-width:0;padding:var(--s8) max(var(--gutter), calc((100% - var(--nav-w) - var(--content-w)) / 2)) 104px}
 @media (min-width:761px){.layout{background:linear-gradient(to right,#fff calc(var(--nav-w) - 1px),var(--line) calc(var(--nav-w) - 1px),var(--line) var(--nav-w),transparent var(--nav-w))}}
 
 /* ---- 画面の題（印 + 題名。右に道具） ---- */
@@ -66,6 +70,7 @@ svg.i{width:20px;height:20px;flex:0 0 20px}
 .viewtitle .vt{display:flex;align-items:center;gap:4px 12px;min-width:0;flex:1}
 .viewtitle h1{font-size:var(--fs-h1);line-height:1.35;color:var(--navy);margin:0}
 .viewtitle .vtools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.viewtitle .vtools .inp{width:var(--w-inp-md)}
 .ttlic{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex:0 0 44px;border-radius:14px;background:var(--primary-soft);color:var(--primary-dark)}
 .ttlic svg{width:24px;height:24px}
 .page-head{display:flex;align-items:center;gap:var(--s4);margin-bottom:var(--s6);min-height:44px}
@@ -74,7 +79,7 @@ h1{font-size:var(--fs-h1);line-height:1.35;color:var(--navy);margin-bottom:var(-
 .card h2{display:flex;align-items:center;gap:10px;font-size:var(--fs-h3);line-height:1.5;color:var(--navy);margin-bottom:var(--s3)}
 .card h2::before{content:"";flex:0 0 6px;width:6px;height:18px;border-radius:3px;background:var(--primary)}
 .card-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:var(--s3)}
-.card-head h2{flex:1;margin:0}
+.card-head h2{flex:1 0 auto;max-width:100%;margin:0}   /* 見出しは縮めない（右の説明が長いときは説明が次の行へ） */
 .note{font-size:var(--fs-s);color:var(--muted)}
 .mt0{margin-top:0!important}.mt4{margin-top:var(--s1)}.mt8{margin-top:var(--s2)}.mt12{margin-top:var(--s3)}.mt16{margin-top:var(--s4)}
 .err-text{color:var(--error)}.warn-text{color:var(--warn-fg)}
@@ -89,9 +94,9 @@ h1{font-size:var(--fs-h1);line-height:1.35;color:var(--navy);margin-bottom:var(-
 
 /* ---- 案内役 ---- */
 .guide{display:flex;gap:var(--s4);align-items:flex-start}
-.charbox{width:72px;height:72px;flex:0 0 72px}
+.charbox{width:var(--w-char);height:var(--w-char);flex:0 0 var(--w-char)}
 .charbox svg{width:100%;height:100%;display:block}
-.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:var(--s3) var(--s5);flex:1;font-size:var(--fs-b);color:var(--navy)}
+.bubble{position:relative;background:var(--primary-soft);border-radius:var(--radius);padding:var(--s3) var(--s5);flex:1;min-width:0;font-size:var(--fs-b);color:var(--navy)}
 .bubble .chip{background:#fff}
 .bubble::before{content:"";position:absolute;left:-8px;top:24px;border:8px solid transparent;border-right-color:var(--primary-soft);border-left:none}
 
@@ -124,16 +129,44 @@ h1{font-size:var(--fs-h1);line-height:1.35;color:var(--navy);margin-bottom:var(-
 .row.nowrap{flex-wrap:nowrap}
 .field{display:flex;flex-direction:column;gap:var(--s1)}
 .field label{font-size:var(--fs-s);color:var(--muted)}
-.inp{height:var(--h-input);padding:0 14px;border:1.5px solid var(--line);border-radius:var(--radius-s);width:240px;background:#fff;font-size:var(--fs-b);transition:border-color var(--ease),box-shadow var(--ease)}
+.inp{height:var(--h-input);padding:0 14px;border:1.5px solid var(--line);border-radius:var(--radius-s);width:var(--w-inp);background:#fff;font-size:var(--fs-b);transition:border-color var(--ease),box-shadow var(--ease)}
 .inp:hover{border-color:var(--line-strong)}
 .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 4px rgba(0,160,233,.16)}
 .inp::placeholder{color:#6E7F91}
-.inp.sm{width:160px}.inp.md{width:320px}.inp.lg{width:480px}
+.inp.sm{width:var(--w-inp-sm)}.inp.md{width:var(--w-inp-md)}.inp.lg{width:var(--w-inp-lg)}
 .inp.cell{height:var(--h-cell);width:100%;padding:0 var(--s2);font-size:var(--fs-s)}
 .inp.num,.num .inp{text-align:right;font-variant-numeric:tabular-nums}
 input.inp[type=number]{-moz-appearance:textfield;appearance:textfield}
 input.inp[type=number]::-webkit-inner-spin-button,input.inp[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-select.inp{padding-right:var(--s6)}
+/* ---- プルダウン（ブラウザの標準の見た目をやめ、入力欄と同じ形に。開いた一覧も角丸・影・選んだ行の印。対応しないブラウザは標準の一覧） ---- */
+select.inp{-webkit-appearance:none;appearance:none;padding-right:44px;background:#fff var(--chev) no-repeat right 14px center/18px 18px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+select.inp:hover{background-color:var(--primary-soft-2)}
+select.inp:focus{background-color:#fff}
+select.inp:disabled{background-color:var(--gray);color:var(--muted);cursor:not-allowed;border-color:var(--line)}
+select.inp.cell{padding-right:30px;background-position:right 8px center;background-size:16px 16px}
+select.inp option{color:var(--text);background:#fff}
+@supports (appearance: base-select){
+  select.inp,select.inp::picker(select){appearance:base-select}
+  select.inp{display:inline-flex;align-items:center;background-image:none}
+  select.inp::picker-icon{content:"";width:18px;height:18px;flex:0 0 18px;margin-left:auto;background:var(--chev) no-repeat center/18px 18px;transition:rotate var(--ease)}
+  select.inp.cell::picker-icon{width:16px;height:16px;flex-basis:16px;background-size:16px 16px}
+  select.inp:open::picker-icon{rotate:180deg}
+  select.inp:open{border-color:var(--primary);box-shadow:0 0 0 4px rgba(0,160,233,.16)}
+  select.inp{padding-right:12px}
+  select.inp.cell{padding-right:6px}
+  select.inp::picker(select){margin-top:6px;padding:6px;min-width:anchor-size(width);max-height:min(360px, 60vh);overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:var(--radius-s);box-shadow:var(--shadow-pop)}
+  select.inp option{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;border-radius:8px;font-size:var(--fs-m);color:var(--text);white-space:nowrap;cursor:pointer}
+  select.inp option:hover,select.inp option:focus-visible{background:var(--primary-soft-2);outline:none}
+  select.inp option:checked{background:var(--primary-soft);color:var(--navy)}
+  select.inp option::checkmark{content:"";order:1;margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--primary)}
+  select.inp option:not(:checked)::checkmark{visibility:hidden}
+}
+
+/* ---- 余白（カードの中の並び）: 絞り込みの行 → 表 は 20px、表 → 注記 は 12px、カードの最初の行は上を空けない ---- */
+.card > .row:first-child,.card > .card-head + .row,.card > h2 + .row{margin-top:0}
+.card .row + .tblwrap,.card .row + .tbl,.card .tabs.sub + .tblwrap{margin-top:var(--s5)}
+.card .tblwrap + .note,.card .tbl + .note{margin-top:var(--s3)}
+.card > p.note:first-child + .tbl,.card > p.note:first-child + .tblwrap{margin-top:var(--s4)}
 
 /* ---- 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる） ---- */
 .actions{display:grid;grid-template-columns:var(--w-action) 1fr;gap:var(--s3) var(--s4);align-items:center}
@@ -145,7 +178,7 @@ select.inp{padding-right:var(--s6)}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s6)}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4) var(--s5);box-shadow:var(--shadow)}
 .kpi .k{font-size:var(--fs-s);color:var(--muted)}
-.kpi .v{font-size:22px;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.3;margin-top:2px}
+.kpi .v{font-size:22px;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.3;margin-top:2px;white-space:nowrap}   /* 金額は桁の途中で折り返さない */
 .kpi .u{font-size:var(--fs-s);color:var(--muted);margin-left:2px}
 .kpi.main{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
 
@@ -171,7 +204,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .chip.warn{background:#fff;color:var(--warn-fg);box-shadow:inset 0 0 0 1.5px #E3B46A}
 
 /* ---- 通知・処理中 ---- */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px);padding:8px 22px 8px 10px;border-radius:14px;font-size:var(--fs-s);color:#fff;background:var(--navy);box-shadow:inset 0 -3px 0 var(--primary),0 8px 30px rgba(0,0,0,.18);opacity:0;transition:opacity .3s;z-index:95;pointer-events:none}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;min-width:320px;max-width:min(560px, calc(100% - 32px));padding:8px 22px 8px 10px;border-radius:14px;font-size:var(--fs-s);color:#fff;background:var(--navy);box-shadow:inset 0 -3px 0 var(--primary),0 8px 30px rgba(0,0,0,.18);opacity:0;transition:opacity .3s;z-index:95;pointer-events:none}
 .toast.on{opacity:1}
 .toast.err{background:var(--error);padding:12px 22px}
 .toast .tc{width:34px;height:34px;flex:0 0 34px;background:#fff;border-radius:50%;padding:3px}
@@ -199,12 +232,19 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .topbar{padding:0 var(--s4)}
   .topbar .tsub,.topbar .meta{display:none}
   .layout{display:block}
-  .sidenav{position:fixed;top:auto;left:0;right:0;bottom:0;z-index:80;width:auto;height:calc(var(--bnav-h) + env(safe-area-inset-bottom));display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;padding:0 4px env(safe-area-inset-bottom);border-right:none;border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(15,53,87,.06);overflow-x:auto}
-  .navbtn{flex-direction:column;justify-content:center;gap:2px;width:auto;height:var(--bnav-h);margin:0;padding:0 2px;border-radius:0;font-size:var(--fs-s);line-height:1.3}
+  .sidenav{position:fixed;top:auto;left:0;right:0;bottom:0;z-index:80;width:auto;height:calc(var(--bnav-h) + env(safe-area-inset-bottom));display:grid;grid-auto-flow:column;grid-auto-columns:max-content;gap:0;padding:0 4px env(safe-area-inset-bottom);scrollbar-width:none;border-right:none;border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(15,53,87,.06);overflow-x:auto}
+  .navbtn{flex-direction:column;justify-content:center;gap:2px;width:auto;min-width:72px;height:var(--bnav-h);margin:0;padding:0 12px;border-radius:0;font-size:var(--fs-s);line-height:1.3}   /* 名前が重ならないよう、項目は名前の幅。入りきらなければ横に送る */
+  .sidenav::-webkit-scrollbar{display:none}
   .navbtn.on::before{left:20%;right:20%;top:0;bottom:auto;width:auto;height:3px;border-radius:0 0 3px 3px}
   .main{padding:20px var(--s4) calc(var(--bnav-h) + 40px)}
+  .inp,.inp.sm,.inp.md,.inp.lg,.viewtitle .vtools .inp{width:100%}
+  .field{flex:1 1 100%}
+  .toast{min-width:0}
   .viewtitle h1,h1{font-size:22px}
-  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3)}
+  .kpi{padding:var(--s3) var(--s4)}
+  .kpi .v{font-size:var(--fs-h3)}
+  .viewtitle .vtools{flex:1 1 100%;margin-left:0}   /* 題の右の道具（計画を選ぶ欄）は次の行に幅いっぱいで */
   .actions{grid-template-columns:1fr}
   .card{padding:var(--s5)}
   .card-foot{margin:var(--s4) calc(-1 * var(--s5)) calc(-1 * var(--s5));padding:var(--s3) var(--s5)}
@@ -425,7 +465,7 @@ function viewPlans(){
   var rows = pfRows();
   var pct1 = function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
   var html = '<h1>計画の一覧</h1>';
-  html += '<div class="card"><div class="row mt0">'
+  html += '<div class="card"><h2>計画（クライアント × 年度）</h2><div class="row mt0">'
     + '<div class="field"><label for="pf_q">クライアント</label><input class="inp" id="pf_q" value="' + esc(S.pfQ || '') + '" oninput="S.pfQ=this.value;pfRefresh()" placeholder="名前で絞り込む"></div>'
     + '<div class="field"><label for="pf_fy">年度</label><select class="inp sm" id="pf_fy" onchange="S.pfFy=this.value;render()"><option value="">すべて</option>'
     + fys.map(function(f){ return '<option value="' + esc(f) + '"' + (S.pfFy === f ? ' selected' : '') + '>FY' + esc(f) + '</option>'; }).join('') + '</select></div>'
@@ -548,7 +588,7 @@ function viewSettings(){
     return '<tr><td class="wrap">' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td class="wrap">' + val + '</td><td><div class="row c nowrap mt0">' + input
       + '<button class="btn btn-ghost" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
   }).join('');
-  return '<h1>設定</h1><div class="card"><p class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります。</p><table class="tbl mt12"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定</h2><span class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります</span></div><table class="tbl"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
 
@@ -900,7 +940,7 @@ function fcInputTab(d, v){
     opinions: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112],['conf','確度（0〜1）','conf',112],['note','補足','text']],
     devspot: [['person','担当者','people',140],['ym','対象月','month',128],['project','案件名','text',220],['amount','金額（円）','money',144],['conf','確度（0〜1）','conf',112]] }[kind];
   var opts = function(list, cur){ return [''].concat(list || []).map(function(o){ var val = typeof o === 'string' ? o : o.value, lab = typeof o === 'string' ? o : o.label;
-    return '<option value="' + esc(val) + '"' + (String(cur) === String(val) ? ' selected' : '') + '>' + esc(lab) + '</option>'; }).join(''); };
+    return '<option value="' + esc(val) + '"' + (String(cur) === String(val) ? ' selected' : '') + '>' + (val === '' ? '—' : esc(lab)) + '</option>'; }).join(''); };   // 空は「—」（開いた一覧に空の行を出さない）
   var withCur = function(list, val){ list = list || []; return list.indexOf(val) < 0 && val ? list.concat([val]) : list; };
   var cellHtml = function(c, r, i){
     var val = r[c[0]] === null || r[c[0]] === undefined ? '' : r[c[0]], on = 'onchange="fcInput(' + i + ',\'' + c[0] + '\',this.value)" aria-label="' + esc(c[1]) + '"';
@@ -913,7 +953,7 @@ function fcInputTab(d, v){
     return '<input class="inp cell' + (num ? ' num' : '') + '" type="' + (num ? 'number' : 'text') + '"' + (c[2] === 'conf' ? ' min="0" max="1" step="0.1"' : c[2] === 'money' ? ' step="10000"' : '') + ' value="' + esc(val) + '" ' + on + '>';
   };
   var html = '<div class="tabs sub">' + INPUT_KINDS.map(function(k){ return '<button class="tab' + (kind === k[0] ? ' on' : '') + '" onclick="S.fc.inputKind=\'' + k[0] + '\';render()">' + k[1] + (S.fc.inputDirty[k[0]] ? ' ●' : '') + '</button>'; }).join('') + '</div>';
-  html += '<div class="card"><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (canPlan ? '<col style="width:56px">' : '') + '</colgroup>'
+  html += '<div class="card"><h2>' + esc((INPUT_KINDS.filter(function(k){ return k[0] === kind; })[0] || ['', ''])[1]) + 'の入力</h2><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (canPlan ? '<col style="width:56px">' : '') + '</colgroup>'
     + '<thead><tr>' + cols.map(function(c){ return '<th' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + c[1] + '</th>'; }).join('') + (canPlan ? '<th></th>' : '') + '</tr></thead><tbody>'
     + (rows.length ? rows.map(function(r, i){ return '<tr>' + cols.map(function(c){ return '<td' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + cellHtml(c, r, i) + '</td>'; }).join('')
       + (canPlan ? '<td class="ctr"><button class="btn btn-ghost btn-icon" onclick="fcInputDel(' + i + ')" aria-label="この行を消す" title="この行を消す">×</button></td>' : '') + '</tr>'; }).join('')
@@ -946,7 +986,7 @@ function fcEvalTab(d, v){
   if (e.insights && e.insights.length) {
     var ins = S.fc.ins;
     var val = function(r, k){ return ins[r.row] && ins[r.row][k] !== undefined ? ins[r.row][k] : r[k]; };
-    var sel = function(r, k, list){ return '<select class="inp cell" onchange="fcIns(' + r.row + ',\'' + k + '\',this.value)">' + list.map(function(o){ return '<option' + (o === val(r, k) ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>'; };
+    var sel = function(r, k, list){ return '<select class="inp cell" onchange="fcIns(' + r.row + ',\'' + k + '\',this.value)">' + list.map(function(o){ return '<option value="' + esc(o) + '"' + (o === val(r, k) ? ' selected' : '') + '>' + (o === '' ? '—' : esc(o)) + '</option>'; }).join('') + '</select>'; };
     var txt = function(r, k){ return '<input class="inp cell" value="' + esc(val(r, k)) + '" oninput="fcIns(' + r.row + ',\'' + k + '\',this.value)">'; };
     html += '<div class="card"><h2>学習インサイト</h2><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:88px"><col><col style="width:180px"><col style="width:152px"><col style="width:180px"><col style="width:112px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>月</th><th>見立て</th><th>原因の仮説</th><th>対応</th><th>次に反映すること</th><th>担当</th><th>状態</th></tr></thead><tbody>'
@@ -978,7 +1018,7 @@ function fcQuarterlyTab(d, v){
       + '<thead><tr><th>対象</th><th>今</th><th>提案</th><th class="num">確度</th><th>理由</th><th>影響</th><th>承認</th></tr></thead><tbody>'
       + q.proposals.map(function(p){ var cur = dec[p.row] !== undefined ? dec[p.row] : p.decision;
         return '<tr><td title="' + esc(p.target) + '">' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td title="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
-          + (canApprove ? '<select class="inp cell" onchange="fcDec(' + p.row + ',this.value)" aria-label="承認">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
+          + (canApprove ? '<select class="inp cell" onchange="fcDec(' + p.row + ',this.value)" aria-label="承認">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + (o || '—') + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
       + '</tbody></table></div>' + (canApprove ? '<div class="card-foot">' + fcSaveBtn('承認を保存', 'fcSaveDec()', Object.keys(dec).length) + '<span class="note">保存した後に「' + esc(fcActionLabel('REVIEW.APPLY')) + '」で設定に反映します。</span></div>' : '<p class="note mt12">承認は承認者ができます。</p>') + '</div>';
   } else html += '<div class="card note">提案はまだありません。</div>';
   if (q.logRecent && q.logRecent.length) html += '<div class="card"><h2>これまでのレビュー</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:160px"><col style="width:96px"><col></colgroup><thead><tr><th>日付</th><th>四半期</th><th class="num">提案</th><th>反映</th></tr></thead><tbody>'
