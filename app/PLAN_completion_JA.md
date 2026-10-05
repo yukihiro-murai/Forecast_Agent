@@ -3,6 +3,16 @@
 この文書は、Trends2Targets（`app/`）を「社内のメンバーが画面だけで 1 年間の予測と予算策定を回せる」状態にするまでの残りの作業の正本です。
 作業したら、この文書の「状態」の欄と `.ai/tasks/active/20261001-184500-forecast-data-platform-design.md` の Work log を更新してください。
 
+## 作業する環境
+
+- 正本は 2 つのリポジトリです。
+  - `yukihiro-murai/gas-workspace`（非公開）: ルートの `AGENTS.md`・`GIT_SYNC_RULES.md`・`.ai/`
+  - `yukihiro-murai/Forecast_Agent`（**公開**）: このアプリ
+- Mac 以外の環境（クラウドの VM など）では、両方を同じ親ディレクトリに clone します（`gas-workspace/` の中に `Forecast_Agent/` を置くと Mac と同じ形になります）。
+- **このリポジトリは公開です。** ルートの規約や `.ai/` の中身を、このリポジトリへ写さないでください。
+- `clasp push` / `clasp deploy` は、村井さんの Mac でだけ行います。それ以外の環境では、テスト・commit・push までにとどめます。
+  - 公開してほしい commit は、`.ai` タスクの Next action に「公開待ち: <commit>」と書きます。
+
 ## 完成形
 
 1. 社内のメンバーが、アプリの画面だけで 1 年を回せる。
