@@ -22,7 +22,7 @@
   --radius:18px; --radius-s:12px; --pill:999px;
   --h-btn:44px; --h-btn-sm:40px; --h-input:44px; --h-cell:40px; --h-pill:36px; --h-chip:28px;
   --w-btn:160px; --w-btn-sm:104px; --w-action:248px; --w-tab:128px; --nav-w:220px; --top-h:64px; --bnav-h:64px;
-  --content-w:1200px; --gutter:40px; --w-inp-sm:160px; --w-inp:240px; --w-inp-md:320px; --w-inp-lg:480px; --w-char:72px;
+  --gutter:40px; --w-inp-sm:160px; --w-inp:240px; --w-inp-md:320px; --w-inp-lg:480px; --w-char:72px;
   /* プルダウンの印（下向きの山。濃紺） */
   --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%230F3557' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 8 10 12.5 14.5 8'/%3E%3C/svg%3E");
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:28px; --s8:32px;
@@ -61,8 +61,8 @@ svg.i{width:20px;height:20px;flex:0 0 20px}
 .navbtn.on{background:var(--primary-soft);color:var(--navy)}
 .navbtn.on::before{content:"";position:absolute;left:-14px;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:var(--primary)}
 .navbtn.on svg{color:var(--primary-dark)}
-/* 中身の幅は 1200px で止め、左右の余白をそろえる（広い画面では左右に同じだけ空ける。% は左のメニューを含む幅なので、メニューの幅を引く） */
-.main{flex:1;min-width:0;padding:var(--s8) max(var(--gutter), calc((100% - var(--nav-w) - var(--content-w)) / 2)) 104px}
+/* 中身は画面の幅いっぱいに使う（左右の余白は 40px でそろえる） */
+.main{flex:1;min-width:0;padding:var(--s8) var(--gutter) 104px}
 @media (min-width:761px){.layout{background:linear-gradient(to right,#fff calc(var(--nav-w) - 1px),var(--line) calc(var(--nav-w) - 1px),var(--line) var(--nav-w),transparent var(--nav-w))}}
 
 /* ---- 画面の題（印 + 題名。右に道具） ---- */
@@ -169,10 +169,20 @@ select.inp option{color:var(--text);background:#fff}
 .card > p.note:first-child + .tbl,.card > p.note:first-child + .tblwrap{margin-top:var(--s4)}
 
 /* ---- 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる） ---- */
-.actions{display:grid;grid-template-columns:var(--w-action) 1fr;gap:var(--s3) var(--s4);align-items:center}
-.actions .btn{width:100%;min-width:0}
-.actions .desc{font-size:var(--fs-m);color:var(--text)}
-.actions .desc .note{display:block}
+/* 実行のボタンは同じ幅で並べ、説明はボタンにカーソルを置いたときに出す */
+.btngrid{display:grid;grid-template-columns:repeat(auto-fill,var(--w-action));gap:var(--s3)}
+.btngrid .act{display:block}
+.btngrid .btn{width:100%;min-width:0}
+
+/* ---- 説明（常には出さない。印にカーソルを置く・キーボードで選ぶと出る） ---- */
+.tip{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 22px;border-radius:50%;color:var(--muted);cursor:help;vertical-align:middle;transition:color var(--ease),background var(--ease)}
+.tip svg{width:18px;height:18px}
+.tip:hover,.tip:focus-visible{color:var(--primary-dark);background:var(--primary-soft)}
+h1 .tip,h2 .tip{margin-left:2px}
+[data-tip]:not(.tip):not(.act){cursor:help}
+.tipbox{position:fixed;left:0;top:0;z-index:120;max-width:360px;padding:10px 14px;border-radius:var(--radius-s);background:var(--navy);color:#fff;font-size:var(--fs-s);line-height:1.6;box-shadow:var(--shadow-pop);pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line}
+.tipbox.on{opacity:1}
+.meta{font-size:var(--fs-s);color:var(--muted);white-space:nowrap}
 
 /* ---- 数字のまとめ ---- */
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s6)}
@@ -245,7 +255,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .kpi{padding:var(--s3) var(--s4)}
   .kpi .v{font-size:var(--fs-h3)}
   .viewtitle .vtools{flex:1 1 100%;margin-left:0}   /* 題の右の道具（計画を選ぶ欄）は次の行に幅いっぱいで */
-  .actions{grid-template-columns:1fr}
+  .btngrid{grid-template-columns:1fr}
   .card{padding:var(--s5)}
   .card-foot{margin:var(--s4) calc(-1 * var(--s5)) calc(-1 * var(--s5));padding:var(--s3) var(--s5)}
   .toast{bottom:calc(var(--bnav-h) + 16px)}
@@ -260,6 +270,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 <div class="layout"><nav class="sidenav" id="nav"></nav><main class="main" id="main"></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="busy" id="busy" role="status" aria-live="polite"></div>
+<div class="tipbox" id="tipbox" role="tooltip"></div>
 <script>
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
@@ -277,12 +288,35 @@ function toast(msg, err){
   clearTimeout(toastT); toastT = setTimeout(function(){ el.className = 'toast'; }, err ? 8000 : 3800);
   if (err) { S.lastError = { message: String(msg), at: new Date().toLocaleTimeString('ja-JP') }; render(); }
 }
+var TIP_I = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><path d="M10 9.2v4.6"/><path d="M10 6.3v.1"/></svg>';
+/** 説明は常には出さず、印（i）にカーソルを置いたとき・キーボードで選んだときに出す */
+function tip(text){ return text ? '<span class="tip" tabindex="0" role="img" aria-label="' + esc(text) + '" data-tip="' + esc(text) + '">' + TIP_I + '</span>' : ''; }
+/** 実行のボタン（説明はカーソルを置いたときに出す。押せないボタンにも出るよう、外側に付ける） */
+function actBtn(btnHtml, text){ return '<span class="act"' + (text ? ' data-tip="' + esc(text) + '"' : '') + '>' + btnHtml + '</span>'; }
+(function(){
+  var cur = null;
+  function show(el){
+    var box = $('tipbox'), t = el.getAttribute('data-tip');
+    if (!box || !t) return hide();
+    cur = el; box.textContent = t; box.classList.add('on');
+    var r = el.getBoundingClientRect(), bw = box.offsetWidth, bh = box.offsetHeight;
+    var x = Math.min(Math.max(8, r.left + r.width / 2 - bw / 2), window.innerWidth - bw - 8);
+    var y = r.bottom + 8; if (y + bh > window.innerHeight - 8) y = r.top - bh - 8;
+    box.style.left = x + 'px'; box.style.top = Math.max(8, y) + 'px';
+  }
+  function hide(){ cur = null; var box = $('tipbox'); if (box) box.classList.remove('on'); }
+  var near = function(e){ return e.target && e.target.closest ? e.target.closest('[data-tip]') : null; };
+  document.addEventListener('mouseover', function(e){ var el = near(e); if (el) { if (el !== cur) show(el); } else if (cur) hide(); });
+  document.addEventListener('focusin', function(e){ var el = near(e); if (el) show(el); else hide(); });
+  document.addEventListener('focusout', hide);
+  window.addEventListener('scroll', hide, true);
+})();
 function errorBanner(){
   if (!S.lastError) return '';
-  return '<div class="card alert" role="alert"><div class="card-head"><h2 class="err-text">エラー（' + esc(S.lastError.at) + '）</h2>'
+  return '<div class="card alert" role="alert"><div class="card-head"><h2 class="err-text">エラー（' + esc(S.lastError.at) + '）' + tip('これまでのエラーは「操作の記録」でも見られます') + '</h2>'
     + '<button class="btn btn-ghost btn-sm" onclick="S.lastError=null;render()">閉じる</button></div>'
     + '<div style="white-space:pre-wrap;word-break:break-all">' + esc(S.lastError.message) + '</div>'
-    + '<p class="note mt8">これまでのエラーは「操作の記録」でも見られます。</p></div>';
+    + '</div>';
 }
 var busyT = null;
 /** 右下の表示。裏の処理を待っている間はその進み、ほかは通信中（0.6 秒を超えたら）を出す */
@@ -421,7 +455,7 @@ function jobBanner(){
   var m = Math.floor(sec / 60), ss = sec % 60;
   return '<div class="card soft" role="status"><div class="jobbar"><span class="dot"></span><b>' + esc(jobLabel(S.job)) + '</b>'
     + '<span class="chip">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '</span>'
-    + '<span class="note">' + (m ? m + ' 分 ' : '') + ss + ' 秒・画面を閉じても続きます</span></div></div>';
+    + '<span class="meta" data-tip="画面を閉じても続きます">' + (m ? m + ' 分 ' : '') + ss + ' 秒</span></div></div>';
 }
 function go(v){
   S.view = v;
@@ -445,8 +479,8 @@ function viewHome(){
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
   var links = [['plans', '計画の一覧', 'すべてのクライアント・年度の予測と予算を並べて見る。新しい計画もここで作る'], ['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
     .filter(function(x){ return !x[3] || B.user.isAdmin; });
-  return '<h1>ホーム</h1>' + guide('guide', 'Trends2Targets は、売上予測と予算策定のアプリです。左の「計画の一覧」で全部のクライアント × 年度を見比べ、「予測」で計画ごとの予測・根拠・予算・入力・検証・四半期レビュー・公式版を見て、保存・実行します。<div class="row c"><span class="note">あなたの役割</span>' + roles + '</div>')
-    + '<div class="card"><h2>よく使う画面</h2><div class="actions">' + links.map(function(x){ return '<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button><div class="desc">' + x[2] + '</div>'; }).join('') + '</div></div>';
+  return '<h1>ホーム</h1>' + guide('guide', '売上予測と予算策定のアプリです。' + tip('「計画の一覧」で全部のクライアント × 年度を見比べ、「予測」で計画ごとの予測・根拠・予算・入力・検証・四半期レビュー・公式版を見て、保存・実行します') + '<div class="row c mt8">' + roles + '</div>')
+    + '<div class="card"><h2>よく使う画面</h2><div class="btngrid">' + links.map(function(x){ return actBtn('<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button>', x[2]); }).join('') + '</div></div>';
 }
 
 // ---- 計画の一覧（全部のクライアント × 年度）と、新しい計画を作る ----
@@ -465,7 +499,7 @@ function viewPlans(){
   var rows = pfRows();
   var pct1 = function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
   var html = '<h1>計画の一覧</h1>';
-  html += '<div class="card"><h2>計画（クライアント × 年度）</h2><div class="row mt0">'
+  html += '<div class="card"><h2>計画（クライアント × 年度）' + tip('P50 は最新の予測の年度合計（まだ予測していない計画は、計画を作ったときの値）。\n月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均。\n公式版は承認済みの版（オレンジは承認待ち）') + '</h2><div class="row mt0">'
     + '<div class="field"><label for="pf_q">クライアント</label><input class="inp" id="pf_q" value="' + esc(S.pfQ || '') + '" oninput="S.pfQ=this.value;pfRefresh()" placeholder="名前で絞り込む"></div>'
     + '<div class="field"><label for="pf_fy">年度</label><select class="inp sm" id="pf_fy" onchange="S.pfFy=this.value;render()"><option value="">すべて</option>'
     + fys.map(function(f){ return '<option value="' + esc(f) + '"' + (S.pfFy === f ? ' selected' : '') + '>FY' + esc(f) + '</option>'; }).join('') + '</select></div>'
@@ -477,46 +511,42 @@ function viewPlans(){
 }
 function pfRefresh(){ var el = $('pfTable'); if (el) el.innerHTML = pfTable(pfRows(), function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }); }
 function pfTable(rows, pct1){
-  if (!rows.length) return '<p class="note">' + (S.pf.length ? '条件に合う計画がありません。' : 'まだ計画がありません。' + (B.user.isAdmin ? '下の「計画を作る」から作れます。' : '')) + '</p>';
+  if (!rows.length) return '<p class="note">' + (S.pf.length ? '条件に合う計画がありません' : 'まだ計画がありません') + '</p>';
   var sum = function(k){ return rows.reduce(function(a, p){ return a + (p[k] || 0); }, 0); };
   var body = rows.map(function(p){
     var ch = pfChange(p), gap = p.budget !== null && p.p50 !== null ? p.budget / p.p50 - 1 : null;
     var off = p.officialNo ? '<span class="chip ok">v' + p.officialNo + '</span>' : '<span class="note">-</span>';
-    if (p.pendingNo) off += ' <span class="chip warn" title="承認待ち">v' + p.pendingNo + '</span>';
-    return '<tr><td class="wrap">' + esc(p.clientName) + (p.stepErrors.length ? ' <span class="chip ng" title="' + esc(p.stepErrors.join('、')) + '">手順のエラー</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
+    if (p.pendingNo) off += ' <span class="chip warn" data-tip="承認待ち">v' + p.pendingNo + '</span>';
+    return '<tr><td class="wrap">' + esc(p.clientName) + (p.stepErrors.length ? ' <span class="chip ng" data-tip="' + esc(p.stepErrors.join('、')) + '">手順のエラー</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
       + '<td class="num">' + yen(p.p50) + '</td><td class="num">' + (ch === null ? '-' : Math.abs(ch) >= 0.05 ? '<span class="chip warn">' + pct1(ch) + '</span>' : pct1(ch)) + '</td>'
       + '<td class="num">' + yen(p.budget) + '</td><td class="num">' + pct1(gap) + '</td>'
-      + '<td class="num">' + (p.mape === null ? '-' : (p.mape >= 0.2 ? '<span class="chip warn">' : '') + (p.mape * 100).toFixed(1) + '%' + (p.mape >= 0.2 ? '</span>' : '') + '<div class="note">' + p.mapeMonths + ' か月</div>') + '</td>'
+      + '<td class="num"' + (p.mape === null ? '' : ' data-tip="' + p.mapeMonths + ' か月の平均"') + '>' + (p.mape === null ? '-' : (p.mape >= 0.2 ? '<span class="chip warn">' : '') + (p.mape * 100).toFixed(1) + '%' + (p.mape >= 0.2 ? '</span>' : '')) + '</td>'
       + '<td>' + off + '</td><td>' + esc(String(p.lastRunAt || '').replace('T', ' ').slice(5, 16) || '-') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.planId=\'' + esc(p.planId) + '\';S.fc.view=null;S.fc.data=null;go(\'forecast\')">開く</button></td></tr>';
   }).join('');
   var foot = S.pfFy ? '<tr class="total"><td>合計（' + rows.length + ' 件）</td><td>FY' + esc(S.pfFy) + '</td><td class="num">' + yen(sum('p50')) + '</td><td></td><td class="num">' + yen(sum('budget')) + '</td><td colspan="5"></td></tr>' : '';
   return '<table class="tbl wide"><colgroup><col><col style="width:88px"><col style="width:120px"><col style="width:96px"><col style="width:120px"><col style="width:88px"><col style="width:96px"><col style="width:96px"><col style="width:120px"><col style="width:128px"></colgroup>'
     + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>公式版</th><th>最後の予測</th><th></th></tr></thead><tbody>'
-    + body + foot + '</tbody></table>'
-    + '<p class="note mt8">P50 は最新の予測の年度合計（まだ予測していない計画は、計画を作ったときの値）。月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均です。公式版は承認済みの版（オレンジは承認待ち）。</p>';
+    + body + foot + '</tbody></table>';
 }
 function pfPoolCard(){
   var p = S.pfPool;
-  var html = '<div class="card"><div class="card-head"><h2>全計画での学習（情報源の信頼度）</h2><span class="note">全部の計画の「当たった数」から、ベータ二項の経験ベイズで事前分布を作ります</span></div>';
-  if (!p) return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiPoolPreview\', [], function(r){ S.pfPool = r; })">作れるか見る</button><span class="note">書く前に、情報源ごとの当たる割合と事前分布の強さを見比べます。</span></div></div>';
-  html += '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:88px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>情報源</th><th class="num">計画</th><th class="num">数</th><th class="num">当たる割合</th><th class="num">事前分布の強さ</th><th class="num">信頼度 r</th><th>メモ</th></tr></thead><tbody>'
-    + p.types.map(function(t){ return '<tr><td>' + esc(t.label) + '</td><td class="num">' + t.plans + '</td><td class="num">' + t.n + '</td><td class="num">' + (t.ok ? pct0(t.hitRate) : '-') + '</td><td class="num">' + (t.ok ? t.precision : '-') + '</td><td class="num">' + (t.ok ? t.pooledR.toFixed(3) : '-') + '</td><td class="note ws">' + esc(t.note || '強さ = 何件分の重みで全体の割合に寄せるか') + '</td></tr>'; }).join('')
+  var html = '<div class="card"><div class="card-head"><h2>全計画での学習' + tip('全部の計画の「当たった数」から、ベータ二項の経験ベイズで情報源の信頼度の事前分布を作ります。\n四半期レビュー（C-1）の信頼度の提案がこれを使い、予測に効くのは提案を承認（C-3）してから') + '</h2></div>';
+  if (!p) return html + '<div class="card-foot">' + actBtn('<button class="btn btn-ghost" onclick="call(\'apiPoolPreview\', [], function(r){ S.pfPool = r; })">作れるか見る</button>', '書く前に、情報源ごとの当たる割合と事前分布の強さを見比べます') + '</div></div>';
+  html += '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:88px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>情報源</th><th class="num">計画</th><th class="num">数</th><th class="num">当たる割合</th><th class="num" data-tip="何件分の重みで全体の割合に寄せるか">事前分布の強さ</th><th class="num">信頼度 r</th><th>メモ</th></tr></thead><tbody>'
+    + p.types.map(function(t){ return '<tr><td>' + esc(t.label) + '</td><td class="num">' + t.plans + '</td><td class="num">' + t.n + '</td><td class="num">' + (t.ok ? pct0(t.hitRate) : '-') + '</td><td class="num">' + (t.ok ? t.precision : '-') + '</td><td class="num">' + (t.ok ? t.pooledR.toFixed(3) : '-') + '</td><td class="note ws">' + esc(t.note || '') + '</td></tr>'; }).join('')
     + '</tbody></table></div>';
-  return html + '<div class="card-foot"><button class="btn" ' + (p.ready && !S.job ? '' : 'disabled ') + 'onclick="if(confirm(\'全部の計画の POOL_PRIOR に事前分布を書きますか？\'))startJob(\'LEARN.POOL\', {})">各計画に入れる</button>'
-    + '<span class="note">四半期レビュー（C-1）の信頼度の提案が、この事前分布を使います。予測に効くのは、提案を承認（C-3）してからです。</span></div></div>';
+  return html + '<div class="card-foot">' + actBtn('<button class="btn" ' + (p.ready && !S.job ? '' : 'disabled ') + 'onclick="if(confirm(\'全部の計画の POOL_PRIOR に事前分布を書きますか？\'))startJob(\'LEARN.POOL\', {})">各計画に入れる</button>', '全部の計画の POOL_PRIOR に事前分布を書きます') + '</div></div>';
 }
 function pfCreateCard(){
   var c = S.pfCand;
   var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n.display) + '">' + (n.display !== n.zac ? esc(n.zac) : '') + '</option>'; }).join('') + '</datalist>' : '';
-  return '<div class="card"><div class="card-head"><h2>計画を作る</h2><span class="note">新しいクライアント × 年度の計画を作ります</span></div>'
+  return '<div class="card"><div class="card-head"><h2>計画を作る' + tip('新しいクライアント × 年度の計画を作ります。A-1 初期セットアップと同じシートを作り（1〜3 分ほど）、作った後は「進み」で A-2 → A-3 → 予測の順に実行します') + '</h2></div>'
     + '<div class="row mt0"><div class="field"><label for="pc_client">クライアント（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
     + '<div class="field"><label for="pc_fy">年度（FY）</label><input class="inp sm num" id="pc_fy" type="number" min="2000" max="2100" value="' + esc(S.pcFy || (c ? c.defaultFy : pfDefaultFy())) + '" oninput="S.pcFy=this.value"></div>'
     + '<div class="field"><label for="pc_people">担当者（カンマ区切り）</label><input class="inp" id="pc_people" value="' + esc(S.pcPeople || '') + '" oninput="S.pcPeople=this.value"></div>'
-    + '<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す' : '候補を読み込む') + '</button></div>'
-    + (c ? '<p class="note mt8">ZAC の実績にある直近 2 年のクライアント ' + c.candidates.length + ' 件を候補に出しています。</p>' : '')
-    + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="pfCreate()">計画を作る</button>'
-    + '<span class="note">A-1 初期セットアップと同じシートを作ります（1〜3 分ほど）。作った後は「進み」で A-2 → A-3 → 予測の順に実行します。</span></div></div>';
+    + actBtn('<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す（' + c.candidates.length + ' 件）' : '候補を読み込む') + '</button>', 'ZAC の実績にある直近 2 年のクライアントを候補に出します') + '</div>'
+    + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="pfCreate()">計画を作る</button></div></div>';
 }
 /** 新しい計画の年度の目安（10 月からは次の年度） */
 function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
@@ -541,20 +571,20 @@ function viewMembers(){
         + '<button class="btn btn-ghost btn-sm" onclick="revoke(\'' + esc(r.role_id) + '\',' + r.row_version + ')">外す</button>';
     }).join(' ');
     if (m.email === d.owner) rs = '<span class="chip">' + esc(d.roleLabels.ADMIN) + '（所有者）</span>' + (rs ? ' ' + rs : '');
-    return '<tr><td>' + esc(m.display_name) + '</td><td>' + esc(m.email) + '</td><td>' + esc(m.department) + '</td><td class="wrap">' + (m.is_active ? '' : '<span class="chip off">無効</span>') + (rs || '<span class="note">閲覧・情報提供のみ</span>') + '</td></tr>';
+    return '<tr><td>' + esc(m.display_name) + '</td><td>' + esc(m.email) + '</td><td>' + esc(m.department) + '</td><td class="wrap">' + (m.is_active ? '' : '<span class="chip off">無効</span>') + (rs || '<span class="chip off" data-tip="閲覧・情報提供のみ">なし</span>') + '</td></tr>';
   }).join('');
   var memberOpts = d.members.filter(function(m){ return m.is_active; }).map(function(m){ return '<option value="' + esc(m.email) + '">' + esc(m.display_name) + '（' + esc(m.email) + '）</option>'; }).join('');
   var roleOpts = d.grantable.map(function(r){ return '<option value="' + r + '">' + esc(d.roleLabels[r]) + '</option>'; }).join('');
   var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.display_name || c.client_name) + '</option>'; }).join('');
   return '<h1>メンバーと役割</h1>'
-    + '<div class="card"><h2>メンバー</h2><p class="note">社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録してください。</p>'
-    + '<table class="tbl mt12"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div class="card"><h2>メンバー' + tip('社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録します') + '</h2>'
+    + '<table class="tbl"><colgroup><col style="width:160px"><col style="width:260px"><col style="width:140px"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table>'
     + '<div class="row foot"><div class="field"><label>メール</label><input class="inp" id="m_email" placeholder="name@' + esc((B.user.email || '').split('@')[1] || '') + '"></div>'
     + '<div class="field"><label>名前</label><input class="inp sm" id="m_name"></div><div class="field"><label>部署</label><input class="inp sm" id="m_dept"></div>'
     + '<button class="btn" onclick="saveMember()">メンバーを登録</button></div></div>'
-    + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label>メンバー</label><select class="inp md" id="g_email">' + memberOpts + '</select></div>'
+    + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label>メンバー</label><select class="inp lg" id="g_email">' + memberOpts + '</select></div>'
     + '<div class="field"><label>役割</label><select class="inp sm" id="g_role">' + roleOpts + '</select></div>'
-    + '<div class="field"><label>範囲（予算策定担当のみ）</label><select class="inp" id="g_client">' + clientOpts + '</select></div>'
+    + '<div class="field"><label>範囲 ' + tip('予算策定担当だけ、クライアントを絞れます') + '</label><select class="inp md" id="g_client">' + clientOpts + '</select></div>'
     + '<button class="btn" onclick="grant()">役割を付ける</button></div></div>';
 }
 function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); go('members'); }); }
@@ -566,13 +596,13 @@ function viewClients(){
   if (!d) return '<h1>クライアント</h1><div class="card note">読み込み中…</div>';
   var rows = d.clients.map(function(c, i){
     return '<tr><td><div class="row c nowrap mt0"><input class="inp" id="cn_' + i + '" value="' + esc(c.display_name) + '" aria-label="画面の名前">'
-      + '<button class="btn btn-ghost" onclick="saveClientName(' + i + ')">保存</button></div>' + (c.display_auto ? '' : '<div class="note mt4">手で決めた名前（空にして保存すると自動に戻る）</div>') + '</td>'
+      + '<button class="btn btn-ghost" onclick="saveClientName(' + i + ')">保存</button></div>' + (c.display_auto ? '' : '<span class="chip" data-tip="手で決めた名前。空にして保存すると自動に戻ります">手で決めた</span>') + '</td>'
       + '<td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>';
   }).join('');
-  return '<h1>クライアント</h1><div class="card"><p class="note">画面には「画面の名前」を出します。ZAC の名前から、半角カナを全角に直し、株式会社・（株）などを除いて自動で作ります。ふつうの表記と違うときだけ直してください。ZAC の名前は売上の取り込みで使うので変わりません。</p>'
-    + '<div class="tblwrap mt12"><table class="tbl"><colgroup><col style="width:440px"><col style="width:280px"><col style="width:140px"><col></colgroup><thead><tr><th>画面の名前</th><th>ZAC の名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="4" class="note">まだ登録がありません</td></tr>') + '</tbody></table></div>'
+  return '<h1>クライアント</h1><div class="card"><h2>クライアント' + tip('画面には「画面の名前」を出します。ZAC の名前から、半角カナを全角に直し、株式会社・（株）などを除いて自動で作ります。ふつうの表記と違うときだけ直してください。ZAC の名前は売上の取り込みで使うので変わりません') + '</h2>'
+    + '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:440px"><col style="width:280px"><col style="width:140px"><col></colgroup><thead><tr><th>画面の名前</th><th>ZAC の名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="4" class="note">まだ登録がありません</td></tr>') + '</tbody></table></div>'
     + '<div class="row foot"><div class="field"><label>クライアント名（ZAC の名前）</label><input class="inp" id="c_name"></div><div class="field"><label>ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
-    + '<button class="btn" onclick="saveClient()">クライアントを追加</button></div><p class="note mt8">計画を作ると、クライアントは自動で登録されます。</p></div>';
+    + '' + actBtn('<button class="btn" onclick="saveClient()">クライアントを追加</button>', '計画を作ると、クライアントは自動で登録されます') + '</div></div>';
 }
 function saveClientName(i){ var c = S.dir.clients[i]; call('apiSaveClientName', [{ clientId: c.client_id, displayName: $('cn_' + i).value, rowVersion: c.display_row_version }], function(r){ toast(r.auto ? '自動の名前にしました' : '名前を保存しました'); go('clients'); }); }
 function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, zacCode: $('c_zac').value }], function(){ toast('追加しました'); go('clients'); }); }
@@ -585,10 +615,10 @@ function viewSettings(){
     var input = x.type === 'bool' ? '<select class="inp" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
       : x.type === 'sheet' ? '<input class="inp" id="s_' + i + '" placeholder="https://docs.google.com/spreadsheets/d/…" value="">'
       : '<input class="inp" id="s_' + i + '" value="' + esc(x.value) + '">';
-    return '<tr><td class="wrap">' + esc(x.label) + '<div class="note">' + esc(x.unit) + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + esc(x.effectiveFrom) + ' から') + '</div></td><td class="wrap">' + val + '</td><td><div class="row c nowrap mt0">' + input
+    return '<tr><td class="wrap" data-tip="' + esc(x.unit + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + x.effectiveFrom + ' から')) + '">' + esc(x.label) + '</td><td class="wrap">' + val + '</td><td><div class="row c nowrap mt0">' + input
       + '<button class="btn btn-ghost" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
   }).join('');
-  return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定</h2><span class="note">変えた値は履歴として残り、操作の記録にも変更前後が残ります</span></div><table class="tbl"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定' + tip('変えた値は履歴として残り、操作の記録にも変更前後が残ります') + '</h2></div><table class="tbl"><colgroup><col style="width:300px"><col style="width:200px"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
 
@@ -634,14 +664,14 @@ function viewAudit(){
   var html = '<h1>操作の記録</h1><div class="card"><div class="tabs sub">' + LOG_KINDS.map(function(k){ return '<button class="tab' + (a.kind === k[0] ? ' on' : '') + '" onclick="S.au.kind=\'' + k[0] + '\';S.au.month=\'\';loadAudit()">' + k[1] + '</button>'; }).join('') + '</div>'
     + '<div class="row"><div class="field"><label for="a_month">月</label><select class="inp sm" id="a_month" onchange="S.au.month=this.value;loadAudit()">'
     + ((d && d.months.length ? d.months : [a.month || '']).map(function(m){ return '<option value="' + esc(m) + '"' + (m === a.month ? ' selected' : '') + '>' + esc(String(m).replace('_', '/')) + '</option>'; }).join('')) + '</select></div>'
-    + '<div class="field"><label for="a_q">絞り込み（人・操作・対象・中身）</label><input class="inp md" id="a_q" value="' + esc(a.q) + '" onkeydown="if(event.key===\'Enter\')loadAudit()"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>';
+    + '<div class="field"><label for="a_q">絞り込み ' + tip('人・操作・対象・中身から探します') + '</label><input class="inp md" id="a_q" value="' + esc(a.q) + '" onkeydown="if(event.key===\'Enter\')loadAudit()"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>';
   if (!d) return html + '<p class="note mt12">読み込み中…</p></div>';
   var rows = d.rows, body;
   if (a.kind === 'AUDIT') {
     body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:180px"><col style="width:240px"><col style="width:96px"><col><col style="width:128px"></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th><th></th></tr></thead><tbody>'
       + rows.map(function(o, i){ var st = auditStep(o); var target = o.entity_type ? (ENTITY_LABELS[o.entity_type] || o.entity_type) + (o.entity_id ? '：' + o.entity_id : '') : '';
         return '<tr' + (a.sel === i ? ' class="on"' : '') + '><td>' + esc(logTime(o)) + '</td><td>' + esc(String(o.actor_email).split('@')[0]) + '</td><td>' + esc(actionName(o.action)) + '</td><td><span class="chip ' + st[1] + '">' + esc(st[0]) + '</span></td>'
-          + '<td title="' + esc(target + (o.error ? '\n' + o.error : '')) + '">' + esc(target) + (o.error ? '<div class="note err-text ws">' + esc(o.error.slice(0, 160)) + '</div>' : '') + '</td>'
+          + '<td data-tip="' + esc(target + (o.error ? '\n' + o.error : '')) + '">' + esc(target) + (o.error ? '<div class="note err-text ws">' + esc(o.error.slice(0, 160)) + '</div>' : '') + '</td>'
           + '<td><button class="btn btn-ghost btn-sm" onclick="S.au.sel=' + i + ';render()">中身</button></td></tr>'; }).join('');
   } else if (a.kind === 'RUN') {
     body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:280px"><col style="width:104px"><col style="width:104px"><col><col style="width:128px"></colgroup><thead><tr><th>日時</th><th>処理</th><th>結果</th><th class="num">かかった時間</th><th>エラー</th><th></th></tr></thead><tbody>'
@@ -652,7 +682,7 @@ function viewAudit(){
       + rows.map(function(o, i){ return '<tr><td>' + esc(logTime(o)) + '</td><td>' + esc(String(o.actor_email).split('@')[0]) + '</td><td>' + esc(actionName(o.where)) + '</td><td class="ws">' + esc(String(o.message).slice(0, 200)) + '</td><td><button class="btn btn-ghost btn-sm" onclick="S.au.sel=' + i + ';render()">中身</button></td></tr>'; }).join('');
   }
   html += '<div class="tblwrap">' + body + (rows.length ? '' : '<tr><td colspan="6" class="note">この月の記録はありません</td></tr>') + '</tbody></table></div>'
-    + '<p class="note mt8">' + esc(String(d.month).replace('_', '/')) + ' の ' + rows.length + ' 件（新しい順に 1000 件まで）。前の月は「月」で選びます。</p></div>';
+    + '<p class="meta mt8" data-tip="新しい順に 1000 件まで。前の月は「月」で選びます">' + rows.length + ' 件</p></div>';
   var sel = a.sel !== null && a.sel !== undefined ? rows[a.sel] : null;
   if (sel) html += logDetail(sel);
   return html;
@@ -713,7 +743,7 @@ function fcPendingBox(v){
   return '<div class="card caution"><h2 class="warn-text">前回の保存が途中で止まっています</h2>'
     + '<p>「' + esc(p.label) + '」の書き込みが、途中で止まりました（' + esc(String(p.at || '').replace('T', ' ').slice(0, 16)) + '）。書く前に控えを取ってあるので、続きを書けば元どおりになります。</p>'
     + '<div class="card-foot">' + (v.can && v.can.plan
-      ? '<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="startJob(\'SYSTEM.RECOVER\', {})">保存の続きを書く</button><span class="note">1〜2 分ほどかかります。終わると画面が元に戻ります。</span>'
+      ? actBtn('<button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="startJob(\'SYSTEM.RECOVER\', {})">保存の続きを書く</button>', '1〜2 分ほどかかります。終わると画面が元に戻ります')
       : '<span class="note">予算策定担当か管理者に「保存の続きを書く」を押してもらってください。</span>') + '</div></div>';
 }
 /** 読み込みの待ち（何を待っているか・何秒か。失敗したら理由と、もう一度読む）。待ち続けないように 1 秒ごとに表示を新しくする */
@@ -741,12 +771,12 @@ function fcTab(t){ S.fc.tab = t; if (t === 'version') fcLoadVersions(); if (t ==
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 var FC_ROLE_NAME = { plan: '予算策定担当', approve: '承認者', admin: '管理者' };
 function fcActionLabel(a){ var v = S.fc.view; var x = v && (v.actions || []).filter(function(y){ return y.action === a; })[0]; return x ? x.label : a; }
-/** 実行の一覧（ボタンの幅をそろえ、説明の頭をそろえる）。items: [[action, 説明, 役割]] */
+/** 実行の一覧（ボタンは同じ幅で並べ、説明はカーソルを置いたときに出す）。items: [[action, 説明, 役割, 補足]] */
 function fcActions(items){
-  return '<div class="actions">' + items.map(function(it){
+  return '<div class="btngrid">' + items.map(function(it){
     var role = it[2] || 'plan', ok = fcCan(role);
-    return '<button class="btn btn-ghost" ' + (S.job || !ok ? 'disabled ' : '') + 'onclick="fcRun(\'' + it[0] + '\')">' + esc(fcActionLabel(it[0])) + '</button>'
-      + '<div class="desc">' + esc(it[1]) + (ok ? '' : '<span class="note">' + FC_ROLE_NAME[role] + 'が実行できます。</span>') + (it[3] ? '<span class="note">' + esc(it[3]) + '</span>' : '') + '</div>';
+    return actBtn('<button class="btn btn-ghost" ' + (S.job || !ok ? 'disabled ' : '') + 'onclick="fcRun(\'' + it[0] + '\')">' + esc(fcActionLabel(it[0])) + '</button>',
+      it[1] + (ok ? '' : '\n' + FC_ROLE_NAME[role] + 'が実行できます') + (it[3] ? '\n' + it[3] : ''));
   }).join('') + '</div>';
 }
 function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（' + (action === 'AI.RESEARCH' ? '5〜15' : '3〜6') + ' 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
@@ -768,33 +798,31 @@ function fcForecastTab(d, v){
   if (cf) html += '<div class="card caution" role="alert"><div class="card-head"><h2 class="warn-text">' + esc(cf.title) + '</h2></div>'
     + '<div class="pre">' + esc(cf.message) + '</div>'
     + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="fcConfirmRun()">このまま予測を実行</button>'
-    + '<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button><span class="note">入力を直す場合は「やめる」を押し、「入力」タブで直してから実行してください。</span></div></div>';
-  html += '<div class="card"><div class="card-head"><h2>予測の実行</h2></div>'
-    + '<p class="note">' + (l ? '最新の予測: ' + esc(String(l.finished_at || '').replace('T', ' ').slice(0, 16)) + '・' + esc((l.actor_email || '').split('@')[0])
-      : 'まだ予測を実行していません。')
-    + '　過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yen(obj.p90) + ' 円</p>'
-    + '<div class="actions mt12"><button class="btn" ' + (S.job || !canPlan ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(S.fc.planId) + '\' })">予測を実行</button>'
-    + '<div class="desc">データ本体の内容で予測を計算し、結果を残します（4〜6 分ほど。続けて実行するときは速くなります）。' + (canPlan ? '' : '<span class="note">予算策定担当が実行できます。</span>') + '</div></div>'
-    + (d.runs.length > 1 ? '<p class="note mt12">これまでの実行: ' + d.runs.map(function(r){ return esc(String(r.finishedAt || '').replace('T', ' ').slice(5, 16)) + ' P50 ' + yen(r.p50); }).join('、') + '</p>' : '') + '</div>';
+    + actBtn('<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button>', '入力を直す場合は「やめる」を押し、「入力」タブで直してから実行します') + '</div></div>';
+  var runInfo = '過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yen(obj.p90) + ' 円'
+    + (d.runs.length > 1 ? '\nこれまでの実行: ' + d.runs.map(function(r){ return String(r.finishedAt || '').replace('T', ' ').slice(5, 16) + ' P50 ' + yen(r.p50); }).join('、') : '');
+  html += '<div class="card"><div class="card-head"><h2>予測の実行</h2><span class="meta" data-tip="' + esc(runInfo) + '">' + (l ? '最新 ' + esc(String(l.finished_at || '').replace('T', ' ').slice(5, 16)) + '・' + esc((l.actor_email || '').split('@')[0]) : 'まだ実行していません') + '</span></div>'
+    + '<div class="btngrid">' + actBtn('<button class="btn" ' + (S.job || !canPlan ? 'disabled ' : '') + 'onclick="startJob(\'FORECAST.RUN\', { planId: \'' + esc(S.fc.planId) + '\' })">予測を実行</button>',
+      'データ本体の内容で予測を計算し、結果を残します（4〜6 分ほど。続けて実行するときは速くなります）' + (canPlan ? '' : '\n予算策定担当が実行できます')) + '</div></div>';
   // 予算（A-10: OUTPUT の H=採用 / I=上乗せ。J=最終は数式）
   if (!sec) return html + '<div class="card note">予算は、予測を実行すると入力できます。</div>';
   var bd = S.fc.budget;
   var cell = function(m, k){ var x = bd[m.row]; var val = x && x[k] !== undefined ? x[k] : m[k];
     if (typeof val === 'number') val = Math.round(val);   // 旧来の採用予測は小数のまま入っている（表示だけ丸める。直さなければ保存しない）
     return canPlan ? '<input class="inp cell num" type="number" step="10000" value="' + esc(val === null ? '' : val) + '" oninput="fcBudget(' + m.row + ',\'' + k + '\',this.value)" aria-label="' + esc(m.month) + (k === 'adopted' ? ' 採用予測' : ' 上乗せ') + '">' : yen(val); };
-  html += '<div class="card"><div class="card-head"><h2>月ごとの予測と予算</h2><span class="note">単位: 円</span></div><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:96px"><col><col><col><col style="width:150px"><col style="width:150px"><col></colgroup>'
+  html += '<div class="card"><div class="card-head"><h2>月ごとの予測と予算' + tip('単位: 円。最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です') + '</h2></div><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:96px"><col><col><col><col style="width:150px"><col style="width:150px"><col></colgroup>'
     + '<thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">採用予測</th><th class="num">上乗せ</th><th class="num">最終予算</th></tr></thead><tbody>'
     + sec.monthly.map(function(m){ return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td><td class="num">' + cell(m, 'adopted') + '</td><td class="num">' + cell(m, 'uplift') + '</td><td class="num">' + yen(m.final) + '</td></tr>'; }).join('')
     + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num">' + yen(sec.annual.final) + '</td></tr>'
     + '</tbody></table></div>'
-    + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '<span class="note">最終予算 = 採用予測 + 上乗せ。保存すると計算し直します。年度合計の P10〜P90 は月の合計ではなく、年度で計算した値です。</span></div>' : '') + '</div>';
+    + (canPlan ? '<div class="card-foot">' + fcSaveBtn('予算を保存', 'fcSaveBudget()', Object.keys(bd).length) + '</div>' : '') + '</div>';
   return html;
 }
 // ---- 精度の推移と学習（影） ----
 function fcLoadLearning(){ var id = S.fc.planId; S.fc.learn = null; call('apiLearningView', [{ planId: id }], function(r){ if (S.fc.planId === id) S.fc.learn = r; }); }
 function pct1(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
 function pct0(v){ return v === null || v === undefined ? '-' : (v * 100).toFixed(1) + '%'; }
-function kpiText(label, text, main, note){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="k">' + label + '</div><div class="v">' + text + '</div>' + (note ? '<div class="note">' + note + '</div>' : '') + '</div>'; }
+function kpiText(label, text, main, note){ return '<div class="kpi' + (main ? ' main' : '') + '"' + (note ? ' data-tip="' + esc(note) + '"' : '') + '><div class="k">' + label + '</div><div class="v">' + text + '</div></div>'; }
 function fcLearningCards(){
   var r = S.fc.learn;
   if (!r || r.planId !== S.fc.planId) return '<div class="card note">精度の推移を読み込み中…</div>';
@@ -804,17 +832,16 @@ function fcLearningCards(){
     + kpiText('偏り（新しい月ほど重く）', pct1(a.bias), false, a.bias === null ? '' : a.bias > 0 ? '予測が実績より高め' : '予測が実績より低め')
     + kpiText('P10〜P90 に入った割合', (covWarn ? '<span class="warn-text">' + cov + '</span>' : cov), false, '目標 80%（' + a.coverageN + ' か月）')
     + kpiText('80% を入れる幅', a.widthScale === null ? '-' : '今の ' + a.widthScale.toFixed(2) + ' 倍', false, a.widthScale === null ? '3 か月以上で出ます' : a.widthScale > 1.1 ? '今の幅は狭すぎる' : a.widthScale < 0.9 ? '今の幅は広すぎる' : 'ちょうどよい') + '</div>';
-  html += '<div class="card"><div class="card-head"><h2>精度の推移</h2><span class="note">' + (a.leaks ? '締まった後の予測（予測 = 実績）' + a.leaks + ' か月は数えていません' : '') + '</span></div>'
+  html += '<div class="card"><div class="card-head"><h2>精度の推移' + tip(a.leaks ? '締まった後の予測（予測 = 実績）' + a.leaks + ' か月は数えていません' : '') + '</h2></div>'
     + (a.months.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col><col style="width:104px"><col style="width:120px"></colgroup><thead><tr><th>月</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">実績</th><th class="num">誤差</th><th>P10〜P90</th></tr></thead><tbody>'
       + a.months.slice().reverse().map(function(m){ return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td><td class="num">' + yen(m.actual) + '</td><td class="num">' + (m.leak ? '<span class="chip off">除く</span>' : pct1(m.err)) + '</td><td>'
         + (m.leak ? '' : m.inside === null ? '-' : m.inside ? '<span class="chip ok">入った</span>' : '<span class="chip warn">外れた</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">検証の記録がまだありません（B-1 → B-2 を実行すると出ます）。</p>') + '</div>';
-  html += '<div class="card"><div class="card-head"><h2>学習の影（予測には効いていません）</h2><span class="note">使ったらどうなるかを、過去の月で計っています</span></div>'
-    + (sh ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:320px"><col style="width:160px"><col></colgroup><tbody>'
-      + '<tr><td>今の偏りの補正（自動学習 B-5）</td><td class="num">' + (r.factorNow === null ? '-' : r.factorNow.toFixed(3)) + '</td><td class="note wrap">計画の中だけで、偏り 0 へ縮めて学ぶ</td></tr>'
-      + '<tr><td>全計画で縮めた偏りの補正（影）</td><td class="num">' + sh.factorShadow.toFixed(3) + '</td><td class="note wrap">' + (r.pooled ? r.pooledPlans + ' 計画の平均の偏り ' + pct1(r.mu) + ' へ、計画どうしのばらつきに応じて縮める（経験ベイズ）' : '計画が 2 つ以上になると、全計画の平均へ縮めます（今は計画の中だけ）') + '</td></tr>'
-      + '<tr><td>過去の月に当てはめた誤差</td><td class="num">' + pct0(sh.mapeNow) + ' → ' + pct0(sh.mapeShadow) + '</td><td class="note wrap">補正なしの P50 と、影の補正を掛けた P50 の、月の誤差の平均（参考。同じ月で学んで当てるので、実際より良く見えます）</td></tr>'
-      + '</tbody></table></div>' : '<p class="note">3 か月以上の検証の記録があると計ります。</p>')
-    + '<p class="note mt8">予測に効かせるのは、影の結果を見て決めてからにします。</p></div>';
+  html += '<div class="card"><div class="card-head"><h2>学習の影' + tip('予測には効いていません。使ったらどうなるかを過去の月で計っています。予測に効かせるのは、影の結果を見て決めてから') + '</h2></div>'
+    + (sh ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:320px"><col></colgroup><tbody>'
+      + '<tr><td data-tip="計画の中だけで、偏り 0 へ縮めて学ぶ">今の偏りの補正（自動学習 B-5）</td><td class="num">' + (r.factorNow === null ? '-' : r.factorNow.toFixed(3)) + '</td></tr>'
+      + '<tr><td data-tip="' + esc(r.pooled ? r.pooledPlans + ' 計画の平均の偏り ' + pct1(r.mu) + ' へ、計画どうしのばらつきに応じて縮める（経験ベイズ）' : '計画が 2 つ以上になると、全計画の平均へ縮めます（今は計画の中だけ）') + '">全計画で縮めた偏りの補正（影）</td><td class="num">' + sh.factorShadow.toFixed(3) + '</td></tr>'
+      + '<tr><td data-tip="補正なしの P50 と、影の補正を掛けた P50 の、月の誤差の平均（参考。同じ月で学んで当てるので、実際より良く見えます）">過去の月に当てはめた誤差</td><td class="num">' + pct0(sh.mapeNow) + ' → ' + pct0(sh.mapeShadow) + '</td></tr>'
+      + '</tbody></table></div>' : '<p class="note">3 か月以上の検証の記録があると計ります</p>') + '</div>';
   return html;
 }
 
@@ -828,30 +855,30 @@ function fcBasisTab(d, v){
   var a = r.annual, html = '';
   html += '<div class="kpis">' + fcKpi('過去の売上だけの予測（P50）', a.objective) + fcKpi('最終の予測（P50）', a.p50, true)
     + fcKpi('入力・AI・スポットの効き', a.p50 !== null && a.objective !== null ? a.p50 - a.objective : null) + fcKpi('前回からの変化', a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + '</div>';
-  html += '<div class="card"><div class="card-head"><h2>月ごとの内訳</h2><span class="note">' + (r.latestRunAt ? '最新の予測 ' + esc(String(r.latestRunAt).replace('T', ' ').slice(0, 16)) : '') + '</span></div>'
+  html += '<div class="card"><div class="card-head"><h2>月ごとの内訳' + tip('過去の売上だけ = 入力・AI を入れない予測。差 = 入力（製品・クライアント・見解）・AI・スポット・補正の効きの合計。押しの割合は月ごとの合計で、札に触れると内訳が出ます。「実績」の月は実績の確定した月') + '</h2>' + (r.latestRunAt ? '<span class="meta">' + esc(String(r.latestRunAt).replace('T', ' ').slice(5, 16)) + '</span>' : '') + '</div>'
     + '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:152px"><col style="width:128px"><col style="width:120px"><col style="width:112px"><col style="width:120px"><col style="width:88px"><col><col style="width:112px"></colgroup>'
     + '<thead><tr><th>月</th><th class="num">過去の売上だけ</th><th class="num">最終（P50）</th><th class="num">差</th><th class="num">スポット確定</th><th class="num">AI の倍率</th><th>入力・AI の押し</th><th class="num">前回から</th></tr></thead><tbody>'
     + r.monthly.map(function(m){
-      var src = m.sources.length ? m.sources.map(function(s){ return '<span class="chip' + (s.step > 0 ? ' ok' : s.step < 0 ? ' warn' : '') + '" title="' + esc(s.keys.join('\n')) + '">' + esc(s.label) + ' ' + pctStep(s.step) + '</span>'; }).join(' ') : '<span class="note">なし</span>';
+      var src = m.sources.length ? m.sources.map(function(s){ return '<span class="chip' + (s.step > 0 ? ' ok' : s.step < 0 ? ' warn' : '') + '" data-tip="' + esc(s.keys.join('\n')) + '">' + esc(s.label) + ' ' + pctStep(s.step) + '</span>'; }).join(' ') : '<span class="note">なし</span>';
       return '<tr><td>' + esc(m.month) + (m.source === 'actual' ? ' <span class="chip off">実績</span>' : '') + '</td><td class="num">' + yen(m.objective) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + sgn(m.diff) + '</td>'
         + '<td class="num">' + yen(m.spot) + '</td><td class="num">' + (m.kAi === null ? '-' : m.kAi.toFixed(3) + (m.aiNeutralized ? '<div class="note">打ち消し</div>' : '')) + '</td><td class="wrap">' + src + (m.opinion ? '<div class="note mt4">見解: ' + esc(m.opinion) + '</div>' : '') + '</td><td class="num">' + sgn(m.change) + '</td></tr>';
     }).join('') + '</tbody></table></div>'
-    + '<p class="note mt8">過去の売上だけ = 入力・AI を入れない予測。差 = 入力（製品・クライアント・見解）・AI・スポット・補正の効きの合計。押しの割合は月ごとの合計で、チップに触れると内訳が出ます。「実績」の月は実績の確定した月です。</p></div>';
+    + '</div>';
   // 補正
   var c = r.calibration, ap = r.applied;
-  html += '<div class="card"><h2>補正（自動学習・四半期レビュー）</h2>' + (c ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><tbody>'
-    + '<tr><td>偏りの補正（全体の倍率）</td><td class="num">' + (c.factor === null ? '-' : c.factor.toFixed(3)) + '</td><td class="note">1 より小さいと予測を下げる。過去の予測が実績より高かったとき</td></tr>'
+  html += '<div class="card"><div class="card-head"><h2>補正' + tip('自動学習（B-5）と四半期レビュー（C-3）で決まった補正' + (c ? '\n更新 ' + String(c.updatedAt).replace('T', ' ').slice(0, 16) + (c.quarter ? '・最後に適用した四半期 ' + c.quarter : '') + (ap ? '\n最新の予測は、この補正で計算しました' : '') : '')) + '</h2></div>' + (c ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><tbody>'
+    + '<tr><td data-tip="1 より小さいと予測を下げる（過去の予測が実績より高かったとき）">偏りの補正（全体の倍率）</td><td class="num">' + (c.factor === null ? '-' : c.factor.toFixed(3)) + '</td><td></td></tr>'
     + '<tr><td>月ごとの偏りの補正</td><td class="num">' + Object.keys(c.monthBias || {}).length + ' か月</td><td class="note ws">' + esc(Object.keys(c.monthBias || {}).sort().map(function(k){ return k + ' ' + pctStep(Number(c.monthBias[k])); }).join('、')) + '</td></tr>'
     + '<tr><td>AI の重み（上書き）</td><td class="num">' + (c.aiWeight === null ? '既定' : c.aiWeight) + '</td><td class="note">' + (c.aiMax === null ? '' : 'AI の効きの上限 ' + c.aiMax) + '</td></tr>'
-    + '</tbody></table></div><p class="note mt8">更新 ' + esc(String(c.updatedAt).replace('T', ' ').slice(0, 16)) + (c.quarter ? '・最後に適用した四半期 ' + esc(c.quarter) : '') + (ap ? '・最新の予測は、この補正で計算しました' : '') + '</p>' : '<p class="note">補正はまだありません。</p>') + '</div>';
+    + '</tbody></table></div>' : '<p class="note">補正はまだありません</p>') + '</div>';
   // AI 調査の根拠
-  html += '<div class="card"><h2>AI 調査の根拠</h2>' + (r.research.length ? '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:120px"><col style="width:88px"><col style="width:88px"><col style="width:88px"><col></colgroup><thead><tr><th>話題</th><th>向き</th><th class="num">点数</th><th class="num">確からしさ</th><th>根拠</th></tr></thead><tbody>'
+  html += '<div class="card"><div class="card-head"><h2>AI 調査の根拠' + (r.research.length ? tip(r.research[0].asOf + ' の A-4 AI 調査の結果') : '') + '</h2></div>' + (r.research.length ? '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:120px"><col style="width:88px"><col style="width:88px"><col style="width:88px"><col></colgroup><thead><tr><th>話題</th><th>向き</th><th class="num">点数</th><th class="num">確からしさ</th><th>根拠</th></tr></thead><tbody>'
     + r.research.map(function(x){ return '<tr><td>' + esc(x.topic) + (x.rowType ? '<div class="note">' + esc(x.rowType) + '</div>' : '') + '</td><td>' + esc(x.direction) + '</td><td class="num">' + (x.score === null ? (x.impact === null ? '-' : x.impact) : x.score.toFixed(2)) + '</td><td class="num">' + (x.confidence === null ? '-' : x.confidence.toFixed(2)) + '</td>'
-      + '<td class="wrap">' + esc(x.evidence) + (x.reason ? '<div class="note mt4">' + esc(x.reason) + '</div>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div><p class="note mt8">' + esc(r.research[0].asOf) + ' の A-4 AI 調査の結果です。</p>' : '<p class="note">AI 調査の結果はまだありません（「進み」の A-4）。</p>')
+      + '<td class="wrap"' + (x.reason ? ' data-tip="' + esc(x.reason) + '"' : '') + '>' + esc(x.evidence) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">AI 調査の結果はまだありません（「進み」の A-4）</p>')
     + (r.vertex && r.vertex.rationale ? '<div class="field mt12"><label>Vertex の補正の説明（' + esc(String(r.vertex.at).replace('T', ' ').slice(0, 16)) + (r.vertex.confidence !== null ? '・確からしさ ' + r.vertex.confidence : '') + '）</label><p class="pre">' + esc(r.vertex.rationale) + '</p></div>' : '') + '</div>';
   // 前回からの変化
   html += '<div class="card"><h2>前回の予測からの変化</h2>' + (r.prevRunAt ? '<p>前回 ' + esc(String(r.prevRunAt).replace('T', ' ').slice(0, 16)) + ' → 今回 ' + esc(String(r.latestRunAt).replace('T', ' ').slice(0, 16)) + '：年度の P50 ' + sgn(a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + ' 円'
-    + (r.inputChanged ? '' : '<span class="note">（この間に計画への操作はありません。変化は、予測の乱数による揺れです）</span>') + '</p>'
+    + (r.inputChanged ? '' : tip('この間に計画への操作はありません。変化は、予測の乱数による揺れです')) + '</p>'
     + (r.between.length ? '<div class="tblwrap mt8"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>この間の操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
       + r.between.map(function(x){ return '<tr><td>' + esc(String(x.at).replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(x.label) + '</td><td>' + esc(String(x.actor || '').split('@')[0]) + '</td><td>' + esc((x.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note mt8">この間に、計画への操作はありませんでした。</p>')
     : '<p class="note">予測を 2 回以上実行すると、前回からの変化が出ます。</p>') + '</div>';
@@ -880,26 +907,26 @@ function fcVersionTab(d, v){
       + (r.pendingChanged ? '<p class="warn-text mt8">出した後に計画が変わっています。承認するのは、出した時点の数字です。</p>' : '')
       + (r.can.approve && !mine ? '<div class="field mt12"><label for="ver_note">判断のメモ（却下のときは理由を書く）</label><input class="inp lg" id="ver_note"></div>'
         + '<div class="card-foot"><button class="btn" onclick="verDecide(\'APPROVED\')">承認する</button><button class="btn btn-ghost" onclick="verDecide(\'REJECTED\')">却下する</button>'
-        + '<span class="note">承認すると、この版が公式版になり、前の公式版は置き換わります。</span></div>'
+        + tip('承認すると、この版が公式版になり、前の公式版は置き換わります') + '</div>'
         : '<p class="note mt8">' + (mine ? '自分で出した版は、ほかの承認者が承認します。' : '承認者が承認します。') + '</p>') + '</div>';
   }
   // 今の内容を出す
   if (r.can.submit) {
     var base = off || null;
-    html += '<div class="card"><div class="card-head"><h2>今の内容を公式版として出す</h2><span class="note">' + (base ? '公式版（v' + base.no + '）との差' : 'まだ公式版がありません') + '</span></div>'
+    html += '<div class="card"><div class="card-head"><h2>今の内容を公式版として出す' + tip('今の予測と予算の数字を、そのまま残して承認待ちにします' + (pend ? '。承認待ちの v' + pend.no + ' は取り下げます' : '')) + '</h2><span class="meta">' + (base ? 'v' + base.no + ' との差' : '公式版なし') + '</span></div>'
       + (cur ? '<div class="tblwrap"><table class="tbl"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup><thead><tr><th></th><th class="num">今</th><th class="num">公式版</th><th class="num">差</th></tr></thead><tbody>'
         + [['最終予算', cur.budget.final, base && base.budget.final], ['採用予測', cur.budget.adopted, base && base.budget.adopted], ['上乗せ', cur.budget.uplift, base && base.budget.uplift], ['P50（年度）', cur.annual.p50, base && base.annual.p50]]
           .map(function(x){ return '<tr><td>' + x[0] + '</td><td class="num">' + yen(x[1]) + '</td><td class="num">' + (base ? yen(x[2]) : '-') + '</td><td class="num">' + (base ? verDiff(x[1], x[2]) : '-') + '</td></tr>'; }).join('')
         + '</tbody></table></div>' : '<p class="note">予測がまだありません。予測を実行してから出してください。</p>')
       + '<div class="field mt12"><label for="ver_submit_note">メモ（何を見直したか）</label><input class="inp lg" id="ver_submit_note"></div>'
       + '<div class="card-foot"><button class="btn" ' + (cur ? '' : 'disabled ') + 'onclick="verSubmit()">公式版として出す</button>'
-      + '<span class="note">今の予測と予算の数字を、そのまま残して承認待ちにします。' + (pend ? '承認待ちの v' + pend.no + ' は取り下げます。' : '') + '</span></div></div>';
+      + '</div></div>';
   }
   // 版の一覧
   html += '<div class="card"><h2>版の一覧</h2>' + (r.versions.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:64px"><col style="width:120px"><col style="width:136px"><col style="width:136px"><col style="width:128px"><col style="width:128px"><col><col style="width:136px"></colgroup>'
     + '<thead><tr><th>版</th><th>状態</th><th class="num">最終予算</th><th class="num">P50</th><th>出した人</th><th>判断した人</th><th>メモ</th><th></th></tr></thead><tbody>'
     + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
-      + '<td title="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
+      + '<td data-tip="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.verCmp=\'' + esc(x.versionId) + '\';render()">今と比べる</button></td></tr>'; }).join('')
     + '</tbody></table></div>' : '<p class="note">まだ版がありません。</p>') + '</div>';
   // 比べる（月ごと）
@@ -956,11 +983,11 @@ function fcInputTab(d, v){
   html += '<div class="card"><h2>' + esc((INPUT_KINDS.filter(function(k){ return k[0] === kind; })[0] || ['', ''])[1]) + 'の入力</h2><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (canPlan ? '<col style="width:56px">' : '') + '</colgroup>'
     + '<thead><tr>' + cols.map(function(c){ return '<th' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + c[1] + '</th>'; }).join('') + (canPlan ? '<th></th>' : '') + '</tr></thead><tbody>'
     + (rows.length ? rows.map(function(r, i){ return '<tr>' + cols.map(function(c){ return '<td' + (c[2] === 'conf' || c[2] === 'money' ? ' class="num"' : '') + '>' + cellHtml(c, r, i) + '</td>'; }).join('')
-      + (canPlan ? '<td class="ctr"><button class="btn btn-ghost btn-icon" onclick="fcInputDel(' + i + ')" aria-label="この行を消す" title="この行を消す">×</button></td>' : '') + '</tr>'; }).join('')
+      + (canPlan ? '<td class="ctr"><button class="btn btn-ghost btn-icon" onclick="fcInputDel(' + i + ')" aria-label="この行を消す" data-tip="この行を消す">×</button></td>' : '') + '</tr>'; }).join('')
       : '<tr><td colspan="' + (cols.length + 1) + '" class="empty">まだ入力がありません。' + (canPlan ? '「行を追加」で登録できます。' : '') + '</td></tr>')
     + '</tbody></table></div>'
     + (canPlan ? '<div class="card-foot">' + fcSaveBtn('入力を保存', 'fcSaveInput()', S.fc.inputDirty[kind]) + '<button class="btn btn-ghost" onclick="fcInputAdd()">行を追加</button>'
-      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存の変更があります</span>' : '') + '<span class="note">保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません。</span></div>'
+      + (S.fc.inputDirty[kind] ? '<span class="chip warn">未保存</span>' : '') + tip('保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません') + '</div>'
       : '<p class="note mt12">入力は予算策定担当ができます。</p>')
     + '</div>';
   return html;
@@ -973,15 +1000,15 @@ function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: 
 
 function fcEvalTab(d, v){
   var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = fcLearningCards();
-  html += '<div class="card"><div class="card-head"><h2>検証の更新</h2><span class="note">上から順に実行します</span></div>' + fcActions([
+  html += '<div class="card"><div class="card-head"><h2>検証の更新' + tip('左から順に実行します') + '</h2></div>' + fcActions([
     ['IMPORT.ACTUALS', '確定した月の実績を、ZAC の実績から取り込み直します。', 'admin', fcSourceNote()],
     ['EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。'],
     ['EVAL.DASHBOARD', '精度の指標をまとめ直します。'],
     ['EVAL.INSIGHTS', '外れた月の原因の見立てを作り直します。'],
     ['LEARN.MONTHLY', '実績から補正の係数を学び直します（次の予測に反映）。']]) + '</div>';
   if (e.metrics && e.metrics.length) html += '<div class="card"><h2>精度の指標</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:280px"><col style="width:160px"><col></colgroup><thead><tr><th>指標</th><th class="num">値</th><th>メモ</th></tr></thead><tbody>'
-    + e.metrics.map(function(m){ return '<tr><td>' + esc(m.name) + '</td><td class="num">' + esc(typeof m.value === 'number' ? (Math.abs(m.value) < 3 ? fcPct(m.value) : yen(m.value)) : m.value) + '</td><td title="' + esc(m.note) + '">' + esc(m.note) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
-  if (e.compare && e.compare.length) html += '<div class="card"><div class="card-head"><h2>月ごとの予測と実績</h2><span class="note">単位: 円</span></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col style="width:112px"><col style="width:96px"></colgroup><thead><tr><th>月</th><th class="num">予測</th><th class="num">実績</th><th class="num">差</th><th class="num">誤差率</th><th class="ctr">帯の外</th></tr></thead><tbody>'
+    + e.metrics.map(function(m){ return '<tr><td>' + esc(m.name) + '</td><td class="num">' + esc(typeof m.value === 'number' ? (Math.abs(m.value) < 3 ? fcPct(m.value) : yen(m.value)) : m.value) + '</td><td data-tip="' + esc(m.note) + '">' + esc(m.note) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+  if (e.compare && e.compare.length) html += '<div class="card"><div class="card-head"><h2>月ごとの予測と実績' + tip('単位: 円') + '</h2></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:96px"><col><col><col><col style="width:112px"><col style="width:96px"></colgroup><thead><tr><th>月</th><th class="num">予測</th><th class="num">実績</th><th class="num">差</th><th class="num">誤差率</th><th class="ctr">帯の外</th></tr></thead><tbody>'
     + e.compare.map(function(c){ return '<tr><td>' + esc(c.month) + '</td><td class="num">' + yen(c.forecastTotal) + '</td><td class="num">' + yen(c.actualTotal) + '</td><td class="num">' + yen(c.gap) + '</td><td class="num">' + fcPct(c.ape) + '</td><td class="ctr">' + (c.rangeOutside ? '<span class="chip warn">外</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   if (e.insights && e.insights.length) {
     var ins = S.fc.ins;
@@ -990,10 +1017,10 @@ function fcEvalTab(d, v){
     var txt = function(r, k){ return '<input class="inp cell" value="' + esc(val(r, k)) + '" oninput="fcIns(' + r.row + ',\'' + k + '\',this.value)">'; };
     html += '<div class="card"><h2>学習インサイト</h2><div class="tblwrap"><table class="tbl' + (canPlan ? ' edit' : '') + '"><colgroup><col style="width:88px"><col><col style="width:180px"><col style="width:152px"><col style="width:180px"><col style="width:112px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>月</th><th>見立て</th><th>原因の仮説</th><th>対応</th><th>次に反映すること</th><th>担当</th><th>状態</th></tr></thead><tbody>'
-      + e.insights.map(function(r){ return '<tr><td>' + esc(r.month) + '</td><td title="' + esc(r.insight + ' ' + r.nextAction) + '">' + esc(r.insight) + '</td>'
+      + e.insights.map(function(r){ return '<tr><td>' + esc(r.month) + '</td><td data-tip="' + esc(r.insight + ' ' + r.nextAction) + '">' + esc(r.insight) + '</td>'
         + (canPlan ? '<td>' + txt(r, 'hypothesis') + '</td><td>' + sel(r, 'actionType', ['', '前提を更新', '入力を修正', '様子見', 'エスカレーション']) + '</td><td>' + txt(r, 'reflection') + '</td><td>' + txt(r, 'owner') + '</td><td>' + sel(r, 'status', ['', 'open', 'in_progress', 'done']) + '</td>'
           : '<td>' + esc(r.hypothesis) + '</td><td>' + esc(r.actionType) + '</td><td>' + esc(r.reflection) + '</td><td>' + esc(r.owner) + '</td><td>' + esc(r.status) + '</td>') + '</tr>'; }).join('')
-      + '</tbody></table></div>' + (canPlan ? '<div class="card-foot">' + fcSaveBtn('記入を保存', 'fcSaveIns()', Object.keys(ins).length) + '<span class="note">原因の仮説・対応・担当などは、次の予測と四半期レビューの材料になります。</span></div>' : '') + '</div>';
+      + '</tbody></table></div>' + (canPlan ? '<div class="card-foot">' + fcSaveBtn('記入を保存', 'fcSaveIns()', Object.keys(ins).length) + tip('原因の仮説・対応・担当などは、次の予測と四半期レビューの材料になります') + '</div>' : '') + '</div>';
   }
   if (!(e.metrics || []).length && !(e.compare || []).length && !(e.insights || []).length) html += '<div class="card note">検証の結果はまだありません。実績を取り込んで、上の順に更新してください。</div>';
   return html;
@@ -1008,18 +1035,18 @@ function fcSaveIns(){
 
 function fcQuarterlyTab(d, v){
   var q = v.boot.quarterly || {}, canApprove = fcCan('approve'), html = '';
-  html += '<div class="card"><div class="card-head"><h2>四半期レビュー</h2><span class="note">提案 → 承認 → 適用の順に進めます</span></div>' + fcActions([
+  html += '<div class="card"><div class="card-head"><h2>四半期レビュー' + tip('提案 → 承認 → 適用の順に進めます') + '</h2></div>' + fcActions([
     ['REVIEW.GENERATE', '前の四半期の結果から、設定の見直しの提案を作ります。'],
     ['REVIEW.APPLY', '「承認」にした提案を設定に反映します。', 'approve']]) + '</div>';
   if (q.proposals && q.proposals.length) {
     var dec = S.fc.dec;
-    html += '<div class="card"><div class="card-head"><h2>' + esc(q.title || '提案') + '</h2><span class="note">' + esc(q.period || '') + '</span>' + (q.applied ? '<span class="chip ok">反映済み</span>' : '') + '</div>'
+    html += '<div class="card"><div class="card-head"><h2>' + esc(q.title || '提案') + '</h2><span class="meta">' + esc(q.period || '') + '</span>' + (q.applied ? '<span class="chip ok">反映済み</span>' : '') + '</div>'
       + '<div class="tblwrap"><table class="tbl' + (canApprove ? ' edit' : '') + '"><colgroup><col style="width:200px"><col style="width:104px"><col style="width:104px"><col style="width:72px"><col><col style="width:96px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>対象</th><th>今</th><th>提案</th><th class="num">確度</th><th>理由</th><th>影響</th><th>承認</th></tr></thead><tbody>'
       + q.proposals.map(function(p){ var cur = dec[p.row] !== undefined ? dec[p.row] : p.decision;
-        return '<tr><td title="' + esc(p.target) + '">' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td title="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
+        return '<tr><td data-tip="' + esc(p.target) + '">' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td data-tip="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
           + (canApprove ? '<select class="inp cell" onchange="fcDec(' + p.row + ',this.value)" aria-label="承認">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + (o || '—') + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
-      + '</tbody></table></div>' + (canApprove ? '<div class="card-foot">' + fcSaveBtn('承認を保存', 'fcSaveDec()', Object.keys(dec).length) + '<span class="note">保存した後に「' + esc(fcActionLabel('REVIEW.APPLY')) + '」で設定に反映します。</span></div>' : '<p class="note mt12">承認は承認者ができます。</p>') + '</div>';
+      + '</tbody></table></div>' + (canApprove ? '<div class="card-foot">' + fcSaveBtn('承認を保存', 'fcSaveDec()', Object.keys(dec).length) + tip('保存した後に「' + fcActionLabel('REVIEW.APPLY') + '」で設定に反映します') + '</div>' : '<p class="note mt12">承認は承認者ができます。</p>') + '</div>';
   } else html += '<div class="card note">提案はまだありません。</div>';
   if (q.logRecent && q.logRecent.length) html += '<div class="card"><h2>これまでのレビュー</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:160px"><col style="width:96px"><col></colgroup><thead><tr><th>日付</th><th>四半期</th><th class="num">提案</th><th>反映</th></tr></thead><tbody>'
     + q.logRecent.map(function(r){ return '<tr><td>' + esc(r.at) + '</td><td>' + esc(r.quarter) + '</td><td class="num">' + r.proposals + '</td><td>' + (r.applied ? '<span class="chip ok">済み</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
@@ -1032,19 +1059,19 @@ function fcStepsTab(d, v){
   var st = v.boot.steps || [];
   var label = { success: '<span class="chip ok">済み</span>', error: '<span class="chip ng">エラー</span>', not_run: '<span class="chip off">未実行</span>' };
   var html = '<div class="card"><h2>手順の進み</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:72px"><col style="width:200px"><col style="width:104px"><col style="width:88px"><col style="width:136px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
-    + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td title="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
+    + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td data-tip="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
     + '</tbody></table></div></div>';
-  html += '<div class="card"><div class="card-head"><h2>予測の準備</h2><span class="note">予測の前に、上から順に実行します</span></div>' + fcActions([
+  html += '<div class="card"><div class="card-head"><h2>予測の準備' + tip('予測の前に、左から順に実行します') + '</h2></div>' + fcActions([
     ['IMPORT.SALES', 'ZAC の実績から、過去 4 年分の売上を取り込み直します（入力の雛形も整えます）。', 'admin', fcSourceNote()],
     ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。'],
     ['AI.RESEARCH', 'Vertex AI で市場・競合・チャネル・DX を調べ、予測に使う点数を作り直します。', 'plan', '5〜15 分ほどかかります（時間の区切りごとに分けて動かします）。']]) + '</div>';
   var people = (v.boot.setup.people || []).join(', ');
   html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
     ? '<div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'
-      + '<div class="card-foot">' + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + '<span class="note">入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります。</span></div>'
+      + '<div class="card-foot">' + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + tip('入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります') + '</div>'
     : '<p>' + esc(people || '（なし）') + '</p><p class="note mt4">変えるのは管理者です。</p>') + '</div>';
   if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
-    + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td title="' + esc((r.changed || []).join('、')) + '">' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+    + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td data-tip="' + esc((r.changed || []).join('、')) + '">' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   return html;
 }
 function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLocaleString('ja-JP'); }
@@ -1070,38 +1097,37 @@ function viewHealth(){
   var f = h.files || {};
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table>'
-    + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button><span class="note">初期設定をもう一度実行します（ある表はそのまま）</span></div>' : '') + '</div>'
+    + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button>' + tip('初期設定をもう一度実行します（ある表はそのまま）') + '</div>' : '') + '</div>'
     + hlAuditCard(a) + hlHousekeepingCard(h.housekeeping, h)
     + '<div class="card"><h2>バックアップ</h2><div class="row c mt0">' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>')
     + (b.ageHours !== null && b.ageHours !== undefined ? (b.ageHours > 26 ? '<span class="chip warn">最新は ' + b.ageHours + ' 時間前</span>' : '<span class="chip ok">最新は ' + b.ageHours + ' 時間前</span>') : '')
-    + '<span class="note">' + (b.count || 0) + ' 世代（新しい ' + (b.keep || 14) + ' 世代を残す）/ 最新: ' + esc(b.latest || 'なし') + '。月の最初の写しは、アーカイブのフォルダに月ごとに残します。</span></div>'
+    + '<span class="meta" data-tip="新しい ' + (b.keep || 14) + ' 世代を残します。月の最初の写しは、アーカイブのフォルダに月ごとに残します">' + (b.count || 0) + ' 世代・最新 ' + esc(b.latest || 'なし') + '</span></div>'
     + '<div class="card-foot">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日のバックアップを有効にする</button>')
     + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐバックアップ</button></div></div>'
-    + '<div class="card"><h2>ファイル</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div><p class="note mt8">データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。</p></div>';
+    + '<div class="card"><h2>ファイル' + tip('データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）') + '</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div></div>';
 }
 
 function hlAuditCard(a){
   var v = S.verify;
-  var html = '<div class="card"><div class="card-head"><h2>操作の記録の鎖</h2><span class="note">記録の書き換え・削除に気づくための、つながったハッシュ</span></div><div class="row c mt0">'
+  var html = '<div class="card"><div class="card-head"><h2>操作の記録の鎖' + tip('記録の書き換え・削除に気づくための、つながったハッシュ') + '</h2></div><div class="row c mt0">'
     + (a.ok ? '<span class="chip ok">今月は改ざんなし</span>' : '<span class="chip ng">' + (a.brokenAt ? a.brokenAt + ' 行目で改ざんの疑い' : '点検できません：' + esc(a.note || '')) + '</span>')
-    + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + '<span class="note">今月 ' + (a.rows || 0) + ' 行</span></div>';
+    + (a.matchesLatest === false ? '<span class="chip warn">最後の行が消えた疑い</span>' : '') + '<span class="meta">今月 ' + (a.rows || 0) + ' 行</span></div>';
   if (v) html += '<div class="tblwrap mt12"><table class="tbl"><colgroup><col style="width:120px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>月</th><th class="num">行</th><th>鎖</th><th>締めの控え</th><th>メモ</th></tr></thead><tbody>'
     + v.months.slice().reverse().map(function(m){ return '<tr><td>' + esc(String(m.month).replace('_', '/')) + '</td><td class="num">' + (m.rows || 0) + '</td><td>' + (m.ok ? '<span class="chip ok">正しい</span>' : '<span class="chip ng">要確認</span>') + '</td><td>' + (m.anchored ? '<span class="chip ok">控えあり</span>' : '<span class="note">-</span>') + '</td><td class="ws">' + esc(m.note || '') + '</td></tr>'; }).join('')
     + '</tbody></table></div><p class="note mt8">' + (v.ok ? '全部の月の鎖がつながっています（' + v.rows + ' 行）。' : '要確認の月があります。') + (v.anchored && v.anchored.length ? '締まった月 ' + v.anchored.length + ' つの最後のハッシュを、データ本体に控えました。' : '') + '</p>';
   return html + '<div class="card-foot"><button class="btn btn-ghost" ' + (S.verifying ? 'disabled ' : '') + 'onclick="hlVerify()">' + (S.verifying ? '確かめています…' : '全部の月を確かめる') + '</button>'
-    + '<span class="note">月どうしのつながりと、締まった月の控えとの一致も確かめます。毎日の手入れでも確かめています。</span></div></div>';
+    + tip('月どうしのつながりと、締まった月の控えとの一致も確かめます。毎日の手入れでも確かめています') + '</div></div>';
 }
 function hlVerify(){ S.verifying = true; render(); call('apiVerifyAudit', [], function(r){ S.verifying = false; S.verify = r; toast(r.ok ? '全部の月の鎖がつながっています' : '要確認の月があります', !r.ok); }, function(){ S.verifying = false; render(); }); }
 function hlHousekeepingCard(k, h){
-  var html = '<div class="card"><div class="card-head"><h2>毎日の手入れ</h2><span class="note">毎日 3 時ごろ、バックアップの後に動きます</span></div>';
+  var html = '<div class="card"><div class="card-head"><h2>毎日の手入れ' + tip('毎日 3 時ごろ、バックアップの後に動きます。\n定期処理: ' + ((h.triggers || []).filter(function(t){ return t !== 'triggerRunJob'; }).join('、') || 'なし') + '・処理の記録 ' + (h.jobs === null || h.jobs === undefined ? '-' : h.jobs) + ' 件') + '</h2></div>';
   if (!k) html += '<p class="note">まだ動いていません。</p>';
-  else html += '<div class="row c mt0">' + (k.ok ? '<span class="chip ok">問題なし</span>' : '<span class="chip warn">要確認 ' + (k.problems || []).length + '</span>') + '<span class="note">' + esc(String(k.at || '').replace('T', ' ').slice(0, 16)) + '・'
+  else html += '<div class="row c mt0">' + (k.ok ? '<span class="chip ok">問題なし</span>' : '<span class="chip warn">要確認 ' + (k.problems || []).length + '</span>') + '<span class="meta">' + esc(String(k.at || '').replace('T', ' ').slice(5, 16)) + '・'
     + (k.errors !== undefined ? 'エラー（24 時間） ' + k.errors + ' 件・' : '') + (k.openStarts !== undefined ? '途中で止まった操作 ' + k.openStarts + ' 件' : '') + '</span></div>'
     + ((k.problems || []).length ? '<ul class="mt8">' + k.problems.map(function(p){ return '<li class="warn-text">' + esc(p) + '</li>'; }).join('') + '</ul>' : '');
-  html += '<p class="note mt8">定期処理: ' + ((h.triggers || []).filter(function(t){ return t !== 'triggerRunJob'; }).map(esc).join('、') || 'なし') + '・処理の記録 ' + (h.jobs === null || h.jobs === undefined ? '-' : h.jobs) + ' 件'
-    + (h.journal ? '・<span class="warn-text">書きかけの保存あり（' + esc(h.journal.label || '') + '）</span>' : '') + '</p>';
+  if (h.journal) html += '<p class="warn-text mt8">書きかけの保存あり（' + esc(h.journal.label || '') + '）</p>';
   return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiRunHousekeeping\', [], function(r){ toast(r.ok ? \'手入れが終わりました\' : \'手入れで要確認があります\', !r.ok); go(\'health\'); })">今すぐ手入れする</button>'
-    + '<span class="note">古い処理の記録とトリガーの片付け・記録の鎖の確認・前の年度より古いログをアーカイブへ・月次の写し。どれも消しません。</span></div></div>';
+    + tip('古い処理の記録とトリガーの片付け・記録の鎖の確認・前の年度より古いログをアーカイブへ・月次の写し。どれも消しません') + '</div></div>';
 }
 
 render();

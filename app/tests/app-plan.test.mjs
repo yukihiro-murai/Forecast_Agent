@@ -263,7 +263,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
     .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" });')
     .replace('<?!= bootJson ?>', JSON.stringify({ app: { name: 'T', version: 'x' }, user: { email: OWNER, isOwner: true, isAdmin: true, roles: [] }, setUp: true, allowed: true }));
   const el = () => ({ innerHTML: '', classList: { add() {}, remove() {} }, set outerHTML(v) {} });
-  const ui = vm.createContext({ document: { getElementById: el, querySelector: () => null }, setTimeout: () => 0, clearTimeout() {}, confirm: () => false, window: {},
+  const ui = vm.createContext({ document: { getElementById: el, querySelector: () => null, addEventListener() {} }, setTimeout: () => 0, clearTimeout() {}, confirm: () => false, window: { addEventListener() {}, innerWidth: 1280, innerHeight: 800 },
     google: { script: { run: new Proxy({}, { get: (t, k) => (k === 'withSuccessHandler' || k === 'withFailureHandler' ? () => ui.google.script.run : () => {}) }) } } });
   vm.runInContext(js, ui);
   ui.__v = view; ui.__d = latest;
