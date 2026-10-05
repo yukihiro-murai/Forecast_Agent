@@ -7,7 +7,7 @@
 /** アプリの名前（社内の Web アプリと同じく英語 + 日本語。ブラウザのタブは英語だけ。2026-10-02 村井さん決定） */
 const APP_NAME = 'Trends2Targets';
 const APP_NAME_JA = '売上予測と予算策定';
-const APP_VERSION = '0.23.0';
+const APP_VERSION = '0.24.0';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {
@@ -19,7 +19,8 @@ const APP_FILES = {
   backupPrefix: '売上予測アプリ データ バックアップ ',
   scratch: '売上予測アプリ 計算用（自動）',
   journalPrefix: '売上予測アプリ 保存の控え（自動） ',   // 書き終えたらゴミ箱へ（Journal.js）
-  monthlyBackupPrefix: '売上予測アプリ データ 月次 '   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
+  monthlyBackupPrefix: '売上予測アプリ データ 月次 ',   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
+  yearPrefix: '売上予測アプリ 年度 FY'   // 年度の締めの控え（アーカイブのフォルダへ。消さない）
 };
 
 /** Script Properties のキー（ファイルの ID と鎖の最新ハッシュ。秘密情報は置かない） */

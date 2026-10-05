@@ -171,6 +171,11 @@ function apiStartJob(input) {
   return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJobNow_(ctx, input));
 }
 
+/** 年度を締める前の確認（管理者。締められるなら控えの指紋だけ返す。まだ何も書かない・記録もしない） */
+function apiYearPreview(input) {
+  return api_('YEAR.PREVIEW', { minRole: 'ADMIN', audit: false }, ctx => appYearPreview_(ctx, input));
+}
+
 /** 処理の状態（終わっていれば結果）。頼んだ人と所有者だけ */
 function apiJobStatus(input) {
   return api_('JOB.STATUS', { minRole: 'VIEWER', audit: false }, ctx => appJobStatus_(ctx, input && input.jobId));

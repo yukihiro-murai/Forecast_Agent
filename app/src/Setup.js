@@ -66,6 +66,11 @@ function appSetup_(ctx) {
 function appEnsureTables_(ctx) {
   return appWithLock_(() => {
     const ss = appDataSpreadsheet_();
+    // 年度の凍結の記録（YEAR_CLOSURES）は、一度作られた後に無くなっていたら自動では作り直さない。
+    // 空で作り直すと「締めた年度」が全部開いてしまうため、止めて復旧を求める（初めての作成・版の移行では _SCHEMA に記録が無いので普通に作る）。
+    if (!ss.getSheetByName('YEAR_CLOSURES') && ss.getSheetByName('_SCHEMA') && appYearRegistryWasInitialized_()) {
+      throw new Error('年度の凍結の記録の表（YEAR_CLOSURES）が見つかりません。自動では作り直しません。元の記録を戻すか、管理者に連絡してください。');
+    }
     const made = [];
     Object.keys(APP_TABLES).forEach(name => {
       if (!ss.getSheetByName(name)) made.push(name);
@@ -137,6 +142,7 @@ function appHealth_() {
   out.housekeeping = appHousekeepingLast_();
   try { out.journal = appJournalPending_(); } catch (e) { out.journal = null; }
   try { out.jobs = appJobList_().length; } catch (e) { out.jobs = null; }
+  try { out.years = appYearStatus_(); } catch (e) { out.years = { error: String(e && e.message || e) }; }   // 年度の一覧（締めの管理。読めなければそのことを出す）
   try {
     out.files.folder = DriveApp.getFolderById(props.getProperty(APP_PROP.folderId)).getUrl();
     out.files.data = appDataSpreadsheet_().getUrl();

@@ -171,7 +171,7 @@ function appPoolApply_(ctx, p) {
   const t0 = new Date().getTime();
   const rowsFor = p && p.rowsFor ? p.rowsFor : appPoolPreview_().types.filter(t => t.ok).map(t => ({ scope: 'reliability:' + t.type, value: t.pooledR, precision: t.precision, nClients: t.plans }));
   if (!rowsFor.length) throw new Error('事前分布を作れる情報源がまだありません（計画が ' + APP_POOL_MIN_PLANS + ' つ以上要ります）。');
-  const remaining = p && p.remaining ? p.remaining.slice() : appReadTable_('PLANS').filter(x => x.state !== 'ARCHIVED').map(x => x.plan_id);
+  const remaining = p && p.remaining ? p.remaining.slice() : appReadTable_('PLANS').filter(x => x.state !== 'ARCHIVED' && !appYearIsFrozen_(x.fy)).map(x => x.plan_id);
   const done = (p && p.done) || [];
   const header = APP_ENGINE_SHEETS.POOL_PRIOR.header;
   const col = h => header.indexOf(h);
@@ -181,6 +181,7 @@ function appPoolApply_(ctx, p) {
     appWithLock_(() => {
       appJournalRecover_(ctx);
       const plan = appPlanOf_(planId);
+      if (appYearIsFrozen_(plan.fy)) { done.push({ planId: planId, skipped: true }); return; }   // 締めた年度の計画は書けない（読み取りの計算の材料としては使い続ける）
       const scratch = appWorkScratch_(plan);
       let st = null;
       do { st = appScratchBuildStep_(scratch, planId, ['POOL_PRIOR'], st && st.state, new Date().getTime() + 60000); } while (!st.complete);

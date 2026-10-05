@@ -51,7 +51,7 @@ const deny = (env, code, extra, re) => assert.throws(() => env.call(code, extra)
 const jobProps = (env) => env.run(`appProps_().getKeys().filter(k => k.indexOf('APP_JOB_') === 0)`).length;
 
 // 仕様の静的な表（実装から推測しない。変更するときはこの表を先に合わせる）
-const JOB_KINDS_PUBLIC = ['FORECAST.RUN', 'PLAN.EDIT', 'PLAN.RUN', 'PLAN.CREATE', 'LEARN.POOL', 'SYSTEM.RECOVER'];
+const JOB_KINDS_PUBLIC = ['FORECAST.RUN', 'PLAN.EDIT', 'PLAN.RUN', 'PLAN.CREATE', 'LEARN.POOL', 'YEAR.CLOSE', 'SYSTEM.RECOVER'];
 const JOB_KINDS_INTERNAL = ['FORECAST.RUN_CALC', 'FORECAST.RUN_SAVE', 'PLAN.RUN_CALC', 'PLAN.RUN_SAVE', 'PLAN.CREATE_SAVE'];
 const EDIT_ACTIONS = ['INPUT.SAVE', 'BUDGET.SAVE', 'INSIGHT.SAVE', 'REVIEW.DECIDE', 'SETUP.PEOPLE'];
 const RUN_ACTIONS = ['IMPORT.SALES', 'IMPORT.ACTUALS', 'SALES.AGGREGATE', 'AI.RESEARCH',

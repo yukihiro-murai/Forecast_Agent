@@ -50,9 +50,10 @@ function appVersionList_(ctx, input) {
   const official = versions.filter(v => v.state === 'APPROVED')[0] || null;
   const pending = versions.filter(v => v.state === 'SUBMITTED')[0] || null;
   const inputHash = appPlanInputHash_(plan.plan_id);
-  return { planId: plan.plan_id, current: appPlanNumbers_(plan.plan_id), inputHash: inputHash, versions: versions, official: official, pending: pending,
+  const frozen = appYearIsFrozen_(plan.fy);
+  return { planId: plan.plan_id, frozen: frozen, current: appPlanNumbers_(plan.plan_id), inputHash: inputHash, versions: versions, official: official, pending: pending,
     pendingChanged: !!pending && pending.inputHash !== inputHash,
-    can: { submit: appHasRole_(ctx.roles, 'PLANNER', plan.client_id), approve: appHasRole_(ctx.roles, 'APPROVER', plan.client_id) }, me: ctx.actor };
+    can: { submit: appHasRole_(ctx.roles, 'PLANNER', plan.client_id) && !frozen, approve: appHasRole_(ctx.roles, 'APPROVER', plan.client_id) && !frozen }, me: ctx.actor };
 }
 
 /** 今の予測と予算を、公式版として出す（承認待ち）。前の承認待ちは取り下げる */
@@ -61,7 +62,7 @@ function appVersionSubmit_(ctx, input) {
   appPlanCheckArgs_([note]);
   return appWithLock_(() => {
     if (appJournalPending_()) throw new Error('データ本体の保存が途中で止まっています。予測の画面の「保存の続きを書く」を先に行ってください。');
-    const plan = appPlanOf_(input && input.planId);
+    const plan = appRequireOpenPlan_(input && input.planId);   // 締めた年度には版を出せない（所有者でも同じ）
     const nums = appPlanNumbers_(plan.plan_id);
     if (!nums || nums.annual.p50 === null) throw new Error('予測がまだありません。予測を実行してから出してください。');
     const inputHash = appPlanInputHash_(plan.plan_id);
@@ -101,7 +102,7 @@ function appVersionDecide_(ctx, input) {
     if (input && input.rowVersion !== undefined && input.rowVersion !== null && input.rowVersion !== '' && Number(input.rowVersion) !== Number(v.row_version)) {
       throw new Error('ほかの人が先に更新しました。画面を読み直してから、もう一度選んでください。');
     }
-    const plan = appPlanOf_(v.plan_id);
+    const plan = appRequireOpenPlan_(v.plan_id);   // 締めた年度の版は承認・却下できない
     const now = appNowIso_();
     const superseded = [];
     if (decision === 'APPROVED') {

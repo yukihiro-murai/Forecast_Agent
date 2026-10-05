@@ -32,6 +32,8 @@ function appJobSpec_(kind) {
     // 全計画の情報源の信頼度から事前分布を作り、各計画の POOL_PRIOR に書く（旧来の C-1 の提案が使う）: 管理者
     'LEARN.POOL': { minRole: 'ADMIN', label: '学習の事前分布' },
     'PLAN.CREATE_SAVE': { minRole: 'ADMIN', label: '計画の作成', internal: true },
+    // 年度を締める（YearClose.js: 控えをアーカイブに置き、検証できた年度だけ読み取り専用にする。元の行は動かさない）: 管理者
+    'YEAR.CLOSE': { minRole: 'ADMIN', label: '年度を締める' },
     // 途中で止まった保存の続きを、控え（Journal.js）のとおりに書く。予算策定担当以上（控えは、権限を確かめて始めた保存のもの）
     'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' }
   };
@@ -118,6 +120,11 @@ function appJobExecute_(ctx, job) {
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
         after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
+    case 'YEAR.CLOSE':
+      return appAudited_(ctx, 'YEAR.CLOSE', { entityType: 'FISCAL_YEAR', entityId: 'FY' + p.fy,
+        detail: { fy: p.fy, jobId: job.id },
+        after: res => ({ fy: res.fy, state: res.state, already: res.already, planCount: res.planCount, rowCount: res.rowCount, bytes: res.bytes }) },
+        () => appYearClose_(ctx, p, job));
     case 'LEARN.POOL':
       return appAudited_(ctx, 'LEARN.POOL', { entityType: 'SYSTEM', detail: { jobId: job.id, remaining: p.remaining ? p.remaining.length : null },
         after: res => (res.__next ? { next: res.__next.kind, done: res.__next.payload.done.length, remaining: res.__next.payload.remaining.length } : { written: res.written, plans: res.plans }) },
@@ -216,13 +223,25 @@ function appJobClientPayload_(payload) {
 
 function appStartJob_(ctx, input) {
   const kind = String(input && input.kind || '');
-  appJobSpec_(kind);
+  const spec = appJobSpec_(kind);
   if (!appIsSetUp_()) throw new Error('初期設定がまだです。');
   return appWithLock_(() => {
     appCleanupJobs_();
     appExpireQueuedJobs_();
     const busy = appJobList_().filter(j => j.status === 'QUEUED' || (j.status === 'RUNNING' && !appJobIsStale_(j)));
     if (busy.length) throw new Error('ほかの処理（' + appJobSpec_(busy[0].kind).label + '）が終わるまでお待ちください。');
+    const payload = input && input.payload;
+    if (kind === 'YEAR.CLOSE') {
+      const fy = Number(payload && payload.fy);
+      if (!Number.isInteger(fy) || fy < 2000 || fy > 2100) throw new Error('年度を 4 桁の数で選んでください。');
+      if (fy >= appFy_(new Date())) throw new Error('今年度とこれからの年度は締められません。');
+      if (!/^[a-f0-9]{64}$/.test(String(payload && payload.inputHash || ''))) {
+        throw new Error('締める前に「内容を確認」で年度の控えの指紋を確かめてください。');
+      }
+    } else if (spec.planScoped) {
+      // 計画に書く処理は、年度が締められていたら待ち行列に入れる前に止める
+      appRequireOpenPlan_(payload && payload.planId);
+    }
     const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
@@ -363,6 +382,8 @@ function appRunJob_(id) {
     const clientId = spec.planScoped ? appJobPlanClient_(job.payload) : undefined;
     const allowed = appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId);
     if (!allowed) throw new Error('この操作をする権限がありません。');
+    // 計画に書く処理（続きの段・内部の段も）は、年度が締められていたら始める前に止める
+    if (spec.planScoped) appRequireOpenPlan_(job.payload && job.payload.planId);
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {
       // 続きの処理: 次の処理を待ち行列に入れ、この処理の結果は「続きあり」にする

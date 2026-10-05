@@ -285,6 +285,9 @@ const ends = (env, re) => env.audit().filter((a) => re.test(a.action) && a.phase
     APP_STORE_CACHE_ = {};
     const def = APP_TABLES.ENG_ROWS;
     const mk = (p, r) => { const o = {}; def.columns.forEach(c => o[c] = ''); o.plan_id = p; o.sheet = 'X'; o.row_no = String(r); o.col_from = '1'; o.cells_json = '[]'; return o; };
+    const pd = APP_TABLES.PLANS.columns;   // 試しの計画 A・B はデータ本体にも置く（年度の分からない計画への書き込みは止まるため）
+    const pmk = (p) => { const o = {}; pd.forEach(c => o[c] = ''); o.plan_id = p; o.fy = String(appFy_(new Date())); o.state = 'ACTIVE'; return o; };
+    appInsertRows_('PLANS', [pmk('A'), pmk('B')]);
     appInsertRows_('ENG_ROWS', [mk('A', 1), mk('A', 2), mk('A', 3), mk('B', 1), mk('B', 2)]);
     const op = { table: 'ENG_ROWS', mode: 'replacePlan', planId: 'A', sheets: ['X'], rows: [mk('A', 1)] };
     const sh = appTableSheet_('ENG_ROWS', false);

@@ -6,8 +6,9 @@
  * 版 4（段階2-3）で、予測のほかの保存・実行（入力・予算・検証・四半期レビューなど）の記録（PLAN_ACTIONS）を足した。
  * ENG_* の列は旧来のシートの見出しと同じ（Legacy.js の APP_ENGINE_SHEETS から作る）。値は型ごと文字列にして持つ（raw）。
  * 版 8（2026-10-05）で、旧ブックからの取り込みの記録（IMPORT_BATCHES）を外した（このアプリだけを使う。取り込みの機能も外した）。
+ * 版 9（2026-10-05）で、年度の締めの記録（YEAR_CLOSURES）を足した。行は元の計画の行を動かさず、年度 1 行を足すだけ。
  */
-const APP_SCHEMA_VERSION = 8;
+const APP_SCHEMA_VERSION = 9;
 
 /**
  * 使わなくなった表。データ本体のシートは消さずに隠す（中身はそのまま。バックアップにも残る）。
@@ -101,6 +102,12 @@ const APP_TABLES = {
     key: ['run_id', 'ym'],
     columns: ['run_id', 'plan_id', 'ym', 'p10', 'p50', 'p90', 'obj_p10', 'obj_p50', 'obj_p90'],
     types: { p10: 'num', p50: 'num', p90: 'num', obj_p10: 'num', obj_p50: 'num', obj_p90: 'num' }
+  },
+  YEAR_CLOSURES: {
+    // 年度の締め 1 回（追記のみ。元の計画の行は動かさない）。年度の控えをアーカイブに置き、検証できた年度だけ CLOSED にする
+    key: ['fy'],
+    columns: ['fy', 'state', 'file_id', 'snapshot_sha256', 'plan_count', 'row_count', 'bytes', 'closed_at', 'closed_by'],
+    types: { plan_count: 'int', row_count: 'int', bytes: 'int' }
   }
 };
 

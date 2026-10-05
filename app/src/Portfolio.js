@@ -37,6 +37,7 @@ function appPlanCreateCheck_(p) {
   if (!clientName) throw new Error('クライアントを選んでください。');
   if (clientName.length > 100) throw new Error('クライアントの名前が長すぎます。');
   if (!fy || fy < 2000 || fy > 2100 || Math.floor(fy) !== fy) throw new Error('年度（FY）を 4 桁の数で入れてください。');
+  appRequireOpenYear_(fy);   // 締めた年度には、新しい計画を作れない（組み立て・保存の両方で確かめる）
   if (!people.length) throw new Error('担当者を 1 人以上入れてください。');
   if (people.some(x => x.length > 40)) throw new Error('担当者の名前が長すぎます。');
   appPlanCheckArgs_([clientName].concat(people));
@@ -101,7 +102,7 @@ function appPlanCreateSave_(ctx, p) {
 function appListPlans_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   return appReadTable_('PLANS').map(p => {
-    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state };
+    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state, frozen: appYearIsFrozen_(p.fy) };
   });
 }
 

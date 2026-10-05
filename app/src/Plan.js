@@ -175,11 +175,12 @@ function appPlanView_(ctx, planId) {
   const plan = appPlanOf_(planId);
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   const roles = ctx.roles || [];
+  const frozen = appYearIsFrozen_(plan.fy);
   const pending = appJournalPending_();
   if (pending) {
     // 保存が途中で止まっている間は、表どうしが食い違っていることがあるので組み立てない（続きを書くまで待ってもらう）
-    return { plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy },
-      pendingWrite: { label: pending.label, at: pending.at }, can: { plan: appHasRole_(roles, 'PLANNER'), approve: false, admin: appHasRole_(roles, 'ADMIN') },
+    return { plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen },
+      pendingWrite: { label: pending.label, at: pending.at }, can: { plan: appHasRole_(roles, 'PLANNER') && !frozen, approve: false, admin: appHasRole_(roles, 'ADMIN') && !frozen },
       actions: [], recent: [], boot: null };
   }
   const inputHash = appPlanInputHash_(plan.plan_id);
@@ -202,12 +203,12 @@ function appPlanView_(ctx, planId) {
     if (view.builtMs > 20000) appRunLog_({ requestId: ctx.requestId, kind: 'PLAN.VIEW', status: 'SLOW', durationMs: view.builtMs, detail: { planId: plan.plan_id } });
   }
   return Object.assign({
-    plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy },
+    plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen },
     inputHash: inputHash,
     can: {
-      plan: appHasRole_(roles, 'PLANNER', plan.client_id),
-      approve: appHasRole_(roles, 'APPROVER', plan.client_id),
-      admin: appHasRole_(roles, 'ADMIN')
+      plan: appHasRole_(roles, 'PLANNER', plan.client_id) && !frozen,
+      approve: appHasRole_(roles, 'APPROVER', plan.client_id) && !frozen,
+      admin: appHasRole_(roles, 'ADMIN') && !frozen
     },
     sourceReady: !!appSettingValue_('source.zac_spreadsheet'),
     actions: Object.keys(APP_PLAN_ACTIONS).map(k => ({ action: k, kind: APP_PLAN_ACTIONS[k].kind, label: APP_PLAN_ACTIONS[k].label,

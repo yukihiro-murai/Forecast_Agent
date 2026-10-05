@@ -311,6 +311,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
 var S = { view: 'home', dir: null, settings: null, audit: null, auditQ: '', health: null, pending: 0, writing: false,
+  year: { fy: '', preview: null, loading: false },   // 年度の締め（状態の画面）: 選んだ年度と、確かめた控えの指紋
   fc: { plans: null, planId: '', data: null, view: null, tab: 'forecast', inputKind: 'product', draft: {}, inputDirty: {}, budget: {}, ins: {}, dec: {} } };
 
 function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -371,13 +372,14 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiHome: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiHome: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1, apiYearPreview: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = {
   'FORECAST.RUN': '予測の準備をしています（1/3 データの組み立て）', 'FORECAST.RUN_CALC': '予測を計算しています（2/3）', 'FORECAST.RUN_SAVE': '予測を保存しています（3/3）',
   'SYSTEM.RECOVER': '保存の続きを書いています',
-  'LEARN.POOL': '学習の事前分布を各計画に書いています', 'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
+  'LEARN.POOL': '学習の事前分布を各計画に書いています', 'YEAR.CLOSE': '年度を締めています',
+  'PLAN.CREATE': '計画を作っています（1/2 シートの準備）', 'PLAN.CREATE_SAVE': '計画を作っています（2/2 保存）' };
 var PLAN_STEP = { 'PLAN.RUN': '準備しています（1/3 データの組み立て）', 'PLAN.RUN_CALC': '実行しています（2/3）', 'PLAN.RUN_SAVE': '保存しています（3/3）' };
 /** 処理の表示名（計画への保存・実行は操作の名前で） */
 function jobLabel(j){
@@ -404,6 +406,8 @@ var JOB_DONE = {
   'PLAN.RUN_SAVE': function(r){ S.view = 'forecast'; toast(fcActionLabel(r.action) + ' が終わりました'); loadForecast(r.planId, true); },
   'LEARN.POOL': function(r){ toast('事前分布を ' + r.plans.length + ' 計画に入れました'); S.pfPool = null; },
   'PLAN.CREATE_SAVE': function(r){ toast(r.clientName + ' FY' + r.fy + ' の計画を作りました'); S.pf = null; S.fc.plans = null; S.fc.planId = r.planId; S.fc.tab = 'steps'; go('forecast'); },
+  'YEAR.CLOSE': function(r){ S.year = { fy: '', preview: null, loading: false }; S.fc.plans = null;   // 計画の一覧の「締め済み」も新しくする
+    toast(r && r.already ? 'FY' + r.fy + ' はすでに締め済みです' : 'FY' + r.fy + ' を締めました（元の行は残したまま読み取り専用です）'); go('health'); },
   'SYSTEM.RECOVER': function(r){ toast(r && r.nothing ? '書きかけの保存はありませんでした' : '保存の続きを書きました'); if (S.view === 'forecast' && S.fc.planId) loadForecast(S.fc.planId, true); }
 };
 function startJob(kind, payload){
@@ -836,8 +840,9 @@ function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
   if (!f.plans) return '<h1>予測</h1><div class="card note">読み込み中…</div>';
   if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。' + (B.user.isAdmin ? '「計画の一覧」の「計画を作る」で作ってください。' : '管理者が計画を作ると、ここで見られます。'));
-  var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + '</option>'; }).join('') + '</select>' : '';
-  var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '') + '</h1>' + sel + '</div>';
+  var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + (p.frozen ? '（締め済み）' : '') + '</option>'; }).join('') + '</select>' : '';
+  var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '')
+    + (d && (d.plan.frozen || (v && v.plan && v.plan.frozen)) ? ' <span class="chip warn" data-tip="この年度は締め済みです。元の行は残したまま、読み取り専用です">凍結</span>' : '') + '</h1>' + sel + '</div>';
   if (v && v.pendingWrite) return html + fcPendingBox(v);
   html += '<div class="tabs" role="tablist">' + FC_TABS.map(function(t){ return '<button class="tab' + (f.tab === t[0] ? ' on' : '') + '" role="tab" aria-selected="' + (f.tab === t[0]) + '" onclick="fcTab(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>';
   var wait = fcWaitBox();
@@ -1220,7 +1225,7 @@ function viewHealth(){
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table></div>'
     + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button>' + tip('初期設定をもう一度実行します（ある表はそのまま）') + '</div>' : '') + '</div>'
-    + hlAuditCard(a) + hlHousekeepingCard(h.housekeeping, h)
+    + hlAuditCard(a) + hlHousekeepingCard(h.housekeeping, h) + hlYearCard(h.years)
     + '<div class="card"><h2>バックアップ</h2><div class="row c mt0">' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>')
     + (b.ageHours !== null && b.ageHours !== undefined ? (b.ageHours > 26 ? '<span class="chip warn">最新は ' + b.ageHours + ' 時間前</span>' : '<span class="chip ok">最新は ' + b.ageHours + ' 時間前</span>') : '')
     + '<span class="meta" data-tip="新しい ' + (b.keep || 14) + ' 世代を残します。月の最初の写しは、アーカイブのフォルダに月ごとに残します">' + (b.count || 0) + ' 世代・最新 ' + esc(b.latest || 'なし') + '</span></div>'
@@ -1251,9 +1256,50 @@ function hlHousekeepingCard(k, h){
   return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiRunHousekeeping\', [], function(r){ toast(r.ok ? \'手入れが終わりました\' : \'手入れで要確認があります\', !r.ok); go(\'health\'); })">今すぐ手入れする</button>'
     + tip('古い処理の記録とトリガーの片付け・記録の鎖の確認・前の年度より古いログをアーカイブへ・月次の写し。どれも消しません') + '</div></div>';
 }
+/** 年度の締め（管理者だけ。締めた年度は、元の行を残したまま読み取り専用になる。元に戻す操作は無い） */
+function hlYearCard(y){
+  if (!B.user.isAdmin) return '';
+  var card = function(inner){ return '<div class="card"><div class="card-head"><h2>年度の締め' + tip('確かめた年度の控えをアーカイブに残し、その年度を読み取り専用にします。元の計画の行は動かさず消しません。締める前に、その年度の全部の計画に公式版が要ります。元に戻す操作はありません') + '</h2></div>' + inner + '</div>'; };
+  if (!y || y.error) return card('<p class="note">年度の一覧を読めません' + (y && y.error ? '（' + esc(y.error) + '）' : '') + '。</p>');
+  var cur = y.currentFy;
+  var pastYears = (y.years || []).filter(function(x){ return x.fy < cur; });
+  var closed = pastYears.filter(function(x){ return x.state !== 'OPEN'; });
+  var sel = S.year.fy;
+  if (!pastYears.some(function(x){ return String(x.fy) === sel; })) { sel = pastYears.length ? String(pastYears[0].fy) : ''; S.year.fy = sel; S.year.preview = null; }
+  var pv = S.year.preview && Number(S.year.preview.fy) === Number(sel) ? S.year.preview : null;
+  var busy = S.year.loading || !!S.job;   // ほかの処理が動いている間も締められない（裏側の busy 判定と同じ）
+  var ctl = !pastYears.length
+    ? '<span class="chip off" data-tip="締められる年度（今年度より前で、まだ締めていない年度）がありません">締められる年度なし</span>'
+    : '<select id="yc_fy" class="inp sm" style="width:160px;min-height:44px" onchange="ycFyChange(this.value)">'
+      + pastYears.map(function(x){ return '<option value="' + x.fy + '"' + (String(x.fy) === sel ? ' selected' : '') + '>FY' + x.fy + '（' + x.planCount + ' 計画' + (x.state === 'OPEN' ? '' : '・締め済み') + '）</option>'; }).join('') + '</select>'
+      + '<button class="btn btn-ghost" style="width:160px" ' + (busy || !sel ? 'disabled ' : '') + 'onclick="ycPreview()">内容を確認</button>'
+      + '<button class="btn" style="width:160px" ' + (!(pv && pv.canClose) || busy ? 'disabled ' : '') + 'onclick="ycClose()">年度を締める</button>';
+  var info = '';
+  if (S.year.loading) info = '<span class="meta">確かめています…</span>';
+  else if (pv) info = pv.canClose
+    ? '<span class="chip ok">締められます</span><span class="meta">FY' + esc(pv.fy) + '・' + pv.planCount + ' 計画・' + pv.rowCount + ' 行・' + yen(pv.bytes) + ' バイト</span>'
+    : '<span class="chip warn" data-tip="' + esc(pv.reason || '締められません') + '">締められません</span><span class="meta">' + esc(pv.reason || '') + '</span>';
+  return card('<div class="row c mt0" style="gap:12px">' + ctl + '</div>'
+    + (info ? '<div class="row c mt8" style="gap:12px">' + info + '</div>' : '')
+    + (closed.length ? '<div class="row c mt8">' + closed.map(function(x){ return '<span class="chip ' + (x.state === 'CLOSED' ? 'off' : 'ng') + '" data-tip="' + (x.state === 'CLOSED' ? '締め済み（読み取り専用・控えはアーカイブに残っています）' : '記録が壊れています（凍結のまま。管理者に連絡）') + '">FY' + x.fy + '：' + (x.state === 'CLOSED' ? '締め済み' : '要確認') + '</span>'; }).join('') + '</div>' : ''));
+}
+function ycFyChange(v){ S.year = { fy: String(v), preview: null, loading: false }; render(); }
+function ycPreview(){
+  var fy = $('yc_fy') && $('yc_fy').value;
+  if (!fy) return;
+  S.year = { fy: String(fy), preview: null, loading: true };
+  render();
+  call('apiYearPreview', [{ fy: Number(fy) }], function(r){ if (S.year.fy === String(fy)) S.year = { fy: String(fy), preview: r, loading: false }; }, function(){ if (S.year.fy === String(fy)) S.year = { fy: String(fy), preview: { fy: Number(fy), canClose: false, reason: '確かめられませんでした' }, loading: false }; });
+}
+function ycClose(){
+  var pv = S.year.preview;
+  if (!pv || !pv.canClose || Number(pv.fy) !== Number(S.year.fy)) return;
+  if (!confirm('FY' + pv.fy + ' を締めます（' + pv.planCount + ' 計画・' + pv.rowCount + ' 行の控えを残し、読み取り専用にします）。元の行は消えませんが、元に戻す操作はありません。よいですか？')) return;
+  startJob('YEAR.CLOSE', { fy: Number(pv.fy), inputHash: pv.inputHash });
+}
 
 render();
-if (B.activeJob) { if (/^(PLAN|FORECAST\.RUN)/.test(B.activeJob.kind)) go('forecast'); render(); watchJob(B.activeJob); }
+if (B.activeJob) { if (/^(PLAN|FORECAST\.RUN)/.test(B.activeJob.kind)) go('forecast'); else if (/^YEAR\./.test(B.activeJob.kind)) go('health'); render(); watchJob(B.activeJob); }
 </script>
 </body>
 </html>

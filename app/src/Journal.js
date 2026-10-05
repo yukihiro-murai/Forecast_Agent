@@ -28,6 +28,9 @@ function appJournalPending_() {
  * 途中で例外になったら控えは残る（次の書き込みの前に appJournalRecover_ が書き直す）
  */
 function appJournalRun_(ctx, label, planId, ops) {
+  // 締めた年度の計画・年度を触る書き込みは、書きかけの書き直しより先に止める（新しい控えを置くことも控えの書き直しもしない）
+  if (planId) appRequireOpenYear_(appYearPlanFyOf_(planId, ops));
+  appRequireOpenJournalOps_(ops);
   appJournalRecover_(ctx);   // 前の書きかけがあれば、先に書き終える
   const id = appId_('JNL');
   const body = JSON.stringify({ id: id, label: label, planId: planId || '', actor: ctx.actor, createdAt: appNowIso_(), ops: ops });
@@ -52,6 +55,8 @@ function appJournalRecover_(ctx) {
     throw new Error('データ本体の保存が途中で止まっていますが、その控え（' + (p.label || '') + '）が読めません。管理者に連絡してください。');
   }
   const t0 = new Date().getTime();
+  if (body.planId) appRequireOpenYear_(appYearPlanFyOf_(body.planId, body.ops || []));   // 控えが作られた後に年度が締められていたら、書き直しも止める（控えと記録はそのまま残る）
+  appRequireOpenJournalOps_(body.ops || []);
   const written = appJournalApply_(body.ops || []);
   appJournalFinish_(p.fileId);
   appRunLog_({ requestId: (ctx && ctx.requestId) || '', kind: 'JOURNAL.RECOVER', status: 'OK', durationMs: new Date().getTime() - t0,
@@ -67,6 +72,7 @@ function appJournalFinish_(fileId) {
 
 /** ops を順に書く（何度書いても同じ結果になる） */
 function appJournalApply_(ops) {
+  appRequireOpenJournalOps_(ops);   // 締めた年度の計画の行は、どの道を通っても書けない
   const written = {};
   ops.forEach(op => {
     const prev = written[op.table];
