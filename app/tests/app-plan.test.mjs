@@ -276,7 +276,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // 旧来の計算が確認を求めたら、確認の窓（ブラウザが黙って「やめる」にすることがある）ではなく、画面の中のカードで聞く
   vm.runInContext(`S.fc.tab = 'eval'; toast = function(){}; JOB_DONE['FORECAST.RUN_CALC']({ needConfirm: { key: 'extreme', title: '極端な入力', message: '増減率 +80%' } }, { planId: S.fc.planId, confirms: [] })`, ui);
   const cf = vm.runInContext(`viewForecast()`, ui);
-  assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま予測を実行/, '確認のカードが予測と予算のタブに出る');
+  assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
   // 検証のタブの、精度の推移と学習の影
