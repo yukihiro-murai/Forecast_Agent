@@ -14,7 +14,7 @@ python3 build.py
 ```
 
 Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`）で PNG にする。確認用 HTML は一時ディレクトリに作り、ここには残さない。
-`build.py` は `Forecast_WebApp.js` の「タブのアイコン」区間（`FORECAST_FAVICON_URL`）と `Forecast_WebAppUI.html` の「キャラの絵」区間（`CHAR_SVG` / `YOMI_POSE`）も書き換える。
+`build.py` は新アプリの `app/src/Assets.js`（タブのアイコンと画面のキャラ）をファイルごと作り、計算の元 `Forecast_WebApp.js` の「タブのアイコン」区間（`FORECAST_FAVICON_URL`）も書き換える（変わったら `node app/tools/build-engine.mjs`）。旧画面 `Forecast_WebAppUI.html` は 2026-10-05 に `archive/vnext-2026-10-05/` へ移した。
 
 ## キャラ一覧
 
@@ -61,11 +61,11 @@ Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`�
 
 タブのアイコン＝よみ、ホーム「次の一手」＝よみ（通常案内／空模様が変わった月は変化発見）、検証画面の上部＝最新月の天気キャラ、
 データが無いときの空の表示＝未確認・霧、処理中＝よみ（観測中）、完了の通知＝よみ（確認完了）。
-表示条件と実装場所は `CHARACTER_DESIGN_STATUS.md` の「表示条件」「画面への配置」。絵は `Forecast_WebAppUI.html` の「キャラの絵」区間（`build.py` が書き換える）。
+表示条件と実装場所は `CHARACTER_DESIGN_STATUS.md` の「表示条件」「画面への配置」。絵は新アプリの `app/src/Assets.js`（`build.py` が作る）。上の配置は旧画面のときのもの。
 
 ## 画面で使うときの注意
 
-- **GAS のファイルを増やさない。** 管理ハブの複製は、プロジェクトのファイルが `VNEXT_ADMIN_RUNTIME_FILE_TYPES_`（`VNext_ClientRuntimeProvisioning.js`）の 21 ファイルと完全に一致することを検査する。`Characters.html` などを別ファイルとして GAS に足すと複製が止まるため、使うときは既存の HTML（`Forecast_WebAppUI.html`）の中に埋め込むか、許可リストの変更とあわせて行う。タブのアイコンも同じ理由で `Forecast_WebApp.js` の中に置いている。
+- `Characters.html` などの確認用のファイルは GAS に上げない（新アプリの画面で使う絵は `app/src/Assets.js` に入る）。
 - タブのアイコンは `HtmlOutput.setFaviconUrl` で渡す（ページ内の `<link rel="icon">` は Apps Script に無視される）。URL の末尾は `#favicon.png`（拡張子が無い URL は黙って捨てられる）。
 - アニメーションは控えめに（既存の `.charbox` の流儀: ふわっと数回・クリックで再生）。
 

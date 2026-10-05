@@ -11,4 +11,4 @@
 
 どの関数を除いたかは `node app/tools/engine-usage.mjs` の考え方（新アプリが呼ぶ関数から名前でたどり、届かないもの）で決めた。
 新アプリのテスト（`app/tests/app-engine.test.mjs` の 7）が、届かない関数が残っていないことを確かめる。
-`Forecast_WebAppUI.html` は、空模様の判定の元・vNext のテストが使うので、元の場所に残している。
+`Forecast_WebAppUI.html` は 2026-10-05 に vNext と一緒に `archive/vnext-2026-10-05/` へ移した。

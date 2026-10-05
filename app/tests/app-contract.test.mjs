@@ -410,12 +410,10 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const big = { big: 'x'.repeat(50000) };
   const j = JSON.parse(env.run('appJson_(__b)', { __b: big }));
   assert.deepEqual([j.truncated, j.sha256, j.head.length], [true, sha(JSON.stringify(big)), 2000]);
-  // 年度は 4 月始まり・始まりの年で呼ぶ（旧来の計算の getForecastFYStart_ と vNext の vNextFiscalYearForDate_ と同じ）
+  // 年度は 4 月始まり・始まりの年で呼ぶ（旧来の計算の getForecastFYStart_ と同じ）
   assert.deepEqual([env.run('appFy_(new Date(2026, 2, 31))'), env.run('appFy_(new Date(2026, 3, 1))'), env.run('appFy_(new Date(2026, 9, 1))')], [2025, 2026, 2026]);
   const legacy = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
   assert.match(legacy, /function getForecastFYStart_\(fy\) \{\n  return new Date\(Number\(fy\), 3, 1\);/, '旧来の計算は FY N を N 年 4 月から数える');
-  const vnext = await readFile(path.join(repoRoot, 'VNext_Core.js'), 'utf8');
-  assert.match(vnext, /return date\.getMonth\(\) >= 3 \? date\.getFullYear\(\) : date\.getFullYear\(\) - 1;/, 'vNext も始まりの年で呼ぶ');
 }
 
 // ==== 10b. 以前（終わりの年で呼んでいた）のログのファイル名を一度だけ直す ====
