@@ -332,7 +332,11 @@ function appTestSeedPlan_(book) {
 `;
 
 export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) {
-  const state = { active, owner, locks: 0, lockHeld: false, uuid: 0, clock: Date.now() - 1e9, seq: 0 };
+  const state = { active, owner, locks: 0, lockHeld: false, uuid: 0, clock: Date.now() - 1e9, seq: 0,
+    mail: [],          // 送ったメール { to, subject, body }（実際には何も送らない）
+    mailQuota: undefined,   // その日の残りの送信枠（undefined なら十分ある）
+    mailFail: undefined,   // true か関数（宛先ごとに失敗させる）で送信を失敗させる
+    scopeRequests: [] };   // ScriptApp.requireScopes の呼び出しの記録（本物の許可はしない）
   const props = {};
   const cache = {};
   const files = {};
@@ -436,8 +440,22 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       getFolderById: (id) => { if (!files[id] || files[id].kind !== 'folder') throw new Error('no folder ' + id); return files[id]; },
       getFileById: (id) => { if (!files[id] || files[id].kind !== 'file') throw new Error('no file ' + id); return files[id]; },
     },
+    MailApp: {
+      getRemainingDailyQuota: () => (state.mailQuota === undefined ? 500 : state.mailQuota),
+      sendEmail: (to, subject, body) => {
+        const fail = typeof state.mailFail === 'function' ? state.mailFail(to) : state.mailFail;
+        if (fail) throw new Error('メールを送れません（テストで失敗させています）');
+        if (state.mailQuota !== undefined) {
+          if (state.mailQuota <= 0) throw new Error('その日の送信枠がありません（テスト）');
+          state.mailQuota--;
+        }
+        state.mail.push({ to: String(to), subject: String(subject), body: String(body) });
+      },
+    },
     MimeType: { GOOGLE_SHEETS: SHEETS_MIME, PLAIN_TEXT: 'text/plain' },
     ScriptApp: {
+      AuthMode: { FULL: 'FULL' },
+      requireScopes: (mode, scopes) => { state.scopeRequests.push({ mode, scopes: scopes.slice() }); },
       getProjectTriggers: () => triggers.map((t) => ({ getUniqueId: () => t.uid, getHandlerFunction: () => t.handler })),
       newTrigger(handler) {
         const t = { handler, uid: String(9000000000 + (++state.seq)) };

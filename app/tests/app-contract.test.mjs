@@ -68,12 +68,14 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.equal(manifest.timeZone, 'Asia/Tokyo');
   assert.deepEqual(manifest.webapp, { executeAs: 'USER_DEPLOYING', access: 'MYSELF' },
     '社内に開くのは段階2で所有者が決めてから（ここを DOMAIN に変えるときは設計文書 12 章を更新する）');
-  // 外への問い合わせと Google Cloud は A-4 AI 調査（Vertex AI）のため（2026-10-03 村井さん承認）
+  // 外への問い合わせと Google Cloud は A-4 AI 調査（Vertex AI）のため（2026-10-03 村井さん承認）。
+  // メールの送信は毎日の処理の異常を管理者へ知らせるため（2026-10-05 村井さん承認）
   assert.deepEqual([...manifest.oauthScopes].sort(), [
     'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/script.external_request',
     'https://www.googleapis.com/auth/script.scriptapp',
+    'https://www.googleapis.com/auth/script.send_mail',
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/userinfo.email',
   ]);
@@ -467,21 +469,28 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.equal(env.state.lockHeld, false);
 }
 
-// ==== 12. バックアップ（14 世代・古いものはゴミ箱へ・データ本体は触らない） ====
+// ==== 12. バックアップ（14 世代・古いものはアーカイブへ・データ本体は触らない。消さない・ゴミ箱にも送らない） ====
 {
   const env = setUpEnv();
+  const isBackup = (f) => f.kind === 'file' && f.name.startsWith('売上予測アプリ データ バックアップ ');
+  const all = () => Object.values(env.files).filter(isBackup).sort((a, b) => a.created - b.created);
+  const archiveId = () => env.props.APP_ARCHIVE_FOLDER_ID;
   for (let i = 0; i < 16; i++) env.call('apiRunBackup()');
-  const all = env.backups().sort((a, b) => a.created - b.created);
-  assert.equal(all.length, 16);
-  assert.deepEqual(all.map((f) => f.trashed), [true, true, ...Array(14).fill(false)], '新しい 14 世代を残し、古いものはゴミ箱へ（消さない）');
-  assert.ok(all.every((f) => f.name.startsWith('売上予測アプリ データ バックアップ ')));
-  assert.ok(env.sheetsById[all[15].id].getSheetByName('MEMBERS').rows.length === 2, '複製にはデータ本体の表が入る');
+  assert.equal(all().length, 16);
+  const kept = env.backups().sort((a, b) => a.created - b.created);
+  assert.equal(kept.length, 14, '新しい 14 世代はバックアップのフォルダに残す');
+  const archived = all().filter((f) => f.parent === archiveId());
+  assert.deepEqual(archived.map((f) => f.name), all().slice(0, 2).map((f) => f.name), '古いものはアーカイブのフォルダへ移す（消さない・ゴミ箱にも送らない）');
+  assert.ok(all().every((f) => !f.trashed), 'ゴミ箱へは何も送らない');
+  assert.ok(all().every((f) => f.name.startsWith('売上予測アプリ データ バックアップ ')));
+  assert.ok(env.sheetsById[kept[13].id].getSheetByName('MEMBERS').rows.length === 2, '複製にはデータ本体の表が入る');
+  assert.ok(env.sheetsById[archived[0].id].getSheetByName('MEMBERS'), 'アーカイブに移した複製も中身はそのまま');
   assert.equal(env.files[env.props.APP_DATA_SPREADSHEET_ID].trashed, false);
   assert.equal(env.files[env.props.APP_DATA_SPREADSHEET_ID].parent, env.files[env.props.APP_BACKUP_FOLDER_ID].parent, 'データ本体は動かさない');
   assert.equal(env.runLog().filter((r) => r.kind === 'BACKUP' && r.status === 'OK').length, 16, '実行ログに残す');
   const h = env.call('apiHealth()');
-  assert.deepEqual([h.backup.count, h.backup.enabled], [14, false], 'ゴミ箱のものは数えない');
-  assert.equal(h.backup.latest, all[15].name);
+  assert.deepEqual([h.backup.count, h.backup.enabled], [14, false], 'アーカイブへ移したものは数えない');
+  assert.equal(h.backup.latest, kept[13].name);
   // 毎日のトリガー（二重に作らない）
   assert.equal(env.call('apiEnableBackup()').already, false);
   assert.equal(env.call('apiEnableBackup()').already, true);
@@ -492,7 +501,9 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   const uid = env.triggers[0].uid;
   env.as('');
   env.call(`triggerDailyBackup({ triggerUid: '${uid}' })`);
-  assert.equal(env.backups().length, 17);
+  assert.equal(all().length, 17, 'トリガーで 1 つ増える');
+  assert.equal(env.backups().length, 14, '残すのは 14 世代（増えた分はアーカイブへ）');
+  assert.ok(all().every((f) => !f.trashed));
   const last = env.audit().slice(-1)[0];
   assert.deepEqual([last.action, last.result, last.actor_email], ['BACKUP.DAILY', 'OK', OWNER]);
   assert.throws(() => env.call(`triggerDailyBackup({ triggerUid: 'forged' })`), /権限がありません/);
@@ -500,7 +511,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   // ブラウザから社内の人が呼んでも、本人の権限で判定する（UID を知っていても所有者にならない）
   env.as(MEMBER);
   assert.throws(() => env.call(`triggerDailyBackup({ triggerUid: '${uid}' })`), /権限がありません/);
-  assert.equal(env.backups().length, 17);
+  assert.equal(all().length, 17);
 }
 
 // ==== 13. 画面を開く（doGet） ====

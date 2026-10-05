@@ -9,6 +9,7 @@
  *   ⑤ その月の最初のバックアップを、月次としてアーカイブのフォルダに残す
  *   ⑥ データ本体の表を整える（使っていない空の行を減らす・手で書き換えないよう警告つきで保護・タブの色）
  * 結果は実行ログ（RUN）と、状態の画面に出す控え（APP_HOUSEKEEPING）に残す。
+ * 定期の処理（triggerDailyBackup）で異常があった日は、管理者へメールを送る（Notifications.js。正常な日は送らない）。
  */
 const APP_HOUSEKEEPING_PROP = 'APP_HOUSEKEEPING';
 const APP_OPEN_START_GRACE_MS = 15 * 60 * 1000;
@@ -184,12 +185,30 @@ function appHousekeeping_(ctx) {
   return res;
 }
 
-/** 毎日の処理: バックアップ → 手入れ（手入れが失敗してもバックアップの結果は返す） */
+/**
+ * 毎日の処理: バックアップ → 手入れ → 異常があれば管理者へメール（Notifications.js）。
+ * バックアップが失敗しても手入れと知らせは動かし、最後にバックアップの失敗を投げ直す（トリガーの実行は FAILED になる）。
+ * 手入れが失敗してもバックアップの結果は返す。手で動かす入口（apiRunBackup・apiRunHousekeeping）からはメールを送らない。
+ */
 function appDailyMaintenance_(ctx) {
-  const backup = appBackup_(ctx);
+  let backup = null, backupError = null;
+  try { backup = appBackup_(ctx); } catch (e) { backupError = e; appLogError_('BACKUP', e, ctx); }
   let housekeeping;
   try { housekeeping = appHousekeeping_(ctx); } catch (e) { housekeeping = { error: String(e && e.message ? e.message : e) }; appLogError_('HOUSEKEEPING', e, ctx); }
-  return { backup: backup, housekeeping: { ok: housekeeping.ok, problems: housekeeping.problems, error: housekeeping.error } };
+  const st = housekeeping.steps || {};
+  const codes = [];
+  if (backupError) codes.push('BACKUP');
+  if (housekeeping.error || housekeeping.ok === false) codes.push('HOUSEKEEPING');
+  if (st.audit && (st.audit.error || st.audit.ok === false)) codes.push('AUDIT');
+  if (st.openStarts && st.openStarts.count > 0) codes.push('OPEN_STARTS');
+  if (st.journal && st.journal.pending) codes.push('JOURNAL');
+  if (st.errors && st.errors.last24h > 0) codes.push('ERRORS');
+  let notify;
+  try { notify = appNotifyMaintenance_(ctx, codes); }
+  catch (e) { notify = { status: 'FAILED', reason: 'exception', sent: 0 }; Logger.log('管理への知らせに失敗しました'); }
+  const res = { backup: backup, housekeeping: { ok: housekeeping.ok, problems: housekeeping.problems, error: housekeeping.error }, notify: notify };
+  if (backupError) throw backupError;
+  return res;
 }
 
 function appHousekeepingLast_() {
