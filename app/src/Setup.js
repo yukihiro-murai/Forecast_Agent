@@ -80,6 +80,7 @@ function appEnsureTables_(ctx) {
     appInsertRows_('_SCHEMA', missing.map(n => ({ table: n, schema_version: APP_SCHEMA_VERSION, columns_hash: appColumnsHash_(n),
       migrated_at: appNowIso_(), migrated_by: ctx.actor })));
     appProps_().setProperty(APP_PROP.tablesVersion, String(APP_SCHEMA_VERSION));
+    appBumpGen_();
     return made;
   });
 }

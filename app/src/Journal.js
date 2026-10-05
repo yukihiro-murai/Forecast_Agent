@@ -34,6 +34,7 @@ function appJournalRun_(ctx, label, planId, ops) {
   const folderId = appProps_().getProperty(APP_PROP.folderId);
   if (!folderId) throw new Error('初期設定がまだです。');
   const file = DriveApp.getFolderById(folderId).createFile(APP_FILES.journalPrefix + id + '.json', body, MimeType.PLAIN_TEXT);
+  appBumpGen_();   // 書きかけの控えがあることも、画面の中身（保存の続き）に出る
   appProps_().setProperty(APP_JOURNAL_PROP, JSON.stringify({ id: id, fileId: file.getId(), label: label, planId: planId || '', at: appNowIso_() }));
   const written = appJournalApply_(ops);
   appJournalFinish_(file.getId());
@@ -60,6 +61,7 @@ function appJournalRecover_(ctx) {
 
 function appJournalFinish_(fileId) {
   appProps_().deleteProperty(APP_JOURNAL_PROP);
+  appBumpGen_();
   try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) { Logger.log('保存の控えを消せません: ' + (e && e.message ? e.message : e)); }
 }
 

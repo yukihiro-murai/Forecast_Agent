@@ -22,7 +22,8 @@ function appJobSpec_(kind) {
     'FORECAST.RUN_CALC': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     // 計画への保存・実行（Plan.js）: 操作ごとの役割（予算策定担当・承認者）。その計画のクライアントの担当でもよい
-    'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存' },
+    // direct: 最近かかった時間から見て短ければ、トリガーを待たずに頼まれた通信の中で動かす（保存はふつう数十秒。トリガーを待つだけで数十秒かかる）
+    'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存', direct: true },
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
     'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
     'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
@@ -225,6 +226,31 @@ function appStartJob_(ctx, input) {
     const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
+}
+
+/** 頼まれた通信の中で動かしてよい長さ（画面と 1 分以上つながると切れることがある） */
+const APP_JOB_DIRECT_MS = 40 * 1000;
+
+/**
+ * 処理を始める。direct の処理は、最近かかった時間から見て収まるなら、トリガーを待たずにこの通信の中で動かす
+ * （続きの段も収まる限り続ける）。収まらない・初めての処理は、これまでどおりトリガーで動かす。
+ */
+function appStartJobNow_(ctx, input) {
+  const started = appStartJob_(ctx, input);
+  if (!appJobSpec_(input && input.kind).direct) return started;
+  const t0 = new Date().getTime();
+  let id = started.jobId;
+  let last = null;
+  while (id) {
+    const j = appJobGet_(id);
+    if (!j || j.status !== 'QUEUED') break;
+    const past = appJobStageTimes_()[appJobStageKey_(j)];
+    if (!past || !past.length || new Date().getTime() - t0 + Math.max.apply(null, past) * 1.3 + 3000 > APP_JOB_DIRECT_MS) break;
+    try { ScriptApp.getProjectTriggers().forEach(t => { if (String(t.getUniqueId()) === j.triggerUid) ScriptApp.deleteTrigger(t); }); } catch (e) { /* 残ったトリガーは、動いても何もしない */ }
+    last = appRunJob_(id);
+    id = last.nextJobId;
+  }
+  return { jobId: started.jobId, status: last ? (last.nextJobId ? 'QUEUED' : last.status) : started.status, direct: !!last };
 }
 
 /** 処理を待ち行列に入れ、1 回だけ動くトリガーを作る（ロックの中で呼ぶ） */

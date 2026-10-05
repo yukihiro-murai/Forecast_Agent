@@ -21,7 +21,7 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 /** 画面（ブラウザ）から呼べる関数。足すときはここにも足す */
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
-  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
+  'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiHome', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiForecastLatest', 'apiPlanView', 'triggerDailyBackup', 'triggerRunJob'];
 /** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */
 const WRAPPED = ['LegacyEngine.js'];
 
@@ -266,6 +266,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   assert.ok(dir.members.every((x) => !('_row' in x)), '行番号は画面に出さない');
   // 役割の表が壊れていたら付与なし（最小の権限）にする
   env.data().getSheetByName('ROLES').rows[0][2] = 'kind';
+  env.run('appBumpGen_()');   // 表を手で直したときは、次の書き込みか 10 分で読み直す（読んだ結果の控え）
   assert.throws(() => env.call('apiListDirectory()'), /権限がありません/);
   env.as(OWNER);
   assert.equal(env.call('apiBootstrap()').user.isAdmin, true, '所有者は表が壊れていても管理者（直すため）');

@@ -123,6 +123,58 @@ function appStoreForget_(name) {
   if (name) delete APP_STORE_CACHE_.raw[name]; else APP_STORE_CACHE_.raw = {};
 }
 
+// ---- 読んだ結果の控え（実行をまたぐ。CacheService に 6 時間）----
+// データ本体に書くたびに「版の印」（APP_DATA_GEN）を変える。控えは印ごとに分けるので、書いた後に古い結果を返すことはない。
+// 印は書いた「後」に変える（読む側は 印を読む → データを読む の順。書きかけの間に読んだ結果は、古い印の控えになって二度と使われない）。
+// 印が控えから消えたときは新しい印を作る（控えがすべて外れるだけで、古い結果は返さない）。
+const APP_GEN_KEY = 'APP_DATA_GEN';
+const APP_READ_TTL_SEC = 6 * 3600;
+const APP_READ_CHUNK = 30000;   // 1 つの値は 100KB（バイト）まで。日本語は 1 文字 3 バイト
+
+function appNewGen_() { return String(new Date().getTime()) + '-' + Utilities.getUuid().slice(0, 8); }
+
+function appDataGen_() {
+  if (APP_STORE_CACHE_.gen) return APP_STORE_CACHE_.gen;
+  const cache = CacheService.getScriptCache();
+  let g = cache.get(APP_GEN_KEY);
+  if (!g) { g = appNewGen_(); cache.put(APP_GEN_KEY, g, APP_READ_TTL_SEC); }
+  APP_STORE_CACHE_.gen = g;
+  return g;
+}
+
+/** データ本体に書いた後に呼ぶ（読んだ結果の控えをすべて古くする） */
+function appBumpGen_() {
+  delete APP_STORE_CACHE_.gen;
+  try { CacheService.getScriptCache().put(APP_GEN_KEY, appNewGen_(), APP_READ_TTL_SEC); } catch (e) { Logger.log('版の印を変えられません: ' + (e && e.message ? e.message : e)); }
+}
+
+/**
+ * 読むだけの結果を、版の印が同じ間だけ控えから返す。key は結果を決めるもの（人ごとに違う結果なら人も入れる）。
+ * 控えが読めない・大きすぎるときは、そのまま fn() を返す（控えは速くするためだけのもの）
+ */
+function appCachedRead_(key, fn) {
+  const cache = CacheService.getScriptCache();
+  const k = 'RC_' + appSha256Hex_(appDataGen_() + '\u0001' + key).slice(0, 32);
+  try {
+    const n = Number(cache.get(k) || 0);
+    if (n) {
+      let text = '';
+      for (let i = 0; i < n; i++) { const part = cache.get(k + '_' + i); if (part === null) { text = null; break; } text += part; }
+      if (text !== null) return JSON.parse(text);
+    }
+  } catch (e) { /* 控えが壊れていれば読み直す */ }
+  const v = fn();
+  try {
+    const text = JSON.stringify(appSerialize_(v));
+    const parts = Math.max(1, Math.ceil(text.length / APP_READ_CHUNK));
+    if (parts <= 40) {
+      for (let i = 0; i < parts; i++) cache.put(k + '_' + i, text.slice(i * APP_READ_CHUNK, (i + 1) * APP_READ_CHUNK), APP_READ_TTL_SEC);
+      cache.put(k, String(parts), APP_READ_TTL_SEC);
+    }
+  } catch (e) { Logger.log('読んだ結果を控えられません: ' + (e && e.message ? e.message : e)); }
+  return v;
+}
+
 /** これより行の多い表は、計画の行だけを探して読む（少ない表は全部読んで控える方が速い）。テストで差し替える */
 function appPlanReadMinRows_() { return 3000; }
 
@@ -269,6 +321,7 @@ function appInsertRows_(name, objs) {
   const start = sh.getLastRow() + 1;
   if (start + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), Math.max(1000, rows.length));
   sh.getRange(start, 1, rows.length, def.columns.length).setNumberFormat('@').setValues(rows);
+  appBumpGen_();
   return objs;
 }
 
@@ -305,6 +358,7 @@ function appReplaceWhole_(name, rows) {
   appStoreForget_(name);
   appWriteBody_(sh, next.slice(head, next.length - tail), def.columns.length, head, next.length > old.length);
   if (old.length > next.length) sh.getRange(next.length + 2, 1, old.length - next.length, def.columns.length).clearContent();
+  if (next.length - head - tail > 0 || old.length > next.length) appBumpGen_();
   return { rows: rows.length, written: next.length - head - tail };
 }
 
@@ -372,5 +426,6 @@ function appUpdateByKey_(name, keyVals, patch, expectedVersion, actor) {
   const sh = appTableSheet_(name, false);
   appStoreForget_(name);
   sh.getRange(cur._row, 1, 1, def.columns.length).setNumberFormat('@').setValues([appObjectToRow_(def, after)]);
+  appBumpGen_();
   return { before: appStripRow_(cur), after: after };
 }

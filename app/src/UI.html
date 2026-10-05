@@ -237,6 +237,31 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .row.foot{margin-top:var(--s5);padding-top:var(--s4);border-top:1px solid var(--line)}
 .tbl.mt12{margin-top:var(--s3)}
 
+/* ---- ホーム（最重要のことだけ）。よみが状況を読み解いて話す ---- */
+.dash{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(320px,1fr);gap:var(--s6);align-items:start}
+.dash > div{min-width:0}   /* 表が広くても、並びの幅を押し広げない（表は表の中で横に送る） */
+.dash > div > .card:last-child{margin-bottom:0}
+.hero{display:flex;gap:var(--s5);align-items:flex-start}
+.hero .charbox{width:96px;height:96px;flex:0 0 96px}
+.hero .bubble{font-size:var(--fs-h3);line-height:1.6;padding:var(--s4) var(--s5)}
+.hero .bubble::before{top:36px}
+.hero .hi{display:block;font-size:var(--fs-s);color:var(--primary-dark);margin-bottom:var(--s1)}
+.hero .say-act{margin-top:var(--s3)}
+.todo{list-style:none;display:grid;gap:var(--s2);margin-top:var(--s5)}
+.todo li{display:flex;align-items:center;gap:var(--s3);min-height:52px;padding:6px 8px 6px var(--s4);border:1px solid var(--line-soft);border-radius:var(--radius-s);background:#fff}
+.todo li .t{flex:1;min-width:0;font-size:var(--fs-m)}
+.todo li .btn{flex:0 0 auto}
+.lvl{width:10px;height:10px;border-radius:50%;flex:0 0 10px}
+.lvl.ng{background:var(--error)}.lvl.warn{background:#E3A23B}.lvl.info{background:var(--primary)}.lvl.ok{background:var(--navy)}
+.kpis.k5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.kpi .wx{float:right;width:44px;height:44px;margin:-4px -4px 0 4px}
+.kpi .wx svg{width:100%;height:100%;display:block}
+.recent{list-style:none}
+.recent li{display:grid;grid-template-columns:100px minmax(0,1fr);gap:var(--s3);padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:var(--fs-s)}
+.recent li:last-child{border-bottom:none}
+.recent .who{color:var(--muted)}
+@media (max-width:1180px){.dash{grid-template-columns:1fr}.kpis.k5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
 /* ---- スマホ: 左のメニューは画面の下へ ---- */
 @media (max-width:760px){
   .topbar{padding:0 var(--s4)}
@@ -251,7 +276,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .field{flex:1 1 100%}
   .toast{min-width:0}
   .viewtitle h1,h1{font-size:22px}
-  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3)}
+  .kpis,.kpis.k5{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3)}
+  .hero .charbox{width:64px;height:64px;flex-basis:64px}
+  .hero .bubble{font-size:var(--fs-b)}
   .kpi{padding:var(--s3) var(--s4)}
   .kpi .v{font-size:var(--fs-h3)}
   .viewtitle .vtools{flex:1 1 100%;margin-left:0}   /* 題の右の道具（計画を選ぶ欄）は次の行に幅いっぱいで */
@@ -335,7 +362,7 @@ function busy(delta){
   if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
+var READS = { apiHome: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1 };
 
 // ---- 時間のかかる処理（裏で動かし、数秒ごとに状態を尋ねる。通信が長く続いて切れるのを避ける） ----
 var JOB_LABEL = {
@@ -374,13 +401,13 @@ function startJob(kind, payload){
   if (S.job || S.starting) return;   // すでに動いている・始めている途中なら何もしない
   S.starting = true;
   S.lastError = null;
-  call('apiStartJob', [{ kind: kind, payload: payload }], function(r){ S.starting = false; watchJob({ jobId: r.jobId, kind: kind, payload: payload, status: r.status }); },
+  call('apiStartJob', [{ kind: kind, payload: payload }], function(r){ S.starting = false; watchJob({ jobId: r.jobId, kind: kind, payload: payload, status: r.status, direct: r.direct }); },
     function(){ S.starting = false; });
 }
 function watchJob(j){
   S.job = { id: j.jobId, kind: j.kind, payload: j.payload || {}, status: j.status, started: Date.now(), fails: 0 };
   busy(0);
-  setTimeout(pollJob, 2500);
+  setTimeout(pollJob, j.direct ? 0 : 2500);   // その場で動いた処理は、すぐ結果を受け取る
 }
 function pollJob(){
   var j = S.job;
@@ -459,6 +486,7 @@ function jobBanner(){
 }
 function go(v){
   S.view = v;
+  if (v === 'home' && B.setUp && B.allowed) homeLoad();
   if (v === 'members' || v === 'clients') call('apiListDirectory', [], function(r){ S.dir = r; });
   else if (v === 'settings') call('apiListSettings', [], function(r){ S.settings = r.settings; });
   else if (v === 'audit') loadAudit();
@@ -476,11 +504,82 @@ function viewHome(){
       + '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(r){ B.setUp = true; toast(\'初期設定が終わりました\'); go(\'health\'); })">初期設定を実行</button></div>');
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
+  var h = B.home;
+  if (!h) { if (!S.homeLoading) homeLoad(); return '<h1>ホーム</h1>' + guide('observe', '観測中です…'); }
+  var plans = h.plans.filter(function(p){ return p.fy === h.fy; });
+  var says = yomiSays(h), top = says[0];
+  var hour = new Date().getHours(), hi = hour >= 5 && hour < 11 ? 'おはようございます' : hour >= 11 && hour < 18 ? 'こんにちは' : 'おつかれさまです';
+  var at = String(h.at || '').replace('T', ' ').slice(11, 16);
+  var hero = '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[top.pose] + '</div><div class="bubble"><span class="hi">' + hi + '。よみが観測しました' + (at ? '（' + at + '）' : '') + '</span>'
+    + esc(top.text) + (top.act ? '<div class="say-act"><button class="btn' + (top.lvl === 'ok' ? ' btn-ghost' : '') + '" onclick="' + top.act[1] + '">' + esc(top.act[0]) + '</button></div>' : '') + '</div></div>'
+    + (says.length > 1 ? '<ul class="todo">' + says.slice(1, 5).map(function(x){ return '<li><span class="lvl ' + x.lvl + '"></span><span class="t">' + esc(x.text) + '</span>'
+      + (x.act ? '<button class="btn btn-ghost btn-sm" onclick="' + x.act[1] + '">' + esc(x.act[0]) + '</button>' : '') + '</li>'; }).join('') + '</ul>'
+      + (says.length > 5 ? '<p class="meta mt8" data-tip="' + esc(says.slice(5).map(function(x){ return x.text; }).join('\n')) + '">ほかに ' + (says.length - 5) + ' 件</p>' : '') : '') + '</div>';
+  // 数字（今年度）
+  var sum = function(k){ var xs = plans.filter(function(p){ return p[k] !== null && p[k] !== undefined; }); return xs.length ? xs.reduce(function(a, p){ return a + p[k]; }, 0) : null; };
+  var mapes = plans.filter(function(p){ return p.mape !== null && p.mape !== undefined; });
+  var mape = mapes.length ? mapes.reduce(function(a, p){ return a + p.mape; }, 0) / mapes.length : null;
+  var wx = mape === null ? ['mikakunin', '未確認（実績がまだありません）'] : mape < 0.1 ? ['kaisei', '快晴（月の誤差 10% 未満）'] : mape < 0.15 ? ['harenochi', '晴れのち曇り（10〜15%）'] : mape < 0.2 ? ['kumori', '曇り（15〜20%）'] : mape < 0.3 ? ['ame', '雨（20〜30%）'] : ['taifuu', '台風（30% 以上）'];
+  var official = plans.filter(function(p){ return p.officialNo; }).length, pending = plans.filter(function(p){ return p.pendingNo; }).length;
+  var kpis = '<div class="kpis k5">'
+    + homeKpi('FY' + h.fy + ' の P50 合計', yen(sum('p50')), '円', '最新の予測の年度合計（' + plans.length + ' 計画）', true)
+    + homeKpi('最終予算の合計', yen(sum('budget')), '円', '採用予測 + 上乗せ')
+    + homeKpi('公式版', official + ' / ' + plans.length, '計画', '承認済みの版がある計画の数')
+    + homeKpi('承認待ち', String(pending), '件', '出されて、まだ判断されていない公式版')
+    + '<div class="kpi" data-tip="見通しの空模様: ' + esc(wx[1]) + '。実績のある月の予測（P50）と実績の差の割合の平均"><span class="wx">' + (CHAR_SVG[wx[0]] || '') + '</span><div class="k">月の誤差（平均）</div><div class="v">' + (mape === null ? '-' : (mape * 100).toFixed(1) + '<span class="u">%</span>') + '</div></div>'
+    + '</div>';
+  // 計画ごとの状態（気になる順）
+  var rank = function(p){ return p.stepErrors.length ? 0 : p.pendingNo ? 1 : (p.mape !== null && p.mape >= 0.2) ? 2 : !p.runs ? 3 : !p.officialNo ? 4 : 5; };
+  var state = function(p){ return p.stepErrors.length ? '<span class="chip ng" data-tip="' + esc(p.stepErrors.join('、')) + '">エラー</span>' : p.pendingNo ? '<span class="chip warn">承認待ち v' + p.pendingNo + '</span>'
+    : (p.mape !== null && p.mape >= 0.2) ? '<span class="chip warn">誤差大</span>' : !p.runs ? '<span class="chip off">予測なし</span>' : !p.officialNo ? '<span class="chip off">公式版なし</span>' : '<span class="chip ok">公式版 v' + p.officialNo + '</span>'; };
+  var ch = function(p){ var c = pfChange(p); return c === null ? '-' : Math.abs(c) >= 0.05 ? '<span class="chip warn">' + pct1(c) + '</span>' : pct1(c); };
+  var rows = plans.slice().sort(function(a, b){ return rank(a) - rank(b) || String(a.clientName).localeCompare(String(b.clientName), 'ja'); });
+  var table = '<div class="card"><div class="card-head"><h2>計画の状態（FY' + esc(h.fy) + '）</h2><button class="btn btn-ghost btn-sm" onclick="go(\'plans\')">計画の一覧</button></div>'
+    + (rows.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col><col style="width:136px"><col style="width:96px"><col style="width:136px"><col style="width:136px"><col style="width:128px"></colgroup>'
+      + '<thead><tr><th>クライアント</th><th class="num">P50</th><th class="num">前回から</th><th class="num">最終予算</th><th>状態</th><th></th></tr></thead><tbody>'
+      + rows.slice(0, 12).map(function(p){ return '<tr><td>' + esc(p.clientName) + '</td><td class="num">' + yen(p.p50) + '</td><td class="num">' + ch(p) + '</td><td class="num">' + yen(p.budget) + '</td><td>' + state(p) + '</td>'
+        + '<td><button class="btn btn-ghost btn-sm" onclick="openPlan(\'' + esc(p.planId) + '\')">開く</button></td></tr>'; }).join('') + '</tbody></table></div>'
+      + (rows.length > 12 ? '<p class="meta mt8">ほかに ' + (rows.length - 12) + ' 計画</p>' : '') : '<p class="note">FY' + esc(h.fy) + ' の計画はまだありません</p>') + '</div>';
+  var recent = '<div class="card"><h2>最近の動き</h2>' + (h.recent.length ? '<ul class="recent">' + h.recent.map(function(x){ return '<li><span class="meta">' + esc(String(x.at || '').replace('T', ' ').slice(5, 16)) + '</span><span>' + esc(x.label) + '・' + esc(x.clientName)
+    + ' <span class="who">' + esc(x.actor) + '</span></span></li>'; }).join('') + '</ul>' : '<p class="note">まだ動きはありません</p>') + '</div>';
+  return '<h1>ホーム</h1>' + hero + kpis + '<div class="dash"><div>' + table + '</div><div>' + recent + homeRolesCard() + '</div></div>';
+}
+function homeKpi(label, v, unit, tipText, main){ return '<div class="kpi' + (main ? ' main' : '') + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">' + v + (v === '-' ? '' : '<span class="u">' + unit + '</span>') + '</div></div>'; }
+function homeRolesCard(){
   var roles = (B.user.roles || []).map(function(r){ return '<span class="chip">' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（' + esc(r.clientId) + '）' : '') + '</span>'; }).join('');
-  var links = [['plans', '計画の一覧', 'すべてのクライアント・年度の予測と予算を並べて見る。新しい計画もここで作る'], ['forecast', '予測を開く', '予測・予算・入力・検証・四半期レビューを見る・保存する'], ['members', 'メンバーと役割', '予算策定担当・承認者を決める', true], ['health', '状態を見る', '表・操作の記録・バックアップの点検', true]]
-    .filter(function(x){ return !x[3] || B.user.isAdmin; });
-  return '<h1>ホーム</h1>' + guide('guide', '売上予測と予算策定のアプリです。' + tip('「計画の一覧」で全部のクライアント × 年度を見比べ、「予測」で計画ごとの予測・根拠・予算・入力・検証・四半期レビュー・公式版を見て、保存・実行します') + '<div class="row c mt8">' + roles + '</div>')
-    + '<div class="card"><h2>よく使う画面</h2><div class="btngrid">' + links.map(function(x){ return actBtn('<button class="btn' + (x[0] === 'forecast' ? '' : ' btn-ghost') + '" onclick="go(\'' + x[0] + '\')">' + x[1] + '</button>', x[2]); }).join('') + '</div></div>';
+  return '<div class="card"><h2>あなたの役割</h2><div class="row c mt0">' + (roles || '<span class="chip off">閲覧・情報提供</span>') + '</div></div>';
+}
+function homeLoad(){ S.homeLoading = true; call('apiHome', [], function(r){ S.homeLoading = false; B.home = r; }, function(){ S.homeLoading = false; }); }
+/** 計画を開く（タブも選ぶ） */
+function openPlan(planId, tab){ S.fc.planId = planId; S.fc.view = null; S.fc.data = null; S.fc.tab = tab || 'forecast'; go('forecast'); }
+function homeDays(iso){ if (!iso) return null; var t = Date.parse(String(iso).replace(/([+-]\d\d)(\d\d)$/, '$1:$2')); return isNaN(t) ? null : Math.floor((Date.now() - t) / 864e5); }
+/**
+ * よみのセリフ（状況を観測して、気になる順に）。lvl: ng（すぐ見てほしい）/ warn（確認の依頼）/ info（アドバイス）/ ok。
+ * よみの口調: 気象キャスター。観測 → 読み解き → ひとこと。予報は「予報です」と断り、断定しない。
+ */
+function yomiSays(h){
+  var out = [], plans = h.plans.filter(function(p){ return p.fy === h.fy; }), sys = h.system;
+  var nm = function(p){ return p.clientName + ' FY' + p.fy; };
+  var open = function(p, tab){ return "openPlan('" + esc(p.planId) + "','" + tab + "')"; };
+  if (sys && sys.journal) out.push({ lvl: 'ng', pose: 'discover', text: '保存が途中で止まっているのを観測しました。「保存の続きを書く」で元どおりにできます。', act: sys.journal.planId ? ['開く', open({ planId: sys.journal.planId }, 'forecast')] : null });
+  if (h.approvals.length) out.push({ lvl: 'warn', pose: 'discover', text: '承認待ちの公式版が ' + h.approvals.length + ' 件あります。まず ' + nm(h.approvals[0]) + '（v' + h.approvals[0].versionNo + '・' + h.approvals[0].submittedBy + ' さん）の確認をお願いします。', act: ['確認する', open(h.approvals[0], 'version')] });
+  plans.filter(function(p){ return p.stepErrors.length; }).forEach(function(p){ out.push({ lvl: 'ng', pose: 'discover', text: nm(p) + ' の手順でエラーを観測しました。「進み」で何が止まったかを確かめてください。', act: ['進みを開く', open(p, 'steps')] }); });
+  if (sys) {
+    var hk = sys.housekeeping, b = sys.backup || {};
+    if (hk && hk.ok === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日の手入れで、要確認が ' + (hk.problems || []).length + ' 件ありました。「状態」で中身を見てください。', act: ['状態を見る', "go('health')"] });
+    if (b.enabled === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日のバックアップが、まだ動いていません。「状態」で有効にできます。', act: ['状態を見る', "go('health')"] });
+    else if (b.ageHours !== null && b.ageHours !== undefined && b.ageHours > 26) out.push({ lvl: 'warn', pose: 'explain', text: 'バックアップが ' + b.ageHours + ' 時間止まっています。「状態」を確かめてください。', act: ['状態を見る', "go('health')"] });
+  }
+  plans.filter(function(p){ return p.mape !== null && p.mape >= 0.2; }).forEach(function(p){ out.push({ lvl: 'warn', pose: 'discover', text: nm(p) + ' の月の誤差が ' + (p.mape * 100).toFixed(1) + '% と大きめです。「検証」で外れた月の原因を読み解きましょう。', act: ['検証を開く', open(p, 'eval')] }); });
+  plans.filter(function(p){ return !p.runs && p.p50 === null; }).forEach(function(p){ out.push({ lvl: 'info', pose: 'explain', text: nm(p) + ' はまだ予測がありません。「進み」で A-2 → A-3 → 予測の順に進めましょう。', act: ['進みを開く', open(p, 'steps')] }); });
+  plans.filter(function(p){ var c = pfChange(p); return c !== null && Math.abs(c) >= 0.05; }).forEach(function(p){ out.push({ lvl: 'info', pose: 'discover', text: nm(p) + ' の P50 が前回から ' + pct1(pfChange(p)) + ' 動きました。「根拠」で何が効いたかを確かめられます。', act: ['根拠を開く', open(p, 'basis')] }); });
+  plans.filter(function(p){ var d = homeDays(p.lastRunAt); return p.runs && d !== null && d > 30; }).forEach(function(p){ out.push({ lvl: 'info', pose: 'observe', text: nm(p) + ' の予測は ' + homeDays(p.lastRunAt) + ' 日前のままです。実績を取り込んで予測し直すと、見通しがはっきりするでしょう。', act: ['予測を開く', open(p, 'forecast')] }); });
+  plans.filter(function(p){ return p.runs && !p.officialNo && !p.pendingNo; }).forEach(function(p){ out.push({ lvl: 'info', pose: 'explain', text: nm(p) + ' はまだ公式版がありません。予算が固まったら、公式版として出しましょう。', act: ['公式版を開く', open(p, 'version')] }); });
+  h.mine.forEach(function(m){ out.push({ lvl: 'info', pose: 'observe', text: '出した公式版（' + nm(m) + ' v' + m.versionNo + '）は、承認者の確認を待っています。', act: null }); });
+  var order = { ng: 0, warn: 1, info: 2 };
+  out.sort(function(a, b){ return order[a.lvl] - order[b.lvl]; });
+  if (!out.length) out.push({ lvl: 'ok', pose: 'done', text: plans.length ? '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。' : 'FY' + h.fy + ' の計画はまだありません。「計画の一覧」から作れます。', act: plans.length ? ['計画の一覧', "go('plans')"] : ['計画を作る', "go('plans')"] });
+  return out;
 }
 
 // ---- 計画の一覧（全部のクライアント × 年度）と、新しい計画を作る ----

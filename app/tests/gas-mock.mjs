@@ -412,6 +412,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
         put: (k, v, ttl) => { assert.ok(Buffer.byteLength(String(v), 'utf8') <= 100 * 1024, 'CacheService の値は 100KB（バイト）まで'); assert.ok(ttl <= 21600); cache[k] = String(v); },
         get: (k) => (k in cache ? cache[k] : null),
         remove: (k) => { delete cache[k]; },
+        getAll: (ks) => Object.fromEntries(ks.filter((k) => k in cache).map((k) => [k, cache[k]])),
       }),
     },
     LockService: {

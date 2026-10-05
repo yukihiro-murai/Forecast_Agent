@@ -260,7 +260,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const view = env.call('apiPlanView(__in)', { __in: { planId } });
   const latest = env.call('apiForecastLatest(__in)', { __in: { planId } });
   const js = uiHtml.slice(uiHtml.indexOf('<script>') + 8, uiHtml.lastIndexOf('</script>'))
-    .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" });')
+    .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" }); var CHAR_SVG = new Proxy({}, { get: () => "" });')
     .replace('<?!= bootJson ?>', JSON.stringify({ app: { name: 'T', version: 'x' }, user: { email: OWNER, isOwner: true, isAdmin: true, roles: [] }, setUp: true, allowed: true }));
   const el = () => ({ innerHTML: '', classList: { add() {}, remove() {} }, set outerHTML(v) {} });
   const ui = vm.createContext({ document: { getElementById: el, querySelector: () => null, addEventListener() {} }, setTimeout: () => 0, clearTimeout() {}, confirm: () => false, window: { addEventListener() {}, innerWidth: 1280, innerHeight: 800 },
@@ -289,8 +289,19 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // 旧ブックから移す画面・旧ブックの片付けは無い（このアプリだけを使う。2026-10-05）
   assert.equal(vm.runInContext(`[typeof viewMigrate, typeof legacyBooksCard, typeof NAV_OWNER].join()`, ui), 'undefined,undefined,undefined');
   assert.doesNotMatch(vm.runInContext(`JSON.stringify(NAV_ADMIN) + Object.keys(NAV_ICON)`, ui), /旧ブック|migrate/, 'メニューに旧ブックを出さない');
-  assert.match(vm.runInContext(`S.view = 'home'; viewHome()`, ui), /計画の一覧/);
-  assert.doesNotMatch(vm.runInContext(`viewHome()`, ui), /旧アプリ/, 'ホームに旧アプリの案内を出さない');
+  // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
+  ui.__home = env.call('apiHome()');
+  const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
+  assert.match(homeHtml, /よみが観測しました[\s\S]*P50 合計[\s\S]*計画の状態[\s\S]*計画の一覧[\s\S]*最近の動き/);
+  assert.ok(!/undefined|NaN/.test(homeHtml), 'ホームに undefined や NaN を出さない');
+  assert.doesNotMatch(homeHtml, /旧アプリ/, 'ホームに旧アプリの案内を出さない');
+  const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__home))`, ui));
+  assert.ok(says.length >= 1 && says.every((x) => x.text && x.pose && x.lvl), JSON.stringify(says));
+  // 承認待ちがあれば、承認者に確認を頼む（いちばん上）
+  const h2 = JSON.parse(JSON.stringify(ui.__home));
+  h2.approvals = [{ planId: h2.plans[0].planId, clientName: 'テスト製薬', fy: h2.fy, versionNo: 2, submittedBy: 'planner' }];
+  ui.__h2 = h2;
+  assert.match(JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__h2)[0])`, ui)).text, /承認待ちの公式版が 1 件[\s\S]*確認をお願いします/);
   vm.runInContext(`S.view = 'forecast'`, ui);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });

@@ -31,7 +31,7 @@ function apiAuthorizeAi() {
 }
 
 function apiListDirectory() {
-  return api_('DIRECTORY.LIST', { minRole: 'ADMIN', audit: false }, ctx => appListDirectory_(ctx));
+  return api_('DIRECTORY.LIST', { minRole: 'ADMIN', audit: false }, ctx => appCachedRead_('DIRECTORY', () => appListDirectory_(ctx)));
 }
 
 function apiSaveMember(input) {
@@ -61,12 +61,12 @@ function apiSaveClient(input) {
 }
 
 function apiListSettings() {
-  return api_('SETTINGS.LIST', { minRole: 'ADMIN', audit: false }, () => ({ settings: appSettingsCurrent_().map(x => {
+  return api_('SETTINGS.LIST', { minRole: 'ADMIN', audit: false }, () => appCachedRead_('SETTINGS', () => ({ settings: appSettingsCurrent_().map(x => {
     if (x.type !== 'sheet' || !x.value) return x;
     let name = '';
     try { name = DriveApp.getFileById(x.value).getName(); } catch (e) { name = '（開けません）'; }
     return Object.assign({}, x, { display: name, url: 'https://docs.google.com/spreadsheets/d/' + x.value + '/edit' });
-  }) }));
+  }) })));
 }
 
 function apiSaveSetting(input) {
@@ -104,12 +104,12 @@ function apiRunBackup() {
 
 /** 計画の一覧（取り込み・計算の一致の確認の対象） */
 function apiListPlans() {
-  return api_('PLANS.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appListPlans_() }));
+  return api_('PLANS.LIST', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('PLANS', () => ({ plans: appListPlans_() })));
 }
 
 /** 全部の計画の要点（閲覧は社内全員） */
 function apiPortfolio() {
-  return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolio_() }));
+  return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolioCached_() }));
 }
 
 /** 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化）。閲覧は社内全員 */
@@ -129,7 +129,7 @@ function apiPoolPreview() {
 
 /** 計画の公式版の一覧と、今の数字 */
 function apiVersionList(input) {
-  return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appVersionList_(ctx, input));
+  return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('VERSIONS\u0001' + ctx.actor + '\u0001' + (input && input.planId), () => appVersionList_(ctx, input)));
 }
 
 /** 今の予測と予算を、公式版として出す（予算策定担当。その計画のクライアントの担当でもよい） */
@@ -151,19 +151,24 @@ function apiPlanCandidates(input) {
   return api_('PLAN.CANDIDATES', { minRole: 'ADMIN', audit: false }, ctx => appPlanCandidates_(ctx, input));
 }
 
-/** 計画の最新の予測（閲覧は社内全員） */
-function apiForecastLatest(input) {
-  return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appForecastLatest_(input && input.planId));
+/** ホーム（最重要のことだけ。よみのセリフの材料）。閲覧は社内全員 */
+function apiHome() {
+  return api_('HOME', { minRole: 'VIEWER', audit: false }, ctx => appHome_(ctx));
 }
 
-/** 計画の画面（入力・予測と予算・検証・四半期レビュー・進み。閲覧は社内全員） */
+/** 計画の最新の予測（閲覧は社内全員） */
+function apiForecastLatest(input) {
+  return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('LATEST\u0001' + (input && input.planId), () => appForecastLatest_(input && input.planId)));
+}
+
+/** 計画の画面（入力・予測と予算・検証・四半期レビュー・進み。閲覧は社内全員）。中身は「今日」でも変わる（既定の年度など）ので、控えの鍵に日付も入れる */
 function apiPlanView(input) {
-  return api_('PLAN.VIEW', { minRole: 'VIEWER', audit: false }, ctx => appPlanView_(ctx, input && input.planId));
+  return api_('PLAN.VIEW', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('VIEW\u0001' + ctx.actor + '\u0001' + (input && input.planId) + '\u0001' + appToday_(), () => appPlanView_(ctx, input && input.planId)));
 }
 
 /** 時間のかかる処理を始める（裏で動かす。種類ごとに権限が違う） */
 function apiStartJob(input) {
-  return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJob_(ctx, input));
+  return api_('JOB.START', appJobStartOpts_(input), ctx => appStartJobNow_(ctx, input));
 }
 
 /** 処理の状態（終わっていれば結果）。頼んだ人と所有者だけ */
@@ -252,7 +257,9 @@ function appBootstrap_(ctx) {
       roles: ctx.roles.map(r => ({ role: r.role, label: APP_ROLE_LABELS[r.role], scopeType: r.scope_type, clientId: r.client_id })) },
     setUp: appIsSetUp_(),
     allowed: true,
-    activeJob: (() => { try { return ctx.user.email && appIsSetUp_() ? appActiveJobOf_(ctx.user.email) : null; } catch (e) { return null; } })()
+    activeJob: (() => { try { return ctx.user.email && appIsSetUp_() ? appActiveJobOf_(ctx.user.email) : null; } catch (e) { return null; } })(),
+    // ホームの中身も最初に渡す（開いてすぐ出せる。通信を 1 回減らす）。読めなければ画面が読み直す
+    home: (() => { try { return appIsSetUp_() && appHasRole_(ctx.roles, 'VIEWER') ? appHome_(ctx) : null; } catch (e) { Logger.log('ホームの中身: ' + (e && e.message ? e.message : e)); return null; } })()
   };
 }
 

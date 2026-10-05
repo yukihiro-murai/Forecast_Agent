@@ -156,6 +156,8 @@ function appAudited_(ctx, action, meta, fn) {
     try { appAuditAppend_(Object.assign({}, base, { phase: 'END', result: 'FAILED', error: String(err && err.message || err) })); }
     catch (e) { Logger.log('appAudited_ FAILED の記録に失敗: ' + (e && e.message ? e.message : e)); }
     throw err;
+  } finally {
+    appBumpGen_();   // 記録つきの操作は書く操作。読んだ結果の控えを古くする（途中で止まっても）
   }
 }
 
