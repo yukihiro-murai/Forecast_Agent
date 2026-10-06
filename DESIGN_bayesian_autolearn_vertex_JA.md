@@ -147,3 +147,21 @@ EVAL_COMPARE_MONTHLY の月結合をも全て止めていた。
   （n=10, factor 1.00→0.95→0.90 収束中、暦月バイアス 9 ヶ月学習済み）、
   検算 WAPE 0.612→0.584、A-9 で学習係数が予測へ自動適用され
   予測画面の「学習パラメータ」カードに表示されることを目視確認。
+
+---
+
+## 7. 補正の前の予測で学ぶ（2026-10-07 追記・村井さん承認）
+
+- 問題: EVAL_LOG の pred は A-9 が k = 係数 × (1 + 暦月バイアス) を掛けた後の予測。1.2 の式は
+  補正が無いものとして目標 1 − postBias を出すので、偏りを直せた係数ほど誤差が 0 に近づいて目標が 1 に戻り、
+  係数が 1 回 0.05 ずつ元に戻っていた（自分の補正を打ち消す）。暦月バイアスも同じ。
+- 直し: `attachAppliedCalibration_` が、B-2 と同じ選び方（`selectEvalSnapshotRows_`）で pred を作った
+  FORECAST_SNAPSHOT の回を選び直し、その回の calibration_applied_json から係数と暦月バイアス
+  （±0.25 で切る）を読む。`autoLearnComputeState_` は raw = pred / (係数 × (1 + 暦月バイアス)) で誤差を測る。
+  - 全体: e = (raw − actual) / |actual| を 1.2 と同じ式に入れる（定数・縮小・上下限・1 回の幅は不変）。
+  - 暦月: 係数を掛けた後に残る誤差 eM = (raw × その回の係数 − actual) / |actual| を 1.2 と同じ式で縮める。
+- 回が無い・pred が合わない・読めない組は補正なし（係数 1・暦月バイアス 0）= 直す前と同じ。
+  補正の掛かっていない計画では値は変わらない。B-2 の後の自動実行も LEARN.MONTHLY も同じ経路。
+- 落ち着き先は縮めた推定: 10% 多い予測が続くと係数は約 0.932（= 1 − 0.10 × 6.28 / 9.28）に落ち着き、戻らない
+  （直す前は約 0.961 に戻っていた）。CALIBRATION_STATE.note に `(n=…, raw, corrected=…)` を残す。
+  テスト: tests/forecast-autolearn.test.mjs（12〜17）・app/tests/app-monthly-learn.test.mjs。
