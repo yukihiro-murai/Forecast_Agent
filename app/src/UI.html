@@ -154,7 +154,7 @@ h1{font-size:var(--fs-h1);line-height:1.35;color:var(--navy);margin-bottom:var(-
 .row.nowrap{flex-wrap:nowrap}
 .field{display:flex;flex-direction:column;gap:var(--s1)}
 .field label{font-size:var(--fs-s);color:var(--muted)}
-.inp{height:var(--h-input);padding:0 14px;border:1.5px solid var(--line);border-radius:var(--radius-s);width:var(--w-inp);background:#fff;font-size:var(--fs-b);transition:border-color var(--ease),box-shadow var(--ease)}
+.inp{height:var(--h-input);padding:0 14px;border:1.5px solid var(--line);border-radius:var(--radius-s);width:var(--w-inp);max-width:100%;background:#fff;font-size:var(--fs-b);transition:border-color var(--ease),box-shadow var(--ease)}   /* 狭い画面では、欄が枠からはみ出さない */
 .inp:hover{border-color:var(--line-strong)}
 .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 4px rgba(0,160,233,.16)}
 .inp:focus-visible{outline:2px solid var(--focus);outline-offset:2px}   /* キーボードで選んだときは、ボタンと同じ濃い線 */
@@ -224,10 +224,17 @@ h1 .tip,h2 .tip{margin-left:2px}
 .kpi.main{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
 .kpis.k5{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:1180px){.kpis.k5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (min-width:761px) and (max-width:999px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}   /* 狭い PC の画面（タブレットの縦など）: 4 つの数字は 2 つずつ（数字と下の行が途中で折れないように） */
 
 /* ---- 表 ---- */
-.tblwrap{overflow-x:auto}
+.tblwrap{overflow-x:auto;position:relative}   /* 中の読み上げだけの文字（.sr）も、この枠の中で切る（画面が横に広がらないように） */
 table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout:fixed}
+/* 狭い PC の画面: 幅の決まった列に押されて、ほかの列が見出しの文字より細くならないように（入らなければ表ごと .tblwrap の中で横に送る）。
+   表ごとの最小の幅は width:max(100%, …px) で書く（min-width はここで使うため） */
+@media (min-width:761px){
+  table.tbl{min-width:max-content}
+  .tbl th.colmin::before{content:"";display:block;width:var(--colmin,88px);height:0}   /* 幅の決まっていない名前の列（メーカー・情報源など）: 見出しで最小の幅（既定 88 + 左右の余白 = 112px。--colmin で変える）を決め、名前を … で切らない・1 文字ずつに折らない */
+}
 .tbl th{background:var(--head);color:var(--navy);font-size:var(--fs-s);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
 .tbl td{padding:10px 12px;height:48px;border-bottom:1px solid var(--line-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .tbl tr:last-child td{border-bottom:none}
@@ -237,7 +244,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .tbl td.ctr,.tbl th.ctr{text-align:center}
 .tbl tr.total td{color:var(--navy);border-top:1.5px solid var(--line-strong);background:var(--head)}
 .tbl td.empty{text-align:center;color:var(--muted);height:64px}
-.tbl .rowlink{color:var(--navy);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--primary-line);cursor:pointer}   /* 表のメーカーの名前（押すとその計画を開く。スマホでは「開く」の列の代わり） */
+.tbl .rowlink{color:var(--navy);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--primary-line);cursor:pointer;word-break:keep-all;overflow-wrap:normal}   /* 表のメーカーの名前（押すとその計画を開く。スマホでは「開く」の列の代わり）。名前の途中では折り返さない（空白の所だけ） */
 .tbl .rowlink:hover{text-decoration-color:var(--primary)}
 .tbl.edit td{padding:4px var(--s2)}
 
@@ -263,6 +270,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .waitlist{list-style:none;display:grid;gap:var(--s2)}
 .waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:var(--fs-m)}
 .ws{white-space:normal}
+.nw{white-space:nowrap}   /* 1 まとまりで折り返す（かっこ書きなど） */
 .pre{white-space:pre-wrap;word-break:break-word}
 
 /* ==== CSS: CHARTS ==== */
@@ -336,10 +344,10 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 
 /* ==== CSS: MAKERS ==== */
 .mk-sum{display:flex;flex-wrap:wrap;gap:var(--s1)}.mk-sum .chip{margin:0}
-.tbl.mk{min-width:760px}   /* メーカーの表: スマホでは横に送る（メーカーの列は左に残す。「開く」の列は出さず、名前を押して開く） */
+/* メーカーの表: 名前の列は、いちばん長い名前が 1 行に入る幅を残す（見出しの .colmin。決まった幅の列 808px + 名前）。入らない画面では表ごと横に送る（スマホは「開く」の列を出さず、名前を押して開く） */
 .tbl.mk td,.tbl.mk th{padding-left:var(--s2);padding-right:var(--s2)}   /* 左右の余白を詰めて、メーカーの名前を途中で折らない */
 @media (max-width:760px){
-  .tbl.mk{min-width:720px}
+  .tbl.mk{width:max(100%,720px)}
   .tbl.mk th:first-child,.tbl.mk td:first-child{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:inset -1px 0 0 var(--line)}
   .tbl.mk th:first-child,.tbl.mk tr.total td:first-child{background:var(--head)}
   .tbl.mk td.wrap{min-width:104px}
@@ -348,21 +356,25 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 
 /* ==== CSS: FORECAST ==== */
 /* 予測（計画の画面）。表は列を潰さず、スマホでは表ごと横に送る */
-.tbl.wide{min-width:880px}   /* 月ごとの内訳: 1280px の画面では横に送らずに収まる。狭い画面だけ表ごと横に送る */
+.tbl.wide{width:max(100%,880px)}   /* 月ごとの内訳: 1280px の画面では横に送らずに収まる。狭い画面だけ表ごと横に送る */
 .tbl.fc-basis th{white-space:normal}
 .tbl.fc-basis td,.tbl.fc-basis th{padding-left:var(--s2);padding-right:var(--s2)}
 .fc-srcs{display:flex;flex-wrap:wrap;gap:2px var(--s3)}.fc-src{white-space:nowrap}   /* 押したもの: 2 つずつ並べて折り返す（向きは ↑ ↓ と符号。色は使わない） */
 .chip.fc-act{height:22px;padding:0 6px;margin:0}   /* 月ごとの内訳の小さな札（実績・使わず）: 列の幅に収める */
 .fc-actm{margin-top:var(--s1)}
 .tbl td.clamp{white-space:normal}.tbl td.clamp > span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}   /* 長い文は 2 行まで（全部はカーソルで） */
-.tbl.scroll{min-width:720px}   /* 月ごと・入力・振り返りの表: スマホでは列を潰さず横に送る */
+.tbl.scroll{width:max(100%,720px)}   /* 月ごと・入力・振り返りの表: スマホでは列を潰さず横に送る */
+@media (min-width:761px){
+  .tbl.scroll.edit{width:max(100%,880px)}   /* 入力の表（書くとき）: 狭い PC の画面でも、理由・補足の欄に 1 マス分の幅を残す */
+  .tbl.fc-cmp{width:max(100%,640px)}   /* 公式版として出す: 項目の列（見出しなし）に 1 マス分を残す */
+}
 .fc-run > .card-head:last-child{margin-bottom:0}
 /* 精度の天気: キャラ・名前・数字 3 つ（数字は 1 マス 160px の格子） */
 .fc-wx{display:flex;align-items:center;flex-wrap:wrap;gap:var(--s4) var(--s5)}
 .fc-wxch{display:block;width:96px;height:96px;flex:0 0 96px}
 .fc-wxch svg{width:100%;height:100%;display:block}
 .fc-wxnm{font-size:var(--fs-h2);line-height:1.4;color:var(--navy);min-width:var(--col)}
-.fc-stats{display:grid;grid-template-columns:repeat(3,var(--col));gap:var(--s3);flex:1 1 auto;min-width:0}
+.fc-stats{display:grid;grid-template-columns:repeat(auto-fill,var(--col));gap:var(--s3);flex:1 1 auto;min-width:0}   /* 1 マス 160px ずつ。狭い画面では入る数だけ並べて次の行へ */
 .fc-stats .k{font-size:var(--fs-s);color:var(--muted)}
 .fc-stats .v{font-size:var(--fs-h3);color:var(--navy);font-variant-numeric:tabular-nums;white-space:nowrap}
 .fc-stats .u{font-size:var(--fs-s);color:var(--muted);margin-left:var(--s2)}
@@ -370,8 +382,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .fc-ai .pre{margin-top:var(--s1)}
 .fc-link{margin:0 0 var(--s6);font-size:var(--fs-m)}
 .fc-link a{color:var(--primary-dark)}
-.tbl.fc-notes{min-width:880px}
-.tbl.fc-props{min-width:880px}
+.tbl.fc-notes,.tbl.fc-props{width:max(100%,880px)}
 /* 振り返りの表: 見るだけのときも、書くとき（.edit）と同じ左右 8px の余白（列の幅を同じ決まりで切る） */
 .tbl.fc-notes td,.tbl.fc-notes th,.tbl.fc-props td,.tbl.fc-props th{padding-left:var(--s2);padding-right:var(--s2)}
 @media (max-width:760px){
@@ -400,14 +411,14 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .anmks .chip.anmk:hover,.anmks .chip.anmk:focus-visible{background:var(--primary-soft);box-shadow:inset 0 0 0 1.5px var(--primary)}
 .anx{margin-top:var(--s3)}
 .anx[data-tip]{display:inline-block}
-.tbl.anw{min-width:560px}
+.tbl.anw{width:max(100%,560px)}
 .tbl .anlink[data-tip]{color:var(--navy);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--primary-line);cursor:pointer}
 .anwx{display:inline-flex;align-items:center;gap:var(--s2)}
 .tbl .anlink[data-tip]:hover{text-decoration-color:var(--primary)}
 @media (max-width:760px){
   .ansky{grid-template-columns:repeat(2,minmax(0,1fr))}
   /* 分析の表: 列は中身の幅（列の少ない表は横に送らずに収まる。多い表だけ送る。見直しの流れは 名前・流れ・前回から まで見える） */
-  .tbl.anw{min-width:0}.tbl.anw col{width:auto!important}.tbl.anw td.wrap{min-width:var(--w-btn-sm)}
+  .tbl.anw{width:100%}.tbl.anw col{width:auto!important}.tbl.anw td.wrap{min-width:var(--w-btn-sm)}
 }
 
 /* ==== CSS: LEARNING ==== */
@@ -420,6 +431,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .lr-dot.warm{background:var(--warm)}.lr-dot.cool{background:var(--cool)}.lr-dot.neutral{background:var(--neutral)}
 .lr-so{display:none}   /* スマホだけに出す（隠した列の中身） */
 .tbl td.lr-wr{white-space:normal}   /* 折り返す列（スマホでも最小の幅を広げない。.wrap はスマホで 160px より狭くならない） */
+.tbl td.lr-kw{word-break:keep-all}   /* 語の途中で折らない（「（担当A）」の前など、区切りで折る） */
+@media (min-width:761px){.tbl.lr-dec{width:max(100%,880px)}}   /* 判断の履歴: 狭い PC の画面でも「対象」の列を潰さない（入らなければ横に送る） */
 /* グラフの上の凡例（HTML） */
 .lr-key{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s4);font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:var(--s1)}
 .lr-key span{display:inline-flex;align-items:center;gap:6px}
@@ -465,7 +478,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .lr-wx .skych{width:48px;height:48px}
   .tbl.lr-t{min-width:640px}
   .tbl.lr-t.lr-fit{min-width:0}
-  .tbl.lr-fit th{white-space:normal}   /* 幅に収める表は、見出しも折り返す */
+  .tbl.lr-fit th{white-space:normal;word-break:keep-all;overflow-wrap:normal}   /* 幅に収める表は、見出しも折り返す（語の途中では折らない） */
   .tbl .lr-hm{display:none}
   .tbl .lr-so{display:block}
   .tbl .lr-so .chip{margin:var(--s1) 0 0}
@@ -495,6 +508,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .viewtitle .vtools{flex:1 1 100%;margin-left:0}
   /* スマホ: 列の幅は中身に合わせて決め、入らなければ表ごと横に送る（決まった幅の列で残りの列が 0 に潰れないように） */
   table.tbl{table-layout:auto}
+  .tbl .rowlink{display:inline-block;padding:var(--s3) 0;margin:calc(-1 * var(--s3)) 0}   /* 名前で開く: 押せる所を上下に広げる（行の高さは変えない） */
   .tbl td,.tbl th{min-width:64px}
   .tbl .inp.cell{min-width:var(--col)}
   .tbl td.wrap{min-width:var(--col)}
@@ -851,6 +865,22 @@ function pct1(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : ''
 function planBudget(p){ return p.budgetUsed !== null && p.budgetUsed !== undefined ? p.budgetUsed : p.officialFinal !== null && p.officialFinal !== undefined ? p.officialFinal : p.budget; }
 /** 色の向き: 予算に対して 1.1 倍以上 = 暖色・0.9 倍以下 = 寒色・ほか（値なしも）= 灰 */
 function tone(ratio){ return !isNum(ratio) ? 'neutral' : ratio >= 1.1 ? 'warm' : ratio <= 0.9 ? 'cool' : 'neutral'; }
+/**
+ * 名前の列の最小の幅（見出し th.colmin の style）: いちばん長い名前（空白で区切った語）が 1 行に入る幅（表の文字 14px で測る。測れないときは 全角 14・半角 10 の目安）。
+ * 狭い PC の画面でも名前を途中で折らない・切らない（入らなければ表ごと横に送る）
+ */
+var COLMIN_CTX = null;
+function colMinStyle(names){
+  if (COLMIN_CTX === null) { try { COLMIN_CTX = document.createElement('canvas').getContext('2d'); COLMIN_CTX.font = '14px ' + getComputedStyle(document.body).fontFamily; } catch (e) { COLMIN_CTX = false; } }
+  var ctx = COLMIN_CTX, w = (names || []).reduce(function(m, s){
+    // 空白で区切った語ごと（「ノバルティス ファーマ」は空白で折り返してよい。語の途中では折らない）
+    return String(s == null ? '' : s).split(/\s+/).reduce(function(m2, t){ var x = 0;
+      if (ctx) x = ctx.measureText(t).width; else for (var i = 0; i < t.length; i++) x += t.charCodeAt(i) > 255 ? 14 : 10;
+      return Math.max(m2, x); }, m); }, 0);
+  return ' style="--colmin:' + Math.max(56, Math.min(224, Math.ceil(w) + 4)) + 'px"';
+}
+/** 数字の箱の下の小さな行（ホーム・分析）。終わりのかっこ書き（「（同じ 8）」）は 1 まとまりで次の行へ（語の途中で折らない） */
+function kpiSub(x){ return '<div class="hm-sub">' + esc(x).replace(/（[^（）]*）$/, '<span class="nw">$&</span>') + '</div>'; }
 
 // ---- 言葉（中の言葉・旧来の番号を画面に出さない。2026-10-06 村井さん） ----
 /** 予測の幅の 3 つ（P10 / P50 / P90 は画面に出さない） */
@@ -1314,6 +1344,8 @@ function chartStep(points, opts){
     var w = opts.w || chW(), h = opts.h || 220, L = 56, R = 24, T = 12, Bm = 30, n = pts.length;
     var e = chExtent(pts.map(function(p){ return p.y; }).concat([opts.ref])), ny = chNice(e[0], e[1], Math.max(2, Math.floor((h - T - Bm) / 44)));
     var x = function(i){ return L + (i + 0.5) * (w - L - R) / n; }, y = chLin(ny.lo, ny.hi, h - Bm, T);
+    // 基準線の名前は線の上に書く。線が一番上にあるときは、名前の分だけ上を空ける（グラフの枠の外に出さない）
+    if (isNum(opts.ref) && opts.refLabel && y(opts.ref) < 20) { T += 20 - y(opts.ref); y = chLin(ny.lo, ny.hi, h - Bm, T); }
     var out = chYAxis(y, ny, L, w - R, yf) + chLine(L, h - Bm, w - R, h - Bm, 'axis');
     if (isNum(opts.ref)) out += chLine(L, y(opts.ref), w - R, y(opts.ref), 'ref') + (opts.refLabel ? chText(w - R, y(opts.ref) - 4, opts.refLabel, { a: 'end' }) : '');
     var lab = function(p){ return String(p.x == null ? '' : p.x); };
@@ -1486,7 +1518,7 @@ function homeRangeTip(r, all){
 function homeKpi(label, v, unit, tipText, main, sub){
   var subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean);
   return '<div class="kpi' + (main ? ' main' : '') + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">' + esc(v) + (v === '-' ? '' : '<span class="u">' + unit + '</span>') + '</div>'
-    + subs.map(function(x){ return '<div class="hm-sub">' + esc(x) + '</div>'; }).join('') + '</div>';
+    + subs.map(kpiSub).join('') + '</div>';
 }
 function homeMape(plans){ var xs = plans.map(function(p){ return p.mape; }).filter(isNum); return { v: xs.length ? xs.reduce(function(a, x){ return a + x; }, 0) / xs.length : null, n: xs.length }; }
 function homeKpis(h, plans){
@@ -1707,9 +1739,9 @@ function mkLanding(p){
   return '<td class="num"' + (t.length ? ' data-tip="' + esc(t.join('\n')) + '"' : '') + '>' + yen(l) + '</td>';
 }
 /** メーカー横断の表: 空模様・ステータス・年間予算・暫定実績・着地の推定（2026-10-06 村井さん） */
-/** 表のメーカーの名前（押すとその計画を開く。キーボードでも） */
-function planLink(p, tab, label){
-  return '<a class="rowlink" role="button" tabindex="0" aria-label="' + esc(p.clientName + ' を開く') + '" onclick="openPlan(\'' + esc(p.planId) + '\'' + (tab ? ',\'' + tab + '\'' : '') + ')"'
+/** 表のメーカーの名前（押すとその計画を開く。キーボードでも）。aria: 読み上げの名前（同じメーカーの年度違いが並ぶときは年度も入れる） */
+function planLink(p, tab, label, aria){
+  return '<a class="rowlink" role="button" tabindex="0" aria-label="' + esc(aria || p.clientName + ' を開く') + '" onclick="openPlan(\'' + esc(p.planId) + '\'' + (tab ? ',\'' + tab + '\'' : '') + ')"'
     + ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">' + esc(label || p.clientName) + '</a>';
 }
 function mkTable(rows){
@@ -1732,7 +1764,7 @@ function mkTable(rows){
     + '<td class="num" data-tip="' + esc(homeRangeTip(r, all)) + '">' + yen(r ? r.landing : null) + cnt(r ? r.n : 0) + '</td><td class="mk-open"></td></tr>';
   // 列の幅（左右の余白 8px）: 空模様 144・ステータス 128（同じ幅の札 112）・数字 128。残りをメーカーの名前に（1280px の画面で 7 文字）
   return '<table class="tbl mk"><colgroup><col><col style="width:144px"><col style="width:128px"><col style="width:128px"><col style="width:128px"><col style="width:128px"><col class="mk-open" style="width:152px"></colgroup>'
-    + '<thead><tr><th>メーカー</th><th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた見通しです">空模様</th><th data-tip="未着手 = まだ予測がない・策定中 = 予測はあるが公式版をまだ出していない・承認待ち = 出した版を承認者が確認中・承認済み = 公式版が承認された">ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th class="mk-open"><span class="sr">開く</span></th></tr></thead><tbody>'
+    + '<thead><tr><th class="colmin"' + colMinStyle(rows.map(function(p){ return p.clientName; })) + '>メーカー</th><th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた見通しです">空模様</th><th data-tip="未着手 = まだ予測がない・策定中 = 予測はあるが公式版をまだ出していない・承認待ち = 出した版を承認者が確認中・承認済み = 公式版が承認された">ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th class="mk-open"><span class="sr">開く</span></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>';
 }
 // ==== END REGION: MAKERS ====
@@ -1828,9 +1860,9 @@ function fcPickCard(plans){
   var sky = rows.some(function(p){ return home[p.planId]; });
   // 年度はメーカーの名前の横に（同じメーカーの年度違いが、別のメーカーに見えないように）。スマホは「開く」の列を出さず、名前を押して開く
   return '<div class="card"><div class="card-head"><h2>メーカーを選ぶ' + tip('メーカーの名前か「開く」で、その計画の予測を開きます') + '</h2></div><div class="tblwrap"><table class="tbl fc-pick"><colgroup><col>' + (sky ? '<col style="width:200px">' : '') + '<col class="fc-open" style="width:152px"></colgroup>'
-    + '<thead><tr><th>メーカー</th>' + (sky ? '<th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた空模様">空模様</th>' : '') + '<th class="fc-open"><span class="sr">開く</span></th></tr></thead><tbody>'
+    + '<thead><tr><th class="colmin"' + colMinStyle(rows.map(function(p){ return p.clientName; })) + '>メーカー</th>' + (sky ? '<th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた空模様">空模様</th>' : '') + '<th class="fc-open"><span class="sr">開く</span></th></tr></thead><tbody>'
     + rows.map(function(p){ var h = home[p.planId];
-      return '<tr><td class="wrap">' + planLink(p) + ' <span class="note">FY' + esc(p.fy) + '</span>' + (p.frozen ? ' <span class="chip warn">締め済み</span>' : '') + '</td>' + (sky ? '<td>' + (h ? skyCell(h) : '-') + '</td>' : '')
+      return '<tr><td class="wrap">' + planLink(p, '', '', p.clientName + ' FY' + p.fy + ' を開く') + ' <span class="note">FY' + esc(p.fy) + '</span>' + (p.frozen ? ' <span class="chip warn">締め済み</span>' : '') + '</td>' + (sky ? '<td>' + (h ? skyCell(h) : '-') + '</td>' : '')
         + '<td class="fc-open"><button class="btn btn-ghost btn-sm" aria-label="' + esc(p.clientName + ' FY' + p.fy + ' を開く') + '" onclick="loadForecast(\'' + esc(p.planId) + '\')">開く</button></td></tr>'; }).join('')
     + '</tbody></table></div></div>';
 }
@@ -2349,7 +2381,7 @@ function fcVersionTab(d, v){
   if (r.can.submit && ready) {
     var base = off || null;
     html += '<div class="card"><div class="card-head"><h2>今の内容を公式版として出す' + tip('今の予測と予算の数字を、そのまま残して承認待ちにします' + (pend ? '。承認待ちの v' + pend.no + ' は取り下げます' : '')) + '</h2><span class="meta">' + (base ? 'v' + base.no + ' との差' : '公式版なし') + '</span></div>'
-      + (cur ? '<div class="tblwrap"><table class="tbl"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup><thead><tr><th></th><th class="num">今</th><th class="num">公式版</th><th class="num" data-tip="今 − 公式版">差</th></tr></thead><tbody>'
+      + (cur ? '<div class="tblwrap"><table class="tbl fc-cmp"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup><thead><tr><th></th><th class="num">今</th><th class="num">公式版</th><th class="num" data-tip="今 − 公式版">差</th></tr></thead><tbody>'
         + [['最終予算', cur.budget.final, base && base.budget.final], ['採用予測', cur.budget.adopted, base && base.budget.adopted], ['上乗せ', cur.budget.uplift, base && base.budget.uplift], [qName('p50') + '（年度）', cur.annual.p50, base && base.annual.p50]]
           .map(function(x){ return '<tr><td>' + x[0] + '</td><td class="num">' + yen(x[1]) + '</td><td class="num">' + (base ? yen(x[2]) : '-') + '</td><td class="num">' + (base ? verDiff(x[1], x[2]) : '-') + '</td></tr>'; }).join('')
         + '</tbody></table></div>' : '<p class="note">予測がまだありません。予測を実行してから出してください。</p>')
@@ -2358,7 +2390,7 @@ function fcVersionTab(d, v){
   }
   // 版の一覧
   html += '<div class="card"><h2>版の一覧</h2>' + (r.versions.length ? '<div class="tblwrap"><table class="tbl fc-vers"><colgroup><col style="width:56px"><col style="width:120px"><col style="width:128px"><col style="width:128px"><col style="width:112px"><col style="width:112px"><col><col style="width:152px"></colgroup>'
-    + '<thead><tr><th>版</th><th>状態</th><th class="num">最終予算</th>' + qTh('p50') + '<th>出した人</th><th>判断した人</th><th>メモ</th><th></th></tr></thead><tbody>'
+    + '<thead><tr><th>版</th><th>状態</th><th class="num">最終予算</th>' + qTh('p50') + '<th>出した人</th><th>判断した人</th><th class="colmin" style="--colmin:64px">メモ</th><th></th></tr></thead><tbody>'
     + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
       + '<td data-tip="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" data-tip="この版と今の数字を、月ごとに比べます" onclick="S.fc.verCmp=\'' + esc(x.versionId) + '\';render()">今と比べる</button></td></tr>'; }).join('')
@@ -2415,7 +2447,7 @@ function fcStepsTab(d, v){
     ['SALES.AGGREGATE', '取り込んだ売上を、月ごとに集計し直します。'],
     ['AI.RESEARCH', 'AI で市場・競合・販路・DX を調べ、予測に使う点数を作り直します。週に 1 回は自動で調べます。', 'plan', '5〜15 分ほどかかります（時間の区切りごとに分けて動かします）。']]);
   // 準備のボタンが無い人（見るだけ）には、中身の無いカードを出さない（市場を調べた日は手順の進みの右に）
-  var html = '<div class="card"><div class="card-head"><h2>手順の進み' + tip('上から実行する順です。エラーの札にカーソルを置くと理由が出ます') + '</h2>' + (acts ? '' : aiMeta) + '</div><div class="tblwrap"><table class="tbl fc-steps"><colgroup><col><col style="width:152px"><col style="width:104px"><col style="width:136px"></colgroup><thead><tr><th>手順</th><th>状態</th><th>日付</th><th>した人</th></tr></thead><tbody>'
+  var html = '<div class="card"><div class="card-head"><h2>手順の進み' + tip('上から実行する順です。エラーの札にカーソルを置くと理由が出ます') + '</h2>' + (acts ? '' : aiMeta) + '</div><div class="tblwrap"><table class="tbl fc-steps"><colgroup><col><col style="width:152px"><col style="width:104px"><col style="width:136px"></colgroup><thead><tr><th class="colmin" style="--colmin:136px">手順</th><th>状態</th><th>日付</th><th>した人</th></tr></thead><tbody>'
     + st.map(function(x){ return '<tr><td class="wrap">' + esc(STEP_NAMES[x.key] || plainMsg(x.label)) + '</td><td>' + chip(x) + '</td><td>' + esc(x.date || '-') + '</td><td>' + esc(fcWho(x.by) || '-') + '</td></tr>'; }).join('')
     + '</tbody></table></div></div>';
   if (acts) html += '<div class="card"><div class="card-head"><h2>予測の準備' + tip('予測の前に、左から順に実行します') + '</h2>' + aiMeta + '</div>' + acts + '</div>';
@@ -2480,7 +2512,8 @@ function anCard(title, tipText, body, right){ return '<div class="card"><div cla
 /** 表のメーカーの名前（入りきらなければ … で切り、全部はカーソルで） */
 function anNameTd(p){ return '<td data-tip="' + esc(p.clientName) + '">' + esc(p.clientName) + '</td>'; }
 function anTable(cols, head, rows){
-  return '<table class="tbl anw"><colgroup>' + cols.map(function(w){ return w ? '<col style="width:' + w + 'px">' : '<col>'; }).join('') + '</colgroup><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>';
+  // 最初の列（メーカーの名前）は幅を決めず、狭い画面でも名前の幅は残す（.colmin）
+  return '<table class="tbl anw"><colgroup>' + cols.map(function(w){ return w ? '<col style="width:' + w + 'px">' : '<col>'; }).join('') + '</colgroup><thead><tr>' + head.replace(/^<th>/, '<th class="colmin">') + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 /** グラフに入れなかったメーカー（数は見せ、名前と理由はカーソルで） */
 function anOut(list, label){
@@ -2544,7 +2577,7 @@ function anTotals(d, plans){
     + anKpi('霧の数', String(fog.length), 'メーカー', skyRule('mikakunin') + (fog.length ? '\n' + fog.map(function(p){ return p.clientName + '（' + (skyReasonText(p) || '推定できません') + '）'; }).join('\n') : ''))
     + '</div>';
 }
-function anKpi(label, v, unit, tipText, main, sub){ var subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean); return '<div class="kpi' + (main ? ' main' : '') + '" data-tip="' + esc(tipText) + '"><div class="k">' + esc(label) + '</div><div class="v">' + esc(v) + (v === '-' ? '' : '<span class="u">' + esc(unit) + '</span>') + '</div>' + subs.map(function(x){ return '<div class="hm-sub">' + esc(x) + '</div>'; }).join('') + '</div>'; }
+function anKpi(label, v, unit, tipText, main, sub){ var subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean); return '<div class="kpi' + (main ? ' main' : '') + '" data-tip="' + esc(tipText) + '"><div class="k">' + esc(label) + '</div><div class="v">' + esc(v) + (v === '-' ? '' : '<span class="u">' + esc(unit) + '</span>') + '</div>' + subs.map(kpiSub).join('') + '</div>'; }
 /** 見通しの空模様の板: 8 つをいつも決まった順に。キャラ・名前・数と、メーカーの札（押すとそのメーカーの予測） */
 function anSkyBoard(plans){
   var by = {};
@@ -2690,8 +2723,9 @@ var AN_FLAT = 5;
 function anCellDir(rows){
   var sc = rows.map(function(r){ return r.score; }).filter(isNum);
   var s = sc.length ? sc.reduce(function(a, b){ return a + b; }, 0) / sc.length : rows.filter(function(r){ return r.direction === 'up'; }).length - rows.filter(function(r){ return r.direction === 'down'; }).length;
-  var band = sc.length ? AN_FLAT : 0;
-  return { dir: s > band ? 'up' : s < -band ? 'down' : 'flat', mean: sc.length ? s : null };
+  // 点数があれば ±5 ちょうどは上向き・下向き（説明の「±5 未満は横ばい」と同じ）。点数が無ければ行の数の差の符号
+  var dir = sc.length ? (s >= AN_FLAT ? 'up' : s <= -AN_FLAT ? 'down' : 'flat') : (s > 0 ? 'up' : s < 0 ? 'down' : 'flat');
+  return { dir: dir, mean: sc.length ? s : null };
 }
 function anHorizon(h){ var m = /^(\d+)\s*M$/i.exec(String(h || '').trim()); return m ? m[1] + ' か月先' : ''; }
 function anMarket(d){
@@ -2729,7 +2763,7 @@ function anMarket(d){
     if (!m) return '<td class="ctr">-</td>';
     return '<td data-tip="' + esc(anTopicName(k) + '（' + m.n + ' メーカー）\n上向き ' + m.up + '・横ばい ' + m.flat + '・下向き ' + m.down + (sv && isNum(sv.meanScore) ? '\n点数の平均 ' + anScore(sv.meanScore) : '') + '\n点数が ±' + AN_FLAT + ' 未満は横ばいとしています') + '">↑' + m.up + '・→' + m.flat + '・↓' + m.down + '</td>';
   }).join('') + '</tr>';
-  var tbl = '<table class="tbl anw anm"><colgroup><col>' + keys.map(function(){ return '<col style="width:152px">'; }).join('') + '</colgroup><thead><tr><th>メーカー</th>'
+  var tbl = '<table class="tbl anw anm"><colgroup><col>' + keys.map(function(){ return '<col style="width:152px">'; }).join('') + '</colgroup><thead><tr><th class="colmin">メーカー</th>'
     + keys.map(function(k){ return '<th data-tip="' + esc(anTopicName(k) + 'の向き（↑ 上向き・→ 横ばい・↓ 下向き）。点数の平均が ±' + AN_FLAT + ' 未満は横ばい') + '">' + esc(anTopicName(k)) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + sumRow + '</tbody></table>';
   var none = plans.filter(function(p){ return !(p.topics || []).length; }).map(function(p){ return [p.clientName, '']; });
   var right = last ? '<span class="meta" data-tip="AI が市場・競合・販路・DX の動きを、週に 1 回自動で調べます">最後の調査 ' + esc(anMonth(last)) + '</span>' : '';
@@ -2770,9 +2804,9 @@ var LR_TOPIC = { Market: '市場', Competitor: '競合', Channel: '販路' };
  * 外れの向き。読みのクセと同じ言葉と色（分析: 強気 = 予測が実績より高い = 暖色・弱気 = 低い = 寒色）。
  * 下振れ・上振れ は見通しの幅の両端の名前なので、ここでは使わない
  */
-var LR_DIR = { over: { name: '強気の外れ', tone: 'warm', say: '予測が高すぎました（実績が予測を下回りました）' },
-  under: { name: '弱気の外れ', tone: 'cool', say: '予測が低すぎました（実績が予測を上回りました）' },
-  exact: { name: '予測どおり', tone: 'neutral', say: '予測どおりでした' } };
+var LR_DIR = { over: { name: '強気の外れ', short: '強気', tone: 'warm', say: '予測が高すぎました（実績が予測を下回りました）' },
+  under: { name: '弱気の外れ', short: '弱気', tone: 'cool', say: '予測が低すぎました（実績が予測を上回りました）' },
+  exact: { name: '予測どおり', short: '予測どおり', tone: 'neutral', say: '予測どおりでした' } };   // short: スマホのグラフの名前（対応の名前を切らない）
 var LR_STATUS = { open: ['未着手', 'off'], in_progress: ['対応中', 'warn'], done: ['済み', 'ok'], monitoring: ['見守り', ''] };
 /** 学びの気になる点（サーバーの説明には P10〜P90 などが入るので、ここの言葉で出す）: [短い名前, 説明] */
 var LR_HEALTH = {
@@ -2891,8 +2925,10 @@ function lrCauseCard(d){
   var lab = function(o){ return o.dir.name + '・' + o.act; };
   var tipOf = function(o){ return lab(o) + '\n' + o.dir.say + '\n対応: ' + o.act + '\n' + o.n + ' か月（そのうち見通しの幅の外 ' + o.range + ' か月）'; };
   var intFmt = function(v){ return Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : ''; };
-  var chart = chartBars(rows.map(function(o){ return { label: lab(o), value: o.n, tone: o.dir.tone, tip: tipOf(o) }; }), { fmt: intFmt, min: 0, label: '外れの向きと対応（月の数）', labelW: chW() < 480 ? 132 : 220 });
-  var table = lrTable([['向き', '', 128], ['対応', ''], ['月の数', 'num', 112], ['幅の外', 'num', 112, '実績が見通しの幅（下振れ〜上振れ）の外に出た月の数']],
+  // スマホのグラフは向きを短く（強気・前提を更新）。対応の名前を切らない。正確な名前はカーソルと 表で見る に
+  var narrow = chW() < 480, chLab = function(o){ return narrow ? (o.dir.short || o.dir.name) + '・' + o.act : lab(o); };
+  var chart = chartBars(rows.map(function(o){ return { label: chLab(o), value: o.n, tone: o.dir.tone, tip: tipOf(o) }; }), { fmt: intFmt, min: 0, label: '外れの向きと対応（月の数）', labelW: narrow ? 132 : 220 });
+  var table = lrTable([['向き', '', 128], ['対応', 'colmin'], ['月の数', 'num', 112], ['幅の外', 'num', 112, '実績が見通しの幅（下振れ〜上振れ）の外に出た月の数']],
     rows.map(function(o){ return [{ h: esc(o.dir.name), tip: o.dir.say }, esc(o.act), o.n, o.range]; }));
   return lrCard('外れの向きと対応', '大きく外れた月を、外れの向き（強気の外れ = 予測が高すぎた・弱気の外れ = 予測が低すぎた）と、決めた対応ごとに数えました。人が決めていない月の対応は、計算が自動で付けたものです。原因の仮説は「大きく外れた月」のカードに出ます', chartOrTable('lrCause', chart, table));
 }
@@ -2917,7 +2953,7 @@ function lrScoreCard(d, full){
   var key = '<p class="lr-key" aria-hidden="true"><span><i class="lr-k-dot"></i>今の見立て</span><span><i class="lr-k-iv"></i>80% の幅</span><span><i class="lr-k-ref"></i>半々（50%）</span></p>';
   var chart = key + chartIntervals(sc.map(function(r){ return { label: narrow ? short(r) : label(r), lo: r.ci80[0], mid: r.postMean, hi: r.ci80[1], tip: tipOf(r) }; }),
     { ref: 0.5, min: Math.max(0, lo), max: Math.min(1, hi), label: '当たりの確かさ', labelW: narrow ? 136 : 220 });
-  var table = lrTable([['情報源', 'wrap'], ['当たり', 'num', 112, '押した向きが実績の動きと合った回数 / 数えた回数'], ['確かさ', 'num', 96, '今の見立ての当たる割合'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み'], ['今の重み', 'num', 96, '予測に効かせている重み（1.00 = 変えていない）']],
+  var table = lrTable([['情報源', 'wrap colmin'], ['当たり', 'num', 112, '押した向きが実績の動きと合った回数 / 数えた回数'], ['確かさ', 'num', 96, '今の見立ての当たる割合'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み'], ['今の重み', 'num', 96, '予測に効かせている重み（1.00 = 変えていない）']],
     sc.map(function(r){ return [{ h: esc(label(r)), tip: tipOf(r) }, r.hit + ' / ' + r.n, lrPct(r.postMean), lrPct(r.ci80[0]) + '〜' + lrPct(r.ci80[1]), wTxt(r)]; }));
   var right = (full ? '' : '<span class="chip" tabindex="0" data-tip="閲覧の人には、情報源の種類ごとにまとめて出しています。人や話題ごとの当たりは、予算策定担当以上の人に出します">種類ごと</span>')
     + lrMore('当たり = 押した向き（上げる・下げる）が、過去の売上だけの予測から見た実績の動きと同じだった月。確かさはベータ分布の事後分布（事前分布は全計画から作った見立て、無ければ Beta(2, 2)）で、点は平均、線は 10%〜90% 点です');
@@ -2950,7 +2986,7 @@ function lrDecisionCard(d, full){
   if (!ds.length) return '';
   var who = full && ds.some(function(x){ return x.decidedBy !== undefined; }), max = 10, shown = S.lr.more.decisions ? ds : ds.slice(0, max), saved = lrSavedDecisions();
   // スマホは メーカー（対象と作った日はその下）・判断 だけ（案と判断した人は、判断の札のカーソルに）。対象・値の言い方は振り返りと同じ
-  var cols = [['作った日', 'lr-hm', 112, '見直し案を作った日（判断した日は、判断の札にカーソルを合わせると出ます）'], ['メーカー', 'lr-wr', 160], ['対象', 'lr-wr lr-hm'], ['案', 'num lr-wr lr-hm', 200, '今 → 案'], ['判断', 'ctr', 136, '承認・却下・保留。反映済みは、承認して設定に反映した案です']].concat(who ? [['判断した人', 'lr-hm', 128]] : []);
+  var cols = [['作った日', 'lr-hm', 112, '見直し案を作った日（判断した日は、判断の札にカーソルを合わせると出ます）'], ['メーカー', 'lr-wr', 160], ['対象', 'lr-wr lr-kw lr-hm'], ['案', 'num lr-wr lr-hm', 184, '今 → 案'], ['判断', 'ctr', 136, '承認・却下・保留。反映済みは、承認して設定に反映した案です']].concat(who ? [['判断した人', 'lr-hm', 128]] : []);
   var rows = shown.map(function(x){
     var dec = lrDecision(x, saved[x.planId + '\u0001' + x.reviewId + '\u0001' + x.proposalId]), why = qrWhy(x.rationale, x.target, !full), by = who && x.decidedBy ? String(x.decidedBy) : '';
     var change = qrValue(x.target, x.current) + ' → ' + qrValue(x.target, x.proposed), conf = x.confidence ? '確度 ' + qrConf(x.confidence) : '';
@@ -2963,7 +2999,7 @@ function lrDecisionCard(d, full){
     return r;
   });
   return lrCard('判断の履歴', 'AI が四半期ごとに作った見直し案と、人が決めた承認・却下・保留です。承認して反映した案だけが予測に効きます',
-    '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>' + (ds.length > max ? lrMoreBtn('decisions', ds.length - max) : ''));
+    '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit lr-dec') + '</div>' + (ds.length > max ? lrMoreBtn('decisions', ds.length - max) : ''));
 }
 /** 予算の上乗せの当たり（承認された予算の上乗せが届いたか。年度が終わるまでは着地の推定で見た「見込み」） */
 function lrUpliftCard(d){
@@ -2984,7 +3020,7 @@ function lrUpliftCard(d){
       { h: has ? capPct(real) : '-', cls: 'num', tip: has ? '（' + (c ? '実績' : '着地の推定') + ' − 採用した予算）÷ 上乗せ' + (c ? '' : '（見込み）') + (isNum(real) ? ' = ' + lrPct(real) : '') : '上乗せはありません' }];
   });
   // スマホは メーカー（区分の札はその下）・予算比・上乗せの実現 だけ（金額はメーカーのカーソルに）
-  var cols = [['メーカー', 'lr-wr'], ['区分', 'ctr lr-hm', 112, '確定 = 年度の 12 か月の実績で見た値・見込み = 年度の途中で、着地の推定で見た値'], ['上乗せ', 'num lr-hm', 120, '承認された予算のうち、採用した予算に上乗せした金額'],
+  var cols = [['メーカー', 'lr-wr colmin'], ['区分', 'ctr lr-hm', 136, '確定 = 年度の 12 か月の実績で見た値・見込み = 年度の途中で、着地の推定で見た値'], ['上乗せ', 'num lr-hm', 120, '承認された予算のうち、採用した予算に上乗せした金額'],
     ['最終予算', 'num lr-hm', 112], ['実績・着地', 'num lr-hm', 128, '確定は年度の実績、見込みは着地の推定'], ['予算比', 'num', 96, '確定は 実績 ÷ 最終予算、見込みは 着地の推定 ÷ 最終予算'], ['上乗せの実現', 'num', 120, '上乗せした分のうち、届いた割合。100% で上乗せどおり、0% 以下は採用した予算にも届かない']];
   return lrCard('予算の上乗せの当たり', '承認された予算の上乗せが、実際に届いたかを見ます。年度の 12 か月がそろうまでは「見込み」として、着地の推定で見ています',
     '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>', '<span class="meta">確定 ' + done + '・見込み ' + (us.length - done) + '</span>');
@@ -3063,7 +3099,7 @@ function lrPendingCard(pend){
       lrOpen(p.planId, 'この計画の「振り返り」を開きます。見直し案の承認はそこでします')];
   });
   // スマホは メーカー（案の数はその下）・開く だけ（開くを横に送らずに押せるように）
-  var cols = [['メーカー', 'wrap'], ['四半期', 'lr-hm', 152, '見直し案の対象の四半期'], ['案', 'num lr-hm', 88, 'カーソルを合わせると、案の中身（今 → 案）が出ます'], ['判断済み', 'num lr-hm', 96, '保存した判断（承認・却下・保留）の数'], ['作った日', 'lr-hm', 112], ['', 'lr-open', 152]];
+  var cols = [['メーカー', 'wrap colmin'], ['四半期', 'lr-hm', 152, '見直し案の対象の四半期'], ['案', 'num lr-hm', 88, 'カーソルを合わせると、案の中身（今 → 案）が出ます'], ['判断済み', 'num lr-hm', 96, '保存した判断（承認・却下・保留）の数'], ['作った日', 'lr-hm', 112], ['', 'lr-open', 152]];
   return lrCard('承認待ちの見直し案', 'AI が四半期ごとに作った見直し案です。承認するまで予測には効きません。承認は、開いた計画の「振り返り」でします', '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>');
 }
 /** 小さなグラフの幅（2 つ並べる。スマホは 1 つ） */
@@ -3088,7 +3124,7 @@ function lrCurveCard(curves){
       + chartDensity(list, { w: w, h: 180, ref: 0.5, label: lab + 'の当たる割合の見立て' }) + '</div>';
   }).join('');
   var key = '<p class="lr-key" aria-hidden="true"><span><i class="lr-k-dash"></i>最初の見立て</span><span><i class="lr-k-ln lite"></i><i class="lr-k-ln"></i>学んだ後（四半期ごと。濃いほど新しい）</span><span><i class="lr-k-ref"></i>半々（50%）</span></p>';
-  var table = lrTable([['情報源', 'wrap'], ['時点', '', 160], ['回数', 'num', 88, 'その時点までに数えた回数'], ['当たり', 'num', 88], ['確かさ', 'num', 96, '当たる割合の見立ての平均'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み']], rowsT);
+  var table = lrTable([['情報源', 'wrap colmin'], ['時点', '', 160], ['回数', 'num', 88, 'その時点までに数えた回数'], ['当たり', 'num', 88], ['確かさ', 'num', 96, '当たる割合の見立ての平均'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み']], rowsT);
   return lrCard('重みの学び', '入力・見解・AI の押した向きが当たる割合を、四半期ごとに学び直した見立てです。山の位置が当たる割合、山が細いほど確かです。半々（50%）より右なら、当てずっぽうより当たっています',
     chartOrTable('lrCurve', key + '<div class="lr-mult">' + panels + '</div>', table),
     lrMore('破線 = 事前分布（全計画から作った見立て。無ければ Beta(2, 2)）。実線 = 四半期ごとに当たり・外れを足した事後分布 Beta(α + 当たり, β + 外れ)。80% の幅は 10%〜90% 点です'));
@@ -3103,7 +3139,7 @@ function lrShrinkCard(sh){
     + (isNum(p.factorShadow) ? '\n寄せた補正の倍率 ' + p.factorShadow.toFixed(3) : '') + (isNum(p.mapeNow) ? '\n外れ幅 今 ' + pct0(p.mapeNow) + ' → 寄せると ' + pct0(p.mapeShadow) : ''); };
   var chart = chartArrows(ps.map(function(p){ return { label: lrName(p, multi), raw: p.bias, shrunk: p.shrunk, tip: tipOf(p) }; }),
     { mu: sh.mu, tau: sh.tau, fmt: lrSPct, rawLabel: '元の偏り', shrunkLabel: '寄せた偏り', bandLabel: '全体の平均 ± ばらつき', label: '偏りの縮め', labelW: chW() < 480 ? 128 : 168 });
-  var table = lrTable([['メーカー', 'wrap'], ['月の数', 'num', 80], ['元の偏り', 'num', 104, 'プラスは予測が高すぎる（強気）、マイナスは低すぎる（弱気）'], ['寄せた偏り', 'num', 104, '全体に寄せた偏り'], ['倍率', 'num', 88, '寄せた偏りで補正するときの、予測に掛ける倍率'], ['外れ幅 今', 'num', 104], ['寄せると', 'num', 96, '寄せた補正を試したときの外れ幅']],
+  var table = lrTable([['メーカー', 'wrap colmin'], ['月の数', 'num', 80], ['元の偏り', 'num', 104, 'プラスは予測が高すぎる（強気）、マイナスは低すぎる（弱気）'], ['寄せた偏り', 'num', 104, '全体に寄せた偏り'], ['倍率', 'num', 88, '寄せた偏りで補正するときの、予測に掛ける倍率'], ['外れ幅 今', 'num', 104], ['寄せると', 'num', 96, '寄せた補正を試したときの外れ幅']],
     ps.map(function(p){ return [{ h: esc(lrName(p, multi)), tip: tipOf(p) }, p.n, pct1(p.bias), pct1(p.shrunk), isNum(p.factorShadow) ? p.factorShadow.toFixed(3) : '-', pct0(p.mapeNow), pct0(p.mapeShadow)]; }));
   return lrCard('偏りの縮め', '計画ごとの読みのクセ（偏り）を、全計画の平均の方へ寄せた値です。月が少ない・ぶれが大きい計画ほど強く寄せます。帯は全体の平均 ± ばらつき。プラスは予測が高すぎる（強気）、マイナスは低すぎる（弱気）。予測には効かせず、見比べるだけです',
     chartOrTable('lrShrink', chart, table),
@@ -3144,7 +3180,7 @@ function lrCalCard(cal, health){
   bias.forEach(function(p){ var s = src(p); pts.push({ x: lrMd(p.at) + ' ' + s.short, y: p.new, tip: lrDate(p.at) + ' ' + s.full + (p.quarter ? '（' + qrQuarter(p.quarter) + '）' : '') + '\n' + fx(p.old) + ' → ' + fx(p.new) + raw(p.new) }); });
   if (!pts.length && isNum(cur.factorNow)) pts.push({ x: 'いま', y: cur.factorNow, tip: '今 ' + fx(cur.factorNow) + raw(cur.factorNow) });
   var chart = chartStep(pts, { ref: 1, refLabel: '補正なし', yFmt: yPct, label: '補正の履歴', empty: 'この計画の補正は、まだ変わっていません' });
-  var table = path.length ? lrTable([['日付', '', 112], ['対象', 'wrap'], ['前', 'num', 112], ['後', 'num', 112], ['きっかけ', '', 160]],
+  var table = path.length ? lrTable([['日付', '', 112], ['対象', 'wrap colmin'], ['前', 'num', 112], ['後', 'num', 112], ['きっかけ', '', 160]],
     path.map(function(p){ var s = src(p), t = p.factor || ''; return [lrDate(p.at), esc(t ? qrTarget(t, !(S.lr.ai && S.lr.ai.detail === 'full')) : lrWords(p.factorLabel || '')), { h: esc(qrValue(t, p.old)), tip: String(p.old == null ? '' : p.old), cls: 'num' }, { h: esc(qrValue(t, p.new)), tip: String(p.new == null ? '' : p.new), cls: 'num' }, { h: esc(s.full), tip: p.quarter ? qrQuarter(p.quarter) : '' }]; }))
     : '<p class="note">この計画の補正は、まだ変わっていません</p>';
   var sel = '<select class="inp md" id="lr_cal" aria-label="メーカー" onchange="S.lr.calPlan=this.value;render()">' + cal.map(function(c){ return '<option value="' + esc(c.planId) + '"' + (c === cur ? ' selected' : '') + '>' + esc(lrName(c, multi)) + '</option>'; }).join('') + '</select>';
