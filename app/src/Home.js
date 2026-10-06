@@ -51,7 +51,7 @@ function appHomeData_(ctx) {
 
 /**
  * 見せる年度の合計。予算は空模様と同じ budgetUsed（承認済みの公式版の最終予算、無ければ今の予算）。
- * 着地見込みの無い計画（霧: 実績の取り込みの遅れ・予測が無い など）は、着地の合計にも着地 ÷ 予算にも入れない。入れた計画の数も返す
+ * 着地見込みの無い計画（実績の取り込みの遅れ。空模様が霧（予算が無い）・雪でも同じ。予測が無い など）は、着地の合計にも着地 ÷ 予算にも入れない。入れた計画の数も返す
  * 返り値: { plans, budget, budgetPlans, actualYtd, landing, landingPlans, ratio（着地と予算の両方がある計画だけで）, ratioPlans }
  */
 function appHomeTotals_(plans, fy) {

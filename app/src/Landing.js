@@ -8,7 +8,7 @@
  *   事前分布 θ ~ N(1, τ²)（学んだ偏りの補正は f_m に入っているので 1 を中心にする）。新しい月ほど重い（半減期 4 か月。旧来の B-5 と同じ）
  *   着地 L = 締まった月の実績の合計 + θ̂・残りの月の P50 の合計
  *   ばらつき sd² = 残りの P50 の合計² / 精度（水準のぶれ。残りの月に共通）+ 残りの月の σ² の合計（月ごとのぶれ）
- * τ と w は、全計画の検証の表（EVAL_COMPARE_MONTHLY）から学ぶ（appLandingPrior_。学べなければ 0.15 と 1）。
+ * τ と w は、全計画の検証の表（EVAL_COMPARE_MONTHLY）から学ぶ（appLandingPrior_。雪の計画は使わない。学べなければ 0.15 と 1）。
  * 空模様は着地 ÷ 年間予算で分ける。急な変化（天変地異）は、ひと月の大きな外れ・2 か月続いた同じ向きの外れ・予測の前提の大きな変化で拾う。
  */
 const APP_LANDING = {
@@ -62,7 +62,7 @@ function appLandingPost_(obs, tau2) {
  *   → 天変地異 tenpen（shock / shift / premise。skyDir = up / down）→ 着地 ÷ 予算（ratio）: 猛暑 mousho ≥ 1.5・快晴 kaisei ≥ 1.1・
  *   晴れのち曇り harenochi > 0.9・曇り kumori > 0.5・雨 ame ≤ 0.5。
  * 着地の数字は、予測が使えれば雪・霧（予算が無い）のときも出す（予算が無ければ ratio と pAbove は出さない）。
- * 霧（実績の取り込みが遅れている stale_actuals）のときは出さない（古い実績のままの数字を見せない。合計にも入らない）。
+ * 実績の取り込みが遅れている（stale_actuals の条件に当たる）ときは、空模様が霧（予算が無い）・雪でも出さない（古い実績のままの数字を見せない。合計にも入らない）。
  * 前提の変化（premise）は、締まっていない月があるときだけ（12 か月締まった年度の着地は実績の合計で動かない）
  */
 function appLandingSky_(inp) {
@@ -81,6 +81,7 @@ function appLandingSky_(inp) {
   const aOf = ym => { const v = Number(act[ym]); return act[ym] === null || act[ym] === '' || !isFinite(v) ? 0 : v; };   // 実績の行が無い締まった月は 0 円
   const A = obsYm.reduce((s, ym) => s + aOf(ym), 0);
   const closedByToday = inp.todayYm ? yms.filter(ym => ym < inp.todayYm).length : k;
+  const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月のうち、3 か月以上の実績が取り込まれていない
   const bn = inp.budget === null || inp.budget === undefined || inp.budget === '' ? NaN : Number(inp.budget);
   const B = isFinite(bn) ? bn : null;
   const out = { k: k, actualYtd: A, budget: B, landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null,
@@ -96,7 +97,7 @@ function appLandingSky_(inp) {
   const rest = fcOk ? fc.slice(k) : [];
   const FR = rest.reduce((s, m) => s + Math.max(0, m.p50), 0);
   let post = null;
-  if (usable) {
+  if (usable && !stale) {   // 実績の取り込みが遅れていれば、どの空模様でも着地の数字は出さない
     post = appLandingPost_(obs, tau2);
     const theta = clampTheta(post.theta);
     const L = A + theta * FR;
@@ -109,10 +110,7 @@ function appLandingSky_(inp) {
   if (!(B !== null && B > 0)) { out.skyReason = 'no_budget'; return out; }
   if (k >= 1 && Math.abs(A) < 1) { out.sky = 'sekka'; out.skyReason = 'zero_sales'; return out; }
   if (!usable) { out.skyReason = 'no_forecast'; return out; }
-  if (closedByToday - k >= C.STALE_MONTHS) {
-    Object.assign(out, { landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null, theta: null, credibility: null, skyReason: 'stale_actuals' });
-    return out;
-  }
+  if (stale) { out.skyReason = 'stale_actuals'; return out; }
   // 5: 天変地異（月の外れは、その月の前までの実績で立てた見込みと比べる）
   let t1 = false, t2 = false, dir = 0;
   if (fcOk && k >= 1 && k < 12) {
@@ -154,6 +152,8 @@ function appLandingSky_(inp) {
  * τ: 締まった月が 3 か月以上ある計画が 3 つ以上あれば、計画ごとの水準 y = Σ実績 / ΣP50 − 1 から DerSimonian–Laird で
  *    計画の間のばらつき τ_b² を出し、τ = √(τ_b² + 平均²)（0.05〜0.35）。足りなければ 0.15。
  * w: 計画ごとの水準を除いた外れ |a − θ_i・f| / ((P90 − P10) / 2.5631) の 80% 点 ÷ 1.2816（1〜3）。月が 12 未満なら 1
+ * 締まった月の実績の合計が 0 円の計画（雪）は、τ にも w にも使わない（水準 −100% として τ を上限に押し上げ、ほかの計画の着地と空模様を動かすため）。
+ * 0 円の月がいくつかあるだけの計画は、その月を 0 円のまま使う
  */
 function appLandingPrior_(plans) {
   const C = APP_LANDING;
@@ -164,6 +164,7 @@ function appLandingPrior_(plans) {
     const use = (ms || []).filter(m => m && typeof m.f === 'number' && m.f > 0 && typeof m.a === 'number' && isFinite(m.a));
     if (use.length < C.PRIOR_MIN_MONTHS) return;
     const Sf = use.reduce((s, m) => s + m.f, 0), Sa = use.reduce((s, m) => s + m.a, 0), Sf2 = use.reduce((s, m) => s + m.f * m.f, 0);
+    if (Math.abs(Sa) < 1) return;   // 雪（空模様の雪と同じ: 締まった月の売上の合計が 1 円未満）
     const th = Sa / Sf;
     use.forEach(m => { ss += m.f * m.f * Math.pow(m.a / m.f - th, 2) / Sf2 * use.length; });
     dof += use.length - 1;

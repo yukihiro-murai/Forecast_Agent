@@ -149,7 +149,7 @@ function appPortfolio_() {
   const prior = appLandingPrior_(plans.map(p => {
     const c = cmp[p.plan_id] || {};
     return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort()
-      .map(ym => ({ f: c[ym].p50, a: c[ym].actual === null ? 0 : c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));   // 実績の空の締まった月は 0 円（着地の計算と同じ）
+      .map(ym => ({ f: c[ym].p50, a: c[ym].actual === null ? 0 : c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));   // 実績の空の締まった月は 0 円（着地の計算と同じ。全部 0 円の計画 = 雪は appLandingPrior_ が除く）
   }));
   return plans.map(p => {
     const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row);

@@ -82,6 +82,14 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.deepEqual([j.k, j.actualYtd, j.budget], [1, 100, 1200], '締まった月の実績と予算はそのまま');
   assert.equal(sky({ actual: acts([100, 100, 100, 100]), cutoffYm: '2026/08', todayYm: '2026/10' }).sky, 'harenochi', '2 か月の遅れは霧にしない');
   assert.equal(sky({ months: [], actual: acts([100]), cutoffYm: '2026/05', todayYm: '2026/10' }).skyReason, 'no_forecast', '予測が無いのが先');
+  // J3 / J4: 予算が無い・雪が先に当たっても、実績の取り込みが遅れていれば着地の数字は出さない（空模様の順は変えない）
+  const nulls = (x) => [x.landing, x.landingSd, x.landingP10, x.landingP90, x.pAbove, x.ratio, x.theta, x.credibility];
+  const j3 = sky({ budget: null, actual: {}, cutoffYm: '', todayYm: '2026/10' });
+  assert.deepEqual([j3.sky, j3.skyReason, j3.k, ...nulls(j3)], ['mikakunin', 'no_budget', 0, null, null, null, null, null, null, null, null], '予算が無い + 遅れ');
+  assert.equal(sky({ budget: null, actual: {}, cutoffYm: '', todayYm: '2026/06' }).landing, 1200, '2 か月の遅れなら予算が無くても着地は出す');
+  const j4 = sky({ actual: acts([0]), cutoffYm: '2026/05', todayYm: '2026/10' });
+  assert.deepEqual([j4.sky, j4.skyReason, j4.k, j4.actualYtd, ...nulls(j4)], ['sekka', 'zero_sales', 1, 0, null, null, null, null, null, null, null, null], '雪 + 遅れ');
+  assert.ok(sky({ actual: acts([0]), cutoffYm: '2026/05', todayYm: '2026/06' }).landing > 0, '遅れていない雪は着地を出す');
   assert.equal(sky({ fy: 2027, months: flat(80, 100, 120).map((m) => ({ ...m, ym: String(Number(m.ym.slice(0, 4)) + 1) + m.ym.slice(4) })), actual: {}, cutoffYm: '2026/10', todayYm: '2026/10' }).sky,
     'harenochi', '次の年度の計画は霧にしない（締まった月がまだ無い）');
   // K: 予測どおりの 5 か月のあと、ひと月だけ大きく落ちる → 天変地異（shock）
@@ -150,6 +158,17 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.equal(prior([mk(100, [99, 101, 100]), mk(100, [100, 102, 98]), mk(100, [101, 99, 100])]).tau, 0.05, '揃っていれば下限');
   assert.equal(prior([mk(100, [200, 210, 205]), mk(100, [10, 12, 11]), mk(100, [400, 390, 410])]).tau, 0.35, '上限');
   assert.equal(prior([]).tau, 0.15);
+  // 雪（締まった月の売上が全部 0 円）の計画は学びに入れない（水準 −100% として τ を上限に押し上げ、ほかの計画の着地を動かすため）。
+  // 0 円の月がいくつかあるだけの計画は、その月を 0 円のまま使う
+  const three = [mk(100, [90, 110, 100]), mk(100, [120, 130, 125]), mk(100, [70, 80, 75])];
+  const snow = mk(100, [0, 0, 0, 0, 0, 0], 80, 120);
+  assert.deepEqual(prior([...three, snow]), t, '雪の計画は τ・w・数を変えない');
+  assert.deepEqual(prior([...three, snow.map((x) => ({ ...x, a: 0.1 }))]), t, '合計が 1 円未満も雪と同じ');
+  const steady = [mk(100, [100, 100, 100, 100, 100, 100]), mk(100, [105, 105, 105, 105, 105, 105]), mk(100, [95, 95, 95, 95, 95, 95]), mk(100, [102, 102, 102, 102, 102, 102])];
+  assert.deepEqual([prior(steady).tau, prior([...steady, snow]).tau], [0.05, 0.05], '予測どおりの 4 計画に雪が 1 つ加わっても τ は 0.05 のまま（入れると上限 0.35）');
+  const oneZero = prior([...steady.slice(1), mk(100, [100, 100, 0, 100, 100, 100])]);
+  assert.deepEqual([oneZero.plans, oneZero.learned], [4, true], '0 円の月が 1 つの計画は入れる');
+  assert.ok(oneZero.tau > 0.05 && oneZero.tau < 0.1, '0 円の月の分だけ τ が少し動く: ' + oneZero.tau);
   // w: 計画ごとの水準を除いた外れ ÷ 幅の 80% 点
   const wide = [mk(100, [90, 110, 90, 110], 95, 105), mk(100, [90, 110, 90, 110], 95, 105), mk(100, [90, 110, 90, 110], 95, 105)];
   near(prior(wide).w, 2, 1e-9, '幅が半分しかない');
@@ -259,7 +278,7 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.equal(env.call('apiHome()').plans.filter((p) => p.planId === idA)[0].sky, 'mikakunin', 'ホームの控えも日ごと');
 }
 
-// ==== 5. 全計画から学んだ τ・w を着地に使う（3 計画 × 締まった 6 か月）。実績の空の締まった月（売上 0）も 0 円として数える ====
+// ==== 5. 全計画から学んだ τ・w を着地に使う（3 計画 × 締まった 6 か月。雪の計画は学びに入れない）。実績の空の締まった月（売上 0）も 0 円として数える ====
 {
   const env = makeEnv();
   env.run(`appToday_ = function () { return '2026-10-06'; }`);
@@ -285,9 +304,15 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   // 水準 0.8・1.2・1.0 で、月ごとに ±30 ぶれる（P10〜P90 の幅より大きい → w > 1）。丙の 8 月は売上 0（実績が空）
   const lv = { 甲: [50, 110, 50, 110, 50, 110], 乙: [90, 150, 90, 150, 90, 150], 丙: [70, 130, 70, 130, '', 130] };
   const ids = Object.fromEntries(Object.entries(lv).map(([k, as]) => [k, env.seedPlan(book(k + '製薬', as))]));
-  const prior = J(pure.run('appLandingPrior_(__in)', { __in: Object.values(lv).map((as) => as.map((x) => ({ f: 100, a: x === '' ? 0 : x, p10: 80, p90: 120 }))) }));
+  // 丁は雪（締まった 6 か月の実績が全部空）。一覧には出すが、全計画の学び（τ・w）には入れない
+  const snow = ['', '', '', '', '', ''];
+  const idSnow = env.seedPlan(book('丁製薬', snow));
+  const toPrior = (as) => as.map((x) => ({ f: 100, a: x === '' ? 0 : x, p10: 80, p90: 120 }));
+  const prior = J(pure.run('appLandingPrior_(__in)', { __in: Object.values(lv).map(toPrior) }));
   assert.equal(prior.learned, true);
   assert.ok(Math.abs(prior.tau - 0.15) > 0.005 && prior.w > 1.5, JSON.stringify(prior));
+  const withSnow = J(pure.run('appLandingPrior_(__in)', { __in: [...Object.values(lv), snow].map(toPrior) }));
+  assert.deepEqual(withSnow, prior, '雪の丁を渡しても τ・w は同じ');
   const port = env.call('apiPortfolio()').plans;
   for (const [k, as] of Object.entries(lv)) {
     const p = port.find((x) => x.planId === ids[k]);
@@ -302,6 +327,54 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   const z = port.find((x) => x.planId === ids['丙']);
   assert.deepEqual([z.k, z.actualYtd, z.actualMonths, z.forecastYtd, z.rangeN], [6, 530, 6, 600, 5], '実績の空の月は 0 円・予測は数える（幅の外の印は空なので数えない）');
   assert.equal(env.call('apiHome()').plans.find((x) => x.planId === ids['丙']).forecastYtd, 600, 'ホームにも渡す');
+  // 雪の丁: 空模様は雪。上の 3 計画の着地は、丁を除いて学んだ τ・w のまま（丁を入れて学ぶと τ が変わる）
+  const s = port.find((x) => x.planId === idSnow);
+  assert.deepEqual([s.sky, s.skyReason, s.k, s.actualYtd, s.forecastYtd], ['sekka', 'zero_sales', 6, 0, 600]);
+  const cap = J(pure.run('APP_LANDING.TAU_MAX'));
+  assert.ok(prior.tau < cap, `丁を入れずに学んだ τ ${prior.tau} は上限 ${cap} に張りつかない`);
+}
+
+// ==== 6. 予算の無い計画でも、実績の取り込みが遅れていれば着地の数字を出さない（ホームの合計に入れない） ====
+{
+  const env = makeEnv();
+  env.run(`appToday_ = function () { return '2026-10-06'; }`);
+  env.as(OWNER);
+  env.call('apiSetup()');
+  const HC = J(env.run('APP_ENGINE_SHEETS.EVAL_COMPARE_MONTHLY.header'));
+  const HS = J(env.run('APP_ENGINE_SHEETS.PROCESS_STATUS.header'));
+  const output = (adopted) => {
+    const o = [['FY2026 売上予測']];
+    for (let r = 2; r <= 25; r++) o.push([]);
+    o.push(['年度合計（予測）', 1000, 1200, 1400]);
+    o.push([], ['月', 'P10', 'P50', 'P90', '', '', '', '採用予測', '上乗せ']);
+    yms.forEach((ym) => o.push([ym, 80, 100, 120, '', '', '', adopted, '']));
+    return o;
+  };
+  const cmpRow = (ym, act) => { const o = { target_month: ym, actual_total: act, forecast_total_p10: 80, forecast_total_p50: 100, forecast_total_p90: 120,
+    ape_p50: Math.abs(100 - act) / act, range_outside_flag: act < 80 || act > 120 ? 1 : 0 }; return HC.map((h) => (o[h] === undefined ? '' : o[h])); };
+  // b2: B-2 の時刻（B-1 より前なら、締まった月を数えない = 実績の取り込みが遅れている）。adopted: 採用予測（空なら予算が無い）
+  const book = (client, adopted, b2) => env.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    OUTPUT: { values: output(adopted) },
+    EVAL_COMPARE_MONTHLY: { values: [HC, ...yms.slice(0, 6).map((ym) => cmpRow(ym, 30))] },
+    PROCESS_STATUS: { values: [HS, ['step2_status', new Date(2026, 9, 5, 10), 'owner', 'success', client, 10, ''], ['step5_status', b2, 'owner', 'success', '', 6, '']] },
+  });
+  const fresh = new Date(2026, 9, 5, 11), old = new Date(2026, 8, 5, 11);
+  const id = { 甲: env.seedPlan(book('甲製薬', 100, fresh)), 丙: env.seedPlan(book('丙製薬', '', old)), 丁: env.seedPlan(book('丁製薬', '', fresh)) };
+  const port = Object.fromEntries(Object.entries(id).map(([k, v]) => [k, env.call('apiPortfolio()').plans.find((p) => p.planId === v)]));
+  const nums = (p) => [p.landing, p.landingSd, p.landingP10, p.landingP90, p.pAbove, p.ratio, p.theta, p.credibility];
+  // 丙: 予算が無い（霧）+ B-2 が B-1 より古い（締まった月 0・今日までに締まった 6 か月）→ 着地の数字は出さない
+  assert.deepEqual([port.丙.budgetUsed, port.丙.sky, port.丙.skyReason, port.丙.k], [null, 'mikakunin', 'no_budget', 0]);
+  assert.deepEqual(nums(port.丙), [null, null, null, null, null, null, null, null], '予算が無くても、遅れていれば着地の数字を出さない');
+  // 丁: 予算が無い（霧）だが実績は取り込めている → 着地の数字は出す（着地 ÷ 予算と確率は出さない）
+  assert.deepEqual([port.丁.sky, port.丁.skyReason, port.丁.k, port.丁.ratio, port.丁.pAbove], ['mikakunin', 'no_budget', 6, null, null]);
+  assert.ok(typeof port.丁.landing === 'number' && port.丁.landing < 1200, '丁の着地: ' + port.丁.landing);
+  assert.equal(port.甲.skyReason, 'ratio');
+  // ホームの合計: 着地は甲と丁だけ（丙は入れない）。着地 ÷ 予算は予算もある甲だけ
+  const ht = env.call('apiHome()').totals;
+  assert.deepEqual([ht.plans, ht.budget, ht.budgetPlans, ht.actualYtd, ht.landingPlans, ht.ratioPlans], [3, 1200, 1, 360, 2, 1], JSON.stringify(ht));
+  near(ht.landing, port.甲.landing + port.丁.landing, 1e-9, 'ホームの着地の合計に丙を入れない');
+  near(ht.ratio, port.甲.landing / 1200, 1e-9, 'ホームの着地 / 予算は甲だけ');
 }
 
 console.log('app-landing: all tests passed');
