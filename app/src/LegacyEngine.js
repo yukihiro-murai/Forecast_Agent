@@ -1,7 +1,7 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 6e11a12b4695764e4d068326c8b5de33ea349efcc50b5dbfae4229a7ffd6d708）
- *               Forecast_WebApp.js（SHA-256 1cb37eb8dd9a155bcc0b2c6d810b3a1a3b5f9c753120fe515f10f871c266f695）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 d64d4b9d0192fbf85d14e1c35a4fa21604be41a8a8bd82c1b6ebfe88e995869b）
+ *               Forecast_WebApp.js（SHA-256 469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
 function appLegacyEngine_(__appSvc) {
@@ -7456,7 +7456,9 @@ function updatePhase1LearningInsights() {
       (annualOverBreach || overBreach) ? 1 : 0,
       rangeBreach ? 1 : 0,
       '',
-      rangeBreach ? 'range_outside' : (rate > 0 ? 'over_forecast' : 'under_forecast'),
+      // over_forecast = 予測 > 実績（EVAL_LOG の bias_direction・EVAL_COMPARE_MONTHLY の over_flag と同じ向き。diff = 実績 − 予測）。
+      // 既に値が入っている行は upsertEvalInsightsRows_ が人の記入として残すので、逆向きで書かれた過去の値は書き換わらない
+      rangeBreach ? 'range_outside' : (diff < 0 ? 'over_forecast' : 'under_forecast'),
       'CONFIG:環境前提',
       'A-3〜A-8入力シート',
       (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'update' : 'keep',
@@ -7496,10 +7498,11 @@ function upsertEvalInsightsRows_(sh, rows) {
   const last = sh.getLastRow();
   const existing = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
   const rowByKey = new Map();
+  // 月は両側とも 'yyyy/MM' に揃える（書いた 'yyyy/MM' を Sheets が日付に変えるので、そのままでは鍵が合わず行が増えていた）
   existing.forEach((r, i) => {
     const key = [
       String(r[keyClientIdx] || '').trim(),
-      String(r[keyMonthIdx] || '').trim()
+      ymKey_(r[keyMonthIdx])
     ].join('|');
     if (key !== '|') rowByKey.set(key, { rowNo: i + 2, values: r });
   });
@@ -7507,7 +7510,7 @@ function upsertEvalInsightsRows_(sh, rows) {
   const merged = (rows || []).map(row => {
     const key = [
       String(row[keyClientIdx] || '').trim(),
-      String(row[keyMonthIdx] || '').trim()
+      ymKey_(row[keyMonthIdx])
     ].join('|');
     const prev = rowByKey.get(key);
     if (prev) {
@@ -9091,7 +9094,8 @@ function computeReliabilityHitStats_(data) {
   const grouped = new Map();
   Array.from(latestSubjectiveByUnit.values()).forEach(x => {
     const r = x.row;
-    const ym = String(r[subjTargetMonthIdx] || '');
+    // 月は 'yyyy/MM' に揃えてから実績・統計だけの予測と突き合わせる（SUBJECTIVE_IMPACT_HISTORY の月は Sheets が日付に変えていることがある）
+    const ym = ymKey_(r[subjTargetMonthIdx]);
     const actual = Number(evalActualByMonth.get(ym));
     const quant = Number(quantByMonth.get(ym));
     if (!isFinite(actual) || !isFinite(quant)) return;
@@ -9768,7 +9772,7 @@ function webParseQuarterly_(ss) {
       res.proposals.push({
         row: i + 8, pid: String(r[0] || ''), target: String(r[1] || ''),
         current: String(r[2] || ''), proposed: String(r[3] || ''),
-        conf: numOrNull_(r[4]), rationale: String(r[5] || ''),
+        conf: String(r[4] || ''), rationale: String(r[5] || ''),   // 確度は 高・中・低 の文字（数にすると空になる）
         impact: String(r[6] || ''), decision: String(r[7] || ''), rollback: String(r[8] || '')
       });
     });
@@ -10361,7 +10365,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: '6e11a12b4695764e4d068326c8b5de33ea349efcc50b5dbfae4229a7ffd6d708',
-    WEB_SOURCE_SHA256: '1cb37eb8dd9a155bcc0b2c6d810b3a1a3b5f9c753120fe515f10f871c266f695'
+    SOURCE_SHA256: 'd64d4b9d0192fbf85d14e1c35a4fa21604be41a8a8bd82c1b6ebfe88e995869b',
+    WEB_SOURCE_SHA256: '469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784'
   };
 }

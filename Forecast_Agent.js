@@ -7441,7 +7441,9 @@ function updatePhase1LearningInsights() {
       (annualOverBreach || overBreach) ? 1 : 0,
       rangeBreach ? 1 : 0,
       '',
-      rangeBreach ? 'range_outside' : (rate > 0 ? 'over_forecast' : 'under_forecast'),
+      // over_forecast = 予測 > 実績（EVAL_LOG の bias_direction・EVAL_COMPARE_MONTHLY の over_flag と同じ向き。diff = 実績 − 予測）。
+      // 既に値が入っている行は upsertEvalInsightsRows_ が人の記入として残すので、逆向きで書かれた過去の値は書き換わらない
+      rangeBreach ? 'range_outside' : (diff < 0 ? 'over_forecast' : 'under_forecast'),
       'CONFIG:環境前提',
       'A-3〜A-8入力シート',
       (rangeBreach || annualBreach || halfBreach || annualOverBreach || overBreach) ? 'update' : 'keep',
@@ -7481,10 +7483,11 @@ function upsertEvalInsightsRows_(sh, rows) {
   const last = sh.getLastRow();
   const existing = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
   const rowByKey = new Map();
+  // 月は両側とも 'yyyy/MM' に揃える（書いた 'yyyy/MM' を Sheets が日付に変えるので、そのままでは鍵が合わず行が増えていた）
   existing.forEach((r, i) => {
     const key = [
       String(r[keyClientIdx] || '').trim(),
-      String(r[keyMonthIdx] || '').trim()
+      ymKey_(r[keyMonthIdx])
     ].join('|');
     if (key !== '|') rowByKey.set(key, { rowNo: i + 2, values: r });
   });
@@ -7492,7 +7495,7 @@ function upsertEvalInsightsRows_(sh, rows) {
   const merged = (rows || []).map(row => {
     const key = [
       String(row[keyClientIdx] || '').trim(),
-      String(row[keyMonthIdx] || '').trim()
+      ymKey_(row[keyMonthIdx])
     ].join('|');
     const prev = rowByKey.get(key);
     if (prev) {
@@ -9076,7 +9079,8 @@ function computeReliabilityHitStats_(data) {
   const grouped = new Map();
   Array.from(latestSubjectiveByUnit.values()).forEach(x => {
     const r = x.row;
-    const ym = String(r[subjTargetMonthIdx] || '');
+    // 月は 'yyyy/MM' に揃えてから実績・統計だけの予測と突き合わせる（SUBJECTIVE_IMPACT_HISTORY の月は Sheets が日付に変えていることがある）
+    const ym = ymKey_(r[subjTargetMonthIdx]);
     const actual = Number(evalActualByMonth.get(ym));
     const quant = Number(quantByMonth.get(ym));
     if (!isFinite(actual) || !isFinite(quant)) return;

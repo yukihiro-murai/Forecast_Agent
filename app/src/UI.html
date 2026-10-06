@@ -2296,7 +2296,7 @@ function fcRvProposals(q){
     var cell = edit ? '<select class="inp cell" aria-label="判断" onchange="fcDec(' + p.row + ',this.value)">' + ['承認', '却下', '保留'].map(function(o){ return '<option value="' + o + '"' + ((c || '承認') === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'
       : c ? '<span class="chip st' + (c === '承認' ? ' ok' : c === '却下' ? ' ng' : ' off') + '">' + esc(c) + '</span>' : '<span class="note">未判断</span>';
     return '<tr><td class="wrap" data-tip="' + esc(t) + '">' + esc(t) + '</td><td class="num" data-tip="' + esc('設定の値 ' + raw) + '">' + esc(qrValue(p.target, p.current)) + '</td><td class="num" data-tip="' + esc('設定の値 ' + raw) + '">' + esc(qrValue(p.target, p.proposed)) + '</td>'
-      + '<td class="num">' + (isNum(p.conf) ? Math.round(p.conf * 100) + '%' : '-') + '</td>' + clamp(why) + clamp(p.impact) + '<td>' + cell + '</td></tr>'; }).join('');
+      + '<td class="num">' + esc(p.conf || '-') + '</td>' + clamp(why) + clamp(p.impact) + '<td>' + cell + '</td></tr>'; }).join('');
   var busyNow = fcBusy();
   return '<div class="card"><div class="card-head"><h2>AI の見直し案' + tip('AI が前の四半期の結果から作った、設定の見直し案です。承認して反映した案だけが、次の予測から効きます' + (hist ? '\nこれまでの見直し:\n' + hist : '')) + '</h2>'
     + (quarter ? '<span class="meta"' + (q.period ? ' data-tip="' + esc(q.period) + '"' : '') + '>' + esc(quarter) + '</span>' : '')
