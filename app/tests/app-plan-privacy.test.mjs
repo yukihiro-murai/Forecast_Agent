@@ -3,7 +3,8 @@
  * app-plan-privacy.test.mjs — 計画の画面（apiPlanView）と予測の根拠（apiForecastBasis）でも、人ごとの当たりと外れた月の担当は
  * 予算策定担当以上の人だけに出す（学びと同じ決まり: appInsightDetail_。2026-10-07 村井さん承認）。
  * - 閲覧・情報提供の人: 四半期レビューの提案の信頼度の対象は種類まで・その根拠（的中率）と見込みは空・検証の記入の担当は空・
- *   根拠の押したものの人や話題ごとの内訳（名前と信頼度）は空。入力の行・担当者の一覧・見解の一文（入力のまとめ）はこれまでどおり
+ *   根拠の押したものの人や話題ごとの内訳（名前と信頼度）は空・予測の注記（OUTPUT!A6）の信頼度の行は人や話題ごとの一覧（適用中=…）を除く。
+ *   入力の行・担当者の一覧・見解の一文（入力のまとめ）はこれまでどおり
  * - 予算策定担当（その計画のクライアント・ほかのクライアント・全体）・承認者・管理者: 前と同じ中身
  * - 控えは見る人によらず同じものを使う: どちらの順に開いても、それぞれの形が返る（控えそのものは変えない）
  * - 画面: 閲覧の人の形でも、振り返りと根拠のタブを描ける（undefined・人の名前・空の札を出さない）
@@ -14,7 +15,7 @@
 
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { J, MEMBER, OTHER, OWNER, setUpEnv, uiHtml } from './gas-mock.mjs';
+import { J, MEMBER, OTHER, OWNER, extractFunction, setUpEnv, sources, uiHtml } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const PLANNER_ALL = 'planner@bigm2y.com';
@@ -22,6 +23,17 @@ const APPROVER = 'approver@bigm2y.com';
 const PLANNER_ELSEWHERE = OTHER;   // ほかのクライアントだけの予算策定担当
 const NAMES = ['鷹野', '佐藤'];
 const IMPACT_B1 = '次回A-9で opinion:鷹野 の主観/AI寄与を reliability_r=1.100 で重み付け';
+/** 旧来の A-9 が OUTPUT!A6 に書く信頼度の行（本物の buildReliabilityText_ で作る。C-3 で信頼度の提案を適用した後の形） */
+const reliabilityText = vm.runInNewContext(extractFunction(sources['LegacyEngine.js'], 'buildReliabilityText_') + '; buildReliabilityText_');
+const relText = (map, apply = true) => reliabilityText({ reliabilityApply: apply, nonDefaultReliabilityCount: [...map.values()].filter((v) => v !== 1).length,
+  reliabilityInputs: { reliabilityMap: map }, spotCapBasis: 'dlm' });
+const REL_FULL = 'Source Reliability: ON / 非1.0ソース数=2 / 適用中=factor_product:佐藤=0.80, opinion:鷹野=1.10 / SPOT上限基準=dlm';
+const REL_VIEWER = 'Source Reliability: ON / 非1.0ソース数=2 / SPOT上限基準=dlm';
+assert.equal(relText(new Map([['opinion:鷹野', 1.1], ['factor_product:佐藤', 0.8], ['vertex_forecast:assist', 1]])), REL_FULL, '旧来の信頼度の行の形');
+/** OUTPUT!A6 の注記（旧来の writeOutputFY_ と同じ並び。経過月は実績の形なので engineNote にも写る） */
+const NOTE_A6 = ['経過月は実績（ActualClosed列）で表示していますが、年度合計(P10/P50/P90)は12ヶ月すべてを予測として算出した通年予測です（経過実績で固定した着地値ではありません）。',
+  '予測エンジン: 既存Ops（トレンド+季節）', '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。', REL_FULL,
+  'AI取込警告サマリー: なし', '適用中の四半期チューニング: なし（全項目既定値） / 3か月以上の実績確定後に C-1 を実行してください。'].join('\n');
 
 /** 計画 1 つ（入力・検証の記入・四半期レビューの提案）と、旧来の予測の代わりで 1 回分の根拠の記録。役割も付けておく（付けると控えが古くなるので先に） */
 function build() {
@@ -29,6 +41,7 @@ function build() {
   const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
   const output = [['FY2026 売上予測（テスト製薬）']];
   for (let r = 2; r <= 79; r++) output.push([]);
+  output[5] = [NOTE_A6];
   output[25] = ['年度合計（予測）', 900, 1000, 1100];
   for (let i = 0; i < 12; i++) output[28 + i] = [D(2026, 4 + i), 70, 80, 90];
   output[64] = ['年度合計（予測）', 800, 900, 1000];
@@ -118,6 +131,9 @@ const redactedView = (full) => {
     p.target = p.target.split(':').slice(0, 2).join(':'); p.rationale = ''; p.impact = '';
   });
   x.boot.eval.insights.forEach((r) => { r.owner = ''; });
+  const o = x.boot.output;
+  o.policyLines = o.policyLines.map((t) => t.split(REL_FULL).join(REL_VIEWER));
+  o.engineNote = o.engineNote.split(REL_FULL).join(REL_VIEWER);
   return x;
 };
 const redactedBasis = (full) => {
@@ -134,6 +150,7 @@ const redactedBasis = (full) => {
   const pb1 = full.boot.quarterly.proposals.find((p) => p.pid === 'P-B-1');
   assert.deepEqual([pb1.target, pb1.rationale, pb1.impact], ['reliability:opinion:鷹野', '的中率=67% / n=3', IMPACT_B1]);
   assert.equal(full.boot.eval.insights.find((r) => r.month === '2026/04').owner, '鷹野');
+  assert.deepEqual([full.boot.output.policyLines, full.boot.output.engineNote], [[NOTE_A6.replace(/\n+/g, ' ')], NOTE_A6], '予測の注記には、信頼度を効かせている人の名前がある');
   for (const email of FULL_ROLES) assert.deepEqual(t.view(email).boot, full.boot, email + ' には前と同じ中身');
   assert.deepEqual([t.view('planner.here@bigm2y.com').can.plan, t.view(PLANNER_ELSEWHERE).can.plan], [true, false], '保存できるかは前と同じ（見せ方とは別）');
 
@@ -145,12 +162,41 @@ const redactedBasis = (full) => {
     ['P-B-2', 'reliability:factor_product', '1', '0.8', '', ''],
     ['P-A-1', 'ai_weight_override', '0.5', '0.4', 'AI方向一致率=40.0% / mean|kAI-1|=1.00%', '次期AI寄与を80%へ調整']]);
   assert.deepEqual(sum.boot.eval.insights.map((r) => [r.month, r.owner, r.hypothesis]), [['2026/04', '', '受注の遅れ'], ['2026/05', '', '']]);
+  assert.deepEqual([sum.boot.output.policyLines, sum.boot.output.engineNote], [[NOTE_A6.replace(REL_FULL, REL_VIEWER).replace(/\n+/g, ' ')], NOTE_A6.replace(REL_FULL, REL_VIEWER)],
+    '予測の注記: 信頼度の行は ON/OFF と数だけ（人や話題ごとの一覧を除く）。ほかの行はそのまま');
+  assert.ok(!JSON.stringify(sum.boot.output).includes('適用中='), '予測の注記に人や話題ごとの信頼度を出さない');
   // 人の名前と的中率は、入力の画面に出すもの（入力の行・担当者の一覧）のほかには、どこにも無い
   for (const part of [sum.boot.quarterly, sum.boot.eval]) assert.deepEqual(hasName(JSON.stringify(part)), []);
   assert.deepEqual(hasName(JSON.stringify(withoutInputs(sum))), [], '閲覧の人の中身に人の名前を出さない');
   assert.ok(!JSON.stringify(sum).includes('的中率'), '人ごとの的中率を出さない');
   assert.deepEqual([sum.boot.input, sum.boot.setup.people], [full.boot.input, full.boot.setup.people], '入力の行と担当者の一覧はこれまでどおり');
   assert.deepEqual(sum.boot.input.product.map((r) => r.person).concat(sum.boot.input.opinions.map((r) => r.person)), ['鷹野', '佐藤']);
+}
+
+// ==== 1b. 予測の注記の信頼度の行: 旧来の形のどれでも、人や話題ごとの一覧だけ除く（6 件以上の「ほか」・OFF・手入力なし・途中で切れた行） ====
+{
+  const env = setUpEnv();
+  const six = new Map(['鷹野', '佐藤', '話題A', '話題B', '話題C', '話題D'].map((k, i) => ['opinion:' + k, 1 + (i + 1) / 10]));
+  const lines = {
+    many: relText(six), off: relText(six, false), neutral: relText(new Map()), cut: 'Source Reliability: ON / 非1.0ソース数=2 / 適用中=opinion:鷹野=1.10, factor_product:佐藤',
+  };
+  assert.match(lines.many, /ほか 1件 \/ SPOT上限基準=dlm$/);
+  assert.match(lines.neutral, /手入力なし/);
+  const r = J(env.run(`(() => {
+    const L = ${JSON.stringify(lines)}, viewer = { roles: [{ role: 'VIEWER', scope_type: 'ALL', client_id: '' }] };
+    const out = {};
+    Object.keys(L).forEach(k => { const o = appPlanViewFor_(viewer, { boot: { output: { policyLines: ['前の行', L[k] + ' AI取込警告サマリー: なし'], engineNote: '経過月は実績…\\n' + L[k] + '\\nAI取込警告サマリー: なし' } } }).boot.output; out[k] = o; });
+    out.noNote = appPlanViewFor_(viewer, { boot: { output: { policyLines: [], engineNote: '' } } }).boot.output;
+    return out;
+  })()`));
+  const note = (t) => ({ policyLines: ['前の行', t + ' AI取込警告サマリー: なし'], engineNote: '経過月は実績…\n' + t + '\nAI取込警告サマリー: なし' });
+  assert.deepEqual(r.many, note('Source Reliability: ON / 非1.0ソース数=6 / SPOT上限基準=dlm'), '6 件以上（ほか N件）でも一覧ごと除く');
+  assert.deepEqual(r.off, note(lines.off), '信頼度を効かせていない（OFF）行はそのまま');
+  assert.deepEqual(r.neutral, note(lines.neutral), '手入力なしの行はそのまま');
+  assert.deepEqual(r.cut, { policyLines: ['前の行', 'Source Reliability: ON / 非1.0ソース数=2'], engineNote: '経過月は実績…\nSource Reliability: ON / 非1.0ソース数=2\nAI取込警告サマリー: なし' },
+    '一覧の終わりが見つからなければ、その行の終わりまで除く（出さない側）');
+  assert.deepEqual(r.noNote, { policyLines: [], engineNote: '' }, '注記が無くても止まらない');
+  assert.deepEqual(hasName(JSON.stringify(r)), [], '人の名前を出さない');
 }
 
 // ==== 2. 予測の根拠: 閲覧の人には押したものの人や話題ごとの内訳（名前と信頼度）を出さない（種類ごとの押しだけ）。予算策定担当以上は前と同じ ====

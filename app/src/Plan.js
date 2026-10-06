@@ -227,6 +227,8 @@ function appPlanView_(ctx, planId) {
  *   - 四半期レビューの提案: 信頼度の対象は種類まで（reliability:<種類>）。その根拠（その人や話題の的中率）と、効かせたときの見込み
  *     （旧来の C-1 は、その人や話題の名前を書く）は空。どちらも学びと同じ appInsightTarget_・appInsightRationale_ で決める
  *   - 検証の記入（boot.eval.insights）: 担当は空
+ *   - 予測の注記（OUTPUT!A6 の写し: boot.output.policyLines・engineNote）: 信頼度の行（旧来の buildReliabilityText_）のうち、
+ *     効かせている人や話題ごとの一覧（「 / 適用中=opinion:<名前>=1.10, …」）だけ除く。ON/OFF・数・SPOT上限基準とほかの行はそのまま
  * 入力の行・担当者の一覧は、これまでどおり出す（入力の画面に出すもの）。
  * 覚えておいた中身は見る人によらず同じものを使うので、写しを直す（覚えておいたものは変えない）
  */
@@ -240,6 +242,11 @@ function appPlanViewFor_(ctx, view) {
     p.target = appInsightTarget_(p.target, true).target;
   });
   ((out.boot.eval && out.boot.eval.insights) || []).forEach(r => { r.owner = ''; });
+  // 一覧の終わりは「 / SPOT上限基準=」。見つからなければ、その行の終わりまで除く（出さない側）
+  const o = out.boot.output;
+  const strip = t => String(t || '').replace(/ \/ 適用中=.*?(?= \/ SPOT上限基準=|\n|$)/g, '');
+  if (o && Array.isArray(o.policyLines)) o.policyLines = o.policyLines.map(strip);
+  if (o && o.engineNote) o.engineNote = strip(o.engineNote);
   return out;
 }
 
