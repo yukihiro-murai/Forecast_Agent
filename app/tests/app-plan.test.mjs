@@ -300,7 +300,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
   ui.__home = env.call('apiHome()');
   const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
-  assert.match(homeHtml, /年間予算[\s\S]*暫定実績[\s\S]*着地の推定[\s\S]*見通しの空模様[\s\S]*データからわかること/);
+  assert.match(homeHtml, /年間予算[\s\S]*着地の推定[\s\S]*暫定実績[\s\S]*外れ幅[\s\S]*見通しの空模様[\s\S]*学びの進み[\s\S]*データからわかること/);
   // 空模様はいつも 8 つ（猛暑 → 快晴 → 晴れのち曇り → 曇り → 雨 → 雪 → 天変地異 → 霧）。押すと分析へ
   assert.match(homeHtml, /猛暑[\s\S]*快晴[\s\S]*晴れのち曇り[\s\S]*曇り[\s\S]*雨[\s\S]*雪[\s\S]*天変地異[\s\S]*霧/);
   assert.equal((homeHtml.match(/class="sky( none)?"/g) || []).length, 8);
