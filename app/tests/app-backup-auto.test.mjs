@@ -2,7 +2,7 @@
 /**
  * app-backup-auto.test.mjs — 毎日のバックアップのトリガーを、所有者が画面を開いたときに自動で作る（Backup.js の appEnsureBackupTrigger_。2026-10-07 村井さん承認）。
  * 所有者が開くと 1 つ作る・同じ日は確かめ直さない・次の日に確かめ直す・あるトリガーには触らない・止めるスイッチ（BACKUP_AUTO_ENABLE）・
- * 所有者でなければ何もしない・ロックの中で確かめ直して二重に作らない・作れなくても画面は開く・トリガーの上限・ホームのよみの文。
+ * 所有者でなければ何もしない・ロックの中で確かめ直して二重に作らない・作れなくても画面は開く・トリガーの上限・ホームのよみの文（今日もう確かめたときは明日以降）。
  * GAS のモックの上で確かめるだけ（本物の Apps Script・本物のデータでは確かめていない）。
  *
  *   node app/tests/app-backup-auto.test.mjs
@@ -57,11 +57,16 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   assert.deepEqual([r.checked, r.reason, r.installed], [false, 'CHECKED_TODAY', true]);
   assert.equal(env.state.locks, locks, '確かめた日はロックを取らない');
   assert.equal(ensureRuns(env).length, 1);
-  // ホーム（所有者でない管理者にも）: トリガーが無ければ、次に所有者が開いたときに作ると出す
+  // ホーム（所有者でない管理者にも）: トリガーが無く、今日もう確かめたなら、そう渡す（画面は明日以降に作ると出す）
   const sys = env.call('apiHome()').system;
-  assert.deepEqual([sys.backup.enabled, sys.backupAuto], [false, { off: false, checkedOn: jstDay(0), reason: '' }]);
+  assert.deepEqual([sys.backup.enabled, sys.backupAuto], [false, { off: false, checkedOn: jstDay(0), checkedToday: true, reason: '' }], '今日はもう確かめたと渡す（その日のうちは作らない）');
+  // 確かめる途中で止まった（控えが CHECKING のまま）も、今日はもう確かめた
+  env.props.APP_BACKUP_AUTO_CHECKED = JSON.stringify({ date: jstDay(0), installed: false, reason: 'CHECKING' });
+  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: false, checkedOn: jstDay(0), checkedToday: true, reason: 'CHECKING' });
+  assert.equal(ensure(env).reason, 'CHECKED_TODAY');
   // 次の日（控えの日付が違う）: 作り直す
   env.props.APP_BACKUP_AUTO_CHECKED = JSON.stringify({ date: jstDay(-1), installed: true, reason: '' });
+  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: false, checkedOn: jstDay(-1), checkedToday: false, reason: '' }, '前の日の控えは、今日はまだ確かめていない');
   open(env);
   assert.equal(backupTriggers(env).length, 1, '次の日に確かめ直して作る');
   assert.deepEqual(ensureRuns(env).map((x) => x[0]), ['CREATED', 'CREATED']);
@@ -104,7 +109,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   }
   assert.equal(env.props.APP_BACKUP_AUTO_CHECKED, undefined, '止めてある間は確かめた控えを書かない');
   assert.equal(ensureRuns(env).length, 0);
-  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: true, checkedOn: '', reason: '' }, 'ホームに止めてあることを渡す');
+  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: true, checkedOn: '', checkedToday: false, reason: '' }, 'ホームに止めてあることを渡す');
   // 止めてあっても、あるトリガーは消さない
   env.call('apiEnableBackup()');
   open(env);
@@ -135,7 +140,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   assert.equal(boot.user.isAdmin, true, '管理者として開いた');
   assert.equal(backupTriggers(env).length, 0, '所有者でない管理者が開いても作らない');
   assert.equal(env.props.APP_BACKUP_AUTO_CHECKED, undefined, '控えも書かない');
-  assert.deepEqual([boot.home.system.backup.enabled, boot.home.system.backupAuto], [false, { off: false, checkedOn: '', reason: '' }]);
+  assert.deepEqual([boot.home.system.backup.enabled, boot.home.system.backupAuto], [false, { off: false, checkedOn: '', checkedToday: false, reason: '' }]);
   env.as(OUTSIDER);
   assert.equal(open(env).boot.allowed, false);
   assert.equal(backupTriggers(env).length, 0, '社外の人が開いても作らない');
@@ -199,7 +204,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   assert.deepEqual(checked(env), { date: jstDay(0), installed: false, reason: 'FAILED' });
   assert.equal(env.state.lockHeld, false);
   assert.equal(env.triggers.filter((t) => t.handler === 'triggerAutoResearch').length, 1, 'AI 調査のトリガーはそのまま確かめる');
-  assert.deepEqual(boot.home.system.backupAuto, { off: false, checkedOn: jstDay(0), reason: 'FAILED' }, 'ホームに作れなかったことを渡す');
+  assert.deepEqual(boot.home.system.backupAuto, { off: false, checkedOn: jstDay(0), checkedToday: true, reason: 'FAILED' }, 'ホームに作れなかったことを渡す');
   open(env);
   assert.equal(env.run('__made'), 1, '同じ日は試し直さない');
   // トリガーの一覧そのものが読めない（ロックの前で止まる）: 画面は開き、ログに残す。控えを書かないので次に開いたときに試す
@@ -231,7 +236,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   assert.equal(backupTriggers(env).length, 0);
   assert.deepEqual(ensureRuns(env).map((x) => [x[0], x[1].reason, x[1].triggers]), [['SKIPPED', 'TRIGGER_LIMIT', 17]], '見送ったことを実行ログに残す');
   assert.deepEqual(checked(env), { date: jstDay(0), installed: false, reason: 'TRIGGER_LIMIT' });
-  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: false, checkedOn: jstDay(0), reason: 'TRIGGER_LIMIT' });
+  assert.deepEqual(env.call('apiHome()').system.backupAuto, { off: false, checkedOn: jstDay(0), checkedToday: true, reason: 'TRIGGER_LIMIT' });
   // 16 個なら作れる（20 - 3 の余裕）。画面を開いたときはバックアップを先に確かめるので、枠が 1 つだけならバックアップに使う
   env.triggers.splice(env.triggers.findIndex((t) => t.handler === 'triggerDummy'), 1);
   delete env.props.APP_BACKUP_AUTO_CHECKED;
@@ -241,7 +246,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   assert.equal(JSON.parse(env.props.APP_AUTO_RESEARCH_CHECKED).reason, 'TRIGGER_LIMIT');
 }
 
-// ==== 9. ホームのよみの文（管理者だけ）: トリガーがあれば出さない。無ければ、自動で有効になる・止めてある・作れなかった ====
+// ==== 9. ホームのよみの文（管理者だけ）: トリガーがあれば出さない。無ければ、自動で有効になる（今日もう確かめたなら明日以降）・止めてある・作れなかった ====
 {
   const js = uiHtml.slice(uiHtml.indexOf('<script>') + 8, uiHtml.lastIndexOf('</script>'))
     .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" }); var CHAR_SVG = new Proxy({}, { get: () => "" });')
@@ -253,24 +258,33 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   const items = (sys) => JSON.parse(vm.runInContext(`JSON.stringify(homeSysItems(${JSON.stringify(sys)}))`, ui)).filter((x) => x[0] === 'バックアップ');
   const backup = { enabled: false, count: 0, latest: '', ageHours: null, keep: 14 };
   assert.deepEqual(items({ backup: Object.assign({}, backup, { enabled: true, count: 3, ageHours: 2 }), backupAuto: null }), [], 'トリガーがあれば出さない');
-  const pending = items({ backup, backupAuto: { off: false, checkedOn: '', reason: '' } });
+  const pending = items({ backup, backupAuto: { off: false, checkedOn: '', checkedToday: false, reason: '' } });
   assert.equal(pending.length, 1);
   assert.match(pending[0][1], /所有者が次に開いたときに自動で有効になります/);
   assert.doesNotMatch(pending[0][2], /enableBackup/, '手で有効にするよう頼まない');
+  assert.match(items({ backup, backupAuto: { off: false, checkedOn: jstDay(-1), checkedToday: false, reason: '' } })[0][1], /所有者が次に開いたときに/, '前の日に確かめただけなら、次に開いたときに作る');
+  // 今日もう確かめたのにトリガーが無い（確かめた後にアプリの外で消した・確かめる途中で止まった）: 次に開いても作らないので、明日以降と言い、今すぐ有効にする方法も出す
+  for (const reason of ['', 'CHECKING']) {
+    const today = items({ backup, backupAuto: { off: false, checkedOn: jstDay(0), checkedToday: true, reason } });
+    assert.equal(today.length, 1);
+    assert.match(today[0][1], /明日以降に所有者が開いたときに自動で有効になります/, `今日は済んでいる（${JSON.stringify(reason)}）`);
+    assert.doesNotMatch(today[0][1], /次に開いたとき/);
+    assert.match(today[0][2], /今日の分は済んでいます[\s\S]*"action":"enableBackup"/);
+  }
   assert.match(items({ backup })[0][1], /自動で有効になります/, '前の版のサーバー（backupAuto が無い）でも同じ');
   const off = items({ backup, backupAuto: { off: true, checkedOn: '', reason: '' } });
   assert.match(off[0][1], /まだ動いていません/);
   assert.match(off[0][2], /BACKUP_AUTO_ENABLE[\s\S]*"action":"enableBackup"/, '止めてあるときは手で有効にする方法を出す');
-  const limit = items({ backup, backupAuto: { off: false, checkedOn: jstDay(0), reason: 'TRIGGER_LIMIT' } });
+  const limit = items({ backup, backupAuto: { off: false, checkedOn: jstDay(0), checkedToday: true, reason: 'TRIGGER_LIMIT' } });
   assert.match(limit[0][1], /自動で有効にできませんでした/);
   assert.match(limit[0][2], /トリガーの数に余裕がありません[\s\S]*BACKUP\.ENSURE[\s\S]*"action":"enableBackup"/);
-  const failed = items({ backup, backupAuto: { off: false, checkedOn: jstDay(0), reason: 'FAILED' } });
+  const failed = items({ backup, backupAuto: { off: false, checkedOn: jstDay(0), checkedToday: true, reason: 'FAILED' } });
   assert.match(failed[0][1], /自動で有効にできませんでした/);
   assert.doesNotMatch(failed[0][2], /トリガーの数/);
   // 有効で、バックアップがまだ無い・古いときは今までどおり
   assert.match(items({ backup: Object.assign({}, backup, { enabled: true }) })[0][1], /まだ 1 つもありません/);
   // セリフ: 1 件ならそのまま話す（文と説明）
-  const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays({ fy: '2026', plans: [], approvals: [], mine: [], system: ${JSON.stringify({ backup, backupAuto: { off: false, checkedOn: '', reason: '' } })} }))`, ui));
+  const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays({ fy: '2026', plans: [], approvals: [], mine: [], system: ${JSON.stringify({ backup, backupAuto: { off: false, checkedOn: '', checkedToday: false, reason: '' } })} }))`, ui));
   assert.ok(says.some((x) => x.sys && /所有者が次に開いたときに自動で有効になります。$/.test(x.text)), JSON.stringify(says));
 }
 

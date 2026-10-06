@@ -175,8 +175,12 @@ function appBackupOnOpen_(ctx) {
   try { appEnsureBackupTrigger_(ctx); } catch (e) { Logger.log('毎日のバックアップのトリガー: ' + (e && e.message ? e.message : e)); }
 }
 
-/** ホームに出す、自動で作る仕組みの状態（トリガーが無いときだけ。画面が文を選ぶ）: { off（止めるスイッチ）, checkedOn, reason } */
+/**
+ * ホームに出す、自動で作る仕組みの状態（トリガーが無いときだけ。画面が文を選ぶ）: { off（止めるスイッチ）, checkedOn, checkedToday, reason }
+ * checkedToday: 今日（日本時間）はもう確かめた。その日のうちは所有者が開いても確かめ直さないので、自動で作るのは次の日以降になる
+ */
 function appBackupAutoStatus_() {
   const c = appBackupAutoChecked_();
-  return { off: !appBackupAutoEnabled_(), checkedOn: c && c.date ? String(c.date) : '', reason: c && c.reason ? String(c.reason) : '' };
+  const on = c && c.date ? String(c.date) : '';
+  return { off: !appBackupAutoEnabled_(), checkedOn: on, checkedToday: !!on && on === appToday_(), reason: c && c.reason ? String(c.reason) : '' };
 }

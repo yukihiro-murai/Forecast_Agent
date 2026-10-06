@@ -1629,10 +1629,13 @@ function homeSysItems(sys){
     (hk.problems || []).slice(0, 3).map(function(x){ return '・' + plainMsg(x); }).join('\n') + '\n' + homeOwnerTip('{"action":"health"}', '中身が分かります')]);
   if (b) {
     if (b.error) it.push(['バックアップ', 'バックアップの状態を読めません', homeOwnerTip('{"action":"health"}', '状態が分かります')]);
-    // 毎日のバックアップのトリガーは、所有者が開いたときに自動で作る（2026-10-07）。ba = 止めるスイッチ（off）と、最後に確かめた結果（reason）
+    // 毎日のバックアップのトリガーは、所有者が開いたときに自動で作る（2026-10-07）。ba = 止めるスイッチ（off）と、最後に確かめた結果（reason）・今日もう確かめたか（checkedToday）
     else if (b.enabled === false && ba.off) it.push(['バックアップ', '毎日のバックアップが、まだ動いていません', '自動で有効にしないよう止めてあります（BACKUP_AUTO_ENABLE）\n' + homeOwnerTip('{"action":"enableBackup"}', '毎日 3 時ごろに自動で取るようになります')]);
     else if (b.enabled === false && (ba.reason === 'TRIGGER_LIMIT' || ba.reason === 'FAILED')) it.push(['バックアップ', '毎日のバックアップを、自動で有効にできませんでした',
       (ba.reason === 'TRIGGER_LIMIT' ? 'トリガーの数に余裕がありません。' : '') + '次の日、所有者が開いたときにもう一度試します\n' + homeOwnerTip('{"action":"listAudit","kind":"RUN","query":"BACKUP.ENSURE"}', '理由が分かります') + '\n今すぐ有効にするときは {"action":"enableBackup"}']);
+    // 今日もう確かめたのにトリガーが無い（確かめた後にアプリの外で消した・確かめる途中で止まった）: その日のうちは確かめ直さない
+    else if (b.enabled === false && ba.checkedToday) it.push(['バックアップ', '毎日のバックアップは、明日以降に所有者が開いたときに自動で有効になります',
+      '所有者が開いたときに確かめるのは 1 日 1 回で、今日の分は済んでいます\n' + homeOwnerTip('{"action":"enableBackup"}', '今すぐ有効になり、毎日 3 時ごろに取るようになります')]);
     else if (b.enabled === false) it.push(['バックアップ', '毎日のバックアップは、所有者が次に開いたときに自動で有効になります', '所有者が開いたときに（1 日 1 回）、毎日 3 時ごろに取るように設定します']);
     else if (b.count === 0) it.push(['バックアップ', 'バックアップが、まだ 1 つもありません', homeOwnerTip('{"action":"runBackup"}', 'すぐに 1 つ取ります。毎日の分は 3 時ごろに取ります')]);
     else if (isNum(b.ageHours) && b.ageHours > 26) it.push(['バックアップ', '最後のバックアップから ' + b.ageHours + ' 時間たっています', homeOwnerTip('{"action":"health"}', '状態が分かります') + '\n今すぐ取るときは {"action":"runBackup"}']);
