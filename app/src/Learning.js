@@ -17,9 +17,9 @@ const APP_POOL_PRECISION_MIN = 2;
 const APP_POOL_PRECISION_MAX = 50;
 const APP_BIAS_HALF_LIFE = 4;      // 旧来の B-5 と同じ（月）
 
-/** 計画の EVAL_LOG を、月ごとの P10/P50/P90 と実績にする */
-function appEvalMonths_(planId) {
-  const rows = appEngTableObjects_(planId, ['EVAL_LOG']).EVAL_LOG;
+/** 計画の EVAL_LOG を、月ごとの P10/P50/P90 と実績にする（rows = 読んである EVAL_LOG の行。省くとその計画の分を読む） */
+function appEvalMonths_(planId, rows) {
+  rows = rows || appEngTableObjects_(planId, ['EVAL_LOG']).EVAL_LOG;
   const by = {};
   rows.forEach(r => {
     const ym = appYm_(r.target_month);
@@ -42,19 +42,22 @@ function appQuantile_(xs, q) {
   return s[pos];
 }
 
-/** 計画の精度を、入力のハッシュが同じあいだ 6 時間控える（全計画を見るので、毎回は計算しない） */
-function appAccuracyCached_(planId) {
+/**
+ * 計画の精度を、入力のハッシュが同じあいだ 6 時間控える（全計画を見るので、毎回は計算しない）。
+ * evalRowsOf（計画の ID → EVAL_LOG の行）を渡すと、控えが無いときはそこから計算する（全計画の分をまとめて 1 回で読むため）
+ */
+function appAccuracyCached_(planId, evalRowsOf) {
   const key = 'ACC_' + appSha256Hex_([planId, appPlanInputHash_(planId), APP_VERSION].join('|')).slice(0, 32);
   const c = appJobGetResult_(key);
   if (c.found) return c.value;
-  const v = appAccuracyOf_(planId);
+  const v = appAccuracyOf_(planId, evalRowsOf ? evalRowsOf(planId) : null);
   try { appJobPutResult_(key, v); } catch (e) { /* 控えられなくても返す */ }
   return v;
 }
 
-/** 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう） */
-function appAccuracyOf_(planId) {
-  const ms = appEvalMonths_(planId).map(m => {
+/** 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう）。evalRows は appEvalMonths_ と同じ */
+function appAccuracyOf_(planId, evalRows) {
+  const ms = appEvalMonths_(planId, evalRows).map(m => {
     const err = (m.p50 - m.actual) / Math.abs(m.actual);
     const hasRange = m.p10 !== null && m.p10 !== undefined && m.p90 !== null && m.p90 !== undefined && m.p90 > m.p10;
     return Object.assign({}, m, { err: err, ape: Math.abs(err), leak: Math.abs(m.p50 - m.actual) < 1e-6,
@@ -82,7 +85,7 @@ function appAccuracyOf_(planId) {
 
 /**
  * 全計画の偏りの補正を、全体の平均へ縮める（経験ベイズ・DerSimonian–Laird の τ²）。影: 予測には効かない。
- * 返り値: { mu, tau2, plans: { planId: { bias, shrunk, factorNow, factorShadow, mapeNow, mapeShadow } } }
+ * 返り値: { mu, tau2, plans: { planId: { bias, se, shrunk, factorShadow, mapeNow, mapeShadow } } }（se = 偏りの標準誤差。縮める強さを決めたもの）
  */
 function appBiasShadow_(accs) {
   const ids = Object.keys(accs).filter(id => accs[id].n >= 3 && accs[id].bias !== null);
@@ -103,7 +106,7 @@ function appBiasShadow_(accs) {
     const factor = Math.min(1.25, Math.max(0.75, 1 - shrunk));
     const use = a.months.filter(m => !m.leak);
     const mapeAt = f => use.reduce((s, m) => s + Math.abs((m.p50 * f - m.actual) / m.actual), 0) / use.length;
-    plans[id] = { bias: a.bias, shrunk: shrunk, factorShadow: factor, mapeNow: mapeAt(1), mapeShadow: mapeAt(factor) };
+    plans[id] = { bias: a.bias, se: Math.sqrt(v(id)), shrunk: shrunk, factorShadow: factor, mapeNow: mapeAt(1), mapeShadow: mapeAt(factor) };
   });
   return { mu: mu, tau2: tau2, pooled: ids.length >= 2, plans: plans };
 }
