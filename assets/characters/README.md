@@ -21,16 +21,17 @@ Playwright 同梱の chrome-headless-shell（`~/Library/Caches/ms-playwright/`�
 | id | 名前 | 意味 | SVG 正本 | 透過 PNG |
 |---|---|---|---|---|
 | yomi | よみ | 案内役（天気を伝える側） | `svg/yomi.svg` | `png/yomi_160.png` / `_512.png` |
-| kaisei | 快晴（かいせい） | 予測がよく当たっている | `svg/kaisei.svg` | `png/kaisei_*.png` |
-| harenochi | 晴れのち曇り（はれのちくもり） | 当たっているが崩れ始めの兆し | `svg/harenochi.svg` | `png/harenochi_*.png` |
-| kumori | 曇り（くもり） | ずれが出ている | `svg/kumori.svg` | `png/kumori_*.png` |
-| ame | 雨（あめ） | 大きく外れている | `svg/ame.svg` | `png/ame_*.png` |
-| sekka | 雪（せっか） | 数字が冷え込んでいる | `svg/sekka.svg` | `png/sekka_*.png` |
-| taifuu | 台風（たいふう） | ずれが大きく荒れている | `svg/taifuu.svg` | `png/taifuu_*.png` |
-| tenpen | 天変地異（てんぺんちい） | ごくまれな桁違いの外れ | `svg/tenpen.svg` | `png/tenpen_*.png` |
-| mikakunin | 未確認・霧（みかくにん） | データ不足でまだ判定できない（悪い予測とは別系統） | `svg/mikakunin.svg` | `png/mikakunin_*.png` |
+| mousho | 猛暑（もうしょ） | 着地の推定が予算の 150% 以上（2026-10-06 追加） | `svg/mousho.svg` | `png/mousho_*.png` |
+| kaisei | 快晴（かいせい） | 着地の推定が予算の 110% 以上 | `svg/kaisei.svg` | `png/kaisei_*.png` |
+| harenochi | 晴れのち曇り（はれのちくもり） | 予算を超えるか否か、ぶれ 10% 前後 | `svg/harenochi.svg` | `png/harenochi_*.png` |
+| kumori | 曇り（くもり） | 着地の推定が予算の 90% 以下 | `svg/kumori.svg` | `png/kumori_*.png` |
+| ame | 雨（あめ） | 着地の推定が予算の 50% 以下 | `svg/ame.svg` | `png/ame_*.png` |
+| sekka | 雪（せっか） | 予算はあるが売上が 0 のまま | `svg/sekka.svg` | `png/sekka_*.png` |
+| taifuu | 台風（たいふう） | 予測の当たり方が荒れている（外れ幅 30% 以上・外れる向きが入れ替わる。学びの画面） | `svg/taifuu.svg` | `png/taifuu_*.png` |
+| tenpen | 天変地異（てんぺんちい） | 上昇でも下降でも急激な変化がある | `svg/tenpen.svg` | `png/tenpen_*.png` |
+| mikakunin | 未確認・霧（みかくにん） | 今は推定量が出せない（予算・予測・実績の更新が足りない） | `svg/mikakunin.svg` | `png/mikakunin_*.png` |
 
-意味の詳しい条件（どの指標で、どの順で決めるか）は `CHARACTER_DESIGN_STATUS.md` の「表示条件」。2026-10-01 に画面へ実装した。
+空模様（猛暑〜霧・天変地異）は 2026-10-06 から、統計的な着地の推定 ÷ 年間予算で決める（`app/src/Landing.js`）。それ以前の条件は `CHARACTER_DESIGN_STATUS.md` の「表示条件」。
 雪の id が `sekka` なのは、図鑑に `yuki`（ゆき）が既にいるため。
 
 ## よみ 5 ポーズ

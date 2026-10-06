@@ -110,7 +110,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
   for (const id of Object.keys(CHAR_SVG)) {
     assert.equal(CHAR_SVG[id], (await readFile(path.join(repoRoot, 'assets/characters/svg', id + '.svg'), 'utf8')).trim(), `${id} が assets と違う`);
   }
-  assert.equal(Object.keys(CHAR_SVG).length, 9);
+  assert.equal(Object.keys(CHAR_SVG).length, 10);
   assert.deepEqual(Object.keys(YOMI_POSE).sort(), ['discover', 'done', 'explain', 'guide', 'observe']);
   for (const k of Object.keys(YOMI_POSE)) {
     assert.equal(YOMI_POSE[k], (await readFile(path.join(repoRoot, 'assets/characters/yomi/svg', 'yomi_' + k + '.svg'), 'utf8')).trim(), `yomi_${k} が assets と違う`);

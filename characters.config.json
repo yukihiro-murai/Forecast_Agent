@@ -1,6 +1,6 @@
 {
   "out": "assets/characters/Characters.html",
-  "ids": ["yomi", "kaisei", "harenochi", "kumori", "ame", "sekka", "taifuu", "tenpen", "mikakunin"],
+  "ids": ["yomi", "mousho", "kaisei", "harenochi", "kumori", "ame", "sekka", "taifuu", "tenpen", "mikakunin"],
   "families": [],
   "screens": [],
   "moods": true,

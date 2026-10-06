@@ -105,8 +105,19 @@ mikakunin_body = (fog('M24 14c6-3 12-3 18 0s12 3 18 0', FOG2, 6.5)
                   + fog('M24 66c5-2.6 10-2.6 15 0s10 2.6 15 0', FOG2, 6.5))
 MIKAKUNIN_FS = {'eyes': 'dots', 'mouth': 'none', 'x': 40, 'y': 40, 'gap': 7.5, 'r': 3.2, 'my': 9, 'w': 9, 'no_mouth': True}
 
+# ---------- 猛暑: 燃える炎の光線の太陽 + 汗 (予算を 150% 以上上回る見込み) ----------
+HOT = '#F26A2E'; FLAME = '#E8452A'; SWEAT = '#BFE0FF'
+def flame_ray(a, r_tip, s):
+    """中心から外へ先を向けた炎 (しずく形) を 1 枚。a = 角度 (度, 上が 0)"""
+    return f'<g transform="rotate({a} 40 41)">{drop(40, 41 - r_tip + s*1.45, s, FLAME)}</g>'
+mousho_body = (''.join(flame_ray(i * 45, 37 if i % 2 == 0 else 32, 4.6 if i % 2 == 0 else 3.6) for i in range(8))
+               + f'<circle cx="40" cy="41" r="21" fill="{HOT}"/>'
+               + drop(65, 31, 2.6, SWEAT))
+MOUSHO_FS = {'eyes': 'squint', 'mouth': 'tongue', 'x': 40, 'y': 37.5, 'gap': 7, 'r': 2.6, 'my': 8.5, 'w': 9}
+
 CAST = [
     ('yomi', 'よみ', yomi_body, YOMI_FS, Y_CYAN),
+    ('mousho', '猛暑', mousho_body, MOUSHO_FS, INK),
     ('kaisei', '快晴', kaisei_body, KAISEI_FS, INK),
     ('harenochi', '晴れのち曇り', harenochi_body, HARENOCHI_FS, INK),
     ('kumori', '曇り', kumori_body, KUMORI_FS, SLATE),

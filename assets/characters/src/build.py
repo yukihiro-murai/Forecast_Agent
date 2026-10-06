@@ -34,7 +34,7 @@ DATA_URL_PREFIX = 'data:image/png;base64,'
 DATA_URL_SUFFIX = '#favicon.png'
 
 DESC = {
-    'yomi': '気象観測ロボ・案内役', 'kaisei': '半目＋ニヤッ（傲慢）', 'harenochi': '太陽ムッ × 雲しれっと',
+    'yomi': '気象観測ロボ・案内役', 'mousho': '炎の光線＋汗＋舌出し', 'kaisei': '半目＋ニヤッ（傲慢）', 'harenochi': '太陽ムッ × 雲しれっと',
     'kumori': '平たい雲・大きな半目', 'ame': '濃い青・大泣き', 'sekka': '雲なしの六花',
     'taifuu': '竜巻型・ねじれ帯', 'tenpen': 'ぐるぐる目の彗星', 'mikakunin': '霧の帯から目だけ',
 }
@@ -48,6 +48,10 @@ def chrome():
         hits = sorted(glob.glob(p))
         if hits:
             return hits[-1]
+    # 無ければ Mac の Google Chrome を使う（2026-10-06。同じ PNG になることを確かめた）
+    mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if os.path.exists(mac):
+        return mac
     raise SystemExit('chrome-headless-shell が見つからない (npx playwright install chromium-headless-shell)')
 
 
