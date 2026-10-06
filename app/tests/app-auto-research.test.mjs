@@ -370,7 +370,7 @@ assert.equal(autoTriggers(env).length, 1);
   const s = status(env);
   assert.equal(s.enabled, true);
   assert.equal(s.failures7d, 1);
-  assert.equal(s.lastStartedPlan.planId, pTwo);
+  assert.deepEqual([s.lastStartedPlan.planId, s.lastStartedPlan.via, s.lastStartedPlan.viaLabel], [pTwo, 'TICK', '毎日の回'], '始めたきっかけにも画面の名前');
   assert.deepEqual([s.lastResult.status, s.lastResult.statusLabel], ['FAILED', '失敗した'], '画面の名前を添える');
   assert.deepEqual([s.lastTick.status, s.lastTick.reason, s.lastTick.reasonLabel, s.lastTick.viaLabel], ['SKIPPED', 'NO_STALE_PLAN', '集め直す計画が無い', '続き']);
   assert.ok(s.lastTickAt && s.trigger.installed && s.trigger.current);

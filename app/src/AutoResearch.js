@@ -453,6 +453,7 @@ function appAutoResearchStatus_() {
   const chain = st.chain && nowMs - new Date(st.chain.startedAt).getTime() < 2 * 3600 * 1000 ? st.chain : null;   // 2 時間より前のものは止まったとみなす
   const lastTick = st.lastTick ? Object.assign({}, st.lastTick, { statusLabel: L(st.lastTick.status), reasonLabel: L(st.lastTick.reason), viaLabel: L(st.lastTick.via) }) : null;
   const lastResult = st.lastResult ? Object.assign({}, st.lastResult, { statusLabel: L(st.lastResult.status) }) : null;
+  const lastStartedPlan = st.lastStartedPlan ? Object.assign({}, st.lastStartedPlan, { viaLabel: L(st.lastStartedPlan.via) }) : null;
   return {
     enabled: appAutoResearchEnabled_(),
     schedule: { hour: APP_AUTO_RESEARCH_HOUR, minute: APP_AUTO_RESEARCH_MINUTE, endHour: APP_AUTO_RESEARCH_END_HOUR,
@@ -461,7 +462,7 @@ function appAutoResearchStatus_() {
       current: trig.schedule === APP_AUTO_RESEARCH_SCHEDULE } : null,
     lastTickAt: st.lastTickAt || '',
     lastTick: lastTick,
-    lastStartedPlan: st.lastStartedPlan || null,
+    lastStartedPlan: lastStartedPlan,
     lastResult: lastResult,
     running: chain ? { planId: chain.planId, jobId: chain.jobId, startedAt: chain.startedAt } : null,
     failures7d: (st.fails || []).filter(t => nowMs - Number(t) <= 7 * 864e5).length,
