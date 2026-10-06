@@ -6,9 +6,13 @@
  * バックアップした後に、フォルダの要点（世代の数・最新の名前と時刻）を Script Properties に残す。
  * ホームはドライブを数えずにこれを読む（appBackupStatusFast_）。毎日のバックアップが有効かは残さず、毎回トリガーを見る。
  * 状態の点検（apiHealth）は今までどおりドライブを数える。
+ * 毎日のバックアップのトリガーは、所有者が画面を開いたとき（確かめるのは 1 日 1 回）に、無ければ作る（2026-10-07 村井さん承認。appEnsureBackupTrigger_）。
+ * 止めるとき: Script Properties の BACKUP_AUTO_ENABLE を 'false' にする（自動では作らない。あるトリガーはそのまま）。
  */
 const APP_BACKUP_STATUS_PROP = 'APP_BACKUP_STATUS';
 const APP_BACKUP_STATUS_TTL_SEC = 300;   // 要点がまだ無いとき、ドライブを数えた結果を控える時間（今までのホームと同じ 5 分）
+const APP_BACKUP_AUTO_CHECKED_PROP = 'APP_BACKUP_AUTO_CHECKED';   // トリガーを確かめた日（日本時間）と結果（1 日 1 回だけ確かめる）
+const APP_BACKUP_AUTO_SWITCH = 'BACKUP_AUTO_ENABLE';              // 'false' で、トリガーを自動では作らない
 
 function appBackupFiles_() {
   const folderId = appProps_().getProperty(APP_PROP.backupFolderId);
@@ -106,4 +110,73 @@ function appEnableBackup_() {
   const already = appBackupEnabled_();
   if (!already) ScriptApp.newTrigger('triggerDailyBackup').timeBased().everyDays(1).atHour(APP_BACKUP_HOUR).create();
   return { enabled: true, already: already };
+}
+
+/** 止めるスイッチ: Script Properties の BACKUP_AUTO_ENABLE が 'false'（か '0'）なら、トリガーを自動では作らない。無ければ作る */
+function appBackupAutoEnabled_() {
+  const v = String(appProps_().getProperty(APP_BACKUP_AUTO_SWITCH) || '').trim().toLowerCase();
+  return v !== 'false' && v !== '0';
+}
+
+/** トリガーを確かめた控え: { date, installed, reason } */
+function appBackupAutoChecked_() {
+  try { return JSON.parse(appProps_().getProperty(APP_BACKUP_AUTO_CHECKED_PROP) || 'null'); } catch (e) { return null; }
+}
+
+/**
+ * 毎日のバックアップのトリガー（triggerDailyBackup、3 時ごろ）が無ければ作る（2026-10-07 村井さん承認。管理の画面の「毎日自動にする」は v0.27.0 で外した）。
+ * 所有者が画面を開いたときに呼ぶ。確かめるのは 1 日 1 回だけ（日付を控える）。トリガーがあれば何もしない（ロックも取らない。あるトリガーには触らない）。
+ * 作るのはロックの中で、控えとトリガーを確かめ直してから（2 つのタブが同時に開いても二重に作らない）。作り方は appEnableBackup_ と同じ。
+ * 止めるスイッチ（BACKUP_AUTO_ENABLE）が切ってあるときと、トリガーの上限（20）に裏の処理の分の余裕が無いときは作らない（自動の AI 調査と同じ）。
+ * 作った・作れなかったときは実行ログ（RUN、種類 BACKUP.ENSURE）に残す。バックアップそのものはここでは取らない（画面を開くのが遅くなる。3 時ごろのトリガーが取る）
+ */
+function appEnsureBackupTrigger_(ctx) {
+  if (!appIsSetUp_()) return { checked: false, reason: 'NOT_SET_UP' };
+  if (!appBackupAutoEnabled_()) return { checked: false, reason: 'DISABLED' };
+  const props = appProps_();
+  const today = appToday_();
+  const doneToday = c => !!c && c.date === today;
+  const mark = (installed, reason) => {
+    props.setProperty(APP_BACKUP_AUTO_CHECKED_PROP, JSON.stringify({ date: today, installed: !!installed, reason: reason || '' }));
+  };
+  const prev = appBackupAutoChecked_();
+  if (doneToday(prev)) return { checked: false, reason: 'CHECKED_TODAY', installed: !!prev.installed };
+  if (appBackupEnabled_()) { mark(true, ''); return { checked: true, installed: true, created: false }; }
+  return appWithLock_(() => {
+    const cur = appBackupAutoChecked_();   // ロックを待つ間に、ほかの実行が確かめたかもしれない
+    if (doneToday(cur)) return { checked: false, reason: 'CHECKED_TODAY', installed: !!cur.installed };
+    mark(false, 'CHECKING');   // 先に控える（途中で止まっても、その日のうちは開くたびにやり直さない）
+    let triggers = 0;
+    try {
+      const all = ScriptApp.getProjectTriggers();
+      triggers = all.length;
+      if (all.some(t => t.getHandlerFunction() === 'triggerDailyBackup')) { mark(true, ''); return { checked: true, installed: true, created: false }; }
+      if (triggers + 1 + APP_AUTO_RESEARCH_TRIGGER_SPARE > APP_TRIGGER_LIMIT) {
+        mark(false, 'TRIGGER_LIMIT');
+        appRunLog_({ requestId: ctx && ctx.requestId, kind: 'BACKUP.ENSURE', status: 'SKIPPED', detail: { reason: 'TRIGGER_LIMIT', triggers: triggers } });
+        return { checked: true, installed: false, created: false, reason: 'TRIGGER_LIMIT' };
+      }
+      appEnableBackup_();
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      mark(false, 'FAILED');   // 次の日に確かめ直す
+      appRunLog_({ requestId: ctx && ctx.requestId, kind: 'BACKUP.ENSURE', status: 'FAILED', detail: { reason: 'FAILED', triggers: triggers }, error: msg });
+      return { checked: true, installed: false, created: false, reason: 'FAILED', error: msg };
+    }
+    mark(true, '');
+    appRunLog_({ requestId: ctx && ctx.requestId, kind: 'BACKUP.ENSURE', status: 'CREATED', detail: { hour: APP_BACKUP_HOUR, by: ctx && ctx.actor } });
+    return { checked: true, installed: true, created: true };
+  });
+}
+
+/** 画面を開いたとき（doGet）: 所有者なら、毎日のバックアップのトリガーを確かめる（1 日 1 回だけ。失敗しても画面は開く） */
+function appBackupOnOpen_(ctx) {
+  if (!ctx || !ctx.user || !ctx.user.isOwner) return;
+  try { appEnsureBackupTrigger_(ctx); } catch (e) { Logger.log('毎日のバックアップのトリガー: ' + (e && e.message ? e.message : e)); }
+}
+
+/** ホームに出す、自動で作る仕組みの状態（トリガーが無いときだけ。画面が文を選ぶ）: { off（止めるスイッチ）, checkedOn, reason } */
+function appBackupAutoStatus_() {
+  const c = appBackupAutoChecked_();
+  return { off: !appBackupAutoEnabled_(), checkedOn: c && c.date ? String(c.date) : '', reason: c && c.reason ? String(c.reason) : '' };
 }

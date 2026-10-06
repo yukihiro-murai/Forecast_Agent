@@ -10,7 +10,13 @@
  *   node app/tests/app-auto-research.test.mjs
  */
 import assert from 'node:assert/strict';
-import { OWNER, MEMBER, setUpEnv, jstDay, J, sources } from './gas-mock.mjs';
+import { OWNER, MEMBER, setUpEnv as setUpBase, jstDay, J, sources } from './gas-mock.mjs';
+
+/**
+ * このファイルは AI 調査のトリガーと手入れの待ちを見るので、所有者が開いても毎日のバックアップのトリガーは自動では作らない（BACKUP_AUTO_ENABLE）。
+ * バックアップのトリガーが要るところは apiEnableBackup で作る。自動で作るほうは app-backup-auto.test.mjs
+ */
+const setUpEnv = (opts) => { const e = setUpBase(opts); e.props.BACKUP_AUTO_ENABLE = 'false'; return e; };
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const DAY = 864e5;
