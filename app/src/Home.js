@@ -70,9 +70,11 @@ function appHomeTotals_(plans, fy) {
 function appHomeSystem_() {
   let backup = null;
   try { backup = appBackupStatusFast_(); } catch (e) { backup = { error: String(e && e.message || e) }; }
+  let backupAuto = null;   // 毎日のバックアップのトリガーが無いときだけ: 自動で作る仕組みの状態（Backup.js。画面が文を選ぶ）
+  try { if (backup && backup.enabled === false) backupAuto = appBackupAutoStatus_(); } catch (e) { backupAuto = null; }
   let journal = null;
   try { journal = appJournalPending_(); } catch (e) { journal = null; }
   let autoResearch = null;   // 自動の AI 調査（AutoResearch.js）
   try { autoResearch = appAutoResearchStatus_(); } catch (e) { autoResearch = { error: String(e && e.message || e) }; }
-  return { backup: backup, housekeeping: appHousekeepingLast_(), journal: journal, autoResearch: autoResearch };
+  return { backup: backup, backupAuto: backupAuto, housekeeping: appHousekeepingLast_(), journal: journal, autoResearch: autoResearch };
 }
