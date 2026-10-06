@@ -554,7 +554,8 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual(sum.scoreboard.map((s) => [s.type, s.n, s.hit, s.sources]).sort(), [['ai_topic', 2, 1, 1], ['factor_product', 2, 0, 1], ['opinion', 6, 4, 2]]);
   const op = sum.scoreboard.find((s) => s.type === 'opinion');
   assert.deepEqual([op.alpha, op.beta, op.prior.from], [10, 6, 'pool'], 'Beta(6, 4) に 4 当たり・2 外れ');
-  close(op.appliedR, 1.0, 1e-9, '今の信頼度の平均（甲 1.1・乙 0.9）');
+  assert.ok(sum.scoreboard.every((s) => !('appliedR' in s)), '閲覧の人には今の信頼度を出さない（1 人だけの種類ではその人の値になる。2026-10-07）');
+  close(full.scoreboard.find((s) => s.type === 'opinion' && s.key === '鷹野').appliedR, 1.0, 1e-9, '予算策定担当以上には人ごとの今の信頼度を出す（鷹野: 甲 1.1・乙 0.9 の平均）');
   assert.ok(sum.scoreboard.every((s, i) => i === 0 || s.ci80[0] <= sum.scoreboard[i - 1].ci80[0]));
   // 判断の記録: 判断した人は無し。信頼度の対象は種類まで
   const pb1 = sum.decisions.find((x) => x.proposalId === 'P-B-1');

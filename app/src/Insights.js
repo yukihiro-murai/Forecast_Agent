@@ -17,8 +17,8 @@
  * 直す前に書かれた記録はそのまま残るので、元の表から数え直すのを続ける:
  *   - SUBJECTIVE_IMPACT_HISTORY の月は日付に変わっていることがあり、直す前の旧来の当たりの数え方（RELIABILITY_EVIDENCE）は
  *     月が合わず空だった（直す前の四半期の分は空のまま）→ 月を appYm_ でそろえ、評価できた月をすべて数える
- *   - 直す前に書かれた EVAL_INSIGHTS の cause_bucket は向きが逆（実績 > 予測を over_forecast と書いた。人の記入として残すので
- *     書き換わらない）→ 使わず、予測 − 実績の符号で決める
+ *   - 直す前に書かれた EVAL_INSIGHTS の cause_bucket は向きが逆（実績 > 予測を over_forecast と書いた。2026-10-07 からは B-4 が
+ *     毎回書き直すが、B-4 を動かし直すまでは逆のまま）→ 使わず、予測 − 実績の符号で決める
  */
 const APP_INSIGHT_REVISIONS = 12;          // 予測の改訂の道すじ（最近の回数）
 const APP_INSIGHT_MISS = 0.1;              // 外れた月: 誤差が 10% 以上か P10〜P90 の外（旧来の B-4 の振り分けと同じ）
@@ -524,7 +524,7 @@ function appCrossMaker_(fy) {
  *   summary:     { months, misses, withNotes, duplicatesRemoved }
  *   scoreboard:  full:    [{ type, label, key, n, hit, hitRate, alpha, beta, postMean, ci80: [下, 上], prior: { alpha0, beta0, from }, appliedR,
  *                            plans: [{ planId, clientName, fy, n, hit, appliedR }] }]（人や話題ごと）
- *                summary: [{ type, label, sources, n, hit, hitRate, alpha, beta, postMean, ci80, prior, appliedR }]（情報源の種類ごと。sources = まとめた人や話題の数）
+ *                summary: [{ type, label, sources, n, hit, hitRate, alpha, beta, postMean, ci80, prior }]（情報源の種類ごと。sources = まとめた人や話題の数。今の信頼度は出さない）
  *                （どちらも 80% の区間の下の端が高い順。少ない数で上位に出ない）
  *   decisions:   [{ planId, clientName, fy, reviewId, proposalId, at, quarter, phase, phaseLabel, target, targetLabel, current, proposed,
  *                   confidence, rationale, status, decidedAt, decidedBy, applied, appliedAt }]（四半期レビューの提案と判断。新しい順。
@@ -556,7 +556,9 @@ function appInsightHasHuman_(r) {
   const s = k => String(r[k] === null || r[k] === undefined ? '' : r[k]).trim();
   const action = s('action_type');
   const reflection = s('next_cycle_reflection');
-  return !!(s('cause_hypothesis') || s('owner') || ['in_progress', 'done'].indexOf(s('status')) >= 0 ||
+  // 状態は、B-4 が入れる組（update と open、keep と monitoring）でなければ人が選んだもの（2026-10-07。対応中・済みもここに入る）
+  const st = s('status'), machinePair = (action === 'update' && st === 'open') || (action === 'keep' && st === 'monitoring');
+  return !!(s('cause_hypothesis') || s('owner') || (st && !machinePair) ||
     (action && APP_INSIGHT_MACHINE_ACTIONS.indexOf(action) < 0) || (reflection && APP_INSIGHT_MACHINE_REFLECTIONS.indexOf(reflection) < 0));
 }
 
@@ -630,7 +632,7 @@ function appInsightLessons_(plans, insights, hideNames) {
 
 /**
  * 人と話題ごとの当たり（全計画・全部の評価できた月）と、ベータ分布の事後。事前分布は POOL_PRIOR（無ければ Beta(2, 2)）。
- * byType = true なら人や話題を出さず、情報源の種類ごとにまとめる（key・plans は無し。sources = まとめた人や話題の数。appliedR はその人や話題の今の信頼度の平均）
+ * byType = true なら人や話題を出さず、情報源の種類ごとにまとめる（key・plans・appliedR は無し。sources = まとめた人や話題の数）
  */
 function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan, byType) {
   const info = {};
@@ -659,9 +661,8 @@ function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan, byType) {
     const row = { type: o.type, label: APP_SOURCE_LABELS[o.type] || o.type, n: o.n, hit: o.hit, hitRate: o.hit / o.n,
       alpha: post.alpha, beta: post.beta, postMean: post.mean, ci80: post.ci80, prior: { alpha0: pr.alpha0, beta0: pr.beta0, from: pr.from } };
     if (byType) {
-      const vals = [];
-      Object.keys(o.keys).forEach(key => { const ap = applied[o.type + '\u0001' + key] || {}; Object.keys(ap).forEach(id => vals.push(ap[id])); });
-      return Object.assign(row, { sources: Object.keys(o.keys).length, appliedR: appInsightMean_(vals) });
+      // 今の信頼度（appliedR）は出さない（2026-10-07: 情報源が 1 人だけの種類では、種類ごとの平均がその人の信頼度になる）
+      return Object.assign(row, { sources: Object.keys(o.keys).length });
     }
     const ap = applied[k] || {};
     return Object.assign(row, { key: o.key, appliedR: appInsightMean_(Object.keys(ap).map(id => ap[id])),

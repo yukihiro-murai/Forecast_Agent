@@ -1,6 +1,6 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 cd648873767ab352cbb4ae6f01e05a4df3b0aefad3cfe810c7439790bc851804）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 59d3609519b48c906506ef783ab936424ec4688b7af4596035840231f7a4244b）
  *               Forecast_WebApp.js（SHA-256 469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
@@ -7482,25 +7482,28 @@ function updatePhase1LearningInsights() {
 }
 
 /**
- * EVAL_INSIGHTS を複合キー [client, target_month] で upsert する。
- * - 機械が算出する列は毎回上書き。
- * - 人が手入力する列（cause_hypothesis/cause_bucket/impacted_assumption/action_type/
- *   next_cycle_reflection/owner/due_date/status）は、既存行で値が入っていれば保持する。
- * これにより B-3 再実行でメンバーの原因入力が消えない。
- */
-/**
- * EVAL_INSIGHTS の行に人の記入の跡があるか（新アプリの Insights.js appInsightHasHuman_ と同じ決まり）:
- * 原因の仮説・担当・期日のどれかがある、状態が対応中/済み、対応・次回への反映が B-4 の既定値でない、影響した前提が既定値と違う
+ * EVAL_INSIGHTS の行に人の記入の跡があるか（新アプリの Insights.js appInsightHasHuman_ と同じ決まりに、画面からは書かない
+ * 期日と影響した前提を足したもの）: 原因の仮説・担当・期日のどれかがある、状態が B-4 の入れる組（update と open・keep と monitoring）でない、
+ * 対応・次回への反映が B-4 の既定値でない、影響した前提が既定値と違う
  */
 function evalInsightHasHumanTrace_(v) {
   const s = i => String(v[i] === null || v[i] === undefined ? '' : v[i]).trim();
   const machineActions = ['update', 'keep'];
   const machineReflections = ['次回サイクルで前提更新を反映', '現行運用を継続'];
-  return !!(s(14) || s(20) || s(21) || ['in_progress', 'done'].indexOf(s(22)) >= 0 ||
+  // 状態は、B-4 が入れる組（update と open、keep と monitoring）でなければ人が選んだもの（対応中・済みや、見守りの月に人が選んだ未着手も）
+  const machinePair = (s(18) === 'update' && s(22) === 'open') || (s(18) === 'keep' && s(22) === 'monitoring');
+  return !!(s(14) || s(20) || s(21) || (s(22) && !machinePair) ||
     (s(18) && machineActions.indexOf(s(18)) < 0) || (s(19) && machineReflections.indexOf(s(19)) < 0) ||
     (s(16) && s(16) !== 'CONFIG:環境前提'));
 }
 
+/**
+ * EVAL_INSIGHTS を複合キー [client, target_month] で upsert する（月は ymKey_ でそろえる）。
+ * - 機械が算出する列は毎回上書き。cause_bucket も機械の列として毎回上書き（画面からは書かない）。
+ * - 人が手入力する列（cause_hypothesis/impacted_assumption/action_type/next_cycle_reflection/owner/due_date/status）は、
+ *   既存行に人の記入の跡（evalInsightHasHumanTrace_）があるときだけ、値の入っている列を保持する。跡が無い行は今回の判定で書き直す。
+ * これにより B-4 再実行でメンバーの原因入力が消えず、既定値だけの行は判定の変化に追いつく（2026-10-07）。
+ */
 function upsertEvalInsightsRows_(sh, rows) {
   if (!sh) return;
   const width = 24;
@@ -10448,7 +10451,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: 'cd648873767ab352cbb4ae6f01e05a4df3b0aefad3cfe810c7439790bc851804',
+    SOURCE_SHA256: '59d3609519b48c906506ef783ab936424ec4688b7af4596035840231f7a4244b',
     WEB_SOURCE_SHA256: '469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784'
   };
 }

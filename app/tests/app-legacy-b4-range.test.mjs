@@ -3,7 +3,8 @@
  * app-legacy-b4-range.test.mjs — B-4（学習インサイトの更新）の記録の直し（2026-10-07 村井さん承認）を、本物の旧来の計算をモックの上で動かして確かめる。
  * 準備は app-legacy-records.test.mjs と同じ（5 月だけ実績が予測の幅の外。計算用ブックは Sheets と同じく 'yyyy/MM' を日付に変える）。
  *   1. 検証の表（EVAL_COMPARE_MONTHLY）の月が日付でも、幅の外の印を拾う（前は String() で照合して拾えず、幅の外の月が range_breach にならなかった）
- *   2. 前からある行のうち、人の記入の跡が無い行（B-4 が既定値を入れただけの行）は、今回の判定で対応・次回への反映・状態を書き直す。
+ *   2. 前からある行のうち、人の記入の跡が無い行（B-4 が既定値を入れただけの行）は、今回の判定で対応・次回への反映・状態を書き直す
+ *      （状態が B-4 の入れる組 update・open / keep・monitoring と違えば、人が選んだものとして残す）。
  *      人の記入の跡がある行は残す。原因の区分（cause_bucket）は画面から書かない機械の列なので、どちらの行も毎回書き直す（逆向きの過去の値も直る）
  *   3. 予測の数字に関わる表は変わらない
  *
@@ -46,7 +47,11 @@ const book = env.makeBook('クライアント別売上予測', {
       action_type: '入力を修正', next_cycle_reflection: '見解を見直す', owner: '鷹野', status: 'in_progress', review_cycle: 'monthly_light' }),
     row('EVAL_INSIGHTS', { evaluated_at: D(2026, 8, 1), client: CLIENT, target_month: D(2026, 5), actual_total: 800, pred_p50: 1000, diff: -200, error_rate: -0.25,
       diagnostic_type: 'monthly_diagnostic', cause_bucket: 'under_forecast', impacted_assumption: 'CONFIG:環境前提',
-      action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'monitoring', review_cycle: 'monthly_light' })] },
+      action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'monitoring', review_cycle: 'monthly_light' }),
+    // 6 月: 見守りの月に、人が状態だけ「未着手」（open）を選んだ行（B-4 が入れる組 keep・monitoring と違うので人の記入として残す）
+    row('EVAL_INSIGHTS', { evaluated_at: D(2026, 8, 1), client: CLIENT, target_month: D(2026, 6), actual_total: 1050, pred_p50: 1000, diff: 50, error_rate: 0.0476,
+      diagnostic_type: 'monthly_diagnostic', cause_bucket: 'over_forecast', impacted_assumption: 'CONFIG:環境前提',
+      action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'open', review_cycle: 'quarterly_full' })] },
   // 統計だけの予測はどの月も 1000。実績の向きは 4 月 上・5 月 下・6 月 上
   AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY, impact(4, 1000), impact(5, 1000), impact(6, 1000)] },
   // 鷹野（見解）: 3 か月とも実績の向きに押した。佐藤（製品）: 3 か月とも上に押した（当たり 2・外れ 1）
@@ -74,7 +79,7 @@ runAction('EVAL.INSIGHTS');
 const cmp = engRows('EVAL_COMPARE_MONTHLY');
 assert.deepEqual(cmp.map((r) => r._types.charAt(0)), ['d', 'd', 'd'], '前提: 計算用ブックでは検証の表の月が日付になる（Sheets と同じ）');
 const ins = engRows('EVAL_INSIGHTS');
-assert.equal(ins.length, 3, '前からある 4・5 月の行は上書きし、6 月を足す（行は増えない）');
+assert.equal(ins.length, 3, '前からある 4・5・6 月の行を上書きする（行は増えない）');
 const by = {}; ins.forEach((r) => { by[ym(r.target_month)] = r; });
 assert.deepEqual(Object.keys(by).sort(), ['2026/04', '2026/05', '2026/06']);
 
@@ -91,7 +96,8 @@ assert.deepEqual([by['2026/05'].cause_bucket, by['2026/05'].action_type, by['202
 assert.deepEqual([by['2026/04'].cause_hypothesis, by['2026/04'].action_type, by['2026/04'].next_cycle_reflection, by['2026/04'].owner, by['2026/04'].status],
   ['大型案件の前倒し', '入力を修正', '見解を見直す', '鷹野', 'in_progress'], '人が書いた行は残す');
 assert.equal(by['2026/04'].cause_bucket, 'under_forecast', '4 月は実績 > 予測なので under_forecast（逆向きの過去の値 over_forecast を書き直す）');
-assert.equal(by['2026/06'].cause_bucket, 'under_forecast');
+assert.equal(by['2026/06'].cause_bucket, 'under_forecast', '6 月も cause_bucket は書き直す');
+assert.deepEqual([by['2026/06'].action_type, by['2026/06'].status], ['keep', 'open'], '人が状態だけを選んだ行も残す（B-4 の組 keep・monitoring に戻さない）');
 
 // 3. 予測の数字に関わる表は変わらない
 assert.equal(snap(), before, '予測の表・補正・検証の表は B-4 で変わらない');

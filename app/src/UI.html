@@ -2250,7 +2250,8 @@ function fcInsAct(r){ var s = fcInsLabel('actionType', r.actionType); return fcI
 var FC_MACHINE_ACTS = ['update', 'keep'], FC_MACHINE_REFL = ['次回サイクルで前提更新を反映', '現行運用を継続'];
 function fcInsHuman(r){
   var t = function(k){ return String(r[k] == null ? '' : r[k]).trim(); }, a = t('actionType'), f = t('reflection');
-  return !!(t('hypothesis') || t('owner') || ['in_progress', 'done'].indexOf(t('status')) >= 0 || (a && FC_MACHINE_ACTS.indexOf(a) < 0) || (f && FC_MACHINE_REFL.indexOf(f) < 0));
+  var s = t('status'), machinePair = (a === 'update' && s === 'open') || (a === 'keep' && s === 'monitoring');   // B-4 が入れる組（対応と状態）
+  return !!(t('hypothesis') || t('owner') || (s && !machinePair) || (a && FC_MACHINE_ACTS.indexOf(a) < 0) || (f && FC_MACHINE_REFL.indexOf(f) < 0));
 }
 /** 同じ月の行をまとめる（学びと同じ決まり）: 人が書いた行があればそれだけ、無ければ一番新しい自動の行を 1 つ。{ r: 行, hidden: まとめて出さない行の数 } */
 function fcInsRows(ins){
@@ -2299,10 +2300,11 @@ function fcRvProposals(q){
   var quarter = fcQuarter((/FY\d{4}-Q\d/.exec(String(q.title || '')) || [''])[0]);
   var clamp = function(t){ return '<td class="clamp"' + (t ? ' data-tip="' + esc(t) + '"' : '') + '><span>' + esc(t || '-') + '</span></td>'; };
   var body = q.proposals.map(function(p){
-    var c = cur(p), t = qrTarget(p.target, hide), raw = String(p.current) + ' → ' + String(p.proposed), why = qrWhy(p.rationale, p.target, hide);
+    var c = cur(p), t = qrTarget(p.target, hide), why = qrWhy(p.rationale, p.target, hide);
+    var hidVal = hide && /^reliability:/.test(String(p.target || '')), raw = hidVal ? '' : '設定の値 ' + String(p.current) + ' → ' + String(p.proposed);   // 閲覧の人には信頼度の値を出さない
     var cell = edit ? '<select class="inp cell" aria-label="判断" onchange="fcDec(' + p.row + ',this.value)">' + ['承認', '却下', '保留'].map(function(o){ return '<option value="' + o + '"' + ((c || '承認') === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'
       : c ? '<span class="chip st' + (c === '承認' ? ' ok' : c === '却下' ? ' ng' : ' off') + '">' + esc(c) + '</span>' : '<span class="note">未判断</span>';
-    return '<tr><td class="wrap" data-tip="' + esc(t) + '">' + esc(t) + '</td><td class="num" data-tip="' + esc('設定の値 ' + raw) + '">' + esc(qrValue(p.target, p.current)) + '</td><td class="num" data-tip="' + esc('設定の値 ' + raw) + '">' + esc(qrValue(p.target, p.proposed)) + '</td>'
+    return '<tr><td class="wrap" data-tip="' + esc(t) + '">' + esc(t) + '</td><td class="num"' + (raw ? ' data-tip="' + esc(raw) + '"' : '') + '>' + esc(qrValue(p.target, p.current)) + '</td><td class="num"' + (raw ? ' data-tip="' + esc(raw) + '"' : '') + '>' + esc(qrValue(p.target, p.proposed)) + '</td>'
       + '<td class="num">' + esc(p.conf || '-') + '</td>' + clamp(why) + clamp(p.impact) + '<td>' + cell + '</td></tr>'; }).join('');
   var busyNow = fcBusy();
   return '<div class="card"><div class="card-head"><h2>AI の見直し案' + tip('AI が前の四半期の結果から作った、設定の見直し案です。承認して反映した案だけが、次の予測から効きます' + (hist ? '\nこれまでの見直し:\n' + hist : '')) + '</h2>'
@@ -2948,7 +2950,8 @@ function lrScoreCard(d, full){
   var narrow = chW() < 480, short = function(r){ var k = full ? lrKeyName(r.type, r.key) : ''; return (LR_SRC_SHORT[r.type] || lrSrc(r.type, r.label)) + (k ? '・' + k : ''); };
   var wTxt = function(r){ return isNum(r.appliedR) ? r.appliedR.toFixed(2) : '1.00'; };
   var tipOf = function(r){
-    var t = label(r) + '\n当たり ' + r.hit + ' / ' + r.n + ' 回（' + lrPct(r.hitRate) + '）\n当たりの確かさ ' + lrPct(r.postMean) + '（80% の幅 ' + lrPct(r.ci80[0]) + '〜' + lrPct(r.ci80[1]) + '）\n今の重み ' + wTxt(r) + (isNum(r.appliedR) ? '' : '（まだ変えていません）');
+    var t = label(r) + '\n当たり ' + r.hit + ' / ' + r.n + ' 回（' + lrPct(r.hitRate) + '）\n当たりの確かさ ' + lrPct(r.postMean) + '（80% の幅 ' + lrPct(r.ci80[0]) + '〜' + lrPct(r.ci80[1]) + '）'
+      + (full ? '\n今の重み ' + wTxt(r) + (isNum(r.appliedR) ? '' : '（まだ変えていません）') : '');   // 今の重みは予算策定担当以上だけ（種類ごとの平均でも、1 人だけの種類ではその人の重みになる）
     if (!full && r.sources) t += '\nまとめた人や話題 ' + r.sources;
     if (full && r.plans && r.plans.length) t += '\n' + r.plans.slice(0, 6).map(function(p){ return p.clientName + ' FY' + p.fy + ' ' + p.hit + ' / ' + p.n; }).join('\n') + (r.plans.length > 6 ? '\nほか ' + (r.plans.length - 6) + ' 計画' : '');
     return t;
@@ -2960,8 +2963,8 @@ function lrScoreCard(d, full){
   var key = '<p class="lr-key" aria-hidden="true"><span><i class="lr-k-dot"></i>今の見立て</span><span><i class="lr-k-iv"></i>80% の幅</span><span><i class="lr-k-ref"></i>半々（50%）</span></p>';
   var chart = key + chartIntervals(sc.map(function(r){ return { label: narrow ? short(r) : label(r), lo: r.ci80[0], mid: r.postMean, hi: r.ci80[1], tip: tipOf(r) }; }),
     { ref: 0.5, min: Math.max(0, lo), max: Math.min(1, hi), label: '当たりの確かさ', labelW: narrow ? 136 : 220 });
-  var table = lrTable([['情報源', 'wrap colmin'], ['当たり', 'num', 112, '押した向きが実績の動きと合った回数 / 数えた回数'], ['確かさ', 'num', 96, '今の見立ての当たる割合'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み'], ['今の重み', 'num', 96, '予測に効かせている重み（1.00 = 変えていない）']],
-    sc.map(function(r){ return [{ h: esc(label(r)), tip: tipOf(r) }, r.hit + ' / ' + r.n, lrPct(r.postMean), lrPct(r.ci80[0]) + '〜' + lrPct(r.ci80[1]), wTxt(r)]; }));
+  var table = lrTable([['情報源', 'wrap colmin'], ['当たり', 'num', 112, '押した向きが実績の動きと合った回数 / 数えた回数'], ['確かさ', 'num', 96, '今の見立ての当たる割合'], ['80% の幅', 'num', 128, '10 回に 8 回はこの間に入る見込み']].concat(full ? [['今の重み', 'num', 96, '予測に効かせている重み（1.00 = 変えていない）']] : []),
+    sc.map(function(r){ return [{ h: esc(label(r)), tip: tipOf(r) }, r.hit + ' / ' + r.n, lrPct(r.postMean), lrPct(r.ci80[0]) + '〜' + lrPct(r.ci80[1])].concat(full ? [wTxt(r)] : []); }));
   var right = (full ? '' : '<span class="chip" tabindex="0" data-tip="閲覧の人には、情報源の種類ごとにまとめて出しています。人や話題ごとの当たりは、予算策定担当以上の人に出します">種類ごと</span>')
     + lrMore('当たり = 押した向き（上げる・下げる）が、過去の売上だけの予測から見た実績の動きと同じだった月。確かさはベータ分布の事後分布（事前分布は全計画から作った見立て、無ければ Beta(2, 2)）で、点は平均、線は 10%〜90% 点です');
   return lrCard('当たりの確かさ', '入力・見解・AI が押した向きが、実績の動きと合っていた割合です。点は今の見立て、線は 80% の確かさの幅。少ない回数で高く見えないよう、幅の左の端が高い順に並べています。半々（50%）より右なら、当てずっぽうより当たっています',
@@ -2996,7 +2999,8 @@ function lrDecisionCard(d, full){
   var cols = [['作った日', 'lr-hm', 112, '見直し案を作った日（判断した日は、判断の札にカーソルを合わせると出ます）'], ['メーカー', 'lr-wr', 160], ['対象', 'lr-wr lr-kw lr-hm'], ['案', 'num lr-wr lr-hm', 184, '今 → 案'], ['判断', 'ctr', 136, '承認・却下・保留。反映済みは、承認して設定に反映した案です']].concat(who ? [['判断した人', 'lr-hm', 128]] : []);
   var rows = shown.map(function(x){
     var dec = lrDecision(x, saved[x.planId + '\u0001' + x.reviewId + '\u0001' + x.proposalId]), why = qrWhy(x.rationale, x.target, !full), by = who && x.decidedBy ? String(x.decidedBy) : '';
-    var change = qrValue(x.target, x.current) + ' → ' + qrValue(x.target, x.proposed), conf = x.confidence ? '確度 ' + qrConf(x.confidence) : '';
+    var hidVal = !full && /^reliability:/.test(String(x.target || ''));   // 閲覧の人には信頼度の値を出さない（サーバーも空で渡す）
+    var change = hidVal ? '-' : qrValue(x.target, x.current) + ' → ' + qrValue(x.target, x.proposed), conf = x.confidence ? '確度 ' + qrConf(x.confidence) : '';
     var tgt = x.target ? qrTarget(x.target, !full) : lrWords(x.targetLabel || ''), tgtTip = (x.quarter ? qrQuarter(x.quarter) : '') + (why ? '\n理由: ' + why : '');
     var r = [lrDate(x.at), esc(x.clientName) + ' <span class="meta">FY' + esc(x.fy) + '</span><span class="lr-so"' + (tgtTip ? ' data-tip="' + esc(tgtTip) + '"' : '') + '>' + esc(tgt) + '</span><span class="lr-so meta">' + esc(lrDate(x.at)) + '</span>',
       { h: esc(tgt), tip: tgtTip },
@@ -3100,7 +3104,8 @@ function lrPendingCard(pend){
   var hide = !(S.lr.ai && S.lr.ai.detail === 'full');
   var rows = pend.map(function(p){
     var ps = p.proposals || [], dec = ps.filter(function(q){ return q.decision; }).length;
-    var list = ps.map(function(q){ return (q.target ? qrTarget(q.target, hide) : lrWords(q.targetLabel || '')) + ' ' + qrValue(q.target, q.current) + ' → ' + qrValue(q.target, q.proposed) + (q.confidence ? '（確度 ' + qrConf(q.confidence) + '）' : '') + (q.decision ? '・' + q.decision : ''); }).join('\n');
+    var list = ps.map(function(q){ var hv = hide && /^reliability:/.test(String(q.target || ''));   // 閲覧の人には信頼度の値を出さない
+      return (q.target ? qrTarget(q.target, hide) : lrWords(q.targetLabel || '')) + (hv ? '' : ' ' + qrValue(q.target, q.current) + ' → ' + qrValue(q.target, q.proposed)) + (q.confidence ? '（確度 ' + qrConf(q.confidence) + '）' : '') + (q.decision ? '・' + q.decision : ''); }).join('\n');
     return [{ h: esc(p.clientName) + ' <span class="meta">FY' + esc(p.fy) + '</span><span class="lr-so meta">案 ' + ps.length + ' 件</span>', tip: list },
       esc(qrQuarter(p.quarter) || '-'), { h: ps.length + ' 件', tip: list, cls: 'num' }, { h: dec + ' / ' + ps.length, cls: 'num' }, lrDate(p.at),
       lrOpen(p.planId, 'この計画の「振り返り」を開きます。見直し案の承認はそこでします')];
