@@ -397,4 +397,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.doesNotMatch(two, /<h1>予測：/);
 }
 
+// スマホ幅では表の列幅を中身で決める（決まった幅の列で残りの列が 0 に潰れないように。2026-10-06 点検）
+{
+  const uiSrc = uiHtml;
+  const mobile = uiSrc.slice(uiSrc.indexOf('@media (max-width:760px){'));
+  assert.match(mobile.slice(0, 4000), /table\.tbl\{table-layout:auto\}/);
+}
+
 console.log('app-plan: all tests passed');

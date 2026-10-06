@@ -294,6 +294,14 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
   .kpi{padding:var(--s3) var(--s4)}
   .kpi .v{font-size:var(--fs-h3)}
   .viewtitle .vtools{flex:1 1 100%;margin-left:0}
+  /* スマホ: 列の幅は中身に合わせて決め、入らなければ表ごと横に送る（決まった幅の列で残りの列が 0 に潰れないように） */
+  table.tbl{table-layout:auto}
+  .tbl td,.tbl th{min-width:64px}
+  .tbl .inp.cell{min-width:var(--col)}
+  .tbl td.wrap{min-width:var(--col)}
+  .todo li{flex-wrap:wrap}.todo li .t{flex:1 1 calc(100% - 40px)}.todo li .btn{margin-left:auto}
+  .todo li .k{flex:1 1 calc(100% - 40px)}.todo li .k + .t{flex:1 1 100%}
+  .skys{grid-template-columns:repeat(2,minmax(0,1fr))}.sky .ch{width:48px;height:48px}
   .viewtitle .vt{flex-wrap:wrap}.viewtitle .vnear{flex:1 1 100%;margin-left:0}.viewtitle .vnear .inp,.viewtitle .vnear .inp.md{width:100%}   /* 題の横の選ぶ欄も次の行に */   /* 題の右の道具（計画を選ぶ欄）は次の行に幅いっぱいで */
   .btngrid{grid-template-columns:1fr}
   .card{padding:var(--s5)}
