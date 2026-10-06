@@ -295,6 +295,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(homeHtml, /P50 合計[\s\S]*計画の状態[\s\S]*計画の一覧[\s\S]*最近の動き[\s\S]*あなたの役割/);
   // 2026-10-06 村井さん: 「よみが観測しました（時刻）」は出さない・1 カラム（左右に分けない）・「状態を見る」のボタンは出さない
   assert.doesNotMatch(homeHtml, /よみが観測しました|class="dash"|状態を見る/);
+  // 2026-10-06 村井さん: 読み込みの待ちは、右下ではなく画面の中で、よみが「観測中…」と話す
+  const waitHtml = vm.runInContext(`S.homeLoading = true; B.home = null; var __w = viewHome(); B.home = __home; S.homeLoading = false; __w`, ui);
+  assert.match(waitHtml, /class="card loading"[\s\S]*観測中…[\s\S]*読み込んでいます/);
+  assert.doesNotMatch(waitHtml, /読み込み中…/);
+  assert.doesNotMatch(String(vm.runInContext(`busy.toString()`, ui)), /観測中…/, '右下に「観測中…」を出さない');
   assert.ok(!/undefined|NaN/.test(homeHtml), 'ホームに undefined や NaN を出さない');
   assert.doesNotMatch(homeHtml, /旧アプリ/, 'ホームに旧アプリの案内を出さない');
   const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__home))`, ui));

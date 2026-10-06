@@ -236,6 +236,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .jobbar b{flex:1}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:0 0 10px;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.loading .bubble small{display:block;font-size:var(--fs-s);color:var(--muted);margin-top:var(--s1)}
+.loading .waitlist{margin-top:var(--s3)}
 .waitlist{list-style:none;display:grid;gap:var(--s2)}
 .waitlist li{display:flex;gap:var(--s2);align-items:center;font-size:var(--fs-m)}
 .ws{white-space:normal}
@@ -352,7 +354,7 @@ function errorBanner(){
     + '</div>';
 }
 var busyT = null;
-/** 右下の表示。裏の処理を待っている間はその進み、ほかは通信中（0.6 秒を超えたら）を出す */
+/** 右下の表示: 裏の処理（予測の実行など）を待っている間だけ、その進みを出す */
 function busy(delta){
   var el = $('busy');
   S.pending = Math.max(0, S.pending + delta);
@@ -364,8 +366,9 @@ function busy(delta){
     el.classList.add('on');
     return;
   }
-  el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>観測中…<small>処理しています</small></span>';
-  if (S.pending > 0) busyT = setTimeout(function(){ el.classList.add('on'); }, 600); else el.classList.remove('on');
+  // ふつうの読み込みの待ちは、画面の中のよみ（loading()）で見せる。右下には出さない（2026-10-06 村井さん）
+  el.innerHTML = '';
+  el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
 var READS = { apiHome: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1, apiYearPreview: 1 };
@@ -505,6 +508,8 @@ function go(v){
   render();
 }
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
+/** 画面を読み込む間の表示: よみが画面の中で「観測中…」と話す（右下には出さない。2026-10-06 村井さん） */
+function loading(sub, extra, id){ return '<div class="card loading"' + (id ? ' id="' + id + '"' : '') + ' role="status" aria-live="polite"><div class="hero"><div class="charbox">' + YOMI_POSE.observe + '</div><div class="bubble">観測中…<small>' + esc(sub || '読み込んでいます') + '</small>' + (extra || '') + '</div></div></div>'; }
 
 function viewHome(){
   if (!B.allowed) return '<h1>Trends2Targets</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
@@ -514,7 +519,7 @@ function viewHome(){
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var h = B.home;
-  if (!h) { if (!S.homeLoading) homeLoad(); return '<h1>ホーム</h1>' + guide('observe', '観測中です…'); }
+  if (!h) { if (!S.homeLoading) homeLoad(); return '<h1>ホーム</h1>' + loading(); }
   var plans = h.plans.filter(function(p){ return p.fy === h.fy; });
   var says = yomiSays(h), top = says[0];
   var hero = '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[top.pose] + '</div><div class="bubble">'
@@ -602,7 +607,7 @@ function pfRows(){
   return rows;
 }
 function viewPlans(){
-  if (!S.pf) return '<h1>計画の一覧</h1><div class="card note">読み込み中…</div>';
+  if (!S.pf) return '<h1>計画の一覧</h1>' + loading();
   var fys = S.pf.map(function(p){ return p.fy; }).filter(function(x, i, a){ return a.indexOf(x) === i; });
   var rows = pfRows();
   var pct1 = function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
@@ -671,7 +676,7 @@ function pfCreate(){
 
 function viewMembers(){
   var d = S.dir;
-  if (!d) return '<h1>メンバーと役割</h1><div class="card note">読み込み中…</div>';
+  if (!d) return '<h1>メンバーと役割</h1>' + loading();
   var clientName = {}; d.clients.forEach(function(c){ clientName[c.client_id] = c.display_name || c.client_name; });
   var rows = d.members.map(function(m){
     var rs = d.roles.filter(function(r){ return r.email === m.email && r.is_active; }).map(function(r){
@@ -702,7 +707,7 @@ function revoke(id, ver){ if (!confirm('この役割を外しますか？')) ret
 
 function viewClients(){
   var d = S.dir;
-  if (!d) return '<h1>クライアント</h1><div class="card note">読み込み中…</div>';
+  if (!d) return '<h1>クライアント</h1>' + loading();
   var rows = d.clients.map(function(c, i){
     return '<tr><td><div class="cellform"><input class="inp cell" id="cn_' + i + '" value="' + esc(c.display_name) + '" aria-label="画面の名前">'
       + '<button class="btn btn-ghost btn-sm" onclick="saveClientName(' + i + ')">保存</button></div>' + (c.display_auto ? '' : '<span class="chip" data-tip="手で決めた名前。空にして保存すると自動に戻ります">手で決めた</span>') + '</td>'
@@ -718,7 +723,7 @@ function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, z
 
 function viewSettings(){
   var s = S.settings;
-  if (!s) return '<h1>設定</h1><div class="card note">読み込み中…</div>';
+  if (!s) return '<h1>設定</h1>' + loading();
   var rows = s.map(function(x, i){
     var val = x.type === 'bool' ? esc(x.value ? 'する' : 'しない') : x.type === 'sheet' ? (x.value ? '<a target="_blank" href="' + esc(x.url) + '">' + esc(x.display || x.value) + '</a>' : '<span class="chip warn">未設定</span>') : esc(x.value);
     var input = x.type === 'bool' ? '<select class="inp cell" id="s_' + i + '"><option value="true"' + (x.value ? ' selected' : '') + '>する</option><option value="false"' + (!x.value ? ' selected' : '') + '>しない</option></select>'
@@ -774,7 +779,7 @@ function viewAudit(){
     + '<div class="row"><div class="field"><label for="a_month">月</label><select class="inp sm" id="a_month" onchange="S.au.month=this.value;loadAudit()">'
     + ((d && d.months.length ? d.months : [a.month || '']).map(function(m){ return '<option value="' + esc(m) + '"' + (m === a.month ? ' selected' : '') + '>' + esc(String(m).replace('_', '/')) + '</option>'; }).join('')) + '</select></div>'
     + '<div class="field"><label for="a_q">絞り込み ' + tip('人・操作・対象・中身から探します') + '</label><input class="inp md" id="a_q" value="' + esc(a.q) + '" onkeydown="if(event.key===\'Enter\')loadAudit()"></div><button class="btn btn-ghost" onclick="loadAudit()">絞り込む</button></div>';
-  if (!d) return html + '<p class="note mt12">読み込み中…</p></div>';
+  if (!d) return html + '</div>' + loading('記録を読み込んでいます');
   var rows = d.rows, body;
   if (a.kind === 'AUDIT') {
     body = '<table class="tbl wide mt12"><colgroup><col style="width:176px"><col style="width:180px"><col style="width:240px"><col style="width:96px"><col><col style="width:152px"></colgroup><thead><tr><th>日時</th><th>人</th><th>操作</th><th>結果</th><th>対象</th><th></th></tr></thead><tbody>'
@@ -832,7 +837,7 @@ var FC_TABS = [['forecast','予測と予算'],['basis','根拠'],['input','入�
 var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
 function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
-  if (!f.plans) return '<h1>予測</h1><div class="card note">読み込み中…</div>';
+  if (!f.plans) return '<h1>予測</h1>' + loading();
   if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。' + (B.user.isAdmin ? '「計画の一覧」の「計画を作る」で作ってください。' : '管理者が計画を作ると、ここで見られます。'));
   var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + (p.frozen ? '（締め済み）' : '') + '</option>'; }).join('') + '</select>' : '';
   var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '')
@@ -865,9 +870,9 @@ function fcWaitBox(){
     return '<li><span class="dot"></span>' + label + '<span class="note">読み込み中…（' + Math.round((now - x.start) / 1000) + ' 秒）</span></li>'; };
   var slow = Object.keys(L).some(function(k){ return !L[k].done && !L[k].error && now - L[k].start > 90000; });
   var failed = Object.keys(L).some(function(k){ return L[k].error; });
-  return '<div class="card" id="fcWait"><ul class="waitlist">' + part('latest', '予測の結果') + part('view', '画面の中身（入力・予算・検証など）') + '</ul>'
+  return loading('計画を読み込んでいます', '<ul class="waitlist">' + part('latest', '予測の結果') + part('view', '画面の中身（入力・予算・検証など）') + '</ul>'
     + (slow ? '<p class="note warn-text mt8">時間がかかっています。データが変わった後の最初の表示は 1 分ほどかかることがあります。</p>' : '')
-    + (slow || failed ? '<div class="card-foot"><button class="btn btn-ghost" onclick="loadForecast(S.fc.planId, true)">もう一度読み込む</button></div>' : '') + '</div>';
+    + (slow || failed ? '<div class="card-foot"><button class="btn btn-ghost" onclick="loadForecast(S.fc.planId, true)">もう一度読み込む</button></div>' : ''), 'fcWait');
 }
 var fcWaitT = null;
 function fcWaitTick(){
@@ -943,7 +948,7 @@ function pct0(v){ return v === null || v === undefined ? '-' : (v * 100).toFixed
 function kpiText(label, text, main, note){ return '<div class="kpi' + (main ? ' main' : '') + '"' + (note ? ' data-tip="' + esc(note) + '"' : '') + '><div class="k">' + label + '</div><div class="v">' + text + '</div></div>'; }
 function fcLearningCards(){
   var r = S.fc.learn;
-  if (!r || r.planId !== S.fc.planId) return '<div class="card note">精度の推移を読み込み中…</div>';
+  if (!r || r.planId !== S.fc.planId) return loading('精度の推移を読み込んでいます');
   var a = r.accuracy, sh = r.shadow, html = '';
   var cov = a.coverage === null ? '-' : pct0(a.coverage), covWarn = a.coverage !== null && Math.abs(a.coverage - 0.8) > 0.15;
   html += '<div class="kpis">' + kpiText('月の誤差（平均）', pct0(a.mape), true, a.n + ' か月' + (a.trend ? '・直近 ' + pct0(a.trend.recent) + '（前 ' + pct0(a.trend.before) + '）' : ''))
@@ -969,7 +974,7 @@ function sgn(n){ return n === null || n === undefined ? '-' : (n > 0 ? '+' : '')
 function pctStep(x){ return (x > 0 ? '+' : '') + (x * 100).toFixed(1) + '%'; }
 function fcBasisTab(d, v){
   var r = S.fc.basis;
-  if (!r || r.planId !== S.fc.planId) return '<div class="card note">読み込み中…</div>';
+  if (!r || r.planId !== S.fc.planId) return loading();
   var a = r.annual, html = '';
   html += '<div class="kpis">' + fcKpi('過去の売上だけの予測（P50）', a.objective) + fcKpi('最終の予測（P50）', a.p50, true)
     + fcKpi('入力・AI・スポットの効き', a.p50 !== null && a.objective !== null ? a.p50 - a.objective : null) + fcKpi('前回からの変化', a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + '</div>';
@@ -1011,7 +1016,7 @@ function verWho(email, at){ return email ? esc(String(email).split('@')[0]) + '<
 function verDiff(a, b){ return a === null || b === null || a === undefined || b === undefined ? '-' : (a - b > 0 ? '+' : '') + yen(a - b); }
 function fcVersionTab(d, v){
   var r = S.fc.ver;
-  if (!r || r.planId !== S.fc.planId) return '<div class="card note">読み込み中…</div>';
+  if (!r || r.planId !== S.fc.planId) return loading();
   var off = r.official, pend = r.pending, cur = r.current, html = '';
   // いまの公式版
   html += '<div class="kpis">' + fcKpi('公式版の最終予算' + (off ? '（v' + off.no + '）' : ''), off ? off.budget.final : null, true) + fcKpi('公式版の P50', off ? off.annual.p50 : null)
@@ -1200,7 +1205,7 @@ function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 
 
 function viewHealth(){
   var h = S.health;
-  if (!h) return '<h1>状態</h1><div class="card note">点検中…</div>';
+  if (!h) return '<h1>状態</h1>' + loading('点検しています');
   var row = function(name, rows, ok, note){ return '<tr><td>' + esc(name) + '</td><td>' + rows + '</td><td>' + (ok ? '<span class="chip ok">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(note)) + '</td></tr>'; };
   var core = (h.tables || []).filter(function(x){ return !x.engine; });
   var eng = (h.tables || []).filter(function(x){ return x.engine; });
