@@ -1,17 +1,17 @@
 /**
  * Home.js — ホームのダッシュボード（最重要のことだけ）。よみのセリフは画面がこの材料から選ぶ。
  * 数字と計画の状態は、データ本体が変わらない間は控えから返す（appCachedRead_）。バックアップの状態は、バックアップしたときに残した要点を読む。
+ * 空模様（霧の判定・前提の変化の日数）は今日の日付で変わるので、計画の要点とホームの控えは日ごとに分ける。
  */
-const APP_HOME_RECENT = 6;
 
-/** 全部の計画の要点（計画の一覧と同じもの）。データ本体が変わらない間は控えから */
+/** 全部の計画の要点（計画の一覧と同じもの）。データ本体が変わらない間（その日のうち）は控えから */
 function appPortfolioCached_() {
-  return appCachedRead_('PORTFOLIO', () => appPortfolio_());
+  return appCachedRead_('PORTFOLIO\u0001' + appToday_(), () => appPortfolio_());
 }
 
-/** その人のホーム（数字・計画の状態・承認待ち・最近の動き）＋ 管理者には仕組みの状態 */
+/** その人のホーム（数字・計画の状態・着地見込みと空模様・承認待ち）＋ 管理者には仕組みの状態 */
 function appHome_(ctx) {
-  const out = appCachedRead_('HOME\u0001' + ctx.actor, () => appHomeData_(ctx));
+  const out = appCachedRead_('HOME\u0001' + ctx.actor + '\u0001' + appToday_(), () => appHomeData_(ctx));
   if (appHasRole_(ctx.roles, 'ADMIN')) out.system = appHomeSystem_();
   out.at = appNowIso_();
   return out;
@@ -19,9 +19,9 @@ function appHome_(ctx) {
 
 function appHomeData_(ctx) {
   const plans = appPortfolioCached_();
+  // 見せる年度: 今の年度の計画があればそれ、無ければ一番新しい年度
   const thisFy = String(appFy_(new Date()));
-  const fys = plans.map(p => String(p.fy)).filter((x, i, a) => a.indexOf(x) === i).sort();
-  const fy = fys.indexOf(thisFy) >= 0 ? thisFy : (fys.length ? fys[fys.length - 1] : thisFy);
+  const fy = plans.some(p => String(p.fy) === thisFy) ? thisFy : plans.reduce((m, p) => (m === null || String(p.fy) > m ? String(p.fy) : m), null) || thisFy;
   const planRows = appReadTable_('PLANS');
   const clientOf = {};
   planRows.forEach(p => { clientOf[p.plan_id] = p.client_id; });
@@ -36,25 +36,15 @@ function appHomeData_(ctx) {
     if (v.submitted_by === ctx.actor) mine.push(o);
     if ((v.submitted_by !== ctx.actor || ctx.user.isOwner) && appHasRole_(ctx.roles, 'APPROVER', clientOf[v.plan_id])) approvals.push(o);
   });
-  // 最近の動き（予測の実行と、計画への保存・実行）
-  const recent = [];
-  appReadTable_('FORECAST_RUNS').filter(r => r.status === 'DONE' && names[r.plan_id])
-    .forEach(r => recent.push({ at: r.finished_at, label: '予測の実行', planId: r.plan_id, actor: String(r.actor_email || '').split('@')[0] }));
-  (() => { try { return appReadTable_('PLAN_ACTIONS'); } catch (e) { return []; } })().filter(r => r.status === 'OK' && names[r.plan_id])
-    .forEach(r => {
-      let label = r.action;
-      try { label = appPlanAction_(r.action).label; } catch (e) { /* 前の名前の操作はそのまま */ }
-      recent.push({ at: r.finished_at, label: label, planId: r.plan_id, actor: String(r.actor_email || '').split('@')[0] });
-    });
-  recent.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   return {
-    fy: fy, fys: fys,
-    plans: plans.map(p => ({ planId: p.planId, clientName: p.clientName, fy: String(p.fy), p50: p.p50, prevP50: p.prevP50, budget: p.budget, mape: p.mape,
+    fy: fy,
+    plans: plans.map(p => ({ planId: p.planId, clientName: p.clientName, fy: String(p.fy), p10: p.p10, p50: p.p50, p90: p.p90, prevP50: p.prevP50, budget: p.budget, mape: p.mape,
       mapeMonths: p.mapeMonths, runs: p.runs, lastRunAt: p.lastRunAt, stepErrors: p.stepErrors, stepsDone: p.stepsDone, stepsTotal: p.stepsTotal,
       officialNo: p.officialNo, officialFinal: p.officialFinal, pendingNo: p.pendingNo,
-      actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, landing: p.landing, rangeOut: p.rangeOut, rangeN: p.rangeN })),
-    approvals: approvals, mine: mine,
-    recent: recent.slice(0, APP_HOME_RECENT).map(x => Object.assign(x, { clientName: names[x.planId].clientName, fy: names[x.planId].fy }))
+      actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, rangeOut: p.rangeOut, rangeN: p.rangeN,
+      landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
+      sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource })),
+    approvals: approvals, mine: mine
   };
 }
 
