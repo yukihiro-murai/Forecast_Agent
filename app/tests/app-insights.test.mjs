@@ -148,7 +148,8 @@ assert.ok(types(A).every((t) => t === 'd') && types(B).every((t) => t === 's'), 
   assert.equal(x.totals.budgetPlans, 1);
   assert.equal(x.totals.p50, 1013 + (b.p50 || 0));
   close(x.totals.ratioP50, 1013 / 1320);
-  assert.equal(x.totals.landing, a.landing + (b.landing || 0));
+  const landed = [a, b].filter((p) => typeof p.landing === 'number');
+  assert.equal(x.totals.landing, landed.length ? landed.reduce((s, p) => s + p.landing, 0) : null, '着地の合計は着地のある計画だけ（霧で数字の無い計画は入れない）');
   // 年度を選ぶ: 記録の無い計画でも形はそろう
   const y = env.call('apiCrossMaker(__in)', { __in: { fy: 2025 } });
   assert.equal(y.fy, '2025');

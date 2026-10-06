@@ -31,6 +31,7 @@ const planId = env.seedPlan(book);
   assert.deepEqual(h.plans[0].stepErrors, ['step1_status'], '手順のエラーを拾う（よみが「進み」を見るよう頼む）');
   assert.deepEqual([h.approvals, h.mine], [[], []]);
   assert.deepEqual([h.recent, h.fys], [undefined, undefined], '画面で使わない「最近の動き」と年度の一覧は作らない（予測の実行・操作の記録を読まない）');
+  assert.deepEqual(h.totals, { plans: 1, budget: null, budgetPlans: 0, actualYtd: null, landing: null, landingPlans: 0, ratio: null, ratioPlans: 0 }, '見せる年度の合計（予算も着地も無い）');
   assert.ok(h.system && 'backup' in h.system && 'journal' in h.system, '管理者には仕組みの状態');
   assert.equal(env.call('apiBootstrap()').home.plans.length, 1, '最初の画面にホームの中身を入れる');
   env.call(`apiSaveMember({ email: '${MEMBER}', displayName: 'M' })`);
@@ -92,6 +93,10 @@ const planId = env.seedPlan(book);
   assert.deepEqual([r2.actualYtd, r2.actualMonths, r2.forecastYtd], [200, 2, 190], '予測のある締まった月だけなら予実の差を出す');
   const r3 = J(env.run(`appPlanYtd_('2026', ${JSON.stringify(cmp)}, '')`));
   assert.deepEqual([r3.actualYtd, r3.actualMonths, r3.forecastYtd], [null, 0, null], '境目が分からなければ締まった月は数えない');
+  // 売上 0 の月（検証の表の実績が空で、予測はある）: 0 円として数え、予実の差も消さない
+  const zero = { '2026/04': { actual: 100, p50: 100, out: 0 }, '2026/05': { actual: null, p50: 100, out: null }, '2026/06': { actual: 100, p50: 100, out: 0 } };
+  const r4 = J(env.run(`appPlanYtd_('2026', ${JSON.stringify(zero)}, '2026/07')`));
+  assert.deepEqual([r4.actualYtd, r4.actualMonths, r4.forecastYtd, r4.rangeOut, r4.rangeN, r4.actual], [200, 3, 300, 0, 2, { '2026/04': 100, '2026/05': 0, '2026/06': 100 }], JSON.stringify(r4));
 }
 
 console.log('app-home: all tests passed');
