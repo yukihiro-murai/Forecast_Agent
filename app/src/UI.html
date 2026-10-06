@@ -288,7 +288,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .tabs.sub.mini .tab{height:var(--h-chip);padding:0 var(--s3);font-size:var(--fs-s)}
 
 /* ==== CSS: HOME ==== */
-/* ホーム（最重要のことだけ）。よみが状況を読み解いて話す */
+/* ホーム（全体の合計だけ）。よみが状況を読み解いて話す。並び: よみ → 数字 → 見通しの空模様 → 学びの進み → データからわかること */
 .todo{list-style:none;display:grid;gap:var(--s2);margin-top:var(--s5)}
 .todo li{display:flex;align-items:center;gap:var(--s3);min-height:52px;padding:6px 8px 6px var(--s4);border:1px solid var(--line-soft);border-radius:var(--radius-s);background:#fff}
 .todo li .t{flex:1;min-width:0;font-size:var(--fs-m)}
@@ -296,20 +296,49 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .todo li .btn{flex:0 0 auto}
 .lvl{width:10px;height:10px;border-radius:50%;flex:0 0 10px}
 .lvl.ng{background:var(--error)}.lvl.warn{background:#E3A23B}.lvl.info{background:var(--primary)}.lvl.ok{background:var(--navy)}
-.skys{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--col),1fr));gap:var(--s3)}
-.sky{display:flex;flex-direction:column;align-items:center;gap:var(--s1);padding:var(--s3) var(--s2);border:1px solid var(--line-soft);border-radius:var(--radius-s);background:#fff;cursor:pointer;font:inherit;color:var(--navy)}
+/* 数字: 大きな金額は短く（20.7億）、正確な金額はカーソルの説明に。下の小さな行は含めたメーカーの数など */
+.kpi .hm-sub{font-size:var(--fs-s);color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 見通しの空模様: 8 つを決まった順に 1 行で（狭い画面では折り返す）。0 のものは絵と数を淡く */
+.skys{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:var(--s3)}
+.sky{display:flex;flex-direction:column;align-items:center;gap:var(--s1);min-width:0;padding:var(--s3) var(--s1);border:1px solid var(--line-soft);border-radius:var(--radius-s);background:#fff;cursor:pointer;font:inherit;color:var(--navy);text-align:center}
 .sky:hover{border-color:var(--primary)}
-.sky.none{opacity:.45}
-.sky .ch{width:64px;height:64px}.sky .ch svg{width:100%;height:100%;display:block}
-.sky .nm{font-size:var(--fs-s)}.sky .ct{font-size:var(--fs-h2);font-variant-numeric:tabular-nums}
+.sky.none .ch,.sky.none .ct{opacity:.4}
+.sky .ch{width:56px;height:56px}.sky .ch svg{width:100%;height:100%;display:block}
+.sky .nm{font-size:var(--fs-s);line-height:1.4;word-break:keep-all;overflow-wrap:normal}
+.sky .ct{margin-top:auto;font-size:var(--fs-h2);line-height:1.3;font-variant-numeric:tabular-nums}
+/* 学びの進み: 精度の天気と、承認待ちの見直し案（「学びを見る」で AI の学び） */
+.hm-lr{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--col2)),1fr));gap:var(--s3)}
+.hm-lrbox{display:flex;align-items:center;gap:var(--s4);min-width:0;min-height:96px;padding:var(--s3) var(--s4);border:1px solid var(--line-soft);border-radius:var(--radius-s);background:#fff;font:inherit;color:var(--text);text-align:left}
+.hm-lrt{display:flex;flex-direction:column;flex:1;min-width:0}
+.hm-lrt .k{font-size:var(--fs-s);color:var(--muted)}
+.hm-lrt .t1{font-size:var(--fs-h3);line-height:1.4;color:var(--navy)}
+.hm-lrt .t1 .u{font-size:var(--fs-s);color:var(--muted)}
+.hm-lrt .t2{font-size:var(--fs-s);color:var(--muted)}
+.hm-lrbox .btn{flex:0 0 auto}
+.hm-wait{display:flex;align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s3);min-height:96px;font-size:var(--fs-m);color:var(--navy)}
+.hm-yomi{width:48px;height:48px;flex:0 0 48px}.hm-yomi svg{width:100%;height:100%;display:block}
 @media (max-width:760px){
   .todo li{flex-wrap:wrap}.todo li .t{flex:1 1 calc(100% - 40px)}.todo li .btn{margin-left:auto}
   .todo li .k{flex:1 1 calc(100% - 40px)}.todo li .k + .t{flex:1 1 100%}
-  .skys{grid-template-columns:repeat(2,minmax(0,1fr))}.sky .ch{width:48px;height:48px}
+  .skys{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s2)}
+  .sky{padding:var(--s2) 2px}.sky .ch{width:40px;height:40px}.sky .ct{font-size:var(--fs-h3)}
+  .hm-lrbox{min-height:80px;gap:var(--s3)}
+  .todo li .btn.hm-mk{display:none}   /* 続きの行の「メーカー」は下のメニューと同じなので、スマホでは出さない（行を短く） */
+  .viewtitle .vnear:has(> .hm-fy){flex:0 0 auto;margin-left:var(--s1)}   /* 年度の札は題の横のまま */
 }
 
 /* ==== CSS: MAKERS ==== */
-.tbl.mk{min-width:760px}   /* メーカーの表: スマホでは横に送る */
+.tbl.mk{min-width:760px}   /* メーカーの表: スマホでは横に送る（メーカーの列は左に残す） */
+.mk-sky{display:inline-flex;align-items:center;gap:6px;max-width:100%;vertical-align:middle}
+.mk-skyn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl.mk .chip.st{margin-right:0}
+@media (max-width:760px){
+  .tbl.mk{min-width:880px}
+  .tbl.mk th:first-child,.tbl.mk td:first-child{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:inset -1px 0 0 var(--line)}
+  .tbl.mk th:first-child{background:var(--head)}
+  .tbl.mk tr.total td:first-child{position:static;background:var(--head);box-shadow:none}   /* 合計の行は 3 列をまとめているので残さない */
+  .tbl.mk td.wrap{min-width:104px}
+}
 
 /* ==== CSS: FORECAST ==== */
 .tbl.wide{min-width:1080px}
@@ -1096,12 +1125,21 @@ function chartArrows(rows, opts){
 }
 // ==== END REGION: CHARTS ====
 // ==== REGION: HOME ====
-// ホーム: 全体の概要だけ（個社の数字・名前は出さない。名前は空模様のツールチップだけ。2026-10-06 村井さん）
+// ホーム: 全体の合計だけ（個社の数字・名前は出さない。名前は空模様のツールチップだけ。2026-10-06 村井さん）。
+// 並び: よみ（気になる順の数）→ 数字（年間予算・着地の推定・暫定実績・外れ幅）→ 見通しの空模様（8 つ）→ 学びの進み → データからわかること
 function homeEnter(){ if (B.setUp && B.allowed) homeLoad(); }
-/** ホームの中身を読む（開いた直後は初期データの B.home を使い、ホームに戻るたびに新しくする） */
-function homeLoad(){ load('home', function(ok, fail){ call('apiHome', [], ok, fail); }, null, function(r){ B.home = r; }); }
+/** ホームの中身を読む（開いた直後は初期データの B.home を使い、ホームに戻るたびに新しくする）。読めたら学びの進み（apiAiLearning。学びの画面と同じ読み込み）を読む */
+function homeLoad(){ load('home', function(ok, fail){ call('apiHome', [], ok, fail); }, null, function(r){ B.home = r; if (S.view === 'home') lrNeed('ai'); }); }
+/** 学びの進みは、ホームを描いた後に読む（まだ一度も読んでいないときだけ。失敗したら、このカードの「もう一度読み込む」で読み直す） */
+function homeLearnKick(){
+  if (S.ld.lrAi || S.lr.ai || S.homeKick) return;
+  S.homeKick = true;
+  setTimeout(function(){ S.homeKick = false; if (S.view === 'home' && !S.ld.lrAi) lrNeed('ai'); }, 0);
+}
 /** 所有者の初期設定（最初の 1 回。何度実行しても同じ結果） */
 function homeSetup(){ call('apiSetup', [], function(){ B.setUp = true; toast('初期設定が終わりました'); go('home'); }); }
+/** 見せる年度の計画（サーバーが決めた年度 h.fy） */
+function homePlans(h){ return (h.plans || []).filter(function(p){ return String(p.fy) === String(h.fy); }); }
 function viewHome(){
   if (!B.allowed) return '<h1>Trends2Targets</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
   if (!B.setUp) {
@@ -1111,118 +1149,219 @@ function viewHome(){
   }
   var h = B.home;
   if (!h) return '<h1>ホーム</h1>' + (slot('home', 'ホームを読み込んでいます', 'homeLoad()') || loading('ホームを読み込んでいます'));
-  var plans = h.plans.filter(function(p){ return p.fy === h.fy; });
+  var plans = homePlans(h);
+  var head = '<div class="page-head"><h1>ホーム</h1><span class="chip hm-fy" data-near="1" data-tip="' + esc('見せている年度です（今の年度の計画があればそれ、無ければいちばん新しい年度）') + '">FY' + esc(h.fy) + '</span></div>';
+  // 計画が無い年度は、よみの案内 1 枚だけ（「まだありません」を重ねない）
+  if (!plans.length) return head + homeHero(h);
+  homeLearnKick();
+  return head + homeHero(h) + homeKpis(h, plans) + homeSkyCard(plans) + homeLearnCard(h, plans) + homeInsightCard(plans);
+}
+/** よみ（いちばん気になること）と、続く 4 つまで。残りは「ほかに n 件」の説明に */
+function homeHero(h){
   var says = yomiSays(h), top = says[0];
   var tipAttr = function(x){ return x.tip ? ' data-tip="' + esc(x.tip) + '"' : ''; };
-  var hero = '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[top.pose] + '</div><div class="bubble"><span' + tipAttr(top) + '>'
-    + esc(top.text) + '</span>' + (top.act ? '<div class="say-act"><button class="btn' + (top.lvl === 'ok' ? ' btn-ghost' : '') + '" onclick="' + top.act[1] + '">' + esc(top.act[0]) + '</button></div>' : '') + '</div></div>'
-    + (says.length > 1 ? '<ul class="todo">' + says.slice(1, 5).map(function(x){ return '<li><span class="lvl ' + x.lvl + '"></span><span class="t"' + tipAttr(x) + '>' + esc(x.text) + '</span>'
-      + (x.act ? '<button class="btn btn-ghost btn-sm" onclick="' + x.act[1] + '">' + esc(x.act[0]) + '</button>' : '') + '</li>'; }).join('') + '</ul>'
-      + (says.length > 5 ? '<p class="meta mt8" data-tip="' + esc(says.slice(5).map(function(x){ return x.text; }).join('\n')) + '">ほかに ' + (says.length - 5) + ' 件</p>' : '') : '') + '</div>';
-  // ホームは全体の概要と、データからわかること（個社の表は出さない。2026-10-06 村井さん。個社はメーカー・予測の画面で見る）
-  var g = homeAgg(plans);
-  var pctTxt = function(v){ return v === null ? '-' : (v * 100).toFixed(1); };
-  var kpis = '<div class="kpis k5">'
-    + homeKpi('FY' + h.fy + ' の年間予算', yen(g.budget), '円', '承認済みの公式版の最終予算（無ければ今の予算）の合計（' + plans.length + ' メーカー）', true)
-    + homeKpi('暫定実績', yen(g.actual), '円', '締まった月の実績の合計' + (g.months ? '（最大 ' + g.months + ' か月）' : ''))
-    + homeKpi('着地の推定', yen(g.landing), '円', '締まった月の実績と、残りの月の予測から推定した年度の着地の合計')
-    + homeKpi('着地 / 予算', pctTxt(g.landingRate), '%', '着地の推定の合計 ÷ 年間予算の合計（予算と着地の両方があるメーカーだけ）')
-    + homeKpi('予実の差', g.gap === null ? '-' : (g.gap > 0 ? '+' : '') + (g.gap * 100).toFixed(1), '%', '締まった月の、実績 ÷ 予測の中心 − 1。プラスは予測より上振れ')
+  var rest = says.slice(1, 5), more = says.slice(5);
+  return '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[top.pose] + '</div><div class="bubble"><span' + tipAttr(top) + '>' + esc(top.text) + '</span>'
+    + (top.act ? '<div class="say-act"><button class="btn' + (top.lvl === 'ok' || top.lvl === 'info' ? ' btn-ghost' : '') + '" onclick="' + top.act[1] + '">' + esc(top.act[0]) + '</button></div>' : '') + '</div></div>'
+    + (rest.length ? '<ul class="todo">' + rest.map(function(x){ return '<li><span class="lvl ' + x.lvl + '" aria-hidden="true"></span><span class="t"' + tipAttr(x) + '>' + esc(x.text) + '</span>'
+      + (x.act ? '<button class="btn btn-ghost btn-sm' + (x.act[1] === "go('makers')" ? ' hm-mk' : '') + '" onclick="' + x.act[1] + '">' + esc(x.act[0]) + '</button>' : '') + '</li>'; }).join('') + '</ul>' : '')
+    + (more.length ? '<p class="meta mt8" data-tip="' + esc(more.map(function(x){ return x.text; }).join('\n')) + '">ほかに ' + more.length + ' 件</p>' : '') + '</div>';
+}
+
+// ---- 数字（合計。サーバーの h.totals を使い、無ければ画面で足す。値の無いメーカーは飛ばす） ----
+function homeSum(xs, f){ return xs.reduce(function(s, p){ var v = f(p); return isNum(v) ? (s || 0) + v : s; }, null); }
+/** サーバーの合計（appHomeTotals_）と同じ形: { plans, budget, budgetPlans, actualYtd, landing, landingPlans, ratio, ratioPlans } */
+function homeTotals(h, plans){
+  if (h.totals && typeof h.totals === 'object') return h.totals;
+  var budgeted = plans.filter(function(p){ var b = planBudget(p); return isNum(b) && b > 0; });
+  var landed = plans.filter(function(p){ return isNum(p.landing); });
+  var both = budgeted.filter(function(p){ return isNum(p.landing); });
+  var bb = homeSum(both, planBudget);
+  return { plans: plans.length, budget: homeSum(budgeted, planBudget), budgetPlans: budgeted.length, actualYtd: homeSum(plans, function(p){ return p.actualYtd; }),
+    landing: homeSum(landed, function(p){ return p.landing; }), landingPlans: landed.length, ratio: bb ? homeSum(both, function(p){ return p.landing; }) / bb : null, ratioPlans: both.length };
+}
+/** 着地の推定の合計の 80% の幅: Σ着地 ± 1.2816・√Σ ばらつき²（メーカーどうしが別々に動くとみなす）。着地の無いメーカーは飛ばす。メーカーの画面の合計の行でも使う */
+function homeRange(plans){
+  var L = 0, v = 0, n = 0;
+  plans.forEach(function(p){ if (isNum(p.landing)) { L += p.landing; n++; if (isNum(p.landingSd)) v += p.landingSd * p.landingSd; } });
+  if (!n) return null;
+  var d = 1.2816 * Math.sqrt(v);
+  return { landing: L, lo: L - d, hi: L + d, n: n };
+}
+function homeRangeTip(r, all){
+  if (!r) return '着地を推定できるメーカーがまだありません';
+  return '80% の幅: ' + yen(r.lo) + '〜' + yen(r.hi) + ' 円（10 回に 8 回はこの間に着地する見込み）\n'
+    + 'メーカーどうしが別々に動くとみなした幅です。いっしょに動くと、実際の幅はもっと広くなります\n'
+    + '含めたメーカー: ' + r.n + ' / ' + all + '（着地を推定できないメーカーは除きます）';
+}
+function homeKpi(label, v, unit, tipText, main, sub){
+  return '<div class="kpi' + (main ? ' main' : '') + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">' + esc(v) + (v === '-' ? '' : '<span class="u">' + unit + '</span>') + '</div>'
+    + (sub ? '<div class="hm-sub">' + esc(sub) + '</div>' : '') + '</div>';
+}
+function homeMape(plans){ var xs = plans.map(function(p){ return p.mape; }).filter(isNum); return { v: xs.length ? xs.reduce(function(a, x){ return a + x; }, 0) / xs.length : null, n: xs.length }; }
+function homeKpis(h, plans){
+  var t = homeTotals(h, plans), r = homeRange(plans), m = homeMape(plans);
+  var months = plans.reduce(function(a, p){ return Math.max(a, isNum(p.actualMonths) ? p.actualMonths : 0); }, 0);
+  var all = t.plans || plans.length;
+  var budgetTip = 'FY' + h.fy + ' の年間予算の合計: ' + yenU(t.budget) + '\n承認済みの公式版の最終予算（無ければ今の予算）を足しています\n含めたメーカー: ' + (t.budgetPlans || 0) + ' / ' + all + '（予算の無いメーカーは除きます）';
+  var landTip = '着地の推定の合計: ' + yenU(t.landing) + '\n締まった月の実績に、残りの月の予測を足して推定しています\n' + homeRangeTip(r, all)
+    + (isNum(t.ratio) ? '\n予算の ' + (t.ratio * 100).toFixed(1) + '%（着地と予算の両方がある ' + t.ratioPlans + ' メーカーで比べています）' : '');
+  var actTip = '暫定実績の合計: ' + yenU(t.actualYtd) + '\n締まった月の実績を足しています' + (months ? '（最大 ' + months + ' か月）' : '');
+  var mapeTip = '締まった月の、予測の中心と実績の差の割合（向きは問わない）の平均です。メーカーごとの平均を、さらにメーカーで平均しています（' + m.n + ' メーカー）';
+  return '<div class="kpis hm-kpis">'
+    + homeKpi('年間予算', yenShort(t.budget), '円', budgetTip, true, isNum(t.budget) ? (t.budgetPlans < all ? t.budgetPlans + ' / ' + all + ' メーカー' : all + ' メーカー') : '')
+    + homeKpi('着地の推定', yenShort(t.landing), '円', landTip, false, isNum(t.ratio) ? '予算の ' + (t.ratio * 100).toFixed(1) + '%' : '')
+    + homeKpi('暫定実績', yenShort(t.actualYtd), '円', actTip, false, months ? months + ' か月分' : '')
+    + homeKpi('外れ幅', m.v === null ? '-' : (m.v * 100).toFixed(1), '%', mapeTip, false, m.n ? m.n + ' メーカーの平均' : '')
     + '</div>';
-  return '<h1>ホーム</h1>' + hero + kpis + homeSkyCard(plans) + homeInsightCard(g, plans);
 }
-/** 全メーカーの合計（年度の予算・暫定実績・着地の推定・予実の差・読みのクセ・幅に収まった割合・月の外れ幅） */
-function homeAgg(plans){
-  var g = { budget: null, actual: null, landing: null, landingRate: null, gap: null, months: 0, fc: 0, act: 0, rangeN: 0, rangeOut: 0, mape: null, below: 0, both: 0 };
-  var add = function(k, v){ if (v !== null && v !== undefined) g[k] = (g[k] || 0) + v; };
-  var lb = 0, bb = 0, mapes = [];
-  plans.forEach(function(p){
-    var b = planBudget(p);
-    add('budget', b); add('actual', p.actualYtd); add('landing', p.landing);
-    if (p.actualMonths > g.months) g.months = p.actualMonths;
-    if (b && p.landing !== null && p.landing !== undefined) { lb += p.landing; bb += b; g.both++; if (p.landing < b) g.below++; }
-    if (p.forecastYtd && p.actualYtd !== null && p.actualYtd !== undefined) { g.fc += p.forecastYtd; g.act += p.actualYtd; }
-    g.rangeN += p.rangeN || 0; g.rangeOut += p.rangeOut || 0;
-    if (p.mape !== null && p.mape !== undefined) mapes.push(p.mape);
-  });
-  g.landingRate = bb ? lb / bb : null;
-  g.gap = g.fc ? g.act / g.fc - 1 : null;
-  g.mape = mapes.length ? mapes.reduce(function(a, x){ return a + x; }, 0) / mapes.length : null;
-  return g;
-}
-/** 見通しの空模様: サーバーの推定（p.sky）でメーカーを 8 つの天気に分ける（いつも 8 つ・決まった順）。押すと分析へ */
+
+// ---- 見通しの空模様（サーバーの推定 p.sky。いつも 8 つ・決まった順。押すと分析へ） ----
 function homeSkyCard(plans){
   var by = {}; plans.forEach(function(p){ var k = skyKey(p); (by[k] = by[k] || []).push(p.clientName); });
   var tiles = SKY8.map(function(s){
     var names = by[s.key] || [];
-    return '<button type="button" class="sky' + (names.length ? '' : ' none') + '" onclick="go(\'analysis\')" data-tip="' + esc(s.rule + (names.length ? '\n' + names.join('、') : '')) + '">'
-      + '<span class="ch">' + (CHAR_SVG[s.key] || '') + '</span><span class="nm">' + esc(s.name) + '</span><span class="ct">' + names.length + '</span></button>';
+    return '<button type="button" class="sky' + (names.length ? '' : ' none') + '" onclick="go(\'analysis\')" aria-label="' + esc(s.name + ' ' + names.length + ' メーカー') + '" data-tip="' + esc(s.name + '：' + s.rule + (names.length ? '\n' + names.join('、') : '')) + '">'
+      + '<span class="ch">' + (CHAR_SVG[s.key] || '') + '</span><span class="nm">' + esc(s.name).replace('のち', 'のち<wbr>') + '</span><span class="ct">' + names.length + '</span></button>';
   }).join('');
-  return '<div class="card"><div class="card-head"><h2>見通しの空模様' + tip('締まった月の実績と予測から推定した着地を予算と比べ、メーカーを 8 つの空模様に分けます。カーソルを合わせると、決まりとメーカーが出ます') + '</h2></div><div class="skys">' + tiles + '</div></div>';
+  return '<div class="card"><div class="card-head"><h2>見通しの空模様' + tip('締まった月の実績と予測から推定した着地を予算と比べ、メーカーを 8 つの空模様に分けます。カーソルを合わせると決まりとメーカーが、押すと分析が出ます') + '</h2></div><div class="skys">' + tiles + '</div></div>';
 }
-/** データからわかること（全体の傾向だけ。個社の名前は出さない） */
-function homeInsightCard(g, plans){
-  var out = [];
-  if (g.fc) { var bias = g.fc / g.act - 1;
-    out.push([Math.abs(bias) >= 0.1 ? 'warn' : 'ok', '読みのクセ', Math.abs(bias) < 0.03 ? '予測と実績はほぼ釣り合っています' : '予測は実績より ' + Math.abs(bias * 100).toFixed(1) + '% ' + (bias > 0 ? '強気（上振れを見込みすぎ）' : '弱気（実績が上回っている）') + 'です']); }
-  if (g.rangeN) { var hit = 1 - g.rangeOut / g.rangeN;
-    out.push([hit < 0.7 ? 'warn' : 'ok', '幅に収まった割合', '実績が見通しの幅（下振れ〜上振れ）に収まった月は ' + (hit * 100).toFixed(0) + '%（目安 80%）' + (hit < 0.7 ? '。幅が狭すぎる可能性があります' : '')]); }
-  if (g.mape !== null) out.push([g.mape >= 0.2 ? 'warn' : 'ok', '外れ幅', '月の平均 ' + (g.mape * 100).toFixed(1) + '%（' + skyName(accWeather(g.mape)) + '）']);
-  if (g.both) out.push([g.below ? 'warn' : 'ok', '予算への着地', g.both + ' メーカーのうち ' + g.below + ' メーカーが予算に届かない見込みです']);
-  var official = plans.filter(function(p){ return p.officialNo; }).length;
-  if (plans.length) out.push([official === plans.length ? 'ok' : 'info', '予算の確定', plans.length + ' メーカーのうち ' + official + ' メーカーが承認済みです']);
-  var body = out.length ? '<ul class="todo mt0">' + out.map(function(x){ return '<li><span class="lvl ' + x[0] + '"></span><span class="k">' + esc(x[1]) + '</span><span class="t">' + esc(x[2]) + '</span></li>'; }).join('') + '</ul>'
-    : '<p class="note">実績が入ると、読みのクセや当たり方がここに出ます</p>';
-  return '<div class="card"><div class="card-head"><h2>データからわかること' + tip('全メーカーの予測と実績を比べた、全体の傾向です') + '</h2></div>' + body + '</div>';
+
+// ---- 学びの進み（精度の天気・承認待ちの見直し案。apiAiLearning は学びの画面と同じ読み込み S.lr.ai。失敗はこのカードだけ） ----
+/** 「荒れている」とみなす学びの気になる点: 補正が上限・下限に張りついた（外れが補正で追いつかない）・見通しの幅に収まる割合が 80% より低い（幅の外の外れが多い） */
+var HOME_ROUGH = { factor_clamp: '補正が上限か下限に張りついたメーカー', coverage_low: '見通しの幅の外れが多いメーカー' };
+function homeToLearn(){ go('learning'); lrTab('ai'); }
+function homeLearnCard(h, plans){
+  var head = '<div class="card-head"><h2>学びの進み' + tip('予測の当たり方（精度の天気）と、承認を待っている AI の見直し案です。見直し案は、承認して反映するまで予測に効きません') + '</h2></div>';
+  var d = S.lr.ai, x = S.ld.lrAi;
+  if (!d) {
+    if (x && x.error) return '<div class="card">' + head + '<div class="hm-wait" role="alert"><span class="hm-yomi">' + YOMI_POSE.discover + '</span><span class="err-text">読み込めませんでした</span><span class="note">' + esc(x.error) + '</span>'
+      + '<button class="btn btn-ghost" onclick="lrLoad(\'ai\')">もう一度読み込む</button></div></div>';
+    return '<div class="card">' + head + '<div class="hm-wait" role="status"><span class="hm-yomi">' + YOMI_POSE.observe + '</span><span>観測中…</span><span class="note">学びを読み込んでいます</span></div></div>';
+  }
+  var m = homeMape(plans), rough = {}, roughN = {};
+  (d.health || []).forEach(function(z){
+    if (!HOME_ROUGH[z.key] || String(z.fy) !== String(h.fy)) return;
+    rough[z.planId] = 1; (roughN[z.key] = roughN[z.key] || {})[z.planId] = 1;
+  });
+  var nRough = Object.keys(rough).length, key = accWeather(m.v, nRough > 0);
+  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? '' : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
+    + (nRough ? '\n荒れている印: ' + Object.keys(roughN).map(function(k){ return HOME_ROUGH[k] + ' ' + Object.keys(roughN[k]).length; }).join('・') : '') + '\n精度の推移は、学びの「AI の学び」で見られます';
+  var sub = nRough ? '荒れています（' + nRough + ' メーカー）' : m.v === null ? '比べる実績はまだです' : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
+  var pend = d.pending || [], nProp = pend.reduce(function(a, p){ return a + (p.proposals || []).length; }, 0);
+  var pTip = 'AI が四半期ごとに作る見直し案のうち、承認を待っているものです。承認者が承認して反映するまで、予測には効きません' + (pend.length ? '\n' + pend.length + ' メーカーの分' : '');
+  return '<div class="card">' + head + '<div class="hm-lr">'
+    + '<div class="hm-lrbox" data-tip="' + esc(wTip) + '">' + skyChar(key, 64) + '<span class="hm-lrt"><span class="k">精度の天気</span><span class="t1">' + esc(skyName(key)) + '</span><span class="t2">' + esc(sub) + '</span></span></div>'
+    + '<div class="hm-lrbox"><span class="hm-lrt" data-tip="' + esc(pTip) + '"><span class="k">承認待ちの見直し案</span><span class="t1 num">' + nProp + '<span class="u"> 件</span></span><span class="t2">' + (pend.length ? pend.length + ' メーカー' : 'いまはありません') + '</span></span>'
+    + '<button class="btn btn-ghost btn-sm" onclick="homeToLearn()">学びを見る</button></div>'
+    + '</div></div>';
 }
-function homeKpi(label, v, unit, tipText, main){ return '<div class="kpi' + (main ? ' main' : '') + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">' + v + (v === '-' ? '' : '<span class="u">' + unit + '</span>') + '</div></div>'; }
+
+// ---- データからわかること（全体の傾向だけ。名前は出さない） ----
+function homeInsightCard(plans){
+  var out = [], fc = 0, act = 0, rn = 0, ro = 0, both = 0, below = 0, official = 0, pending = 0;
+  plans.forEach(function(p){
+    if (isNum(p.forecastYtd) && p.forecastYtd > 0 && isNum(p.actualYtd)) { fc += p.forecastYtd; act += p.actualYtd; }
+    rn += isNum(p.rangeN) ? p.rangeN : 0; ro += isNum(p.rangeOut) ? p.rangeOut : 0;
+    var b = planBudget(p);
+    if (isNum(b) && b > 0 && isNum(p.landing)) { both++; if (p.landing < b) below++; }
+    if (p.officialNo) official++;
+    if (p.pendingNo) pending++;
+  });
+  if (fc && act > 0) {
+    var bias = fc / act - 1;
+    out.push([Math.abs(bias) >= 0.1 ? 'warn' : 'ok', '読みのクセ', Math.abs(bias) < 0.03 ? '予測と実績は、ほぼ釣り合っています' : '予測は実績より ' + Math.abs(bias * 100).toFixed(1) + '% ' + (bias > 0 ? '強気' : '弱気') + 'です',
+      '締まった月の予測（中心）の合計 ' + yenU(fc) + ' と、実績の合計 ' + yenU(act) + ' を比べています。強気は予測が実績より高いこと、弱気は低いことです']);
+  }
+  if (rn) {
+    var hit = 1 - ro / rn;
+    out.push([hit < 0.7 || hit > 0.9 ? 'warn' : 'ok', '幅に収まった割合', '実績が見通しの幅に収まった月は ' + (hit * 100).toFixed(0) + '% です（目安 80%）',
+      '見通しの幅（下振れ〜上振れ）は、10 回に 8 回は実績が収まるように作っています。80% より低いと幅が狭すぎ、高いと広すぎます（メーカーごとの月を合わせて ' + rn + ' か月分）']);
+  }
+  if (both) out.push([below ? 'warn' : 'ok', '予算への着地', both + ' メーカーのうち ' + below + ' メーカーが、予算に届かない見込みです', '着地の推定が年間予算より小さいメーカーの数です（着地と予算の両方があるメーカーで数えます）']);
+  out.push([official === plans.length ? 'ok' : 'info', '予算の承認', '承認済みは ' + official + ' / ' + plans.length + ' メーカーです', '年間予算が承認済みのメーカーの数です（新しい版が承認待ちのメーカーも、前の版が承認済みなら数えます）' + (pending ? '\n承認待ちの版があるメーカー: ' + pending : '')]);
+  return '<div class="card"><div class="card-head"><h2>データからわかること' + tip('全メーカーの予測と実績を比べた、全体の傾向です') + '</h2></div><ul class="todo mt0">'
+    + out.map(function(x){ return '<li><span class="lvl ' + x[0] + '" aria-hidden="true"></span><span class="k">' + esc(x[1]) + '</span><span class="t" data-tip="' + esc(x[3]) + '">' + esc(x[2]) + '</span></li>'; }).join('') + '</ul></div>';
+}
+
+// ---- よみのセリフ ----
 function homeDays(iso){ if (!iso) return null; var t = Date.parse(String(iso).replace(/([+-]\d\d)(\d\d)$/, '$1:$2')); return isNaN(t) ? null : Math.floor((Date.now() - t) / 864e5); }
 /** 所有者がエディタから直すときの案内（管理の画面は外した。README の「所有者の操作」） */
-function homeOwnerTip(json){ return '所有者が Apps Script のエディタで、スクリプト プロパティ OWNER_TASK に ' + json + ' を入れ、apiOwnerTask を実行します（README の「所有者の操作」）'; }
+function homeOwnerTip(json, effect){ return '直し方（所有者）: Apps Script のエディタで、スクリプト プロパティ OWNER_TASK に ' + json + ' を入れて apiOwnerTask を実行します' + (effect ? '。' + effect : '') + '（README「所有者の操作」）'; }
+/** 仕組みの気になる点（管理者だけ。サーバーが h.system を返すのは管理者だけ）: [短い名前, 文, 説明] */
+function homeSysItems(sys){
+  var it = [];
+  if (!sys) return it;
+  var hk = sys.housekeeping, b = sys.backup, ar = sys.autoResearch;
+  if (hk && hk.ok === false) it.push(['毎日の手入れ', '毎日の手入れで、確認が ' + (hk.problems || []).length + ' 件あります',
+    (hk.problems || []).slice(0, 3).map(function(x){ return '・' + plainMsg(x); }).join('\n') + '\n' + homeOwnerTip('{"action":"health"}', '中身が分かります')]);
+  if (b) {
+    if (b.error) it.push(['バックアップ', 'バックアップの状態を読めません', homeOwnerTip('{"action":"health"}', '状態が分かります')]);
+    else if (b.enabled === false) it.push(['バックアップ', '毎日のバックアップが、まだ動いていません', homeOwnerTip('{"action":"enableBackup"}', '毎日 3 時ごろに自動で取るようになります')]);
+    else if (b.count === 0) it.push(['バックアップ', 'バックアップが、まだ 1 つもありません', homeOwnerTip('{"action":"runBackup"}', 'すぐに 1 つ取ります。毎日の分は 3 時ごろに取ります')]);
+    else if (isNum(b.ageHours) && b.ageHours > 26) it.push(['バックアップ', '最後のバックアップから ' + b.ageHours + ' 時間たっています', homeOwnerTip('{"action":"health"}', '状態が分かります') + '\n今すぐ取るときは {"action":"runBackup"}']);
+  }
+  if (ar) {
+    var last = ar.lastResult ? '最後の結果: ' + String(ar.lastResult.at || '').replace('T', ' ').slice(0, 16) + ' ' + (ar.lastResult.statusLabel || '') + (ar.lastResult.error ? '（' + plainMsg(ar.lastResult.error) + '）' : '') + '\n' : '';
+    if (ar.error) it.push(['市場の自動の調べ', '市場の自動の調べの状態を読めません', homeOwnerTip('{"action":"health"}', '状態が分かります')]);
+    else if (ar.enabled === false) it.push(['市場の自動の調べ', '市場の自動の調べを止めてあります', '動かすときは、所有者がスクリプト プロパティ AUTO_RESEARCH_ENABLED を消します（README「市場の動きの自動収集」）']);
+    else if (ar.failures7d > 0) it.push(['市場の自動の調べ', '市場の自動の調べが、この 7 日で ' + ar.failures7d + ' 回うまくいきませんでした',
+      last + homeOwnerTip('{"action":"listAudit","kind":"RUN","query":"AUTO.RESEARCH"}', '失敗の理由が分かります')]);
+  }
+  return it;
+}
 /**
- * よみのセリフ（状況を観測して、気になる順に）。lvl: ng（すぐ見てほしい）/ warn（確認の依頼）/ info（アドバイス）/ ok。tip: 説明（カーソルで出す）。
+ * よみのセリフ（状況を観測して、気になる順に。数だけで、メーカーの名前は出さない）。lvl: ng（すぐ見てほしい）/ warn（確認の依頼）/ info（アドバイス）/ ok。tip: 説明（カーソルで出す）。
+ * 順: 保存の止まり → 承認の依頼 → 天変地異 → 手順の止まり → 予算を下回る → 仕組み（管理者）→ 霧 → 予測なし → 古い予測 → 承認済みの予算なし → 出した版の承認待ち → 計画の無い年度。
  * よみの口調: 気象キャスター。観測 → 読み解き → ひとこと。予報は「予報です」と断り、断定しない。
  */
 function yomiSays(h){
-  // ホームのよみは全体の数だけを話す（個社の名前は出さない。2026-10-06 村井さん。個社はメーカーの画面で）
-  var out = [], plans = h.plans.filter(function(p){ return p.fy === h.fy; }), sys = h.system;
+  var out = [], plans = homePlans(h), sys = h.system;
   var n = function(xs){ return xs.length + ' メーカー'; };
   var mk = ['メーカー', "go('makers')"];
-  if (sys && sys.journal) out.push({ lvl: 'ng', pose: 'discover', text: '保存が途中で止まっているのを観測しました。「保存の続きを書く」で元どおりにできます。', act: sys.journal.planId ? ['開く', "openPlan('" + esc(sys.journal.planId) + "','forecast')"] : null });
-  if (h.approvals.length) out.push({ lvl: 'warn', pose: 'discover', text: '承認待ちの公式版が ' + h.approvals.length + ' 件あります。確認をお願いします。', act: ['確認する', "openPlan('" + esc(h.approvals[0].planId) + "','version')"] });
-  var errs = plans.filter(function(p){ return p.stepErrors.length; });
-  if (errs.length) out.push({ lvl: 'ng', pose: 'discover', text: n(errs) + 'の手順でエラーを観測しました。メーカーの画面から開いて「進み」を確かめてください。', act: mk });
-  if (sys) {
-    var hk = sys.housekeeping, b = sys.backup || {};
-    if (hk && hk.ok === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日の手入れで、要確認が ' + (hk.problems || []).length + ' 件ありました。', tip: homeOwnerTip('{"action":"health"}') + '。中身が分かります', act: null });
-    if (b.enabled === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日のバックアップが、まだ動いていません。', tip: homeOwnerTip('{"action":"enableBackup"}') + '。毎日自動になります', act: null });
-    else if (b.ageHours !== null && b.ageHours !== undefined && b.ageHours > 26) out.push({ lvl: 'warn', pose: 'explain', text: 'バックアップが ' + b.ageHours + ' 時間止まっています。', tip: homeOwnerTip('{"action":"health"}') + '。今すぐ取るときは {"action":"runBackup"}', act: null });
-  }
+  var add = function(rank, lvl, pose, text, tipText, act){ out.push({ rank: rank, lvl: lvl, pose: pose, text: text, tip: tipText || '', act: act || null }); };
+  var jn = sys && sys.journal;
+  if (jn) add(0, 'ng', 'discover', jn.planId ? '保存が途中で止まっています。開いて「保存の続きを書く」を押すと、元どおりになります。' : '保存が途中で止まっています。次に保存するとき、先に続きを書きます。',
+    '書く前に控えを取ってあるので、続きを書けば元どおりになります', jn.planId ? ['開く', "openPlan('" + esc(jn.planId) + "','forecast')"] : null);
+  var appr = h.approvals || [], mine = h.mine || [];
+  if (appr.length) add(1, 'warn', 'discover', '承認待ちの公式版が ' + appr.length + ' 件あります。確認をお願いします。', '押すと、承認待ちの 1 件目を開きます', ['確認する', "openPlan('" + esc(appr[0].planId) + "','version')"]);
   var storm = plans.filter(function(p){ return skyKey(p) === 'tenpen'; });
-  if (storm.length) out.push({ lvl: 'warn', pose: 'discover', text: n(storm) + 'で、急な変化（天変地異）を観測しました。予測の前提が崩れていないか、読み解きましょう。', tip: skyRule('tenpen'), act: mk });
+  if (storm.length) {
+    var up = storm.filter(function(p){ return p.skyDir === 'up'; }).length;
+    add(2, 'warn', 'discover', n(storm) + 'で、急な変化（天変地異）を観測しました。予測の前提が変わっていないか、確かめましょう。', '天変地異：' + skyRule('tenpen') + '\n下向き ' + (storm.length - up) + '・上向き ' + up, mk);
+  }
+  var errs = plans.filter(function(p){ return (p.stepErrors || []).length; });
+  if (errs.length) add(3, 'warn', 'discover', n(errs) + 'で、手順が止まっています。予測の画面の「進み」で確かめてください。', '', mk);
   var below = plans.filter(function(p){ var k = skyKey(p); return k === 'kumori' || k === 'ame' || k === 'sekka'; });
-  if (below.length) out.push({ lvl: 'warn', pose: 'discover', text: n(below) + 'が、予算を下回る見込みです（曇り・雨・雪）。', act: mk });
-  var noRun = plans.filter(function(p){ return !p.runs && p.p50 === null; });
-  if (noRun.length) out.push({ lvl: 'info', pose: 'explain', text: n(noRun) + 'はまだ予測がありません。「進み」で 売上を取り込む → 月ごとに集計 → 予測 の順に進めましょう。', act: mk });
-  var stale = plans.filter(function(p){ var d = homeDays(p.lastRunAt); return p.runs && d !== null && d > 30; });
-  if (stale.length) out.push({ lvl: 'info', pose: 'observe', text: n(stale) + 'の予測が 30 日より前のままです。実績を取り込んで予測し直すと、見通しがはっきりするでしょう。', act: mk });
-  var noOfficial = plans.filter(function(p){ return p.runs && !p.officialNo && !p.pendingNo; });
-  if (noOfficial.length) out.push({ lvl: 'info', pose: 'explain', text: n(noOfficial) + 'はまだ公式版がありません。予算が固まったら、公式版として出しましょう。', act: mk });
-  if (h.mine.length) out.push({ lvl: 'info', pose: 'observe', text: '出した公式版 ' + h.mine.length + ' 件が、承認者の確認を待っています。', act: null });
+  if (below.length) add(4, 'warn', 'discover', n(below) + 'が、予算を下回る見込みです（曇り・雨・雪）。',
+    ['kumori', 'ame', 'sekka'].map(function(k){ return skyName(k) + ' ' + below.filter(function(p){ return skyKey(p) === k; }).length + '（' + skyRule(k) + '）'; }).join('\n'), mk);
+  var items = homeSysItems(sys);
+  if (items.length === 1) add(5, 'warn', 'explain', items[0][1] + '。', items[0][2], null);
+  else if (items.length > 1) add(5, 'warn', 'explain', '仕組みの確認が ' + items.length + ' 件あります（' + items.map(function(x){ return x[0]; }).join('・') + '）。',
+    items.map(function(x){ return x[1] + '\n' + x[2]; }).join('\n\n'), null);
   var fog = plans.filter(function(p){ return skyKey(p) === 'mikakunin'; });
-  if (fog.length) out.push({ lvl: 'info', pose: 'observe', text: n(fog) + 'は空模様が霧（推定できない）です。予算と予測がそろい、実績が取り込まれると見えてきます。', tip: skyRule('mikakunin'), act: mk });
-  var order = { ng: 0, warn: 1, info: 2 };
-  out.sort(function(a, b){ return order[a.lvl] - order[b.lvl]; });
-  if (!out.length) out.push(plans.length ? { lvl: 'ok', pose: 'done', text: '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。', act: mk }
-    : { lvl: 'ok', pose: 'guide', text: 'FY' + h.fy + ' の計画はまだありません。所有者が計画を作ると、ここに見通しが出ます。', act: null });
+  if (fog.length) {
+    var kinds = [['no_budget', '予算なし'], ['no_forecast', '予測なし'], ['stale_actuals', '実績の遅れ']].map(function(k){ var c = fog.filter(function(p){ return p.skyReason === k[0]; }).length; return c ? k[1] + ' ' + c : ''; }).filter(Boolean).join('・');
+    add(6, 'info', 'observe', n(fog) + 'は霧で、着地を推定できません' + (kinds ? '（' + kinds + '）' : '') + '。', '霧：' + skyRule('mikakunin'), mk);
+  }
+  var noRun = plans.filter(function(p){ return !p.runs && !isNum(p.p50); });
+  if (noRun.length) add(7, 'info', 'explain', n(noRun) + 'は、まだ予測がありません。', '予測の画面の「進み」で、売上を取り込む → 月ごとに集計 → 予測 の順に進めます', mk);
+  var stale = plans.filter(function(p){ var d = homeDays(p.lastRunAt); return p.runs && d !== null && d > 30; });
+  if (stale.length) add(8, 'info', 'observe', n(stale) + 'の予測が、30 日より前のままです。', '実績を取り込んで予測し直すと、見通しがはっきりします', mk);
+  var noOff = plans.filter(function(p){ return p.runs && !p.officialNo && !p.pendingNo; });
+  if (noOff.length) add(9, 'info', 'explain', n(noOff) + 'は、まだ承認済みの予算がありません。', '予算が固まったら、予測の画面の「公式版」から出して、承認を受けます', mk);
+  if (mine.length) add(10, 'info', 'observe', '出した公式版 ' + mine.length + ' 件が、承認を待っています。', '承認者が確認すると、承認済みになります', null);
+  if (!plans.length) add(11, 'info', 'guide', 'FY' + h.fy + ' の計画はまだありません。所有者が計画を作ると、ここに見通しが出ます。', '', null);
+  out.sort(function(a, b){ return a.rank - b.rank; });
+  if (!out.length) out.push({ rank: 99, lvl: 'ok', pose: 'done', text: '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。', tip: '', act: mk });
   return out;
 }
 // ==== END REGION: HOME ====
 
 // ==== REGION: MAKERS ====
-// メーカー: 年度の計画があるメーカーを並べ、予算策定の状態と年度の数字を見せる（計画を作るのは所有者がエディタから。2026-10-06 村井さん）
+// メーカー: 年度の計画があるメーカーを並べ、空模様・予算策定の状態・年度の数字を見せる（計画を作るのは所有者がエディタから。2026-10-06 村井さん）
 /** メーカーの画面を開く: ホームの初期データ（同じ項目）ですぐ描き、計画の一覧を読んで差し替える */
-function mkEnter(){ load('mk', function(ok, fail){ call('apiPortfolio', [], ok, fail); }, null, function(r){ S.pf = r.plans; }); }
+function mkEnter(){ if (!ldBusy('mk')) load('mk', function(ok, fail){ call('apiPortfolio', [], ok, fail); }, null, function(r){ S.pf = r.plans; }); }
 function mkPlans(){ return S.pf || (B.home && B.home.plans) || null; }
 var MK_STATES = { none: ['未着手', 'off'], draft: ['策定中', ''], pending: ['承認待ち', 'warn'], official: ['承認済み', 'ok'] };
 function mkState(p){ return p.pendingNo ? 'pending' : p.officialNo ? 'official' : !p.runs && (p.p50 === null || p.p50 === undefined) ? 'none' : 'draft'; }
@@ -1246,24 +1385,42 @@ function viewMakers(){
   var summary = '<div class="row c mt0">' + ['official', 'pending', 'draft', 'none'].map(function(st){ return '<span class="chip ' + MK_STATES[st][1] + '">' + MK_STATES[st][0] + ' ' + count(st) + '</span>'; }).join('') + '</div>';
   return '<div class="page-head"><h1>メーカー</h1>' + sel + '</div><div class="card">' + summary + '<div class="tblwrap mt12">' + mkTable(rows) + '</div></div>';
 }
-/** メーカー横断の表: ステータス・年間予算・暫定実績・着地の推定（2026-10-06 村井さん） */
+/** 空模様の札（キャラ + 名前。説明は決まりと理由） */
+function mkSky(p){
+  var k = skyKey(p), why = skyReasonText(p);
+  return '<span class="mk-sky" data-tip="' + esc(skyName(k) + '：' + skyRule(k) + (why ? '\n' + why : '')) + '">' + skyChar(k, 28) + '<span class="mk-skyn">' + esc(skyName(k)) + '</span></span>';
+}
+/** 確率の短い表し方（1% 未満・99% 超はそう書く） */
+function mkProb(v){ return v < 0.01 ? '1% 未満' : v > 0.99 ? '99% 超' : Math.round(v * 100) + '%'; }
+/** 着地の推定のセル（説明: 80% の幅・予算を超える確率・予算に対する割合） */
+function mkLanding(p){
+  var l = p.landing;
+  if (!isNum(l)) return '<td class="num" data-tip="' + esc('着地を推定できません' + (skyReasonText(p) ? '（' + skyReasonText(p) + '）' : '')) + '">-</td>';
+  var t = [];
+  if (isNum(p.landingP10) && isNum(p.landingP90)) t.push('80% の幅: ' + yen(p.landingP10) + '〜' + yen(p.landingP90) + ' 円');
+  if (isNum(p.pAbove)) t.push('予算を超える確率: ' + mkProb(p.pAbove));
+  if (isNum(p.ratio)) t.push('予算の ' + (p.ratio * 100).toFixed(1) + '%');
+  return '<td class="num"' + (t.length ? ' data-tip="' + esc(t.join('\n')) + '"' : '') + '>' + yen(l) + '</td>';
+}
+/** メーカー横断の表: 空模様・ステータス・年間予算・暫定実績・着地の推定（2026-10-06 村井さん） */
 function mkTable(rows){
-  var tot = { budget: null, actual: null, landing: null };
-  var add = function(k, v){ if (v !== null && v !== undefined) tot[k] = (tot[k] || 0) + v; };
+  var tot = { budget: null, actual: null };
+  var add = function(k, v){ if (isNum(v)) tot[k] = (tot[k] || 0) + v; };
   var body = rows.map(function(p){
     var st = MK_STATES[mkState(p)];
-    var tipText = p.pendingNo ? 'v' + p.pendingNo + ' が承認待ち' : p.officialNo ? '公式版 v' + p.officialNo : '';
-    var b = planBudget(p), a = p.actualYtd, l = p.landing;
-    add('budget', b); add('actual', a); add('landing', l);
-    var lnd = l === null || l === undefined ? '-' : '<span' + (b ? ' data-tip="予算の ' + (l / b * 100).toFixed(1) + '%"' : '') + '>' + yen(l) + '</span>';
-    return '<tr><td class="wrap">' + esc(p.clientName) + '</td><td><span class="chip st ' + st[1] + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '>' + st[0] + '</span></td>'
-      + '<td class="num">' + (b === null || b === undefined ? '-' : yen(b)) + '</td>'
-      + '<td class="num"' + (p.actualMonths ? ' data-tip="' + p.actualMonths + ' か月分"' : '') + '>' + (a === null || a === undefined ? '-' : yen(a)) + '</td>'
-      + '<td class="num">' + lnd + '</td><td><button class="btn btn-ghost btn-sm" onclick="openPlan(\'' + esc(p.planId) + '\')">開く</button></td></tr>';
+    var tipText = (p.pendingNo ? 'v' + p.pendingNo + ' が承認待ちです' + (p.officialNo ? '\n' : '') : '') + (p.officialNo ? '公式版 v' + p.officialNo + ' が承認済みです' : '');
+    var b = planBudget(p), a = p.actualYtd;
+    add('budget', b); add('actual', a);
+    return '<tr><td class="wrap">' + esc(p.clientName) + '</td><td>' + mkSky(p) + '</td><td><span class="chip st ' + st[1] + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '>' + st[0] + '</span></td>'
+      + '<td class="num">' + yen(isNum(b) ? b : null) + '</td>'
+      + '<td class="num"' + (p.actualMonths ? ' data-tip="' + p.actualMonths + ' か月分"' : '') + '>' + yen(isNum(a) ? a : null) + '</td>'
+      + mkLanding(p) + '<td><button class="btn btn-ghost btn-sm" onclick="openPlan(\'' + esc(p.planId) + '\')">開く</button></td></tr>';
   }).join('');
-  var foot = '<tr class="total"><td>合計（' + rows.length + ' メーカー）</td><td></td><td class="num">' + yen(tot.budget) + '</td><td class="num">' + yen(tot.actual) + '</td><td class="num">' + yen(tot.landing) + '</td><td></td></tr>';
-  return '<table class="tbl mk"><colgroup><col><col style="width:128px"><col style="width:152px"><col style="width:152px"><col style="width:152px"><col style="width:152px"></colgroup>'
-    + '<thead><tr><th>メーカー</th><th>ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th></th></tr></thead><tbody>'
+  var r = homeRange(rows);
+  var foot = '<tr class="total"><td colspan="3">合計（' + rows.length + ' メーカー）</td><td class="num">' + yen(tot.budget) + '</td><td class="num">' + yen(tot.actual) + '</td>'
+    + '<td class="num" data-tip="' + esc(homeRangeTip(r, rows.length)) + '">' + yen(r ? r.landing : null) + '</td><td></td></tr>';
+  return '<table class="tbl mk"><colgroup><col><col style="width:144px"><col style="width:136px"><col style="width:128px"><col style="width:128px"><col style="width:128px"><col style="width:152px"></colgroup>'
+    + '<thead><tr><th>メーカー</th><th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた見通しです">空模様</th><th>ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>';
 }
 // ==== END REGION: MAKERS ====
