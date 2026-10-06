@@ -107,9 +107,14 @@ function appListPlans_() {
 }
 
 
-/** 全部の計画の要点（最新の予測・前回からの変化・予算・精度・手順の進み） */
+/**
+ * 全部の計画の要点（最新の予測・前回からの変化・予算・精度・手順の進み・着地見込みと空模様）。
+ * 着地見込みと空模様は Landing.js（締まった月の実績から今年の水準を学ぶ）。今日の日付で変わる（霧の判定・前提の変化の日数）ので、控えは日ごと
+ */
 function appPortfolio_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
+  const today = appToday_();
+  const todayYm = today.slice(0, 7).replace('-', '/');
   const runs = {};
   appReadTable_('FORECAST_RUNS').filter(r => r.status === 'DONE').forEach(r => { (runs[r.plan_id] = runs[r.plan_id] || []).push(r); });
   const outRows = {};
@@ -118,22 +123,31 @@ function appPortfolio_() {
     if (n === 1 || n === 26 || (n >= 29 && n <= 40)) { (outRows[s.plan_id] = outRows[s.plan_id] || {})[n] = JSON.parse(s.cells_json); }
   });
   const ape = {};
-  const cmp = {};   // 月ごとの実績と P50（検証の表）。暫定実績・着地見込み・予実の差に使う（読むだけ。計算は変えない）
+  const cmp = {};   // 月ごとの実績と P10/P50/P90（検証の表）。暫定実績・着地見込み・予実の差・全計画の学びに使う（読むだけ。計算は変えない）
+  const fnum = x => { const n = x === '' || x === null || x === undefined ? null : Number(x); return n !== null && isFinite(n) ? n : null; };
   appReadTable_('ENG_EVAL_COMPARE_MONTHLY').forEach(r => {
     const v = Number(r.ape_p50);
     if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push(v);
     const ym = appCellYm_(String(r._types || '').charAt(0), r.target_month);
     const act = r.actual_total === '' || r.actual_total === null ? null : Number(r.actual_total);
     if (ym && act !== null && isFinite(act)) {
-      const f = r.forecast_total_p50 === '' ? null : Number(r.forecast_total_p50);
-      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p50: f !== null && isFinite(f) ? f : null, out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null };
+      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p10: fnum(r.forecast_total_p10), p50: fnum(r.forecast_total_p50), p90: fnum(r.forecast_total_p90),
+        out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null };
     }
   });
   const steps = {};
   appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
   const ver = appVersionSummary_();
   const num = x => { if (!x) return null; const t = x.charAt(0); if (t !== 'n') return null; const v = Number(x.slice(1)); return isFinite(v) ? v : null; };
-  return appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').map(p => {
+  const plans = appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED');
+  // 締まった月の境目（B-1 → B-2 の順に動いた取り込み）と、全計画の締まった月から学ぶ τ・w（1 回だけ）
+  const cut = {};
+  plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || []); });
+  const prior = appLandingPrior_(plans.map(p => {
+    const c = cmp[p.plan_id] || {};
+    return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort().map(ym => ({ f: c[ym].p50, a: c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));
+  }));
+  return plans.map(p => {
     const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row);
     const o = outRows[p.plan_id] || {};
     let adopted = null, uplift = null;
@@ -145,7 +159,14 @@ function appPortfolio_() {
     const stored = o[26] ? { p10: num(o[26][1]), p50: num(o[26][2]), p90: num(o[26][3]) } : {};
     const latest = rs[0] || null;
     const prev = rs[1] || null;
-    const yt = appPlanYtd_(p.fy, o, cmp[p.plan_id] || {});
+    const v = ver[p.plan_id] || {};
+    const budget = adopted === null && uplift === null ? null : (adopted || 0) + (uplift || 0);
+    // 空模様の予算: 承認済みの公式版の最終予算、無ければ今の予算（採用予測 + 上乗せ。予測し直すと採用予測は P50 に戻る）
+    const official = v.officialNo ? appNum_(v.officialFinal) : null;
+    const budgetUsed = official !== null ? official : budget;
+    const yt = appPlanYtd_(p.fy, cmp[p.plan_id] || {}, cut[p.plan_id]);
+    const sky = appLandingSky_({ fy: p.fy, months: appLandingMonths_(o), actual: yt.actual, cutoffYm: cut[p.plan_id], todayYm: todayYm, budget: budgetUsed,
+      tau: prior.tau, w: prior.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     const a = ape[p.plan_id] || [];
@@ -156,13 +177,16 @@ function appPortfolio_() {
       p90: latest ? latest.annual_p90 : stored.p90 === undefined ? null : stored.p90,
       prevP50: prev ? prev.annual_p50 : null,
       lastRunAt: latest ? latest.finished_at : '', runs: rs.length,
-      budget: adopted === null && uplift === null ? null : (adopted || 0) + (uplift || 0),
+      budget: budget,
       mape: a.length ? a.reduce((x, y) => x + y, 0) / a.length : null, mapeMonths: a.length,
       stepsDone: st.filter(s => String(s.status).toLowerCase() === 'success').length, stepsTotal: st.length, stepErrors: errors,
       createdAt: p.created_at,
-      officialNo: (ver[p.plan_id] || {}).officialNo || null, officialFinal: (ver[p.plan_id] || {}).officialFinal === undefined ? null : ver[p.plan_id].officialFinal,
-      pendingNo: (ver[p.plan_id] || {}).pendingNo || null,
-      actualYtd: yt.actualYtd, actualMonths: yt.actualMonths, forecastYtd: yt.forecastYtd, landing: yt.landing, rangeOut: yt.rangeOut, rangeN: yt.rangeN
+      officialNo: v.officialNo || null, officialFinal: v.officialFinal === undefined ? null : v.officialFinal,
+      pendingNo: v.pendingNo || null,
+      actualYtd: yt.actualYtd, actualMonths: yt.actualMonths, forecastYtd: yt.forecastYtd, rangeOut: yt.rangeOut, rangeN: yt.rangeN,
+      landing: sky.landing, landingSd: sky.landingSd, landingP10: sky.landingP10, landingP90: sky.landingP90, pAbove: sky.pAbove, ratio: sky.ratio,
+      sky: sky.sky, skyReason: sky.skyReason, skyDir: sky.skyDir, theta: sky.theta, credibility: sky.credibility, k: sky.k,
+      budgetUsed: budgetUsed, budgetSource: official !== null ? 'official' : budget !== null ? 'draft' : ''
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
@@ -176,35 +200,24 @@ function appCellYm_(t, text) {
 }
 
 /**
- * 年度の暫定実績と着地見込み（2026-10-06）。実績のある月は実績、ない月は最新の予測（OUTPUT の月の P50）を足す。
- * forecastYtd は実績のある月の予測（P50）の合計（予実の差を見る）。年度の月は 4 月〜翌 3 月
+ * 年度の締まった月（cutoffYm より前）の暫定実績（2026-10-06）。取り込んだ月とその後の月（締まっていない・途中の月）は数えない。
+ * 実績の行が無い締まった月は 0 円として数える（ZAC に記録が無い月）。actualMonths は締まった月の数。
+ * forecastYtd は締まった月の予測（検証の表の P50）の合計（予実の差を見る）。予測の無い締まった月があれば出さない（比べられない）。
+ * actual は締まった月ごとの実績（着地見込みの計算に渡す）
  */
-function appPlanYtd_(fy, outRows, cmpByYm) {
-  const fyN = Number(fy);
-  const inFy = ym => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return (m >= 4 ? y : y - 1) === fyN; };
-  const cell = x => (x ? { t: x.charAt(0), v: x.slice(1) } : null);
-  const res = { actualYtd: null, actualMonths: 0, forecastYtd: null, landing: null, rangeOut: 0, rangeN: 0 };
-  let fcYtdN = 0;
-  Object.keys(cmpByYm).filter(inFy).forEach(ym => {
+function appPlanYtd_(fy, cmpByYm, cutoffYm) {
+  const yms = cutoffYm ? appLandingFyYms_(fy).filter(ym => ym < cutoffYm) : [];
+  const res = { actualYtd: null, actualMonths: yms.length, forecastYtd: null, rangeOut: 0, rangeN: 0, actual: {} };
+  let fcN = 0;
+  yms.forEach(ym => {
     const c = cmpByYm[ym];
-    res.actualYtd = (res.actualYtd || 0) + c.actual;
-    res.actualMonths++;
-    if (c.p50 !== null) { res.forecastYtd = (res.forecastYtd || 0) + c.p50; fcYtdN++; }
+    res.actualYtd = (res.actualYtd || 0) + (c ? c.actual : 0);
+    if (!c) return;
+    res.actual[ym] = c.actual;
+    if (c.p50 !== null) { res.forecastYtd = (res.forecastYtd || 0) + c.p50; fcN++; }
     if (c.out !== null) { res.rangeN++; res.rangeOut += c.out; }
   });
-  if (fcYtdN !== res.actualMonths) res.forecastYtd = null;   // 予測のない実績の月があれば、予実の差は出さない（比べられない）
-  let rest = null, months = 0;
-  for (let r = 29; r <= 40; r++) {
-    const row = outRows[r] || [];
-    const m = cell(row[0]), v = cell(row[2]);
-    const ym = m ? appCellYm_(m.t, m.v) : '';
-    if (!ym || !inFy(ym)) continue;
-    months++;
-    if (cmpByYm[ym]) continue;
-    const n = v && v.t === 'n' ? Number(v.v) : null;
-    if (n !== null && isFinite(n)) rest = (rest || 0) + n;
-  }
-  if (months) res.landing = (res.actualYtd || 0) + (rest || 0);
+  if (fcN !== yms.length) res.forecastYtd = null;
   return res;
 }
 
