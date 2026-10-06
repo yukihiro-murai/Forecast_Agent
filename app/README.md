@@ -91,10 +91,12 @@ Trends2Targets（システム）/
 | メニュー | 中身 |
 |---|---|
 | ホーム | 全体だけ（個社の表・名前は出さない）。よみの知らせ（数だけ）・年間予算/暫定実績/着地見込み/着地÷予算/予実の差・見通しの空模様（着地÷予算でメーカーを天気のキャラに分ける。カーソルでメーカー名）・データからわかること（予測の偏り・P10〜P90 の当たり・月の誤差・予算への着地・予算の確定） |
-| メーカー | 題の横で年度を選ぶ。わかる範囲のメーカー（計画・登録・ZAC の実績の候補）を横断で、ステータス（未着手・策定中・承認待ち・承認済み）・年間予算（承認済みの公式版の最終予算、無ければ今の予算）・暫定実績（実績のある月の合計）・着地見込み（実績＋残りの月の最新 P50）と合計。管理者はここで計画を作る |
+| メーカー | 題の横で年度を選ぶ。わかる範囲のメーカー（計画・登録・ZAC の実績の候補）を横断で、ステータス（未着手・策定中・承認待ち・承認済み）・年間予算（承認済みの公式版の最終予算、無ければ今の予算）・暫定実績（実績のある月の合計）・着地見込み（実績＋残りの月の最新 P50）と合計。計画を作る操作は画面に無い（所有者が `apiOwnerTask` の `createPlan` で作る） |
 | 予測 | まずメーカーを選ぶ。選ぶと、そのメーカーの計画の画面（予測・根拠・入力・検証・四半期・公式版・進み） |
-| 設定（管理者） | 業務の設定・メンバーと役割・メーカーの表示名・全計画での学習 |
-| 記録と状態（管理者） | 状態（表・バックアップ・手入れ・年度の締め）と操作の記録 |
+| 分析 | 年度のメーカーを横に並べた俯瞰（着地÷予算と不確かさ・予算を超える確率・外れ幅・予測の変化）と市場（話題 × メーカーの向き）。読むだけ（`apiCrossMaker`） |
+| 学び | 人の学び（外れた月の振り返り・人と情報源の当たり・判断の記録）と AI の学び（情報源の信頼度・全計画で縮めた偏り・精度の推移・承認待ちの見直し案）。読むだけ（`apiPeopleLearning`・`apiAiLearning`） |
+
+管理のメニューはありません。業務の設定・メンバーと役割・メーカーの登録と表示名・状態と操作の記録・バックアップ・年度の締め・計画の作成・全計画での学習（事前分布）は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（下の「所有者の操作（エディタから）」）。
 
 ## 役割
 
@@ -133,44 +135,67 @@ Trends2Targets（システム）/
 
 ## 所有者の操作（エディタから）
 
-管理の画面（設定・メンバーと役割・表示名・記録と状態・年度の締め・計画の作成）は画面から外します（2026-10-06 村井さん決定）。これらの操作は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（`OwnerTask.js`）。エディタから実行する関数には引数を渡せないので、頼む操作はスクリプト プロパティ `OWNER_TASK` に JSON で書きます。
+管理の画面（設定・メンバーと役割・表示名・記録と状態・年度の締め・計画の作成・全計画での学習）は画面から完全に外します（2026-10-06 村井さん決定）。これらの操作は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（`OwnerTask.js`）。エディタから実行する関数には引数を渡せないので、頼む操作はスクリプト プロパティ `OWNER_TASK` に JSON で書きます。
+
+**先に読む注意**
+
+- **`APP_` で始まるキーには触らないでください。** 同じスクリプト プロパティに、アプリの状態（監査の鎖の最新のハッシュ・書きかけの保存の控え・裏の処理の記録・社内のドメイン・データ本体の ID など）が入っています。書き換えたり消したりすると、監査の鎖が切れて改ざんに見えたり、処理の記録や保存の控えが古い状態に戻ったりします。所有者が触るのは `OWNER_TASK` だけです（`OWNER_TASK_RESULT` は結果の置き場です。自動の AI 調査を止めるときだけ `AUTO_RESEARCH_ENABLED` も使います）。
+- **裏の処理が動いている間は、スクリプト プロパティを編集・保存しないでください。** 「スクリプト プロパティを保存」は、編集の画面を開いたときの値を全部書き戻すおそれがあり（実際の動きはまだ確かめていません）、その間に処理が書き換えた `APP_` のキーを古い値に戻してしまいます。処理を始めると `OWNER_TASK` は自動で `jobStatus` に置き換わるので、結果はプロパティを触らずに `apiOwnerTask` をもう一度実行すれば分かります。定時処理が動く夜中から早朝（AI 調査・バックアップ・手入れ）も避け、編集の画面を開いたらすぐに保存してください。
+- **スクリプトの編集権限がある人は、エディタから実行すると所有者として扱われます。** Apps Script では、エディタから実行した人がそのまま実行する人になるためです（`apiSetup` など、所有者だけの入口も同じです）。スクリプトの編集権限は所有者だけにしてください。画面（ウェブアプリ）から呼ばれた場合など、実行する人が所有者でなければ断り、断ったことを記録に残します。
+
+**手順**
 
 1. Apps Script のエディタで「Trends2Targets」のプロジェクトを開きます。
 2. 左の「プロジェクトの設定」（歯車）を開き、いちばん下の「スクリプト プロパティ」で「スクリプト プロパティを編集」→「スクリプト プロパティを追加」を押します。
 3. プロパティに `OWNER_TASK`、値に下の表の JSON を 1 行で入れ、「スクリプト プロパティを保存」を押します（すでにあるときは値だけ書き換えます）。
 4. 左の「エディタ」で `Api.gs` を開き、上の関数の一覧から `apiOwnerTask` を選んで「実行」を押します。
-5. 下の「実行ログ」に結果の全部が出ます。同じ結果（大きいときは要約）がスクリプト プロパティ `OWNER_TASK_RESULT` に入ります（「プロジェクトの設定」を開き直すと見えます）。`"ok": true` ならうまくいっています。
-6. うまくいくと `OWNER_TASK` は消えます（同じ操作を 2 度動かさないため）。失敗したときは `"ok": false` と理由（`error`）が入り、`OWNER_TASK` は残るので、直してもう一度実行します。
+5. 下の「実行ログ」に結果が出ます。同じ結果（大きいときは要約）がスクリプト プロパティ `OWNER_TASK_RESULT` に入ります（「プロジェクトの設定」を開き直すと見えます）。`"ok": true` ならうまくいっています。`hint` に、すぐに終わったのか、裏の処理を始めたのか（まだ終わっていないのか）が書いてあります。
+6. うまくいった後の `OWNER_TASK` は、操作の種類で変わります。
+   - 読むだけの操作（`listDirectory`・`listSettings`・`listPlans`・`planCandidates`・`health`・`listAudit`・`yearPreview`・`poolPreview`・`jobStatus`）: そのまま残ります。もう一度実行すると読み直します。
+   - 書く操作（`saveMember`・`grantRole`・`revokeRole`・`saveClientName`・`saveClient`・`saveSetting`・`enableBackup`・`runBackup`・`runHousekeeping`・`verifyAudit`）: すぐに終わり、`OWNER_TASK` は消えます（同じ操作を 2 度動かさないため）。
+   - 裏の処理を始める操作（`createPlan`・`setPeople`・`yearClose`・`poolApply`）: `OWNER_TASK` が `{"action":"jobStatus","jobId":"JOB-…"}` に置き換わります。1〜2 分おいて、プロパティは触らずに `apiOwnerTask` をもう一度実行すると、処理の結果（`status` が `DONE` か `FAILED`。`FAILED` なら `error` に理由）が分かります。短い処理は、始めたその場で終わることもあります（`hint` に「すぐに終わりました」と出ます）。
+   - 実行している間に `OWNER_TASK` が書き換えられていたときは、消しも置き換えもしません。
+7. 失敗したときは `"ok": false` と理由（`error`）が入り、`OWNER_TASK` は残るので、直してもう一度実行します。
 
-- 中で使う関数・権限の判定・入力の確かめは、画面の操作と同じです。書く操作は画面と同じ操作の名前（`SETTING.SAVE`・`ROLE.GRANT` など）で操作の記録に残り、理由の欄に「OWNER_TASK（エディタから）」と入ります。所有者のほかの人が `apiOwnerTask` を動かしても断られます（断ったことは記録に残ります）。
-- 時間のかかる操作（`createPlan`・`setPeople`・`yearClose`・`poolApply`）は、画面と同じく裏の処理として始まり、結果に `jobId` が出ます。1〜2 分おいて `{"action":"jobStatus"}` を実行すると結果が分かります（`jobId` を省くと、最後に始めた処理）。
-- `roleId`・`rowVersion`・`clientId` は `listDirectory`、`planId` は `listPlans`、ZAC の名前は `planCandidates` の結果から写します。
+**値の写し方**
+
+- 中で使う関数・権限の判定・入力の確かめは、画面の操作と同じです。書く操作は画面と同じ操作の名前（`SETTING.SAVE`・`ROLE.GRANT`・`CLIENT.SAVE` など）で操作の記録に残り、理由の欄に「OWNER_TASK（エディタから）」と入ります。
+- `roleId`・`clientId`・`rowVersion` は `listDirectory`、`planId` は `listPlans`、ZAC の名前は `planCandidates` の結果から写します。
+- `rowVersion` は、ほかの変更を上書きしないための行の版です。空にすると確かめずに書くので、必ず `listDirectory` の結果から写してください。
+  - `saveMember` は `members[].rowVersion`、`revokeRole` は `roles[].rowVersion` を写します。
+  - `saveClientName` は `clients[].rowVersion`（表示名の行の版）を写します。まだ表示名を決めたことがないメーカーだけ空（`""`）です。
+  - `saveClient` は `clients[].clientRowVersion`（メーカーの行の版）を写します。
+- `saveClient` は、`clientId` を省くとメーカーを足し、`clientId` を入れると直します。直すときは全部の項目（`clientName`・`zacCode`・`isActive`・`note`・`rowVersion`）が要ります（省いた項目が空や有効に戻らないよう、足りなければ何もせずに止まります）。今の値は `listDirectory` の `clients[]`（`zacName`・`zacCode`・`active`・`note`）から写し、変えたい項目だけ変えます。`isActive` は `true` か `false`（`""` で囲まない）です。`clientName` は売上の取り込みで ZAC と照らし合わせる名前なので、画面に出す名前を変えるときは `saveClientName` を使います。
+- `createPlan`・`yearPreview`・`yearClose` には年度 `fy`（4 桁の数。例 `2027`）が要ります。無い・4 桁でないときは、何も始めずに止まります。
 - 年度の締めは、必ず `yearPreview` で `"canClose": true` を確かめ、出た `inputHash`（64 桁）をそのまま `yearClose` に渡します。確認の後に年度の中身が変わっていれば、締めずに止まります。
+- `listAudit` は、`limit` を省くと新しい 200 行までです（最大 2000）。結果が長すぎて実行ログに全部を出せないときは、`OWNER_TASK_RESULT` の `note` にそう書いてあるので、`limit` を小さくするか、`month`・`query` で絞ってもう一度実行します。
+- `health` の `ok` は、`warnings` に 1 つでも要確認（表の問題・監査の鎖・監査の最後の行が消えた疑い・バックアップが無効か 26 時間より古い・手入れの要確認・書きかけの保存・年度の一覧を読めない）があれば `false` です。手入れのときの 24 時間のエラーの数（`housekeeping.errors`）と終わりの無い開始の数（`housekeeping.openStarts`）も出ます。
 
 | 操作 | すること | `OWNER_TASK` の例 |
 |---|---|---|
-| `listDirectory` | メンバー・有効な役割・メーカー（ID と表示名）を見る | `{"action":"listDirectory"}` |
+| `listDirectory` | メンバー・有効な役割・メーカー（ID・ZAC の名前とコード・表示名・行の版）を見る | `{"action":"listDirectory"}` |
 | `saveMember` | メンバーを登録する・直す（社内のメールだけ） | `{"action":"saveMember","email":"name@bigm2y.com","displayName":"山田 太郎","department":"営業部"}` |
 | `grantRole` | 役割を付ける（`PLANNER`・`APPROVER`・`ADMIN`。`scopeType` は `ALL` か、予算策定担当だけ `CLIENT`） | `{"action":"grantRole","email":"name@bigm2y.com","role":"PLANNER","scopeType":"CLIENT","clientId":"CL-…"}` |
 | `revokeRole` | 役割を外す（行は残して無効にする） | `{"action":"revokeRole","roleId":"RL-…","rowVersion":1}` |
-| `saveClientName` | メーカーの画面の名前を決める（空にすると自動の名前に戻す） | `{"action":"saveClientName","clientId":"CL-…","displayName":"アストラゼネカ","rowVersion":""}` |
+| `saveClientName` | メーカーの画面の名前を決める（空にすると自動の名前に戻す） | `{"action":"saveClientName","clientId":"CL-…","displayName":"サンプル製薬","rowVersion":1}` |
+| `saveClient` | メーカーを足す（`clientId` なし）・直す（`clientId` と全部の項目。無効にするのは `"isActive":false`） | `{"action":"saveClient","clientId":"CL-…","clientName":"（ZAC の名前）","zacCode":"","isActive":false,"note":"","rowVersion":1}` |
 | `listSettings` | 業務の設定を見る | `{"action":"listSettings"}` |
 | `saveSetting` | ZAC の実績のスプレッドシートを決める | `{"action":"saveSetting","key":"source.zac_spreadsheet","value":"https://docs.google.com/spreadsheets/d/…/edit"}` |
 | `listPlans` | 計画の一覧（`planId`）を見る | `{"action":"listPlans"}` |
 | `planCandidates` | 計画を作れるメーカーの候補（ZAC の名前）を見る（`"refresh":true` で ZAC を読み直す） | `{"action":"planCandidates"}` |
-| `createPlan` | 計画を作る（裏の処理） | `{"action":"createPlan","clientName":"（ZAC の名前）","fy":2027,"peopleCsv":"鷹野,佐藤"}` |
-| `setPeople` | 計画の担当者を変える（裏の処理） | `{"action":"setPeople","planId":"PL-…","peopleCsv":"鷹野,佐藤"}` |
+| `createPlan` | 計画を作る（裏の処理） | `{"action":"createPlan","clientName":"（ZAC の名前）","fy":2027,"peopleCsv":"山田,佐藤"}` |
+| `setPeople` | 計画の担当者を変える（裏の処理） | `{"action":"setPeople","planId":"PL-…","peopleCsv":"山田,佐藤"}` |
 | `enableBackup` | 毎日のバックアップを有効にする | `{"action":"enableBackup"}` |
 | `runBackup` | 今すぐバックアップを取る | `{"action":"runBackup"}` |
 | `runHousekeeping` | 毎日の手入れを今すぐ動かす | `{"action":"runHousekeeping"}` |
 | `verifyAudit` | 監査の鎖を全部の月で確かめる | `{"action":"verifyAudit"}` |
-| `health` | 状態の要約（問題のある表・監査・バックアップ・手入れ・保存の控え・年度） | `{"action":"health"}` |
+| `health` | 状態の要約（`ok`・`warnings`・問題のある表・監査・バックアップ・手入れ・保存の控え・年度） | `{"action":"health"}` |
 | `yearPreview` | 年度を締められるか確かめ、指紋（`inputHash`）を受け取る（何も書かない） | `{"action":"yearPreview","fy":2025}` |
 | `yearClose` | 確かめた指紋で年度を締める（裏の処理。元に戻せません） | `{"action":"yearClose","fy":2025,"inputHash":"（yearPreview の inputHash）"}` |
 | `poolPreview` | 全計画の情報源の信頼度の事前分布を見比べる（書かない） | `{"action":"poolPreview"}` |
 | `poolApply` | 事前分布を各計画に書く（裏の処理） | `{"action":"poolApply"}` |
-| `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
-| `jobStatus` | 裏の処理の結果を見る | `{"action":"jobStatus"}` |
+| `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る、`limit` は既定 200・最大 2000） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
+| `jobStatus` | 裏の処理の結果を見る（裏の処理を始めると、`OWNER_TASK` は自動でこの形になる。`jobId` を省くと、最後に始めた処理） | `{"action":"jobStatus","jobId":"JOB-…"}` |
 
 ## 利用者・管理者の運用手順
 
