@@ -8341,6 +8341,9 @@ function applyCalibrationToTuning_(tuning, calibration) {
 // 計算部（autoLearnComputeState_）は sheet 非依存の純粋関数として
 // 切り出し、Node 側の単体テスト（tests/forecast-autolearn.test.mjs）
 // で不変条件を検証する。
+// 2026-10-07 から、誤差は補正を掛ける前の予測で測る（村井さん承認）。
+// その予測に掛かっていた補正は attachAppliedCalibration_ が
+// FORECAST_SNAPSHOT の calibration_applied_json から読む。
 // ============================================================
 
 function autoLearnComputeState_(pairs, opts) {
@@ -8355,11 +8358,30 @@ function autoLearnComputeState_(pairs, opts) {
   const fMax = isFinite(o.fMax) ? o.fMax : AUTOLEARN_GLOBAL_FACTOR_MAX;
   const curFactor = isFinite(o.curFactor) ? o.curFactor : 1.0;
 
+  // 補正を掛ける前の予測で学ぶ。EVAL_LOG の pred は、A-9 が k = 全体係数 × (1 + 暦月バイアス) を掛けた後の予測。
+  // そのまま測ると、偏りを直せた係数ほど誤差が 0 に近づいて目標が 1 に戻り、係数が 1 回 0.05 ずつ元に戻っていた。
+  // そこで、その予測に掛かっていた係数 factorUsed と暦月バイアス monthBiasUsed で割り戻す:
+  //   raw = pred / (factorUsed × (1 + monthBiasUsed))
+  // 付いていない・読めない組は補正なし（係数 1・暦月バイアス 0）。このとき raw = pred で、結果は今までと同じ。
+  // 全体: e = (raw − actual) / |actual| を、今までと同じ式（半減期・縮小・上下限・1 回の幅）に入れる。
+  // 暦月: A-9 は係数と暦月バイアスを掛け算で重ねるので、暦月バイアスは全体係数を掛けた後に残る誤差を直す分。
+  //   raw × 係数 × (1 + mb) = actual から 1 + mb = actual / (raw × 係数)。1 次の近似（全体の 1 − postBias と同じ）で
+  //   mb ≈ −(raw × 係数 − actual) / actual。そこで eM = (raw × factorUsed − actual) / |actual|
+  //   （= 暦月バイアスだけを割り戻した予測の誤差）を、今までと同じ式で縮める。
+  //   係数は、次に掛ける係数ではなく、その予測に掛かっていた係数で測る。補正の無い組で今までと同じ値にするため。
+  //   係数が落ち着けば 2 つは同じになり、全体と暦月で同じ偏りを 2 度直さない。暦月バイアスも自分の値を割り戻すので、自分を打ち消さない。
+  // （Vertex アシストの倍率は学ぶ補正ではないので割り戻さない。今までと同じ）
+  let corrected = 0;
   const usable = (pairs || [])
     .map(p => {
       const a = Number(p.actual); const pr = Number(p.pred);
       if (!isFinite(a) || a === 0 || !isFinite(pr)) return null;
-      return { ym: String(p.ym || ''), e: (pr - a) / Math.abs(a) };
+      const fU = Number(p.factorUsed); const mbU = Number(p.monthBiasUsed);
+      const f = isFinite(fU) && fU > 0 ? fU : 1;
+      const mb = isFinite(mbU) && mbU > -1 ? mbU : 0;
+      if (f !== 1 || mb !== 0) corrected++;
+      const raw = pr / (f * (1 + mb));
+      return { ym: String(p.ym || ''), e: (raw - a) / Math.abs(a), eM: (raw * f - a) / Math.abs(a) };
     })
     .filter(Boolean)
     .sort((a, b) => (a.ym < b.ym ? 1 : -1)); // 新しい月から順に
@@ -8382,7 +8404,7 @@ function autoLearnComputeState_(pairs, opts) {
     if (!byMonth[key]) byMonth[key] = { n: 0, w: 0, we: 0 };
     byMonth[key].n += 1;
     byMonth[key].w += wByIdx[i];
-    byMonth[key].we += wByIdx[i] * p.e;
+    byMonth[key].we += wByIdx[i] * p.eM;
   });
   const monthBias = {};
   Object.keys(byMonth).forEach(k => {
@@ -8397,7 +8419,9 @@ function autoLearnComputeState_(pairs, opts) {
     factor: newFactor,
     targetFactor: targetFactor,
     curFactor: curFactor,
-    monthBias: monthBias
+    monthBias: monthBias,
+    method: 'raw',          // 補正を割り戻した予測で学んだ
+    corrected: corrected    // 補正を割り戻した組の数（0 なら今までと同じ計算）
   };
 }
 
@@ -8448,6 +8472,43 @@ function collectNeutralEvalPairs_(ss, client) {
   return Array.from(latest.values()).map(x => ({ ym: x.ym, pred: x.pred, actual: x.actual }));
 }
 
+/**
+ * B-5 の学習のために、評価の組（collectNeutralEvalPairs_ の結果）へ、その予測に掛かっていた補正を付ける（factorUsed・monthBiasUsed）。
+ * EVAL_LOG の pred は、B-2 が selectEvalSnapshotRows_ で選んだ FORECAST_SNAPSHOT の回の final_pred。同じ選び方で回を選び直し、
+ * その回の calibration_applied_json から全体係数と、その暦月のバイアス（A-9 と同じく ±AUTOLEARN_FORECAST_BIAS_CAP で切る）を読む。
+ * 選び直しに使う実績は EVAL_LOG の actual（B-2 が選んだときと同じ値）。
+ * 回が無い・final_pred が pred と合わない（B-2 の後に予測し直した）・読めないときは補正なし（係数 1・暦月バイアス 0）のまま（今までと同じ扱い）。
+ */
+function attachAppliedCalibration_(ss, client, pairs) {
+  const out = (pairs || []).map(p => Object.assign({}, p, { factorUsed: 1, monthBiasUsed: 0 }));
+  const sh = ss.getSheetByName(SHEETS.FORECAST_SNAPSHOT);
+  if (!out.length || !sh || sh.getLastRow() < 2) return out;
+  const vals = sh.getDataRange().getValues();
+  const calCol = headerIndexMap_(vals[0] || []).calibration_applied_json;
+  if (calCol === undefined) return out;
+  const rows = vals.slice(1).filter(r => isSameClient_(r[2], client));
+  const actualMap = new Map(out.map(p => [[normalizeClientName_(client), p.ym].join('|'), p.actual]));
+  const neutralByYm = new Map();
+  selectEvalSnapshotRows_(rows, actualMap).forEach(r => {
+    if (String(r[4] || '') === 'neutral') neutralByYm.set(ymKey_(r[3]), r);
+  });
+  out.forEach(p => {
+    const r = neutralByYm.get(p.ym);
+    if (!r) return;
+    const snapPred = Number(r[9]);
+    if (!isFinite(snapPred) || Math.abs(snapPred - Number(p.pred)) > Math.max(1e-6, 1e-9 * Math.abs(snapPred))) return;
+    let cal = null;
+    try { cal = JSON.parse(String(r[calCol] || '')); } catch (e) { cal = null; }
+    if (!cal || typeof cal !== 'object') return;
+    const f = Number(cal.bias_correction_factor);
+    const dt = parseYM_(p.ym);
+    const mb = dt ? Number(parseResidualMonthBiasJson_(cal.residual_month_bias_json)[String(dt.getMonth() + 1)] || 0) : 0;
+    p.factorUsed = isFinite(f) && f > 0 ? f : 1;
+    p.monthBiasUsed = clamp_(isFinite(mb) ? mb : 0, -AUTOLEARN_FORECAST_BIAS_CAP, AUTOLEARN_FORECAST_BIAS_CAP);
+  });
+  return out;
+}
+
 function runMonthlyAutoLearn_(client, opts) {
   const o = opts || {};
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -8457,7 +8518,8 @@ function runMonthlyAutoLearn_(client, opts) {
   if (calibrationNumberOr_(cal.auto_update_enabled, 1) !== 1 && !o.force) {
     return { ready: false, skipped: 'auto_update_disabled', client: target };
   }
-  const pairs = collectNeutralEvalPairs_(ss, target);
+  // 評価の組に、その予測に掛かっていた補正を付けて、補正の前の予測で学ぶ（B-2 からの自動実行も LEARN.MONTHLY もここを通る）
+  const pairs = attachAppliedCalibration_(ss, target, collectNeutralEvalPairs_(ss, target));
   const cur = isFinite(Number(cal.bias_correction_factor)) ? Number(cal.bias_correction_factor) : 1.0;
   const res = autoLearnComputeState_(pairs, { curFactor: cur });
   if (!res.ready) return { ready: false, skipped: res.reason, n: res.n, client: target };
@@ -8468,7 +8530,8 @@ function runMonthlyAutoLearn_(client, opts) {
   const patch = {
     bias_correction_factor: res.factor,
     residual_month_bias_json: newMonthJson === '{}' ? '' : newMonthJson,
-    note: `auto-learned ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm')} (n=${res.n})`
+    // raw = 補正を割り戻した予測で学んだ。corrected = そのうち補正が掛かっていた組の数
+    note: `auto-learned ${Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm')} (n=${res.n}, raw, corrected=${res.corrected})`
   };
   writeCalibrationState_(target, patch);
   const changed = [];
@@ -8488,6 +8551,8 @@ function runMonthlyAutoLearn_(client, opts) {
     factor: res.factor,
     postBias: res.postBias,
     monthBias: res.monthBias,
+    method: res.method,
+    corrected: res.corrected,
     changed: changed
   };
 }
