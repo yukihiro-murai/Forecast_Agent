@@ -142,14 +142,20 @@ function apiCrossMaker(input) {
   return api_('INSIGHT.CROSS', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('CROSS\u0001' + String(input && input.fy || '') + '\u0001' + appToday_(), () => appCrossMaker_(input && input.fy)));
 }
 
-/** 学び: 人の学び（外れた月の振り返り・人と話題ごとの当たり・四半期レビューの判断・予算の上乗せの実績）。閲覧は社内全員。読むだけ */
+/**
+ * 学び: 人の学び（外れた月の振り返り・人と話題ごとの当たり・四半期レビューの判断・予算の上乗せの実績）。閲覧は社内全員。読むだけ。
+ * 人ごとの当たりと判断した人の名前は予算策定担当以上だけ（ほかの人には情報源の種類ごとのまとめ）。見せ方が違う人に同じ控えを返さないよう、控えの鍵に見せ方も入れる
+ */
 function apiPeopleLearning() {
-  return api_('INSIGHT.PEOPLE', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('PEOPLE\u0001' + appToday_(), () => appPeopleLearning_()));
+  return api_('INSIGHT.PEOPLE', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('PEOPLE\u0001' + appInsightDetail_(ctx) + '\u0001' + appToday_(), () => appPeopleLearning_(ctx)));
 }
 
-/** 学び: AI の学び（信頼度の学び・全計画で縮めた偏り・精度の推移・補正の変化・承認待ちの提案・気になる点）。閲覧は社内全員。読むだけ */
+/**
+ * 学び: AI の学び（信頼度の学び・全計画で縮めた偏り・精度の推移・補正の変化・承認待ちの提案・気になる点）。閲覧は社内全員。読むだけ。
+ * 承認待ちの提案と補正の変化の、人や話題の名前と信頼度の提案の根拠は予算策定担当以上だけ。人の学びと同じく、控えの鍵に見せ方も入れる
+ */
 function apiAiLearning() {
-  return api_('INSIGHT.AI', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('AILEARN\u0001' + appToday_(), () => appAiLearning_()));
+  return api_('INSIGHT.AI', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('AILEARN\u0001' + appInsightDetail_(ctx) + '\u0001' + appToday_(), () => appAiLearning_(ctx)));
 }
 
 /** 計画の公式版の一覧と、今の数字 */
