@@ -409,6 +409,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
         },
         deleteProperty: (k) => { delete props[k]; },
         getKeys: () => Object.keys(props),
+        getProperties: () => Object.assign({}, props),   // 本物と同じく写しを返す（書き換えても元は変わらない）
       }),
     },
     CacheService: {

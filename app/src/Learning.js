@@ -42,14 +42,42 @@ function appQuantile_(xs, q) {
   return s[pos];
 }
 
+/** 計画の精度の控えの鍵（入力のハッシュが変われば変わる） */
+function appAccuracyKey_(planId) {
+  return 'ACC_' + appSha256Hex_([planId, appPlanInputHash_(planId), APP_VERSION].join('|')).slice(0, 32);
+}
+
 /** 計画の精度を、入力のハッシュが同じあいだ 6 時間控える（全計画を見るので、毎回は計算しない） */
 function appAccuracyCached_(planId) {
-  const key = 'ACC_' + appSha256Hex_([planId, appPlanInputHash_(planId), APP_VERSION].join('|')).slice(0, 32);
+  const key = appAccuracyKey_(planId);
   const c = appJobGetResult_(key);
   if (c.found) return c.value;
   const v = appAccuracyOf_(planId);
   try { appJobPutResult_(key, v); } catch (e) { /* 控えられなくても返す */ }
   return v;
+}
+
+/**
+ * 計画ごとの精度（appAccuracyCached_ と同じもの）を、控えをまとめて読んで返す（{ planId: 精度 }。planIds の順。読めない計画は除く）。
+ * 全計画の入力のハッシュは ENG_SHEETS を 1 回で読み、控えは getAll でまとめて取る
+ */
+function appAccuracyAll_(planIds) {
+  if (planIds.length > 1) { try { appReadTable_('ENG_SHEETS'); } catch (e) { /* 読めなければ計画ごとに読む（その計画が除かれる） */ } }
+  const keys = {};
+  planIds.forEach(id => { try { keys[id] = appAccuracyKey_(id); } catch (e) { /* 読めない計画は除く */ } });
+  const ids = planIds.filter(id => Object.prototype.hasOwnProperty.call(keys, id));
+  const hits = appJobGetResults_(ids.map(id => keys[id]));
+  const accs = {};
+  ids.forEach(id => {
+    try {
+      const c = hits[keys[id]];
+      if (c.found) { accs[id] = c.value; return; }
+      const v = appAccuracyOf_(id);
+      try { appJobPutResult_(keys[id], v); } catch (e) { /* 控えられなくても返す */ }
+      accs[id] = v;
+    } catch (e) { /* 読めない計画は除く */ }
+  });
+  return accs;
 }
 
 /** 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう） */
@@ -108,11 +136,14 @@ function appBiasShadow_(accs) {
   return { mu: mu, tau2: tau2, pooled: ids.length >= 2, plans: plans };
 }
 
-/** 計画の精度と学習の影（予測の画面の「検証」タブ） */
+/** 計画の精度と学習の影（予測の画面の「検証」タブ）。データ本体が変わらない間は控えから返す（appCachedRead_） */
 function appLearningView_(planId) {
+  return appCachedRead_('LEARN\u0001' + APP_VERSION + '\u0001' + String(planId || ''), () => appLearningViewData_(planId));
+}
+
+function appLearningViewData_(planId) {
   const plan = appPlanOf_(planId);
-  const accs = {};
-  appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').forEach(p => { try { accs[p.plan_id] = appAccuracyCached_(p.plan_id); } catch (e) { /* 読めない計画は除く */ } });
+  const accs = appAccuracyAll_(appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').map(p => p.plan_id));
   const mine = accs[plan.plan_id] || appAccuracyOf_(plan.plan_id);
   const shadow = appBiasShadow_(accs);
   const cal = appEngTableObjects_(plan.plan_id, ['CALIBRATION_STATE']).CALIBRATION_STATE.slice(-1)[0] || null;

@@ -15,9 +15,9 @@ function appPlanOf_(planId) {
   return plan;
 }
 
-/** 計画の計算用の表の中身（シートごとのハッシュ）をまとめたハッシュ。計算の間に変わっていないかを確かめる */
+/** 計画の計算用の表の中身（シートごとのハッシュ）をまとめたハッシュ。計算の間に変わっていないかを確かめる。読むのはその計画の行だけ */
 function appPlanInputHash_(planId) {
-  const rows = appReadTable_('ENG_SHEETS').filter(r => r.plan_id === planId).map(r => r.sheet + ':' + r.content_hash).sort();
+  const rows = appReadPlanTable_('ENG_SHEETS', planId).map(r => r.sheet + ':' + r.content_hash).sort();
   return appSha256Hex_(rows.join('|'));
 }
 
@@ -113,10 +113,10 @@ function appCaptureChanged_(scratch, planId, stored, only) {
   return { changed: changed, unknown: unknown };
 }
 
-/** 計画のシートごとの中身のハッシュ（{ シート名: content_hash }） */
+/** 計画のシートごとの中身のハッシュ（{ シート名: content_hash }）。読むのはその計画の行だけ */
 function appStoredHashes_(planId) {
   const stored = {};
-  appReadTable_('ENG_SHEETS').filter(r => r.plan_id === planId).forEach(r => { stored[r.sheet] = r.content_hash; });
+  appReadPlanTable_('ENG_SHEETS', planId).forEach(r => { stored[r.sheet] = r.content_hash; });
   return stored;
 }
 
@@ -145,9 +145,9 @@ function appChangedOps_(ctx, planId, changed, batchId) {
   return ops;
 }
 
-/** データ本体の OUTPUT（計画を作ったとき、または最後の予測）から、主な結果を読む */
+/** データ本体の OUTPUT（計画を作ったとき、または最後の予測）から、主な結果を読む。読むのはその計画の行だけ */
 function appStoredHeadline_(planId) {
-  const segs = appReadTable_('ENG_ROWS').filter(r => r.plan_id === planId && r.sheet === 'OUTPUT');
+  const segs = appReadPlanTable_('ENG_ROWS', planId).filter(r => r.sheet === 'OUTPUT');
   const rows = {};
   segs.forEach(s => { if (Number(s.col_from) === 1) rows[Number(s.row_no)] = JSON.parse(s.cells_json); });
   const cell = (r, c) => { const x = (rows[r] || [])[c - 1]; return x ? appCellDecode_(x.charAt(0) === 'f' ? 'e' : x.charAt(0), x.slice(1)) : ''; };

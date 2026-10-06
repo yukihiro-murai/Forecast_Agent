@@ -75,14 +75,18 @@ function appDataSpreadsheet_() {
   return APP_STORE_CACHE_.data;
 }
 
-/** 表のシート。create=true なら無いときに作る。列が定義と違えば止める（fail-closed） */
-function appTableSheet_(name, create) {
+/**
+ * 表のシート。create=true なら無いときに作る。列が定義と違えば止める（fail-closed）。
+ * headLater=true なら見出しをまだ読まない（呼んだ側が本文と一緒に読み、appCheckTableHead_ で確かめる。読む回数を 1 回にするため）
+ */
+function appTableSheet_(name, create, headLater) {
   const def = APP_TABLES[name];
   if (!def) throw new Error('未定義の表: ' + name);
   const sheets = APP_STORE_CACHE_.sheets || (APP_STORE_CACHE_.sheets = {});
   if (sheets[name]) return sheets[name];
+  const found = APP_STORE_CACHE_.found || (APP_STORE_CACHE_.found = {});   // 見つけたが、見出しはまだ確かめていないシート
   const ss = appDataSpreadsheet_();
-  let sh = ss.getSheetByName(name);
+  let sh = found[name] || ss.getSheetByName(name);
   if (!sh) {
     if (!create) throw new Error('表がありません（' + name + '）。管理者が「初期設定」を実行してください。');
     sh = ss.insertSheet(name);
@@ -92,24 +96,41 @@ function appTableSheet_(name, create) {
     sheets[name] = sh;
     return sh;
   }
-  const head = sh.getRange(1, 1, 1, def.columns.length).getValues()[0].map(String);
-  if (head.join('|') !== def.columns.join('|')) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
-  sheets[name] = sh;   // 見出しを確かめたシートは、この実行の間は確かめ直さない
+  if (headLater) { found[name] = sh; return sh; }
+  appCheckTableHead_(name, sh, sh.getRange(1, 1, 1, def.columns.length).getValues()[0]);
   return sh;
+}
+
+/** 読んだ見出し（1 行目）が定義と同じかを確かめる。違えば止める（fail-closed）。同じなら、この実行の間は確かめ直さない */
+function appCheckTableHead_(name, sh, head) {
+  const def = APP_TABLES[name];
+  if (head.map(String).join('|') !== def.columns.join('|')) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
+  (APP_STORE_CACHE_.sheets || (APP_STORE_CACHE_.sheets = {}))[name] = sh;
 }
 
 // ---- 読んだ表の控え（この実行の間だけ。書いた表とロックを取ったときは捨てる）----
 // 1 回の処理で同じ表を何度も読む（入力のハッシュ・キーの重複の確認・控えの作成など）。スプレッドシートを読むのは 1 回にする
 
-/** 表の 2 行目から最後の行までのセル（文字列）。読み込んだものを控える */
-function appRawTable_(name) {
+/**
+ * 表の 2 行目から最後の行までのセル（文字列）。読み込んだものを控える。
+ * 見出しをまだ確かめていない表は、見出しと本文を 1 回で読み、見出しが定義と違えば止める（今までどおり）。
+ * known = { sh, last } を渡すと、シートと最後の行を探し直さない（appReadPlanTable_ が先に調べたもの）
+ */
+function appRawTable_(name, known) {
   const raw = APP_STORE_CACHE_.raw || (APP_STORE_CACHE_.raw = {});
   if (raw[name]) return raw[name];
   const def = APP_TABLES[name];
-  const sh = appTableSheet_(name, false);
-  const last = sh.getLastRow();
-  raw[name] = last < 2 ? [] : sh.getRange(2, 1, last - 1, def.columns.length).getValues()
-    .map(r => r.map(v => (v === null || v === undefined ? '' : String(v))));
+  const checked = !!(APP_STORE_CACHE_.sheets && APP_STORE_CACHE_.sheets[name]);
+  const sh = known ? known.sh : appTableSheet_(name, false, true);
+  const last = known ? known.last : sh.getLastRow();
+  const text = r => r.map(v => (v === null || v === undefined ? '' : String(v)));
+  if (checked) {
+    raw[name] = last < 2 ? [] : sh.getRange(2, 1, last - 1, def.columns.length).getValues().map(text);
+    return raw[name];
+  }
+  const vals = sh.getRange(1, 1, Math.max(1, last), def.columns.length).getValues();
+  appCheckTableHead_(name, sh, vals[0]);
+  raw[name] = vals.slice(1).map(text);
   return raw[name];
 }
 
@@ -149,6 +170,31 @@ function appBumpGen_() {
 }
 
 /**
+ * 分けて置いた控え（k = 分けた数、k_0, k_1, … = 中身）をつなげて返す（{ k: 中身 }。無い・欠けていれば null）。
+ * いくつの控えでも getAll の 2 回までで取る: 1 回目は数と最初の 1 つ（ほとんどの控えは 1 つに収まる）、2 回目は残りをまとめて
+ */
+function appCacheChunksAll_(cache, keys) {
+  const first = [];
+  keys.forEach(k => { first.push(k, k + '_0'); });
+  const got = first.length ? cache.getAll(first) : {};
+  const rest = [];
+  keys.forEach(k => { for (let i = 1; i < Number(got[k] || 0); i++) rest.push(k + '_' + i); });
+  if (rest.length) Object.assign(got, cache.getAll(rest));
+  const out = {};
+  keys.forEach(k => {
+    const n = Number(got[k] || 0);
+    let text = n ? '' : null;
+    for (let i = 0; i < n && text !== null; i++) { const part = got[k + '_' + i]; text = typeof part === 'string' ? text + part : null; }
+    out[k] = text;
+  });
+  return out;
+}
+
+function appCacheChunks_(cache, k) {
+  return appCacheChunksAll_(cache, [k])[k];
+}
+
+/**
  * 読むだけの結果を、版の印が同じ間だけ控えから返す。key は結果を決めるもの（人ごとに違う結果なら人も入れる）。
  * 控えが読めない・大きすぎるときは、そのまま fn() を返す（控えは速くするためだけのもの）
  */
@@ -156,12 +202,8 @@ function appCachedRead_(key, fn) {
   const cache = CacheService.getScriptCache();
   const k = 'RC_' + appSha256Hex_(appDataGen_() + '\u0001' + key).slice(0, 32);
   try {
-    const n = Number(cache.get(k) || 0);
-    if (n) {
-      let text = '';
-      for (let i = 0; i < n; i++) { const part = cache.get(k + '_' + i); if (part === null) { text = null; break; } text += part; }
-      if (text !== null) return JSON.parse(text);
-    }
+    const text = appCacheChunks_(cache, k);
+    if (text !== null) return JSON.parse(text);
   } catch (e) { /* 控えが壊れていれば読み直す */ }
   const v = fn();
   try {
@@ -187,12 +229,14 @@ function appReadPlanTable_(name, planId) {
   if (def.columns[0] !== 'plan_id') throw new Error('計画ごとに読めない表です: ' + name);
   const mine = o => o.plan_id === planId;
   if (APP_STORE_CACHE_.raw && APP_STORE_CACHE_.raw[name]) return appReadTable_(name).filter(mine);
-  const sh = appTableSheet_(name, false);
+  const sh = appTableSheet_(name, false, true);
   const last = sh.getLastRow();
-  if (last - 1 <= appPlanReadMinRows_()) return appReadTable_(name).filter(mine);
+  // 少ない表は全部読む（見出しも一緒に読んで確かめる。最後の行は調べ直さない）
+  if (last - 1 <= appPlanReadMinRows_()) return appReadTable_(name, { sh: sh, last: last }).filter(mine);
   const cache = APP_STORE_CACHE_.plan || (APP_STORE_CACHE_.plan = {});
   const key = name + '\u0001' + planId;
   if (!cache[key]) {
+    appTableSheet_(name, false);   // 大きい表は見出しだけを先に確かめる（確かめ済みなら読まない）
     const rowsNo = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(planId)).matchEntireCell(true).matchCase(true).findAll().map(r => r.getRow()).sort((a, b) => a - b);
     const out = [];
     for (let i = 0; i < rowsNo.length;) {
@@ -233,6 +277,7 @@ function appOrganizeDataBook_() {
   });
   out.retired = appHideRetiredTables_(ss);
   APP_STORE_CACHE_.sheets = {};
+  APP_STORE_CACHE_.found = {};
   appStoreForget_();
   return out;
 }
@@ -294,10 +339,10 @@ function appObjectToRow_(def, o) {
   });
 }
 
-/** 表の全行（_row = シートの行番号つき）。キーが空の行は飛ばす */
-function appReadTable_(name) {
+/** 表の全行（_row = シートの行番号つき）。キーが空の行は飛ばす。known は appRawTable_ と同じ */
+function appReadTable_(name, known) {
   const def = APP_TABLES[name];
-  return appRawTable_(name)
+  return appRawTable_(name, known)
     .map((r, i) => { const o = appRowToObject_(def, r); o._row = i + 2; return o; })
     .filter(o => def.key.some(k => o[k] !== ''));
 }

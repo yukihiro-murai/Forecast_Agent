@@ -14,9 +14,9 @@ const APP_BASIS_SHEETS = ['FORECAST_SNAPSHOT', 'AI_IMPACT_HISTORY', 'SUBJECTIVE_
   'CALIBRATION_STATE', 'VERTEX_FORECAST_LOG'];
 const APP_SOURCE_LABELS = { factor_product: '製品の入力', factor_client: 'メーカー全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'Vertex の補正' };
 
-/** データ本体の表の形のシートを、見出し → 値の行にする（{ シート名: [行] }） */
+/** データ本体の表の形のシートを、見出し → 値の行にする（{ シート名: [行] }）。値だけを使うので表示形式は読まない */
 function appEngTableObjects_(planId, names) {
-  const sheets = appEngLoadPlanSheets_(planId, names);
+  const sheets = appEngLoadPlanSheets_(planId, names, true);
   const out = {};
   names.forEach(n => {
     const s = sheets[n];

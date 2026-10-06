@@ -1,9 +1,8 @@
 /**
  * Home.js — ホームのダッシュボード（最重要のことだけ）。よみのセリフは画面がこの材料から選ぶ。
- * 数字と計画の状態は、データ本体が変わらない間は控えから返す（appCachedRead_）。手入れ・バックアップの状態は 5 分だけ控える。
+ * 数字と計画の状態は、データ本体が変わらない間は控えから返す（appCachedRead_）。バックアップの状態は、バックアップしたときに残した要点を読む。
  */
 const APP_HOME_RECENT = 6;
-const APP_HOME_SYS_TTL_SEC = 300;
 
 /** 全部の計画の要点（計画の一覧と同じもの）。データ本体が変わらない間は控えから */
 function appPortfolioCached_() {
@@ -59,16 +58,10 @@ function appHomeData_(ctx) {
   };
 }
 
-/** 仕組みの状態（管理者）。バックアップはドライブを数えるので 5 分だけ控える */
+/** 仕組みの状態（管理者）。バックアップは、バックアップしたときに残した要点を読む（ドライブを数えない。Backup.js の appBackupStatusFast_） */
 function appHomeSystem_() {
-  const cache = CacheService.getScriptCache();
-  const key = 'HOME_SYS';
   let backup = null;
-  try { const hit = cache.get(key); if (hit) backup = JSON.parse(hit); } catch (e) { backup = null; }
-  if (!backup) {
-    try { backup = appBackupStatus_(); } catch (e) { backup = { error: String(e && e.message || e) }; }
-    try { cache.put(key, JSON.stringify(backup), APP_HOME_SYS_TTL_SEC); } catch (e) { /* 控えは速くするためだけ */ }
-  }
+  try { backup = appBackupStatusFast_(); } catch (e) { backup = { error: String(e && e.message || e) }; }
   let journal = null;
   try { journal = appJournalPending_(); } catch (e) { journal = null; }
   return { backup: backup, housekeeping: appHousekeepingLast_(), journal: journal };
