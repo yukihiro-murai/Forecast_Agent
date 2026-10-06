@@ -7,10 +7,10 @@
  */
 const APP_VERSION_STATES = ['SUBMITTED', 'APPROVED', 'REJECTED', 'SUPERSEDED', 'WITHDRAWN'];
 
-/** データ本体の OUTPUT から、今の予測と予算の数字（年度と月ごと） */
+/** データ本体の OUTPUT から、今の予測と予算の数字（年度と月ごと）。読むのはその計画の行だけ */
 function appPlanNumbers_(planId) {
   const rows = {};
-  appReadTable_('ENG_ROWS').filter(r => r.plan_id === planId && r.sheet === 'OUTPUT' && Number(r.col_from) === 1)
+  appReadPlanTable_('ENG_ROWS', planId).filter(r => r.sheet === 'OUTPUT' && Number(r.col_from) === 1)
     .forEach(s => { rows[Number(s.row_no)] = JSON.parse(s.cells_json); });
   const cell = (r, c) => { const x = (rows[r] || [])[c - 1]; return x ? (x.charAt(0) === 'f' ? '' : appCellDecode_(x.charAt(0), x.slice(1))) : ''; };
   const num = v => (typeof v === 'number' && isFinite(v) ? v : null);

@@ -181,8 +181,11 @@ function appEngDecodeSheet_(sheetRow, tableRows, rowSegs, formatRows) {
     values: values, formulas: formulas, formats: formats };
 }
 
-/** データ本体から、計画 1 つ分の旧来のシートをすべて（only を渡すとそのシートだけ）組み立てる（{ シート名: 組み立てた中身 }） */
-function appEngLoadPlanSheets_(planId, only) {
+/**
+ * データ本体から、計画 1 つ分の旧来のシートをすべて（only を渡すとそのシートだけ）組み立てる（{ シート名: 組み立てた中身 }）。
+ * valuesOnly = true なら表示形式（ENG_FORMATS）を読まない（値だけを使う読み取り用。formats は空・fmtCols は 0。値と数式は同じ）
+ */
+function appEngLoadPlanSheets_(planId, only, valuesOnly) {
   const sheets = appReadPlanTable_('ENG_SHEETS', planId).filter(r => !only || only.indexOf(r.sheet) >= 0);
   const group = (name) => {
     const by = {};
@@ -190,11 +193,11 @@ function appEngLoadPlanSheets_(planId, only) {
     return by;
   };
   const segs = group('ENG_ROWS');
-  const fmts = group('ENG_FORMATS');
+  const fmts = valuesOnly ? {} : group('ENG_FORMATS');
   const out = {};
   sheets.forEach(s => {
     const rows = s.mode === 'table' ? appReadPlanTable_('ENG_' + s.sheet, planId) : [];
-    out[s.sheet] = appEngDecodeSheet_(s, rows, segs[s.sheet] || [], fmts[s.sheet] || []);
+    out[s.sheet] = appEngDecodeSheet_(valuesOnly ? Object.assign({}, s, { fmt_columns: '0' }) : s, rows, segs[s.sheet] || [], fmts[s.sheet] || []);
   });
   return out;
 }

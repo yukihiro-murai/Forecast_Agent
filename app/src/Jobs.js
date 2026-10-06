@@ -156,9 +156,11 @@ function appJobSave_(job) {
   appProps_().setProperty(APP_JOB_PREFIX + job.id, JSON.stringify(job));
 }
 
+/** 処理の記録の一覧（古い順）。Script Properties は 1 回でまとめて読む（getProperties） */
 function appJobList_() {
-  return appProps_().getKeys().filter(k => k.indexOf(APP_JOB_PREFIX) === 0 && k.indexOf(APP_JOB_RESULT_PREFIX) !== 0)
-    .map(k => { try { return JSON.parse(appProps_().getProperty(k)); } catch (e) { return null; } })
+  const all = appProps_().getProperties();
+  return Object.keys(all).filter(k => k.indexOf(APP_JOB_PREFIX) === 0 && k.indexOf(APP_JOB_RESULT_PREFIX) !== 0)
+    .map(k => { try { return JSON.parse(all[k]); } catch (e) { return null; } })
     .filter(Boolean)
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
@@ -173,17 +175,22 @@ function appJobPutResult_(id, result) {
   cache.put(APP_JOB_RESULT_PREFIX + id, String(n), 21600);
 }
 
+/** 置いた結果を受け取る（分けた数と中身を getAll でまとめて取る。Store.js の appCacheChunks_） */
 function appJobGetResult_(id) {
-  const cache = CacheService.getScriptCache();
-  const n = Number(cache.get(APP_JOB_RESULT_PREFIX + id) || 0);
-  if (!n) return { found: false };
-  let text = '';
-  for (let i = 0; i < n; i++) {
-    const part = cache.get(APP_JOB_RESULT_PREFIX + id + '_' + i);
-    if (part === null) return { found: false };
-    text += part;
-  }
+  const text = appCacheChunks_(CacheService.getScriptCache(), APP_JOB_RESULT_PREFIX + id);
+  if (text === null) return { found: false };
   return { found: true, value: JSON.parse(text) };
+}
+
+/** 置いた結果をまとめて受け取る（{ id: { found, value } }）。いくつでも getAll の 2 回までで取る。中身が壊れていれば found: false */
+function appJobGetResults_(ids) {
+  const texts = appCacheChunksAll_(CacheService.getScriptCache(), ids.map(id => APP_JOB_RESULT_PREFIX + id));
+  const out = {};
+  ids.forEach(id => {
+    const text = texts[APP_JOB_RESULT_PREFIX + id];
+    try { out[id] = text === null ? { found: false } : { found: true, value: JSON.parse(text) }; } catch (e) { out[id] = { found: false }; }
+  });
+  return out;
 }
 
 /** 1 日より前の処理の記録と、待っている処理のないトリガーを消す */
