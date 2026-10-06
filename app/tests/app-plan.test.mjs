@@ -367,6 +367,16 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
   assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
   vm.runInContext(`S.setTab = 'biz'`, ui);
+  // 2026-10-06 点検: 設定・記録と状態のタブは予測と同じ形、状態に中の表の名前を並べない
+  assert.match(vm.runInContext(`S.setTab = 'biz'; viewSettings()`, ui), /<div class="tabs" role="tablist">/);
+  ui.__health = env.call('apiHealth()');
+  const healthHtml = vm.runInContext(`S.rec = 'health'; S.health = __health; viewRecords()`, ui);
+  assert.match(healthHtml, /データの表（\d+）/);
+  assert.doesNotMatch(healthHtml, />_SCHEMA<|>MEMBERS<|>PLAN_VERSIONS</, '中の表の名前は並べない');
+  // 予測の題に、横の選ぶ欄と同じ名前を重ねない
+  const two = vm.runInContext(`var __k2 = [S.fc.plans, S.fc.planId]; S.fc.plans = [{ planId: S.fc.planId, clientName: 'テスト製薬', fy: '2026' }, { planId: 'PX', clientName: '別の製薬', fy: '2026' }]; var __t = viewForecast(); S.fc.plans = __k2[0]; S.fc.planId = __k2[1]; __t`, ui);
+  assert.match(two, /<h1>予測(<| )[\s\S]*?<select[^>]*data-near/);
+  assert.doesNotMatch(two, /<h1>予測：/);
 }
 
 console.log('app-plan: all tests passed');
