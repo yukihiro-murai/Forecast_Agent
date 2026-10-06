@@ -9,6 +9,7 @@
  *   - AI 調査の根拠（AI_RESEARCH_STRUCTURED: 話題・向き・点数・確からしさ・根拠の文）・Vertex の説明
  *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作
  * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える。
+ * 押したものの、人や話題ごとの内訳（名前と信頼度）は予算策定担当以上の人だけに出す（appBasisFor_。学びと同じ決まり）。
  */
 const APP_BASIS_SHEETS = ['FORECAST_SNAPSHOT', 'AI_IMPACT_HISTORY', 'SUBJECTIVE_IMPACT_HISTORY', 'AI_RESEARCH_STRUCTURED', 'AI_SCORE_HISTORY',
   'CALIBRATION_STATE', 'VERTEX_FORECAST_LOG'];
@@ -48,13 +49,26 @@ function appLatestBatch_(rows, key) {
 
 function appNum_(v) { const n = typeof v === 'number' ? v : Number(v); return v === '' || v === null || !isFinite(n) ? null : n; }
 
-/** 画面: 計画の予測の根拠 */
-function appForecastBasis_(planId) {
+/**
+ * 見る人に合わせた根拠。月ごとの押したものの、人や話題ごとの内訳（keys: 名前・押し・信頼度）は予算策定担当以上の人だけに出す
+ * （学びと同じ決まり: appInsightDetail_）。ほかの人（閲覧・情報提供）には、情報源の種類ごとの押し（種類・名前・押し・数）だけ。
+ * 見解の一文（opinion）は入力の見解をまとめたもの（入力の画面に出すもの）なので、これまでどおり出す。
+ * 控えは見る人によらず同じものを使うので、写しを直す（控えそのものは変えない）
+ */
+function appBasisFor_(ctx, basis) {
+  if (appInsightDetail_(ctx) === 'full' || !basis) return basis;
+  const out = appSerialize_(basis);
+  (out.monthly || []).forEach(m => (m.sources || []).forEach(s => { s.keys = []; }));
+  return out;
+}
+
+/** 画面: 計画の予測の根拠（ctx = 見る人。appBasisFor_） */
+function appForecastBasis_(ctx, planId) {
   const plan = appPlanOf_(planId);
   const inputHash = appPlanInputHash_(plan.plan_id);
   const key = 'BASIS_' + appSha256Hex_([plan.plan_id, inputHash, APP_VERSION].join('|')).slice(0, 32);
   const cached = appJobGetResult_(key);
-  if (cached.found) return cached.value;
+  if (cached.found) return appBasisFor_(ctx, cached.value);
   const t = appEngTableObjects_(plan.plan_id, APP_BASIS_SHEETS);
   // 新アプリで動かした予測（新しい順）と、その月ごとの P50
   const runs = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id && r.status === 'DONE')
@@ -130,5 +144,5 @@ function appForecastBasis_(planId) {
     vertex: vertex ? { at: String(vertex.run_at || ''), confidence: appNum_(vertex.confidence), rationale: String(vertex.rationale_ja || '').slice(0, 1200), status: String(vertex.status || '') } : null
   };
   try { appJobPutResult_(key, out); } catch (e) { /* 控えられなくても返す */ }
-  return out;
+  return appBasisFor_(ctx, out);
 }

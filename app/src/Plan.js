@@ -3,6 +3,7 @@
  *
  * - 見る: データ本体から読むだけのブック（appStoreBook_）を組み立て、旧来の webGetBootstrap_ をそのまま動かす。
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
+ *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
  * - 実行（A-3・B-2〜B-5・C-1・C-3）: 予測の実行と同じく、全部のシートを組み立てて旧来の webRun* を動かし、
@@ -217,7 +218,29 @@ function appPlanView_(ctx, planId) {
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
         changed: appParseJsonList_(r.changed_sheets_json) }))
-  }, view);
+  }, appPlanViewFor_(ctx, view));
+}
+
+/**
+ * 見る人に合わせた画面の中身。人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（学びと同じ決まり: appInsightDetail_）。
+ * ほかの人（閲覧・情報提供）には:
+ *   - 四半期レビューの提案: 信頼度の対象は種類まで（reliability:<種類>）。その根拠（その人や話題の的中率）と、効かせたときの見込み
+ *     （旧来の C-1 は、その人や話題の名前を書く）は空。どちらも学びと同じ appInsightTarget_・appInsightRationale_ で決める
+ *   - 検証の記入（boot.eval.insights）: 担当は空
+ * 入力の行・担当者の一覧は、これまでどおり出す（入力の画面に出すもの）。
+ * 覚えておいた中身は見る人によらず同じものを使うので、写しを直す（覚えておいたものは変えない）
+ */
+function appPlanViewFor_(ctx, view) {
+  if (appInsightDetail_(ctx) === 'full' || !view || !view.boot) return view;
+  const out = appSerialize_(view);
+  const q = out.boot.quarterly;
+  ((q && q.proposals) || []).forEach(p => {
+    p.rationale = appInsightRationale_({ target_field: p.target, rationale: p.rationale }, true);
+    p.impact = appInsightRationale_({ target_field: p.target, rationale: p.impact }, true);
+    p.target = appInsightTarget_(p.target, true).target;
+  });
+  ((out.boot.eval && out.boot.eval.insights) || []).forEach(r => { r.owner = ''; });
+  return out;
 }
 
 /** 表の *_json の列（文字列で持つ）を一覧に戻す。読めなければ空 */
