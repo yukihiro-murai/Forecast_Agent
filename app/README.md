@@ -124,6 +124,47 @@
 - **止めるとき**: スクリプトのプロパティ `AUTO_RESEARCH_ENABLED` を `false` にします（トリガーは残っても何もしません。消すと元に戻ります）。
 - 毎回の結果は実行ログ（種類 `AUTO.RESEARCH`）に残り、管理者のホームの仕組みの状態（`system.autoResearch`）に、最後の回・最後に始めた計画・結果・7 日の失敗の数・古いままの計画が出ます。
 
+## 所有者の操作（エディタから）
+
+管理の画面（設定・メンバーと役割・表示名・記録と状態・年度の締め・計画の作成）は画面から外します（2026-10-06 村井さん決定）。これらの操作は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（`OwnerTask.js`）。エディタから実行する関数には引数を渡せないので、頼む操作はスクリプト プロパティ `OWNER_TASK` に JSON で書きます。
+
+1. Apps Script のエディタで「売上予測アプリ」のプロジェクトを開きます。
+2. 左の「プロジェクトの設定」（歯車）を開き、いちばん下の「スクリプト プロパティ」で「スクリプト プロパティを編集」→「スクリプト プロパティを追加」を押します。
+3. プロパティに `OWNER_TASK`、値に下の表の JSON を 1 行で入れ、「スクリプト プロパティを保存」を押します（すでにあるときは値だけ書き換えます）。
+4. 左の「エディタ」で `Api.gs` を開き、上の関数の一覧から `apiOwnerTask` を選んで「実行」を押します。
+5. 下の「実行ログ」に結果の全部が出ます。同じ結果（大きいときは要約）がスクリプト プロパティ `OWNER_TASK_RESULT` に入ります（「プロジェクトの設定」を開き直すと見えます）。`"ok": true` ならうまくいっています。
+6. うまくいくと `OWNER_TASK` は消えます（同じ操作を 2 度動かさないため）。失敗したときは `"ok": false` と理由（`error`）が入り、`OWNER_TASK` は残るので、直してもう一度実行します。
+
+- 中で使う関数・権限の判定・入力の確かめは、画面の操作と同じです。書く操作は画面と同じ操作の名前（`SETTING.SAVE`・`ROLE.GRANT` など）で操作の記録に残り、理由の欄に「OWNER_TASK（エディタから）」と入ります。所有者のほかの人が `apiOwnerTask` を動かしても断られます（断ったことは記録に残ります）。
+- 時間のかかる操作（`createPlan`・`setPeople`・`yearClose`・`poolApply`）は、画面と同じく裏の処理として始まり、結果に `jobId` が出ます。1〜2 分おいて `{"action":"jobStatus"}` を実行すると結果が分かります（`jobId` を省くと、最後に始めた処理）。
+- `roleId`・`rowVersion`・`clientId` は `listDirectory`、`planId` は `listPlans`、ZAC の名前は `planCandidates` の結果から写します。
+- 年度の締めは、必ず `yearPreview` で `"canClose": true` を確かめ、出た `inputHash`（64 桁）をそのまま `yearClose` に渡します。確認の後に年度の中身が変わっていれば、締めずに止まります。
+
+| 操作 | すること | `OWNER_TASK` の例 |
+|---|---|---|
+| `listDirectory` | メンバー・有効な役割・メーカー（ID と表示名）を見る | `{"action":"listDirectory"}` |
+| `saveMember` | メンバーを登録する・直す（社内のメールだけ） | `{"action":"saveMember","email":"name@bigm2y.com","displayName":"山田 太郎","department":"営業部"}` |
+| `grantRole` | 役割を付ける（`PLANNER`・`APPROVER`・`ADMIN`。`scopeType` は `ALL` か、予算策定担当だけ `CLIENT`） | `{"action":"grantRole","email":"name@bigm2y.com","role":"PLANNER","scopeType":"CLIENT","clientId":"CL-…"}` |
+| `revokeRole` | 役割を外す（行は残して無効にする） | `{"action":"revokeRole","roleId":"RL-…","rowVersion":1}` |
+| `saveClientName` | メーカーの画面の名前を決める（空にすると自動の名前に戻す） | `{"action":"saveClientName","clientId":"CL-…","displayName":"アストラゼネカ","rowVersion":""}` |
+| `listSettings` | 業務の設定を見る | `{"action":"listSettings"}` |
+| `saveSetting` | ZAC の実績のスプレッドシートを決める | `{"action":"saveSetting","key":"source.zac_spreadsheet","value":"https://docs.google.com/spreadsheets/d/…/edit"}` |
+| `listPlans` | 計画の一覧（`planId`）を見る | `{"action":"listPlans"}` |
+| `planCandidates` | 計画を作れるメーカーの候補（ZAC の名前）を見る（`"refresh":true` で ZAC を読み直す） | `{"action":"planCandidates"}` |
+| `createPlan` | 計画を作る（裏の処理） | `{"action":"createPlan","clientName":"（ZAC の名前）","fy":2027,"peopleCsv":"鷹野,佐藤"}` |
+| `setPeople` | 計画の担当者を変える（裏の処理） | `{"action":"setPeople","planId":"PL-…","peopleCsv":"鷹野,佐藤"}` |
+| `enableBackup` | 毎日のバックアップを有効にする | `{"action":"enableBackup"}` |
+| `runBackup` | 今すぐバックアップを取る | `{"action":"runBackup"}` |
+| `runHousekeeping` | 毎日の手入れを今すぐ動かす | `{"action":"runHousekeeping"}` |
+| `verifyAudit` | 監査の鎖を全部の月で確かめる | `{"action":"verifyAudit"}` |
+| `health` | 状態の要約（問題のある表・監査・バックアップ・手入れ・保存の控え・年度） | `{"action":"health"}` |
+| `yearPreview` | 年度を締められるか確かめ、指紋（`inputHash`）を受け取る（何も書かない） | `{"action":"yearPreview","fy":2025}` |
+| `yearClose` | 確かめた指紋で年度を締める（裏の処理。元に戻せません） | `{"action":"yearClose","fy":2025,"inputHash":"（yearPreview の inputHash）"}` |
+| `poolPreview` | 全計画の情報源の信頼度の事前分布を見比べる（書かない） | `{"action":"poolPreview"}` |
+| `poolApply` | 事前分布を各計画に書く（裏の処理） | `{"action":"poolApply"}` |
+| `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
+| `jobStatus` | 裏の処理の結果を見る | `{"action":"jobStatus"}` |
+
 ## 利用者・管理者の運用手順
 
 現在は所有者だけが開けます（MYSELF）。役割の判定はローカルで検証済みですが、社内の複数人での実運用は未確認です。
@@ -198,6 +239,7 @@ node app/tests/app-maintenance.test.mjs
 node app/tests/app-readiness.test.mjs
 node app/tests/app-year-snapshot.test.mjs
 node app/tests/app-year-close.test.mjs
+node app/tests/app-owner-task.test.mjs
 ```
 
 GAS のモック（`app/tests/gas-mock.mjs`）の上での契約テストです（GAS 上での動作確認の代わりではありません）。反映は `app/` の中で行います（ルートの `.clasp.json` を拾わないよう `-P .` を付ける）。
