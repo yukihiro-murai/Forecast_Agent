@@ -225,7 +225,7 @@ function appPlanView_(ctx, planId) {
  * 見る人に合わせた画面の中身。人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（学びと同じ決まり: appInsightDetail_）。
  * ほかの人（閲覧・情報提供）には:
  *   - 四半期レビューの提案: 信頼度の対象は種類まで（reliability:<種類>）。その根拠（その人や話題の的中率）と、効かせたときの見込み
- *     （旧来の C-1 は、その人や話題の名前を書く）は空。どちらも学びと同じ appInsightTarget_・appInsightRationale_ で決める
+ *     （旧来の C-1 は、その人や話題の名前を書く）と、信頼度の今と案の値は空。どちらも学びと同じ appInsightTarget_・appInsightRationale_ で決める
  *   - 検証の記入（boot.eval.insights）: 担当は空
  *   - 予測の注記（OUTPUT!A6 の写し: boot.output.policyLines・engineNote）: 信頼度の行（旧来の buildReliabilityText_）のうち、
  *     効かせている人や話題ごとの一覧（「 / 適用中=opinion:<名前>=1.10, …」）だけ除く。ON/OFF・数・SPOT上限基準とほかの行はそのまま
@@ -239,6 +239,8 @@ function appPlanViewFor_(ctx, view) {
   ((q && q.proposals) || []).forEach(p => {
     p.rationale = appInsightRationale_({ target_field: p.target, rationale: p.rationale }, true);
     p.impact = appInsightRationale_({ target_field: p.target, rationale: p.impact }, true);
+    // 信頼度の今と案の値も出さない（情報源が 1 人だけの種類では、種類ごとの値でもその人の信頼度がわかる。2026-10-07）
+    if (String(p.target || '').indexOf('reliability:') === 0) { p.current = ''; p.proposed = ''; }
     p.target = appInsightTarget_(p.target, true).target;
   });
   ((out.boot.eval && out.boot.eval.insights) || []).forEach(r => { r.owner = ''; });

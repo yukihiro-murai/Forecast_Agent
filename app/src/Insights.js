@@ -166,6 +166,15 @@ function appInsightIso_(v) {
   return v === null || v === undefined ? '' : String(v);
 }
 
+/**
+ * 信頼度の値（今・案・前・後）。hideKey = true なら信頼度（reliability:…）の値は出さない（2026-10-07 村井さん承認: 情報源が 1 人だけの種類では、
+ * 種類ごとの値でもその人の信頼度がわかるため。閲覧・情報提供の人には対象の種類だけを見せる）
+ */
+function appInsightRelVal_(field, v, hideKey) {
+  if (hideKey && String(field || '').indexOf('reliability:') === 0) return '';
+  return appInsightVal_(v);
+}
+
 /** 旧来が文字列で残した値（'1.1' など）を、数なら数に。長い文字列は切る */
 function appInsightVal_(v) {
   if (typeof v === 'number') return isFinite(v) ? v : null;
@@ -670,7 +679,7 @@ function appInsightDecisions_(plans, logs, hideNames) {
     const o = { t: appTimeKey_(r.reviewed_at), i: i, planId: p.planId, clientName: p.clientName, fy: p.fy,
       reviewId: String(r.review_id || ''), proposalId: String(r.proposal_id || ''), at: appInsightIso_(r.reviewed_at), quarter: String(r.quarter_label || ''),
       phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: target.target, targetLabel: target.label,
-      current: appInsightVal_(r.current_value), proposed: appInsightVal_(r.proposed_value), confidence: String(r.confidence || ''),
+      current: appInsightRelVal_(r.target_field, r.current_value, hideNames), proposed: appInsightRelVal_(r.target_field, r.proposed_value, hideNames), confidence: String(r.confidence || ''),
       rationale: appInsightRationale_(r, hideNames), status: String(r.approval_status || ''), decidedAt: appInsightIso_(r.approval_decided_at),
       decidedBy: String(r.approval_decided_by || '').split('@')[0], applied: Number(r.applied || 0) === 1, appliedAt: appInsightIso_(r.applied_at) };
     if (hideNames) delete o.decidedBy;
@@ -799,7 +808,7 @@ function appInsightCalibration_(plans, hist, factorNow, hideKeys) {
         const auto = rid === 'AUTO-MONTHLY';
         const f = appInsightTarget_(r.factor_name, hideKeys);
         return { at: appInsightIso_(r.changed_at), factor: f.target, factorLabel: f.label,
-          old: appInsightVal_(r.old_value), new: appInsightVal_(r.new_value), source: rid, sourceLabel: auto ? '月次の自動学習' : '四半期レビュー',
+          old: appInsightRelVal_(r.factor_name, r.old_value, hideKeys), new: appInsightRelVal_(r.factor_name, r.new_value, hideKeys), source: rid, sourceLabel: auto ? '月次の自動学習' : '四半期レビュー',
           quarter: String(r.quarter_label || '') };
       }) };
   }).filter(x => x.path.length || x.factorNow !== null);
@@ -836,7 +845,7 @@ function appInsightPending_(plans, logs, hideKeys) {
         const phase = String(r.phase || '').trim();
         const pid = String(r.proposal_id || '');
         return { proposalId: pid, phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: target.target, targetLabel: target.label,
-          current: appInsightVal_(r.current_value), proposed: appInsightVal_(r.proposed_value), confidence: String(r.confidence || ''),
+          current: appInsightRelVal_(r.target_field, r.current_value, hideKeys), proposed: appInsightRelVal_(r.target_field, r.proposed_value, hideKeys), confidence: String(r.confidence || ''),
           rationale: appInsightRationale_(r, hideKeys), decision: decided[pid] || '' };
       }) });
   });

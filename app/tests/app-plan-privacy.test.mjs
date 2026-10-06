@@ -129,6 +129,7 @@ const redactedView = (full) => {
   x.boot.quarterly.proposals.forEach((p) => {
     if (!p.target.startsWith('reliability:')) return;
     p.target = p.target.split(':').slice(0, 2).join(':'); p.rationale = ''; p.impact = '';
+    p.current = ''; p.proposed = '';   // 信頼度の今と案の値も出さない（情報源が 1 人だけの種類で、その人の値がわかるため。2026-10-07）
   });
   x.boot.eval.insights.forEach((r) => { r.owner = ''; });
   const o = x.boot.output;
@@ -158,8 +159,8 @@ const redactedBasis = (full) => {
   assert.equal(sum.can.plan, false);
   assert.deepEqual(sum.boot, redactedView(full).boot, '閲覧の人: 信頼度の対象は種類まで・根拠と見込みは空・担当は空。ほかは同じ');
   assert.deepEqual(sum.boot.quarterly.proposals.map((p) => [p.pid, p.target, p.current, p.proposed, p.rationale, p.impact]), [
-    ['P-B-1', 'reliability:opinion', '1', '1.1', '', ''],
-    ['P-B-2', 'reliability:factor_product', '1', '0.8', '', ''],
+    ['P-B-1', 'reliability:opinion', '', '', '', ''],
+    ['P-B-2', 'reliability:factor_product', '', '', '', ''],
     ['P-A-1', 'ai_weight_override', '0.5', '0.4', 'AI方向一致率=40.0% / mean|kAI-1|=1.00%', '次期AI寄与を80%へ調整']]);
   assert.deepEqual(sum.boot.eval.insights.map((r) => [r.month, r.owner, r.hypothesis]), [['2026/04', '', '受注の遅れ'], ['2026/05', '', '']]);
   assert.deepEqual([sum.boot.output.policyLines, sum.boot.output.engineNote], [[NOTE_A6.replace(REL_FULL, REL_VIEWER).replace(/\n+/g, ' ')], NOTE_A6.replace(REL_FULL, REL_VIEWER)],

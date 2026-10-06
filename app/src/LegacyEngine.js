@@ -1,6 +1,6 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 233f21ce4c1c2f9ce96d001ea0dd3eaad6d9c940b86a37055cadd64f99bcd249）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 cd648873767ab352cbb4ae6f01e05a4df3b0aefad3cfe810c7439790bc851804）
  *               Forecast_WebApp.js（SHA-256 469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
@@ -7458,7 +7458,7 @@ function updatePhase1LearningInsights() {
       rangeBreach ? 1 : 0,
       '',
       // over_forecast = 予測 > 実績（EVAL_LOG の bias_direction・EVAL_COMPARE_MONTHLY の over_flag と同じ向き。diff = 実績 − 予測）。
-      // 既に値が入っている行は upsertEvalInsightsRows_ が人の記入として残すので、逆向きで書かれた過去の値は書き換わらない
+      // cause_bucket は upsertEvalInsightsRows_ が毎回書き直すので、逆向きで書かれた過去の値も次の B-4 で直る
       rangeBreach ? 'range_outside' : (diff < 0 ? 'over_forecast' : 'under_forecast'),
       'CONFIG:環境前提',
       'A-3〜A-8入力シート',
@@ -7488,11 +7488,26 @@ function updatePhase1LearningInsights() {
  *   next_cycle_reflection/owner/due_date/status）は、既存行で値が入っていれば保持する。
  * これにより B-3 再実行でメンバーの原因入力が消えない。
  */
+/**
+ * EVAL_INSIGHTS の行に人の記入の跡があるか（新アプリの Insights.js appInsightHasHuman_ と同じ決まり）:
+ * 原因の仮説・担当・期日のどれかがある、状態が対応中/済み、対応・次回への反映が B-4 の既定値でない、影響した前提が既定値と違う
+ */
+function evalInsightHasHumanTrace_(v) {
+  const s = i => String(v[i] === null || v[i] === undefined ? '' : v[i]).trim();
+  const machineActions = ['update', 'keep'];
+  const machineReflections = ['次回サイクルで前提更新を反映', '現行運用を継続'];
+  return !!(s(14) || s(20) || s(21) || ['in_progress', 'done'].indexOf(s(22)) >= 0 ||
+    (s(18) && machineActions.indexOf(s(18)) < 0) || (s(19) && machineReflections.indexOf(s(19)) < 0) ||
+    (s(16) && s(16) !== 'CONFIG:環境前提'));
+}
+
 function upsertEvalInsightsRows_(sh, rows) {
   if (!sh) return;
   const width = 24;
   // 人手入力の保持対象列（0-index）
   const HUMAN_COLS = [14, 15, 16, 18, 19, 20, 21, 22];
+  // cause_bucket は画面から書かない機械の列。毎回書き直す（向きが逆に書かれていた過去の値も、次の B-4 で直る）
+  const CAUSE_BUCKET_COL = 15;
   const keyClientIdx = 1;
   const keyMonthIdx = 2;
 
@@ -7514,9 +7529,11 @@ function upsertEvalInsightsRows_(sh, rows) {
       ymKey_(row[keyMonthIdx])
     ].join('|');
     const prev = rowByKey.get(key);
-    if (prev) {
-      // 既存行の人手入力列に値があれば保持する
+    // 人の記入の跡がある行だけ、人手入力列の値を保持する。跡が無い行（B-4 が既定値を入れただけの行）は、今回の判定で書き直す
+    // （2026-10-07 直し。前は既定値も人の記入として残したので、幅の外の印などが後から付いても対応・状態が古いままだった）
+    if (prev && evalInsightHasHumanTrace_(prev.values)) {
       HUMAN_COLS.forEach(c => {
+        if (c === CAUSE_BUCKET_COL) return;
         const existedVal = prev.values[c];
         const hasExisting = !(existedVal === '' || existedVal === null || existedVal === undefined);
         if (hasExisting) row[c] = existedVal;
@@ -10431,7 +10448,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: '233f21ce4c1c2f9ce96d001ea0dd3eaad6d9c940b86a37055cadd64f99bcd249',
+    SOURCE_SHA256: 'cd648873767ab352cbb4ae6f01e05a4df3b0aefad3cfe810c7439790bc851804',
     WEB_SOURCE_SHA256: '469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784'
   };
 }

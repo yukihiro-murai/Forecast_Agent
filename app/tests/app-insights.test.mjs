@@ -562,12 +562,15 @@ const ai = env.call('apiAiLearning()');
   assert.equal(sum.decisions.find((x) => x.proposalId === 'P-B-2').targetLabel, '製品の入力の信頼度');
   assert.deepEqual(sum.decisions.map((x) => x.proposalId), full.decisions.map((x) => x.proposalId));
   assert.equal(sum.decisions.find((x) => x.proposalId === 'P-B-1').rationale, '', '信頼度の提案の根拠（その人の的中率）は出さない');
-  // AI の学び: 承認待ちの提案と補正の変化の、信頼度の対象は種類まで（値はそのまま）。ほかは同じ
+  // AI の学び: 承認待ちの提案と補正の変化の、信頼度の対象は種類まで・値も出さない（2026-10-07: 情報源が 1 人だけの種類では、種類ごとの値でもその人の信頼度がわかる）。ほかは同じ
   const pa = aiSum.pending.find((p) => p.planId === A).proposals[0];
   assert.deepEqual([pa.proposalId, pa.target, pa.targetLabel, pa.current, pa.proposed, pa.rationale, pa.decision],
-    ['P-B-2', 'reliability:factor_product', '製品の入力の信頼度', 1, 0.8, '', '承認']);
+    ['P-B-2', 'reliability:factor_product', '製品の入力の信頼度', '', '', '', '承認']);
+  const paFull = aiFull.pending.find((p) => p.planId === A).proposals[0];
+  assert.deepEqual([paFull.current, paFull.proposed], [1, 0.8], '予算策定担当以上には値も出す');
+  assert.deepEqual([pb1.current, pb1.proposed], ['', ''], '判断の記録でも、閲覧の人には信頼度の値を出さない');
   const pathOf = (x) => x.calibration.find((c) => c.planId === A).path.map((p) => [p.factor, p.factorLabel, p.old, p.new, p.source]);
-  assert.deepEqual(pathOf(aiSum)[0], ['reliability:opinion', '見解の信頼度', 1, 1.1, 'R1']);
+  assert.deepEqual(pathOf(aiSum)[0], ['reliability:opinion', '見解の信頼度', '', '', 'R1']);
   assert.deepEqual(pathOf(aiFull)[0], ['reliability:opinion:鷹野', '見解「鷹野」の信頼度', 1, 1.1, 'R1']);
   assert.deepEqual(pathOf(aiSum).slice(1), pathOf(aiFull).slice(1), '信頼度でない補正はそのまま');
   assert.deepEqual(aiSum.pending.find((p) => p.planId === B), aiFull.pending.find((p) => p.planId === B), '信頼度でない提案はそのまま');
