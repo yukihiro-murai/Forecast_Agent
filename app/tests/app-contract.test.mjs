@@ -22,7 +22,8 @@ const manifest = JSON.parse(await readFile(path.join(srcDir, 'appsscript.json'),
 const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSaveMember', 'apiGrantRole', 'apiRevokeRole',
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
   'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiHome', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiForecastLatest', 'apiPlanView', 'apiYearPreview', 'triggerDailyBackup', 'triggerRunJob',
-  'apiCrossMaker', 'apiPeopleLearning', 'apiAiLearning'];
+  'apiCrossMaker', 'apiPeopleLearning', 'apiAiLearning',
+  'triggerAutoResearch'];
 /** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */
 const WRAPPED = ['LegacyEngine.js'];
 

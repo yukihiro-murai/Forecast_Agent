@@ -54,5 +54,7 @@ function appHomeSystem_() {
   try { backup = appBackupStatusFast_(); } catch (e) { backup = { error: String(e && e.message || e) }; }
   let journal = null;
   try { journal = appJournalPending_(); } catch (e) { journal = null; }
-  return { backup: backup, housekeeping: appHousekeepingLast_(), journal: journal };
+  let autoResearch = null;   // 自動の AI 調査（AutoResearch.js）
+  try { autoResearch = appAutoResearchStatus_(); } catch (e) { autoResearch = { error: String(e && e.message || e) }; }
+  return { backup: backup, housekeeping: appHousekeepingLast_(), journal: journal, autoResearch: autoResearch };
 }

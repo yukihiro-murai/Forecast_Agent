@@ -6,7 +6,8 @@
 function doGet(e) {
   const t = HtmlService.createTemplateFromFile('UI');
   t.charsJs = APP_UI_CHARS_JS;
-  t.bootJson = JSON.stringify(api_('APP.OPEN', { minRole: 'VIEWER', audit: false, allowAnonymousView: true }, ctx => appBootstrap_(ctx)))
+  // 所有者が開いたときは、自動の AI 調査のトリガーを確かめる（1 日 1 回だけ。AutoResearch.js）
+  t.bootJson = JSON.stringify(api_('APP.OPEN', { minRole: 'VIEWER', audit: false, allowAnonymousView: true }, ctx => { appAutoResearchOnOpen_(ctx); return appBootstrap_(ctx); }))
     .replace(/</g, '\\u003c');
   const out = t.evaluate().setTitle(APP_NAME).addMetaTag('viewport', 'width=device-width, initial-scale=1');
   try { out.setFaviconUrl(APP_FAVICON_URL); } catch (err) { Logger.log('favicon: ' + (err && err.message ? err.message : err)); }
@@ -210,6 +211,16 @@ function triggerRunJob(e) {
 function triggerDailyBackup(e) {
   return api_('BACKUP.DAILY', { minRole: 'ADMIN', entityType: 'SYSTEM', trigger: { event: e, handler: 'triggerDailyBackup' },
     after: res => res }, ctx => appDailyMaintenance_(ctx));
+}
+
+/**
+ * 市場の動き（A-4 AI 調査）を、計画ごとに週 1 回ずつ自動で集める（毎日 1 時ごろの時間主導のトリガーから。AutoResearch.js）。
+ * 本人確認は triggerDailyBackup と同じ（このプロジェクトの、この入口のトリガーの UID のときだけ所有者として扱う）。
+ * 始める A-4 は画面から始めるのと同じ処理（頼んだ人の役割と年度の締めは、裏の処理が段ごとに確かめ直す）
+ */
+function triggerAutoResearch(e) {
+  return api_('AUTO.RESEARCH', { minRole: 'ADMIN', entityType: 'SYSTEM', trigger: { event: e, handler: 'triggerAutoResearch' },
+    after: res => res }, ctx => appAutoResearchTick_(ctx));
 }
 
 /**
