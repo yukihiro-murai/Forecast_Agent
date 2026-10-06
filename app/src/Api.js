@@ -127,6 +127,21 @@ function apiPoolPreview() {
   return api_('POOL.PREVIEW', { minRole: 'ADMIN', audit: false }, () => appPoolPreview_());
 }
 
+/** 分析: 年度のメーカーを横に並べる（予測と予算・予測の改訂・精度・AI の話題と市場のまとめ）。閲覧は社内全員。読むだけ。中身は「今日」でも変わる（既定の年度）ので、控えの鍵に日付も入れる */
+function apiCrossMaker(input) {
+  return api_('INSIGHT.CROSS', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('CROSS\u0001' + String(input && input.fy || '') + '\u0001' + appToday_(), () => appCrossMaker_(input && input.fy)));
+}
+
+/** 学び: 人の学び（外れた月の振り返り・人と話題ごとの当たり・四半期レビューの判断・予算の上乗せの実績）。閲覧は社内全員。読むだけ */
+function apiPeopleLearning() {
+  return api_('INSIGHT.PEOPLE', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('PEOPLE\u0001' + appToday_(), () => appPeopleLearning_()));
+}
+
+/** 学び: AI の学び（信頼度の学び・全計画で縮めた偏り・精度の推移・補正の変化・承認待ちの提案・気になる点）。閲覧は社内全員。読むだけ */
+function apiAiLearning() {
+  return api_('INSIGHT.AI', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('AILEARN\u0001' + appToday_(), () => appAiLearning_()));
+}
+
 /** 計画の公式版の一覧と、今の数字 */
 function apiVersionList(input) {
   return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('VERSIONS\u0001' + ctx.actor + '\u0001' + (input && input.planId), () => appVersionList_(ctx, input)));
