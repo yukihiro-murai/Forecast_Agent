@@ -417,7 +417,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.equal(vm.runInContext(`actName('REVIEW.APPLY') + '|' + actShort('EVAL.INSIGHTS')`, ui), '承認した見直し案を反映する|外れの原因を整理');
   assert.equal(vm.runInContext(`[tone(1.1), tone(1.0), tone(0.9), tone(null)].join()`, ui), 'warm,neutral,cool,neutral');
   assert.equal(vm.runInContext(`[accWeather(0.05), accWeather(0.12), accWeather(0.18), accWeather(0.25), accWeather(0.4), accWeather(0.05, true), accWeather(null)].join()`, ui), 'kaisei,harenochi,kumori,ame,taifuu,taifuu,mikakunin');
-  assert.equal(vm.runInContext(`[yenShort(123456789), yenShort(34000000), yenShort(8000), yenShort(-2.5e9)].join()`, ui), '1.2億,3,400万,8,000,-25億');
+  assert.equal(vm.runInContext(`[yenShort(123456789), yenShort(34000000), yenShort(8000), yenShort(-2.5e9), yenShort(2.1e9)].join()`, ui), '1.2億,3,400万,8,000,-25.0億,21.0億');   // 億は小数 1 けたをいつも付ける（21.0億 と 20.7億 を並べて比べられる）
   assert.equal(vm.runInContext(`SKY8.map(function(s){ return s.key; }).join()`, ui), 'mousho,kaisei,harenochi,kumori,ame,sekka,tenpen,mikakunin');
   assert.equal(vm.runInContext(`[skyKey({ sky: 'taifuu' }), skyKey({}), skyKey({ sky: 'mousho' })].join()`, ui), 'mikakunin,mikakunin,mousho');
   // グラフ: 空・null・1 点・負の値・幅 0 でも止まらず、SVG か「データがまだありません」を返す（NaN を描かない）
