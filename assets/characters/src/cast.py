@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Forecast_Agent 売上予測Webアプリのキャラ v8 — 図形の正本。
+"""Trends2Targets（旧 Forecast_Agent）売上予測Webアプリのキャラ v8 — 図形の正本。
 
 各キャラは body (顔なしの図形, 80×80) + fs (図鑑の顔部品の指定) + ink (顔の色) で定義する。
 図鑑 (shared/character-library/gen.py) の add(body=..., fs=...) と同じ形なので、そのまま登録できる。

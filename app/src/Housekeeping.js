@@ -135,10 +135,14 @@ function appMonthlyBackup_() {
   const archiveId = props.getProperty(APP_PROP.archiveFolderId);
   const dataId = props.getProperty(APP_PROP.dataId);
   if (!archiveId || !dataId) return '';
-  const name = APP_FILES.monthlyBackupPrefix + Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM');
+  const ym = Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM');
+  const name = APP_FILES.monthlyBackupPrefix + ym;
   const folder = DriveApp.getFolderById(archiveId);
-  const it = folder.getFilesByName(name);
-  while (it.hasNext()) { if (!it.next().isTrashed()) return ''; }
+  // 改名の前の名前（APP_FILES_LEGACY）で今月の写しを作っていれば、それで足りる
+  for (const n of [name, APP_FILES_LEGACY.monthlyBackupPrefix + ym]) {
+    const it = folder.getFilesByName(n);
+    while (it.hasNext()) { if (!it.next().isTrashed()) return ''; }
+  }
   DriveApp.getFileById(dataId).makeCopy(name, folder);
   return name;
 }

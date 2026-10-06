@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Forecast_Agent キャラ素材の書き出し — 正本は cast.py。手で SVG / PNG を直さず、ここから作り直す。
+"""Trends2Targets（旧 Forecast_Agent）キャラ素材の書き出し — 正本は cast.py。手で SVG / PNG を直さず、ここから作り直す。
 
     python3 build.py              # すべて書き出す (下の一覧)
     python3 build.py --review r2  # 確認用の一覧 PNG を review/chars_v8_r2.png にも作る (確認ラウンドごと)
@@ -205,7 +205,7 @@ def write_app_assets(data_url):
         raise SystemExit('Assets: GAS テンプレートや script を壊す文字列を含む')
     text = '\n'.join([
         '/**',
-        ' * Assets.js — 画面のキャラ素材（自動生成: Forecast_Agent/assets/characters/src/build.py。手で編集しない）。',
+        ' * Assets.js — 画面のキャラ素材（自動生成: Trends2Targets/assets/characters/src/build.py。手で編集しない）。',
         ' * APP_FAVICON_URL: タブのアイコン（よみの頭・64x64 PNG の data URI。末尾の #favicon.png は消さない）',
         ' * APP_UI_CHARS_JS: UI.html に差し込む CHAR_SVG（9 体）と YOMI_POSE（5 ポーズ）',
         ' */',

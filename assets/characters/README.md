@@ -3,7 +3,7 @@
 案内役「よみ」（気象観測ロボ）と、予測の当たり具合を表す天気キャラ 8 種の素材。v8（2026-10-01 確定）。
 
 - **正本は `src/cast.py`**（図形 = body と、顔 = キャラクター図鑑の部品の指定 fs）。SVG・PNG は手で直さず、`src/build.py` で作り直す。
-- 図鑑（`~/Documents/GAS/shared/character-library/gen.py`）にも同じ body / fs で登録済み（シリーズ「天気予報 (Forecast_Agent)」）。図鑑が作る SVG とこのフォルダの `svg/` は一致する。直すときは両方を揃える。
+- 図鑑（`~/Documents/GAS/shared/character-library/gen.py`）にも同じ body / fs で登録済み（シリーズ「天気予報 (Trends2Targets)」）。図鑑が作る SVG とこのフォルダの `svg/` は一致する。直すときは両方を揃える。
 - このフォルダは GAS に上げない（`.claspignore` の `assets/**`）。
 
 ## 書き出し

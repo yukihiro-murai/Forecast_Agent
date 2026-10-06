@@ -7,8 +7,8 @@
 
 - 正本は 2 つのリポジトリです。
   - `yukihiro-murai/gas-workspace`（非公開）: ルートの `AGENTS.md`・`GIT_SYNC_RULES.md`・`.ai/`
-  - `yukihiro-murai/Forecast_Agent`（**公開**）: このアプリ
-- Mac 以外の環境（クラウドの VM など）では、両方を同じ親ディレクトリに clone します（`gas-workspace/` の中に `Forecast_Agent/` を置くと Mac と同じ形になります）。
+  - `yukihiro-murai/Trends2Targets`（**公開**。2026-10-06 に Forecast_Agent から改名）: このアプリ
+- Mac 以外の環境（クラウドの VM など）では、両方を同じ親ディレクトリに clone します（`gas-workspace/` の中に `Trends2Targets/` を置くと Mac と同じ形になります）。
 - **このリポジトリは公開です。** ルートの規約や `.ai/` の中身を、このリポジトリへ写さないでください。
 - `clasp push` / `clasp deploy` は、村井さんの Mac でだけ行います。それ以外の環境では、テスト・commit・push までにとどめます。
   - 公開してほしい commit は、`.ai` タスクの Next action に「公開待ち: <commit>」と書きます。
@@ -36,7 +36,7 @@
 - その前: @50（v0.24.1、ソース commit `acc06f3`、2026-10-06）。ホームを 1 カラムにし、「状態を見る」ボタンと「よみが観測しました（時刻）」を外しました（村井さんの P0#4 の指摘）。公開 30 ファイルはソースと一致。前の公開は @49（v0.24.0、`d75e6ca`）です。
   - デプロイ ID: `AKfycbyOjx4LkD0RPzGC4-Lx9eCMVxFJHPSVJHhMjUnq12jmoBEp-4yEKzZhxE-5prwUcd6dig`
   - `executeAs: USER_DEPLOYING`（村井さんのアカウント）、`access: MYSELF`（まだ村井さんだけ）
-- データ本体・ログ・バックアップ・アーカイブは、村井さんのマイドライブ「売上予測アプリ（システム）」にあります。
+- データ本体・ログ・バックアップ・アーカイブは、村井さんのマイドライブ「Trends2Targets（システム）」（2026-10-06 に「売上予測アプリ（システム）」から改名）にあります。
   - 保存先はマイドライブのままと村井さんが決めました（2026-10-05）。
 - 旧アプリ・旧スプレッドシート・vNext は使いません。どれもアーカイブ済みです。
   - コード: `archive/vnext-2026-10-05/`、`archive/legacy-2026-10-04/`

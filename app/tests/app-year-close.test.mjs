@@ -86,9 +86,9 @@ assert.equal(closures[0].state, 'CLOSED');
 assert.equal(closures[0].snapshot_sha256, result.snapshotSha256);
 assert.equal(closures[0].file_id, result.fileId);
 // 控えのファイル（アーカイブに置いた。中身は YearSnapshot が作った文字のまま）
-const ycFiles = Object.values(env.files).filter((f) => f.parent === archiveFolderId && /売上予測アプリ 年度 FY/.test(f.name));
+const ycFiles = Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets 年度 FY/.test(f.name));
 assert.equal(ycFiles.length, 1);
-assert.match(ycFiles[0].name, new RegExp('売上予測アプリ 年度 FY' + past + ' '));
+assert.match(ycFiles[0].name, new RegExp('Trends2Targets 年度 FY' + past + ' '));
 const snap = env.call('appYearSnapshot_(__fy)', { __fy: past });
 assert.equal(ycFiles[0].content, snap.text, '控えはそのままの文字');
 assert.equal(sha(snap.text), snap.sha256);
@@ -106,7 +106,7 @@ for (const s of after) {
 assert.equal(env.call('apiYearPreview(__in)', { __in: { fy: past } }).canClose, false);
 const again = env.runJob('YEAR.CLOSE', { fy: past, inputHash: result.snapshotSha256 }).result;
 assert.equal(again.already, true);
-assert.equal(Object.values(env.files).filter((f) => f.parent === archiveFolderId && /売上予測アプリ 年度 FY/.test(f.name)).length, 1, '同じ年度の控えは 1 つ');
+assert.equal(Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets 年度 FY/.test(f.name)).length, 1, '同じ年度の控えは 1 つ');
 
 // ==== 4. 凍結した年度は読めるが、書けない ====
 health = env.call('apiHealth()');
@@ -156,7 +156,7 @@ assert.equal(innerJob.status, 'FAILED');
 assert.match(innerJob.error, /締め済み/);
 
 // ==== 6. 書きかけの控え（保存の途中で止まったもの）が凍結の計画を触るなら、書き直しも止まる ====
-const jnlFile = env.run('DriveApp.getFolderById(__id).createFile("売上予測アプリ 書きかけ JNL-test.json", __body, MimeType.PLAIN_TEXT).getId()', {
+const jnlFile = env.run('DriveApp.getFolderById(__id).createFile("Trends2Targets 書きかけ JNL-test.json", __body, MimeType.PLAIN_TEXT).getId()', {
   __id: env.props.APP_FOLDER_ID,
   __body: JSON.stringify({ id: 'JNL-test', label: 'テストの保存', planId: planA, actor: OWNER, createdAt: '2026-01-01T00:00:00.000Z',
     ops: [{ table: 'ENG_SHEETS', mode: 'patch', key: { plan_id: planA, sheet: 'CONFIG' }, patch: { updated_at: '2026-01-01' }, actor: OWNER }] }),
@@ -427,7 +427,7 @@ for (const kind of ['PLAN.RUN_CALC', 'PLAN.RUN_SAVE', 'FORECAST.RUN_CALC', 'FORE
   assert.throws(() => x.e.run('appEnsureTables_({ actor: __by })', { __by: OWNER }), /YEAR_CLOSURES|戻/, '自動では作り直さない');
   assert.equal(!!x.e.data().getSheetByName('YEAR_CLOSURES'), false, '空の表は作り直されない');
   // 書きかけの控えがあるときの書き直しも止まる（凍結の判定が読めないため）。控えと記録は残る
-  const jm = x.e.run('DriveApp.getFolderById(__id).createFile("売上予測アプリ 書きかけ JNL-m.json", __body, MimeType.PLAIN_TEXT).getId()', {
+  const jm = x.e.run('DriveApp.getFolderById(__id).createFile("Trends2Targets 書きかけ JNL-m.json", __body, MimeType.PLAIN_TEXT).getId()', {
     __id: x.e.props.APP_FOLDER_ID,
     __body: JSON.stringify({ id: 'JNL-m', label: 'x', planId: x.pid, actor: OWNER, createdAt: '2026-01-01T00:00:00.000Z',
       ops: [{ table: 'ENG_SHEETS', mode: 'patch', key: { plan_id: x.pid, sheet: 'CONFIG' }, patch: { updated_at: '2026-01-01' }, actor: OWNER }] }) });
@@ -465,7 +465,7 @@ for (const kind of ['PLAN.RUN_CALC', 'PLAN.RUN_SAVE', 'FORECAST.RUN_CALC', 'FORE
   assert.throws(() => env.run('appJournalApply_([{ table: "ENG_SHEETS", mode: "replacePlan", planId: "PL-nothing", sheets: null, rows: [] }])'), /年度を確かめられません|締め済み/, '見つからない計画の控えは止まる');
   assert.equal(JSON.stringify(env.data().sheets.filter((s) => /^ENG_|^PLANS$/.test(s.name)).map((s) => ({ name: s.name, rows: s.rows }))), engBefore, '止まった控えで元の表は変わらない');
   // 控えのファイルに残った古い（凍結前の）書き直しも、凍結した年度の行を消すような全体入れ替えはできない
-  const oldJnl = env.run('DriveApp.getFolderById(__id).createFile("売上予測アプリ 書きかけ JNL-old.json", __body, MimeType.PLAIN_TEXT).getId()', {
+  const oldJnl = env.run('DriveApp.getFolderById(__id).createFile("Trends2Targets 書きかけ JNL-old.json", __body, MimeType.PLAIN_TEXT).getId()', {
     __id: env.props.APP_FOLDER_ID,
     __body: JSON.stringify({ id: 'JNL-old', label: '古い保存', planId: planA, actor: OWNER, createdAt: '2026-01-01T00:00:00.000Z',
       ops: [{ table: 'ENG_SHEETS', mode: 'replace', rows: env.table('ENG_SHEETS').filter((r) => r.plan_id !== planA).map((r) => { const { _row, ...o } = r; return o; }) }] }),

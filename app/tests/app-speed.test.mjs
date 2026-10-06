@@ -254,7 +254,7 @@ env.run('appPlanReadMinRows_ = () => 3000');
   listed = 0;
   assert.deepEqual(fast(), slow());
   assert.equal(listed, 1, '要点から返す（数えたのは比べた側だけ）');
-  assert.deepEqual([fast().count, fast().enabled, fast().latest.startsWith('売上予測アプリ データ バックアップ ')], [2, false, true]);
+  assert.deepEqual([fast().count, fast().enabled, fast().latest.startsWith('Trends2Targets データ バックアップ ')], [2, false, true]);
   listed = 0;
   const home = env.call('apiHome()');
   assert.deepEqual(home.system.backup, slow());

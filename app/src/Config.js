@@ -1,6 +1,6 @@
 /**
- * Config.js — 売上予測アプリの定数（段階1: 土台）。
- * 設計: Forecast_Agent/DESIGN_data_platform_JA.md。正本は「売上予測アプリ データ」、記録は年度ごとの「売上予測アプリ ログ FYyyyy」。
+ * Config.js — Trends2Targets の定数（段階1: 土台）。
+ * 設計: Trends2Targets/DESIGN_data_platform_JA.md。正本は「Trends2Targets データ」、記録は年度ごとの「Trends2Targets ログ FYyyyy」。
  * 公開する関数は doGet・api*・trigger* だけにし、すべて api_（本人確認・役割・記録）を通す（app/tests が見張る）。
  * それ以外の関数は名前の末尾を _ にする（Web アプリでは _ でない関数をブラウザから呼べるため）。
  */
@@ -11,17 +11,22 @@ const APP_VERSION = '0.26.6';
 const APP_TZ = 'Asia/Tokyo';
 
 const APP_FILES = {
-  folder: '売上予測アプリ（システム）',
-  data: '売上予測アプリ データ',
-  logPrefix: '売上予測アプリ ログ ',
+  folder: 'Trends2Targets（システム）',
+  data: 'Trends2Targets データ',
+  logPrefix: 'Trends2Targets ログ ',
   backupFolder: 'バックアップ',
   archiveFolder: 'アーカイブ',
-  backupPrefix: '売上予測アプリ データ バックアップ ',
-  scratch: '売上予測アプリ 計算用（自動）',
-  journalPrefix: '売上予測アプリ 保存の控え（自動） ',   // 書き終えたらゴミ箱へ（Journal.js）
-  monthlyBackupPrefix: '売上予測アプリ データ 月次 ',   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
-  yearPrefix: '売上予測アプリ 年度 FY'   // 年度の締めの控え（アーカイブのフォルダへ。消さない）
+  backupPrefix: 'Trends2Targets データ バックアップ ',
+  scratch: 'Trends2Targets 計算用（自動）',
+  journalPrefix: 'Trends2Targets 保存の控え（自動） ',   // 書き終えたらゴミ箱へ（Journal.js）
+  monthlyBackupPrefix: 'Trends2Targets データ 月次 ',   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
+  yearPrefix: 'Trends2Targets 年度 FY'   // 年度の締めの控え（アーカイブのフォルダへ。消さない）
 };
+/**
+ * 2026-10-06 に「売上予測アプリ …」から Trends2Targets へ改名する前の名前（今あるファイルは同じ ID のまま改名済み）。
+ * ファイルはどれも ID で開くので名前に頼らないが、バックアップの世代と月次の写しは名前で探すため、前の名前のものも数える。
+ */
+const APP_FILES_LEGACY = { backupPrefix: '売上予測アプリ データ バックアップ ', monthlyBackupPrefix: '売上予測アプリ データ 月次 ' };
 
 /** Script Properties のキー（ファイルの ID と鎖の最新ハッシュ。秘密情報は置かない） */
 const APP_PROP = {

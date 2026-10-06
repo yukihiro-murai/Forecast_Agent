@@ -17,7 +17,9 @@ function appBackupFiles_() {
   while (it.hasNext()) {
     const f = it.next();
     // フォルダの一覧にはゴミ箱へ移したファイルも出るので除く
-    if (!f.isTrashed() && f.getName().indexOf(APP_FILES.backupPrefix) === 0) files.push(f);
+    // 改名の前の名前（APP_FILES_LEGACY）で作った世代も数えて、古いものから順にアーカイブへ移す
+    const n = f.getName();
+    if (!f.isTrashed() && (n.indexOf(APP_FILES.backupPrefix) === 0 || n.indexOf(APP_FILES_LEGACY.backupPrefix) === 0)) files.push(f);
   }
   return files.sort((a, b) => b.getDateCreated().getTime() - a.getDateCreated().getTime());
 }

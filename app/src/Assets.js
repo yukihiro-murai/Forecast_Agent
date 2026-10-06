@@ -1,5 +1,5 @@
 /**
- * Assets.js — 画面のキャラ素材（自動生成: Forecast_Agent/assets/characters/src/build.py。手で編集しない）。
+ * Assets.js — 画面のキャラ素材（自動生成: Trends2Targets/assets/characters/src/build.py。手で編集しない）。
  * APP_FAVICON_URL: タブのアイコン（よみの頭・64x64 PNG の data URI。末尾の #favicon.png は消さない）
  * APP_UI_CHARS_JS: UI.html に差し込む CHAR_SVG（9 体）と YOMI_POSE（5 ポーズ）
  */
