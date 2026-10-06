@@ -52,7 +52,8 @@ function appHomeData_(ctx) {
     fy: fy, fys: fys,
     plans: plans.map(p => ({ planId: p.planId, clientName: p.clientName, fy: String(p.fy), p50: p.p50, prevP50: p.prevP50, budget: p.budget, mape: p.mape,
       mapeMonths: p.mapeMonths, runs: p.runs, lastRunAt: p.lastRunAt, stepErrors: p.stepErrors, stepsDone: p.stepsDone, stepsTotal: p.stepsTotal,
-      officialNo: p.officialNo, officialFinal: p.officialFinal, pendingNo: p.pendingNo })),
+      officialNo: p.officialNo, officialFinal: p.officialFinal, pendingNo: p.pendingNo,
+      actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, landing: p.landing, rangeOut: p.rangeOut, rangeN: p.rangeN })),
     approvals: approvals, mine: mine,
     recent: recent.slice(0, APP_HOME_RECENT).map(x => Object.assign(x, { clientName: names[x.planId].clientName, fy: names[x.planId].fy }))
   };

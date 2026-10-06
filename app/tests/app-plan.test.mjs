@@ -292,9 +292,11 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
   ui.__home = env.call('apiHome()');
   const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
-  assert.match(homeHtml, /P50 合計[\s\S]*計画の状態[\s\S]*メーカー/);
-  // 2026-10-06 村井さん: ホームは概要と重要点だけ（最近の動き・あなたの役割は出さない）
-  assert.doesNotMatch(homeHtml, /最近の動き|あなたの役割|クライアント/);
+  assert.match(homeHtml, /年間予算[\s\S]*暫定実績[\s\S]*着地見込み[\s\S]*見通しの空模様[\s\S]*データからわかること/);
+  // 2026-10-06 村井さん: ホームは全体の概要だけ（個社の表・名前は出さない。最近の動き・あなたの役割も出さない）
+  assert.doesNotMatch(homeHtml, /最近の動き|あなたの役割|クライアント|計画の状態/);
+  const visible = homeHtml.replace(/data-tip="[^"]*"/g, '');
+  assert.doesNotMatch(visible, /テスト製薬|別の製薬/, 'ホームの見える文字に個社の名前を出さない（カーソルの説明だけ）');
   // 2026-10-06 村井さん: 「よみが観測しました（時刻）」は出さない・1 カラム（左右に分けない）・「状態を見る」のボタンは出さない
   assert.doesNotMatch(homeHtml, /よみが観測しました|class="dash"|状態を見る/);
   // 2026-10-06 村井さん: 読み込みの待ちは、右下ではなく画面の中で、よみが「観測中…」と話す
@@ -346,9 +348,14 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   ui.__pf = env.call('apiPortfolio()').plans;
   ui.__cand = { candidates: [{ zac: 'ｼﾝｷ製薬(株)', display: 'シンキ製薬' }, { zac: 'テスト製薬', display: 'テスト製薬' }], defaultFy: 2026, existing: [] };
   const mkHtml = vm.runInContext(`S.pf = __pf; S.pfCand = __cand; S.mkFy = String(__pf[0].fy); B.user.isAdmin = true; viewMakers()`, ui);
-  assert.match(mkHtml, /<h1>メーカー<\/h1>[\s\S]*予算策定[\s\S]*シンキ製薬[\s\S]*未着手[\s\S]*テスト製薬[\s\S]*(策定中|承認待ち|承認済み)[\s\S]*計画を作る/);
+  assert.match(mkHtml, /<h1>メーカー<\/h1><select[^>]*data-near[\s\S]*ステータス[\s\S]*年間予算[\s\S]*暫定実績[\s\S]*着地見込み[\s\S]*シンキ製薬[\s\S]*未着手[\s\S]*テスト製薬[\s\S]*(策定中|承認待ち|承認済み)[\s\S]*合計[\s\S]*計画を作る/);
   assert.equal((mkHtml.match(/>テスト製薬</g) || []).length, 1, '計画と候補の同じメーカーは 1 行にまとめる');
-  assert.doesNotMatch(mkHtml, /P50|最終予算|ZAC コード|undefined|NaN/, 'メーカーの画面に数字・ZAC コードを出さない');
+  assert.doesNotMatch(mkHtml, /ZAC コード|絞り込|並べ方|undefined|NaN/, '絞り込み・並べ替え・ZAC コードは出さない');
+  // 年度は題のすぐ横に出す
+  assert.match(vm.runInContext(`viewTitle('<div class="page-head"><h1>メーカー</h1><select data-near="1"></select></div>')`, ui), /<h1[^>]*>メーカー<\/h1><span class="vnear"><select/);
+  // 予測は、まずメーカーを選ぶ（計画を勝手に開かない）
+  const pick = vm.runInContext(`var __keep = S.fc.planId; S.fc.planId = null; S.fc.plans = [{ planId: 'P1', clientName: 'テスト製薬', fy: '2026' }]; var __p = viewForecast(); S.fc.planId = __keep; __p`, ui);
+  assert.match(pick, /メーカーを選ぶ[\s\S]*テスト製薬[\s\S]*FY2026[\s\S]*開く/);
   // 計画のないメーカーの「計画を作る」は、下の欄に名前と年度を入れる
   vm.runInContext(`mkCreate('ｼﾝｷ製薬(株)', '2026')`, ui);
   assert.equal(vm.runInContext(`S.pcClient + '|' + S.pcFy`, ui), 'ｼﾝｷ製薬(株)|2026');

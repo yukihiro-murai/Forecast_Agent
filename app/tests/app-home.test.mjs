@@ -5,7 +5,7 @@
  *   node app/tests/app-home.test.mjs
  */
 import assert from 'node:assert/strict';
-import { OWNER, MEMBER, setUpEnv, STATS } from './gas-mock.mjs';
+import { OWNER, MEMBER, setUpEnv, STATS, makeEnv, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const env = setUpEnv();
@@ -77,6 +77,16 @@ const planId = env.seedPlan(book);
   assert.equal(run.status, 'QUEUED');
   env.fireTriggers('triggerRunJob');
   assert.equal(env.state.lockHeld, false);
+}
+
+// ==== 暫定実績・着地見込み（2026-10-06）: 実績のある月は実績、ない月は最新の予測（P50）。年度の外の月は数えない ====
+{
+  const env = makeEnv();
+  const out = { 29: ['s2026/04', 'n90', 'n100', 'n110'], 30: ['s2026/05', 'n90', 'n100', 'n110'], 31: ['d2026-05-31T15:00:00.000Z', 'n90', 'n200', 'n210'] };
+  const cmp = { '2026/04': { actual: 120, p50: 100, out: 1 }, '2027/04': { actual: 999, p50: 1, out: 0 } };
+  const r = J(env.run(`appPlanYtd_('2026', ${JSON.stringify(out)}, ${JSON.stringify(cmp)})`));
+  assert.deepEqual([r.actualYtd, r.actualMonths, r.forecastYtd, r.landing, r.rangeOut, r.rangeN], [120, 1, 100, 120 + 100 + 200, 1, 1], JSON.stringify(r));
+  assert.equal(J(env.run(`appPlanYtd_('2026', {}, {})`)).landing, null, '予測の月が無ければ着地見込みは出さない');
 }
 
 console.log('app-home: all tests passed');

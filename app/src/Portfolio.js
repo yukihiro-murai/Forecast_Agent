@@ -118,9 +118,16 @@ function appPortfolio_() {
     if (n === 1 || n === 26 || (n >= 29 && n <= 40)) { (outRows[s.plan_id] = outRows[s.plan_id] || {})[n] = JSON.parse(s.cells_json); }
   });
   const ape = {};
+  const cmp = {};   // 月ごとの実績と P50（検証の表）。暫定実績・着地見込み・予実の差に使う（読むだけ。計算は変えない）
   appReadTable_('ENG_EVAL_COMPARE_MONTHLY').forEach(r => {
     const v = Number(r.ape_p50);
     if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push(v);
+    const ym = appCellYm_(String(r._types || '').charAt(0), r.target_month);
+    const act = r.actual_total === '' || r.actual_total === null ? null : Number(r.actual_total);
+    if (ym && act !== null && isFinite(act)) {
+      const f = r.forecast_total_p50 === '' ? null : Number(r.forecast_total_p50);
+      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p50: f !== null && isFinite(f) ? f : null, out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null };
+    }
   });
   const steps = {};
   appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
@@ -138,6 +145,7 @@ function appPortfolio_() {
     const stored = o[26] ? { p10: num(o[26][1]), p50: num(o[26][2]), p90: num(o[26][3]) } : {};
     const latest = rs[0] || null;
     const prev = rs[1] || null;
+    const yt = appPlanYtd_(p.fy, o, cmp[p.plan_id] || {});
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     const a = ape[p.plan_id] || [];
@@ -153,7 +161,50 @@ function appPortfolio_() {
       stepsDone: st.filter(s => String(s.status).toLowerCase() === 'success').length, stepsTotal: st.length, stepErrors: errors,
       createdAt: p.created_at,
       officialNo: (ver[p.plan_id] || {}).officialNo || null, officialFinal: (ver[p.plan_id] || {}).officialFinal === undefined ? null : ver[p.plan_id].officialFinal,
-      pendingNo: (ver[p.plan_id] || {}).pendingNo || null
+      pendingNo: (ver[p.plan_id] || {}).pendingNo || null,
+      actualYtd: yt.actualYtd, actualMonths: yt.actualMonths, forecastYtd: yt.forecastYtd, landing: yt.landing, rangeOut: yt.rangeOut, rangeN: yt.rangeN
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
+
+/** セルの型と中身から 'yyyy/MM'（日時は日本の暦で。読めなければ ''） */
+function appCellYm_(t, text) {
+  if (text === '' || text === null || text === undefined) return '';
+  if (t === 'd') { const d = new Date(text); return isNaN(d.getTime()) ? '' : Utilities.formatDate(d, APP_TZ, 'yyyy/MM'); }
+  const m = /^(\d{4})\D(\d{1,2})/.exec(String(text));
+  return m ? m[1] + '/' + ('0' + m[2]).slice(-2) : '';
+}
+
+/**
+ * 年度の暫定実績と着地見込み（2026-10-06）。実績のある月は実績、ない月は最新の予測（OUTPUT の月の P50）を足す。
+ * forecastYtd は実績のある月の予測（P50）の合計（予実の差を見る）。年度の月は 4 月〜翌 3 月
+ */
+function appPlanYtd_(fy, outRows, cmpByYm) {
+  const fyN = Number(fy);
+  const inFy = ym => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return (m >= 4 ? y : y - 1) === fyN; };
+  const cell = x => (x ? { t: x.charAt(0), v: x.slice(1) } : null);
+  const res = { actualYtd: null, actualMonths: 0, forecastYtd: null, landing: null, rangeOut: 0, rangeN: 0 };
+  let fcYtdN = 0;
+  Object.keys(cmpByYm).filter(inFy).forEach(ym => {
+    const c = cmpByYm[ym];
+    res.actualYtd = (res.actualYtd || 0) + c.actual;
+    res.actualMonths++;
+    if (c.p50 !== null) { res.forecastYtd = (res.forecastYtd || 0) + c.p50; fcYtdN++; }
+    if (c.out !== null) { res.rangeN++; res.rangeOut += c.out; }
+  });
+  if (fcYtdN !== res.actualMonths) res.forecastYtd = null;   // 予測のない実績の月があれば、予実の差は出さない（比べられない）
+  let rest = null, months = 0;
+  for (let r = 29; r <= 40; r++) {
+    const row = outRows[r] || [];
+    const m = cell(row[0]), v = cell(row[2]);
+    const ym = m ? appCellYm_(m.t, m.v) : '';
+    if (!ym || !inFy(ym)) continue;
+    months++;
+    if (cmpByYm[ym]) continue;
+    const n = v && v.t === 'n' ? Number(v.v) : null;
+    if (n !== null && isFinite(n)) rest = (rest || 0) + n;
+  }
+  if (months) res.landing = (res.actualYtd || 0) + (rest || 0);
+  return res;
+}
+
