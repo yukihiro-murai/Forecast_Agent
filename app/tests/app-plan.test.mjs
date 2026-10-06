@@ -282,7 +282,12 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // 検証のタブの、精度の推移と学習の影
   ui.__learn = env.call('apiLearningView(__in)', { __in: { planId } });
   const evalHtml = vm.runInContext(`S.fc.learn = __learn; S.fc.tab = 'eval'; viewForecast()`, ui);
-  assert.match(evalHtml, /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/);
+  // 検証の記録が無い計画は案内 1 枚、記録があれば精度の推移と学習の影（2026-10-06）
+  assert.match(evalHtml, ui.__learn.accuracy.months.length || ui.__learn.shadow ? /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/ : /まだ検証の記録がありません[\s\S]*検証の更新/);
+  const withMonths = JSON.parse(JSON.stringify(ui.__learn)); withMonths.accuracy.months = [{ month: '2026/04', p10: 1, p50: 2, p90: 3, actual: 2, ape: 0, inside: true }];
+  ui.__learn2 = withMonths;
+  assert.match(vm.runInContext(`S.fc.learn = __learn2; viewForecast()`, ui), /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/);
+  vm.runInContext(`S.fc.learn = __learn`, ui);
   assert.ok(!/undefined|NaN/.test(evalHtml.split('検証の更新')[0]), '精度の推移に undefined や NaN を出さない');
   ui.__pool = env.call('apiPoolPreview()');
   assert.match(vm.runInContext(`S.pfPool = __pool; pfPoolCard()`, ui), /全計画での学習[\s\S]*各計画に入れる/);
@@ -370,6 +375,13 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
   assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
   vm.runInContext(`S.setTab = 'biz'`, ui);
+  // 進みは実行する順（A → B → C・番号順）に並べる
+  const stepsHtml = vm.runInContext(`var __kv = S.fc.view; S.fc.view = JSON.parse(JSON.stringify(__kv)); S.fc.view.boot.steps = [{ menu: 'A-2', label: 'a2', status: 'not_run' }, { menu: 'B-1', label: 'b1', status: 'not_run' }, { menu: 'A-9', label: 'a9', status: 'not_run' }, { menu: 'A-4', label: 'a4', status: 'not_run' }]; var __st = fcStepsTab(S.fc.data, S.fc.view); S.fc.view = __kv; __st`, ui);
+  assert.match(stepsHtml, />a2<[\s\S]*>a4<[\s\S]*>a9<[\s\S]*>b1</);
+  // 検証の記録が何も無いときは「まだありません」を重ねない（案内 1 枚 + 更新の操作）
+  const evalEmpty = vm.runInContext(`var __kv2 = [S.fc.view, S.fc.learn]; S.fc.view = JSON.parse(JSON.stringify(__kv2[0])); S.fc.view.boot.eval = {}; S.fc.learn = { planId: S.fc.planId, accuracy: { months: [] }, shadow: null }; var __ev = fcEvalTab(S.fc.data, S.fc.view); S.fc.view = __kv2[0]; S.fc.learn = __kv2[1]; __ev`, ui);
+  assert.equal((evalEmpty.match(/まだ/g) || []).length, 1, evalEmpty.slice(0, 400));
+  assert.doesNotMatch(evalEmpty, /精度の推移<|学習の影</);
   // 値の無い金額に単位だけを付けない（「-円」「- 円」にしない）
   assert.doesNotMatch(vm.runInContext(`fcKpi('最終予算', null)`, ui), /円/);
   assert.equal(vm.runInContext(`yenU(null) + '|' + yenU(1200)`, ui), '-|1,200 円');

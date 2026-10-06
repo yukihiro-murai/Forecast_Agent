@@ -1225,7 +1225,11 @@ function fcInputDel(i){ fcDraft(S.fc.inputKind).splice(i, 1); S.fc.inputDirty[S.
 function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: kind, rows: fcDraft(kind) }); }
 
 function fcEvalTab(d, v){
-  var e = v.boot.eval || {}, canPlan = fcCan('plan'), html = fcLearningCards();
+  var e = v.boot.eval || {}, canPlan = fcCan('plan'), lr = S.fc.learn;
+  // まだ検証の記録が何も無いときは、「まだありません」を重ねず、よみの案内 1 枚と更新の操作だけにする（2026-10-06 村井さん）
+  var noEval = !(e.metrics || []).length && !(e.compare || []).length && !(e.insights || []).length;
+  var empty = noEval && lr && lr.planId === S.fc.planId && !(lr.accuracy && lr.accuracy.months.length) && !lr.shadow;
+  var html = empty ? guide('explain', 'まだ検証の記録がありません。実績が締まったら、下の「検証の更新」を左から順に実行してください。精度の推移と学習の影がここに出ます。') : fcLearningCards();
   var acts = fcActions([
     ['IMPORT.ACTUALS', '確定した月の実績を、ZAC の実績から取り込み直します。', 'admin', fcSourceNote()],
     ['EVAL.REPORT', '予測と実績を比べた検証レポートを作り直します。'],
@@ -1249,7 +1253,7 @@ function fcEvalTab(d, v){
           : '<td>' + esc(r.hypothesis) + '</td><td>' + esc(r.actionType) + '</td><td>' + esc(r.reflection) + '</td><td>' + esc(r.owner) + '</td><td>' + esc(r.status) + '</td>') + '</tr>'; }).join('')
       + '</tbody></table></div>' + (canPlan ? '<div class="card-foot">' + fcSaveBtn('記入を保存', 'fcSaveIns()', Object.keys(ins).length) + tip('原因の仮説・対応・担当などは、次の予測と四半期レビューの材料になります') + '</div>' : '') + '</div>';
   }
-  if (!(e.metrics || []).length && !(e.compare || []).length && !(e.insights || []).length) html += '<div class="card note">検証の結果はまだありません。実績を取り込んで、上の順に更新してください。</div>';
+  if (noEval && !empty) html += '<div class="card note">検証の結果はまだありません。実績を取り込んで、上の順に更新してください。</div>';
   return html;
 }
 function fcIns(row, k, val){ var x = S.fc.ins; x[row] = x[row] || {}; x[row][k] = val; var btn = document.querySelector('[onclick="fcSaveIns()"]'); if (btn) btn.disabled = !!S.job; }
@@ -1294,7 +1298,9 @@ function fcDec(row, val){ S.fc.dec[row] = val; var btn = document.querySelector(
 function fcSaveDec(){ var dec = S.fc.dec; fcEdit('REVIEW.DECIDE', { rows: Object.keys(dec).map(function(r){ return { row: Number(r), decision: dec[r] }; }) }); }
 
 function fcStepsTab(d, v){
-  var st = v.boot.steps || [];
+  // 旧来の表の並び（A-2, A-3, B-1, A-4…）ではなく、実行する順（A → B → C、番号順）に並べる（2026-10-06 村井さん）
+  var stepKey = function(x){ var m = /^([A-Z])-(\d+)/.exec(String(x.menu || '')); return m ? m[1].charCodeAt(0) * 1000 + Number(m[2]) : 1e9; };
+  var st = (v.boot.steps || []).map(function(x, i){ return { x: x, i: i }; }).sort(function(a, b){ return stepKey(a.x) - stepKey(b.x) || a.i - b.i; }).map(function(o){ return o.x; });
   var label = { success: '<span class="chip ok">済み</span>', error: '<span class="chip ng">エラー</span>', not_run: '<span class="chip off">未実行</span>' };
   var html = '<div class="card"><h2>手順の進み</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:72px"><col style="width:200px"><col style="width:104px"><col style="width:88px"><col style="width:136px"><col></colgroup><thead><tr><th>手順</th><th>内容</th><th>状態</th><th>日付</th><th>実行した人</th><th>メモ</th></tr></thead><tbody>'
     + st.map(function(x){ return '<tr><td>' + esc(x.menu) + '</td><td>' + esc(x.label) + '</td><td>' + (label[x.status] || esc(x.status)) + '</td><td>' + esc(x.date) + '</td><td>' + esc(String(x.by || '').split('@')[0]) + '</td><td data-tip="' + esc(x.error) + '">' + esc(x.error) + '</td></tr>'; }).join('')
