@@ -11,7 +11,7 @@
  * 結果は実行ログ（RUN）と、状態の画面に出す控え（APP_HOUSEKEEPING）に残す。
  * 定期の処理（triggerDailyBackup）で異常があった日は、管理者へメールを送る（Notifications.js。正常な日は送らない）。
  */
-const APP_HOUSEKEEPING_PROP = 'APP_HOUSEKEEPING';
+const APP_HOUSEKEEPING_PROP = 'APP_HOUSEKEEPING';   // 自動の AI 調査（AutoResearch.js）は、この控えの at と durationMs で、その日の手入れが終わったかを見る
 const APP_OPEN_START_GRACE_MS = 15 * 60 * 1000;
 
 /** ログのファイルの一覧（年度の古い順）: [{ fy, id }] */
