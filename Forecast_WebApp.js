@@ -402,7 +402,7 @@ function webParseQuarterly_(ss) {
       res.proposals.push({
         row: i + 8, pid: String(r[0] || ''), target: String(r[1] || ''),
         current: String(r[2] || ''), proposed: String(r[3] || ''),
-        conf: numOrNull_(r[4]), rationale: String(r[5] || ''),
+        conf: String(r[4] || ''), rationale: String(r[5] || ''),   // 確度は 高・中・低 の文字（数にすると空になる）
         impact: String(r[6] || ''), decision: String(r[7] || ''), rollback: String(r[8] || '')
       });
     });
