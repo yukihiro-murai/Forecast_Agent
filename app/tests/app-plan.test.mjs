@@ -292,7 +292,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
   ui.__home = env.call('apiHome()');
   const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
-  assert.match(homeHtml, /よみが観測しました[\s\S]*P50 合計[\s\S]*計画の状態[\s\S]*計画の一覧[\s\S]*最近の動き/);
+  assert.match(homeHtml, /P50 合計[\s\S]*計画の状態[\s\S]*計画の一覧[\s\S]*最近の動き[\s\S]*あなたの役割/);
+  // 2026-10-06 村井さん: 「よみが観測しました（時刻）」は出さない・1 カラム（左右に分けない）・「状態を見る」のボタンは出さない
+  assert.doesNotMatch(homeHtml, /よみが観測しました|class="dash"|状態を見る/);
   assert.ok(!/undefined|NaN/.test(homeHtml), 'ホームに undefined や NaN を出さない');
   assert.doesNotMatch(homeHtml, /旧アプリ/, 'ホームに旧アプリの案内を出さない');
   const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__home))`, ui));
@@ -302,6 +304,15 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   h2.approvals = [{ planId: h2.plans[0].planId, clientName: 'テスト製薬', fy: h2.fy, versionNo: 2, submittedBy: 'planner' }];
   ui.__h2 = h2;
   assert.match(JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__h2)[0])`, ui)).text, /承認待ちの公式版が 1 件[\s\S]*確認をお願いします/);
+  // 仕組みの異常（バックアップが止まった等）はセリフで知らせ、「状態を見る」のボタンは付けない（2026-10-06）
+  const h3 = JSON.parse(JSON.stringify(ui.__home));
+  h3.system = { backup: { enabled: false }, housekeeping: { ok: false, problems: ['x'] }, journal: null };
+  ui.__h3 = h3;
+  const says3 = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__h3))`, ui));
+  assert.ok(says3.some((x) => /バックアップ/.test(x.text)) && says3.some((x) => /手入れ/.test(x.text)), JSON.stringify(says3));
+  assert.ok(says3.every((x) => !x.act || x.act[0] !== '状態を見る'), JSON.stringify(says3));
+  assert.doesNotMatch(vm.runInContext(`B.home = __h3; viewHome()`, ui), /状態を見る/);
+  vm.runInContext(`B.home = __home`, ui);
   vm.runInContext(`S.view = 'forecast'`, ui);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
