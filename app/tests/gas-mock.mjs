@@ -460,7 +460,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
       newTrigger(handler) {
         const t = { handler, uid: String(9000000000 + (++state.seq)) };
         const b = { timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; },
-          after: (ms) => { t.afterMs = ms; return b; },
+          after: (ms) => { t.afterMs = ms; return b; }, nearMinute: (m) => { t.nearMinute = m; return b; },
           create: () => { assert.ok(triggers.length < 20, 'トリガーは 1 人 1 プロジェクト 20 個まで'); triggers.push(t); return { getUniqueId: () => t.uid, getHandlerFunction: () => t.handler }; } };
         return b;
       },

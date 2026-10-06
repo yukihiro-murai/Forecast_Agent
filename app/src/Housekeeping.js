@@ -206,7 +206,12 @@ function appDailyMaintenance_(ctx) {
   let notify;
   try { notify = appNotifyMaintenance_(ctx, codes); }
   catch (e) { notify = { status: 'FAILED', reason: 'exception', sent: 0 }; Logger.log('管理への知らせに失敗しました'); }
-  const res = { backup: backup, housekeeping: { ok: housekeeping.ok, problems: housekeeping.problems, error: housekeeping.error }, notify: notify };
+  // 自動の AI 調査（AutoResearch.js）の毎日のトリガーが無ければ作る。失敗しても毎日の処理は続ける
+  let autoResearch;
+  try { autoResearch = appEnsureAutoResearchTrigger_(ctx); }
+  catch (e) { autoResearch = { error: String(e && e.message ? e.message : e) }; appLogError_('AUTO.RESEARCH.TRIGGER', e, ctx); }
+  const res = { backup: backup, housekeeping: { ok: housekeeping.ok, problems: housekeeping.problems, error: housekeeping.error }, notify: notify,
+    autoResearch: autoResearch };
   if (backupError) throw backupError;
   return res;
 }

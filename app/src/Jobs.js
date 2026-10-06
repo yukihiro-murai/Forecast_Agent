@@ -414,6 +414,8 @@ function appRunJob_(id) {
   appRunLog_({ requestId: id, kind: 'JOB:' + job.kind, startedAt: job.startedAt, durationMs: new Date().getTime() - t0, status: status,
     detail: { jobId: id, requestedBy: job.requestedBy, attempts: done.attempts }, error: error });
   try { if (status === 'DONE') appJobRecordStage_(job, new Date().getTime() - t0); } catch (e) { /* 見積もりの記録は処理の結果に関係しない */ }
+  // 自動で始めた A-4 の終わりなら、次の計画へ（AutoResearch.js）。処理の結果には関係しない
+  try { if (!nextJobId) appAutoResearchAfterJob_(done, status); } catch (e) { Logger.log('自動の AI 調査の続き: ' + (e && e.message ? e.message : e)); }
   return { id: id, status: status, nextJobId: nextJobId };
 }
 
