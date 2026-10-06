@@ -7422,7 +7422,8 @@ function updatePhase1LearningInsights() {
     if (!v.hasP50) return;
     const diff = v.actual - v.p50;
     const rate = (v.actual !== 0) ? (diff / Math.abs(v.actual)) : 0;
-    const cmpRow = cmpRows.find(x => String(x[0] || '') === month) || [];
+    // 検証の表の月は Sheets が日付に変えることがあるので、ymKey_ で 'yyyy/MM' にそろえて探す（2026-10-07 直し。前は日付の月を拾えず、幅の外の印が付かなかった）
+    const cmpRow = cmpRows.find(x => ymKey_(x[0]) === month) || [];
     const rangeBreach = Number(cmpRow[19] || 0) === 1;
     const overBreach = Number(cmpRow[17] || 0) === 1 && Math.abs(rate) > OVERFORECAST_RATE_CONSTRAINT;
     const insight = (Math.abs(rate) < 0.1 && !rangeBreach)

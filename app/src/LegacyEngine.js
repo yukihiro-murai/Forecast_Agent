@@ -1,6 +1,6 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 8cd61a0e0d8459144aafdf7cbc633995ccda6a5d19f2a8c5267a1451e3434a56）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 233f21ce4c1c2f9ce96d001ea0dd3eaad6d9c940b86a37055cadd64f99bcd249）
  *               Forecast_WebApp.js（SHA-256 469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
@@ -7437,7 +7437,8 @@ function updatePhase1LearningInsights() {
     if (!v.hasP50) return;
     const diff = v.actual - v.p50;
     const rate = (v.actual !== 0) ? (diff / Math.abs(v.actual)) : 0;
-    const cmpRow = cmpRows.find(x => String(x[0] || '') === month) || [];
+    // 検証の表の月は Sheets が日付に変えることがあるので、ymKey_ で 'yyyy/MM' にそろえて探す（2026-10-07 直し。前は日付の月を拾えず、幅の外の印が付かなかった）
+    const cmpRow = cmpRows.find(x => ymKey_(x[0]) === month) || [];
     const rangeBreach = Number(cmpRow[19] || 0) === 1;
     const overBreach = Number(cmpRow[17] || 0) === 1 && Math.abs(rate) > OVERFORECAST_RATE_CONSTRAINT;
     const insight = (Math.abs(rate) < 0.1 && !rangeBreach)
@@ -10430,7 +10431,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: '8cd61a0e0d8459144aafdf7cbc633995ccda6a5d19f2a8c5267a1451e3434a56',
+    SOURCE_SHA256: '233f21ce4c1c2f9ce96d001ea0dd3eaad6d9c940b86a37055cadd64f99bcd249',
     WEB_SOURCE_SHA256: '469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784'
   };
 }

@@ -35,8 +35,8 @@ const book = env.makeBook('クライアント別売上予測', {
   PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step4_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 12, ''], ['step5_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 9, '']] },
   RUN_LOG: { values: [H.RUN_LOG] },
   EVAL_LOG: { values: evalLog, formats: { D: '@' } },
-  // 旧来の B-2 は月を書式なしで書くので日付になっている。幅の外の印は付けない（B-4 がこの表から幅の外の印を探すところも、
-  // 月が日付だと合わずに印を拾えない。同じ日付の問題だが、この直しには入れず別の件として村井さんの判断を待つ）
+  // 旧来の B-2 は月を書式なしで書くので日付になっている。幅の外の印は付けない（B-4 がこの表から幅の外の印を探すところは
+  // app-legacy-b4-range.test.mjs で確かめる。2026-10-07 に月を ymKey_ でそろえて直した）
   EVAL_COMPARE_MONTHLY: { values: [H.EVAL_COMPARE_MONTHLY].concat(MONTHS.map(([ym, act, p50]) => row('EVAL_COMPARE_MONTHLY', {
     target_month: D(Number(ym.slice(0, 4)), Number(ym.slice(5))), forecast_total: p50, actual_total: act, forecast_total_p50: p50, signed_error_p50: p50 - act,
     abs_error_p50: Math.abs(p50 - act), half_label: 'FY2026-H1', over_flag: p50 > act ? 1 : 0, under_flag: p50 < act ? 1 : 0, range_outside_flag: 0 }))) },
