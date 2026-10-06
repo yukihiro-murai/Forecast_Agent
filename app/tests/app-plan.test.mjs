@@ -300,6 +300,13 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(waitHtml, /class="card loading"[\s\S]*観測中…[\s\S]*読み込んでいます/);
   assert.doesNotMatch(waitHtml, /読み込み中…/);
   assert.doesNotMatch(String(vm.runInContext(`busy.toString()`, ui)), /観測中…/, '右下に「観測中…」を出さない');
+  // 保存中・裏の処理の間も、画面の中（見出しの下）でよみが話す（2026-10-06 村井さん）
+  const saving = vm.runInContext(`S.writing = true; S.writingFn = 'apiSaveSetting'; S.writeShow = true; var __s = jobBanner(); S.writing = false; S.writeShow = false; __s`, ui);
+  assert.match(saving, /class="card loading"[\s\S]*保存中…[\s\S]*保存しています/);
+  assert.equal(vm.runInContext(`S.writing = true; S.writeShow = false; var __q = jobBanner(); S.writing = false; __q`, ui), '', '0.6 秒までは出さない');
+  const jobSave = vm.runInContext(`S.job = { id: 'j', kind: 'PLAN.EDIT', payload: { action: 'INPUT.SAVE' }, status: 'RUNNING', started: Date.now() - 5000 }; var __j = jobBanner(); S.job = null; __j`, ui);
+  assert.match(jobSave, /class="card loading"[\s\S]*保存中…[\s\S]*処理中・5 秒/);
+  assert.doesNotMatch(String(vm.runInContext(`busy.toString()`, ui)), /innerHTML|classList/, '右下には何も出さない');
   assert.ok(!/undefined|NaN/.test(homeHtml), 'ホームに undefined や NaN を出さない');
   assert.doesNotMatch(homeHtml, /旧アプリ/, 'ホームに旧アプリの案内を出さない');
   const says = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays(__home))`, ui));

@@ -227,13 +227,6 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .toast.err{background:var(--error);padding:12px 22px}
 .toast .tc{width:34px;height:34px;flex:0 0 34px;background:#fff;border-radius:50%;padding:3px}
 .toast .tc svg{width:100%;height:100%;display:block}
-.busy{position:fixed;right:24px;bottom:24px;width:248px;height:68px;display:flex;align-items:center;gap:10px;padding:0 14px 0 8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-pop);font-size:var(--fs-s);color:var(--navy);opacity:0;pointer-events:none;transition:opacity .2s;z-index:94}
-.busy.on{opacity:1}
-.busy .bc{width:48px;height:48px;flex:0 0 48px}
-.busy .bc svg{width:100%;height:100%;display:block}
-.busy small{display:block;font-size:var(--fs-s);color:var(--muted)}
-.jobbar{display:flex;align-items:center;gap:var(--s3)}
-.jobbar b{flex:1}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:0 0 10px;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
 .loading .bubble small{display:block;font-size:var(--fs-s);color:var(--muted);margin-top:var(--s1)}
@@ -303,7 +296,6 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 </header>
 <div class="layout"><nav class="sidenav" id="nav"></nav><main class="main" id="main"></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="busy" id="busy" role="status" aria-live="polite"></div>
 <div class="tipbox" id="tipbox" role="tooltip"></div>
 <script>
 <?!= charsJs ?>
@@ -353,22 +345,9 @@ function errorBanner(){
     + '<div style="white-space:pre-wrap;word-break:break-all">' + esc(S.lastError.message) + '</div>'
     + '</div>';
 }
-var busyT = null;
-/** 右下の表示: 裏の処理（予測の実行など）を待っている間だけ、その進みを出す */
+/** 通信中の数を数える。待ちの表示は画面の中のよみ（読み込み: loading()・保存と裏の処理: jobBanner()）。右下には出さない（2026-10-06 村井さん） */
 function busy(delta){
-  var el = $('busy');
   S.pending = Math.max(0, S.pending + delta);
-  clearTimeout(busyT);
-  if (S.job) {
-    var sec = Math.round((Date.now() - S.job.started) / 1000);
-    el.innerHTML = '<span class="bc">' + YOMI_POSE.observe + '</span><span>' + esc(jobLabel(S.job)) + '…<small>'
-      + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '（' + sec + ' 秒）</small></span>';
-    el.classList.add('on');
-    return;
-  }
-  // ふつうの読み込みの待ちは、画面の中のよみ（loading()）で見せる。右下には出さない（2026-10-06 村井さん）
-  el.innerHTML = '';
-  el.classList.remove('on');
 }
 /** 読むだけの入口（同時に呼んでよい）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
 var READS = { apiHome: 1, apiLearningView: 1, apiPoolPreview: 1, apiForecastBasis: 1, apiVersionList: 1, apiBootstrap: 1, apiListDirectory: 1, apiListSettings: 1, apiListAudit: 1, apiHealth: 1, apiJobStatus: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiPortfolio: 1, apiPlanCandidates: 1, apiYearPreview: 1 };
@@ -424,7 +403,7 @@ function watchJob(j){
 function pollJob(){
   var j = S.job;
   if (!j) return;
-  var done = function(){ S.job = null; busy(0); };
+  var done = function(){ S.job = null; busy(0); refreshJobBox(); };
   google.script.run.withSuccessHandler(function(st){
     if (!S.job || S.job.id !== j.id) return;
     if (st.jobId && st.jobId !== j.id) { j.id = st.jobId; j.kind = st.kind || j.kind; }   // 終わった続きの処理は、サーバーがたどって返す
@@ -442,14 +421,20 @@ function pollJob(){
   }).apiJobStatus({ jobId: j.id });
 }
 /** サーバーの api* を呼ぶ。失敗は通知に出す（入力は消さない） */
+var writeT = null;
 function call(fn, args, ok, fail){
   var write = !READS[fn];
   if (write && S.writing) return;   // 押した直後にもう一度押しても、前の処理が終わるまで受け付けない（何も出さない）
-  if (write) S.writing = true;
+  if (write) {
+    S.writing = true; S.writingFn = fn; S.writeShow = false;
+    clearTimeout(writeT);
+    writeT = setTimeout(function(){ if (S.writing) { S.writeShow = true; refreshJobBox(); } }, 600);
+  }
+  var end = function(){ if (write) { S.writing = false; S.writeShow = false; clearTimeout(writeT); } };
   busy(1);
   var r = google.script.run
-    .withSuccessHandler(function(res){ if (write) S.writing = false; busy(-1); if (ok) ok(res); render(); })
-    .withFailureHandler(function(e){ if (write) S.writing = false; busy(-1); if (fail) fail(e); toast((e && e.message) || String(e), true); });
+    .withSuccessHandler(function(res){ end(); busy(-1); if (ok) ok(res); render(); })
+    .withFailureHandler(function(e){ end(); busy(-1); refreshJobBox(); if (fail) fail(e); toast((e && e.message) || String(e), true); });
   r[fn].apply(r, args || []);
 }
 
@@ -489,13 +474,17 @@ function render(){
 }
 /** 裏で動いている処理の進み（画面の上にも出す） */
 function jobBanner(){
-  if (!S.job) return '';
-  var sec = Math.round((Date.now() - S.job.started) / 1000);
-  var m = Math.floor(sec / 60), ss = sec % 60;
-  return '<div class="card soft" role="status"><div class="jobbar"><span class="dot"></span><b>' + esc(jobLabel(S.job)) + '</b>'
-    + '<span class="chip">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '</span>'
-    + '<span class="meta" data-tip="画面を閉じても続きます">' + (m ? m + ' 分 ' : '') + ss + ' 秒</span></div></div>';
+  if (S.job) {
+    var sec = Math.round((Date.now() - S.job.started) / 1000);
+    var m = Math.floor(sec / 60), ss = sec % 60;
+    return loading(jobLabel(S.job), '<p class="meta mt8" data-tip="画面を閉じても続きます">' + (S.job.status === 'RUNNING' ? '処理中' : '始まるのを待っています') + '・' + (m ? m + ' 分 ' : '') + ss + ' 秒</p>',
+      null, S.job.kind === 'PLAN.EDIT' ? '保存中…' : '処理中…');
+  }
+  // 画面から直接の書き込み（役割・設定など）も、0.6 秒を超えたら画面の中のよみで見せる（2026-10-06 村井さん）
+  if (S.writing && S.writeShow) return S.writingFn === 'apiStartJob' ? loading('処理を始めています', '', null, '処理中…') : loading('保存しています', '', null, '保存中…');
+  return '';
 }
+function refreshJobBox(){ if ($('jobBox')) $('jobBox').innerHTML = jobBanner(); }
 function go(v){
   S.view = v;
   if (v === 'home' && B.setUp && B.allowed) homeLoad();
@@ -509,7 +498,7 @@ function go(v){
 }
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
 /** 画面を読み込む間の表示: よみが画面の中で「観測中…」と話す（右下には出さない。2026-10-06 村井さん） */
-function loading(sub, extra, id){ return '<div class="card loading"' + (id ? ' id="' + id + '"' : '') + ' role="status" aria-live="polite"><div class="hero"><div class="charbox">' + YOMI_POSE.observe + '</div><div class="bubble">観測中…<small>' + esc(sub || '読み込んでいます') + '</small>' + (extra || '') + '</div></div></div>'; }
+function loading(sub, extra, id, head){ return '<div class="card loading"' + (id ? ' id="' + id + '"' : '') + ' role="status" aria-live="polite"><div class="hero"><div class="charbox">' + YOMI_POSE.observe + '</div><div class="bubble">' + esc(head || '観測中…') + '<small>' + esc(sub || '読み込んでいます') + '</small>' + (extra || '') + '</div></div></div>'; }
 
 function viewHome(){
   if (!B.allowed) return '<h1>Trends2Targets</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
