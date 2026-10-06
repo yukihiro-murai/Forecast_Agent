@@ -50,7 +50,7 @@ function appGrantRole_(ctx, input) {
   const scopeType = String(input && input.scopeType || 'ALL') === 'CLIENT' ? 'CLIENT' : 'ALL';
   const clientId = scopeType === 'CLIENT' ? String(input && input.clientId || '') : '';
   if (APP_GRANTABLE_ROLES.indexOf(role) < 0) throw new Error('付与できる役割は ' + APP_GRANTABLE_ROLES.map(r => APP_ROLE_LABELS[r]).join('・') + ' です。');
-  if (scopeType === 'CLIENT' && role !== 'PLANNER') throw new Error('クライアント単位にできるのは予算策定担当だけです。');
+  if (scopeType === 'CLIENT' && role !== 'PLANNER') throw new Error('メーカー単位にできるのは予算策定担当だけです。');
   const validFrom = String(input && input.validFrom || '').trim() || appToday_();
   const validTo = String(input && input.validTo || '').trim();
   [validFrom, validTo].forEach(d => { if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error('日付は yyyy-MM-dd で入力してください。'); });
@@ -59,7 +59,7 @@ function appGrantRole_(ctx, input) {
     const member = appReadTable_('MEMBERS').filter(r => r.email === email && r.is_active)[0];
     if (!member) throw new Error('先にメンバーとして登録してください（' + email + '）。');
     if (scopeType === 'CLIENT' && !appReadTable_('CLIENTS').some(c => c.client_id === clientId && c.is_active)) {
-      throw new Error('クライアントを選んでください。');
+      throw new Error('メーカーを選んでください。');
     }
     // 同じ役割でも期間が重ならなければ付けられる（期限が切れた付与の後に付け直すなど）
     const end = d => d || '9999-12-31';
@@ -130,7 +130,7 @@ function appSaveClientName_(ctx, input) {
   appPlanCheckArgs_([name]);
   return appWithLock_(() => {
     const client = appReadTable_('CLIENTS').filter(c => c.client_id === id)[0];
-    if (!client) throw new Error('クライアントが見つかりません。');
+    if (!client) throw new Error('メーカーが見つかりません。');
     const auto = appClientDisplayName_(client.client_name);
     let cur = null;   // 自動に戻した行（名前が空）も、同じ行を使う
     try { cur = appReadTable_('CLIENT_NAMES').filter(r => r.client_id === id)[0] || null; } catch (e) { if (!/表がありません/.test(String(e && e.message))) throw e; }
@@ -145,7 +145,7 @@ function appSaveClientName_(ctx, input) {
 /** クライアントを足す・直す */
 function appSaveClient_(ctx, input) {
   const name = String(input && input.clientName || '').trim();
-  if (!name) throw new Error('クライアント名を入力してください。');
+  if (!name) throw new Error('メーカー名を入力してください。');
   const normalized = appNormalizeName_(name);
   const patch = { client_name: name.slice(0, 100), zac_code: String(input && input.zacCode || '').trim().slice(0, 50),
     normalized_name: normalized, is_active: input && input.isActive === false ? false : true,
@@ -153,7 +153,7 @@ function appSaveClient_(ctx, input) {
   return appWithLock_(() => {
     const all = appReadTable_('CLIENTS');
     const id = String(input && input.clientId || '');
-    if (all.some(c => c.client_id !== id && c.normalized_name === normalized)) throw new Error('同じ名前のクライアントがすでにあります。');
+    if (all.some(c => c.client_id !== id && c.normalized_name === normalized)) throw new Error('同じ名前のメーカーがすでにあります。');
     if (id) {
       const r = appUpdateByKey_('CLIENTS', { client_id: id }, patch, input && input.rowVersion, ctx.actor);
       return { client: r.after, before: r.before, created: false, audit: { entityId: id, clientId: id } };

@@ -292,7 +292,7 @@ function legacySpec() {
   assert.throws(() => env.call(`apiStartJob({ kind: 'NOPE' })`), /未定義の処理/);
   assert.throws(() => env.call(`apiJobStatus({ jobId: 'JOB-none' })`), /見つかりません/);
   // 失敗はエラーの文言を返し、エラーのログにも残す
-  assert.match(jobError('PLAN.CREATE', {}), /クライアントを選んでください/);
+  assert.match(jobError('PLAN.CREATE', {}), /メーカーを選んでください/);
   assert.ok(env.errors().some((e) => e.where === 'PLAN.CREATE'));
   // 実行中のまま上限を超えたら止まったとみなす・始まらないまま 15 分たったら知らせる・結果が消えたら知らせる
   const job = (id) => JSON.parse(env.props['APP_JOB_' + id]);

@@ -95,7 +95,7 @@ function appYearSnapshot_(fy) {
   const plans = appYearRawRows_('PLANS').filter(r => Number(r[fyCol]) === year);
   if (!plans.length) throw new Error('この年度の計画はありません。');
   if (plans.some(r => !/^\d{4}$/.test(r[fyCol]) || !r[clientCol])) {
-    throw new Error('年度かクライアントが正しくない計画があります。');
+    throw new Error('年度かメーカーが正しくない計画があります。');
   }
   const planIds = plans.map(r => r[planCol]);
   const clientIds = plans.map(r => r[clientCol]).filter((v, i, a) => a.indexOf(v) === i);
@@ -110,7 +110,7 @@ function appYearSnapshot_(fy) {
     const col = APP_TABLES[name].columns.indexOf('client_id');
     const rows = appYearRawRows_(name).filter(r => clientIds.indexOf(r[col]) >= 0);
     if (name === 'CLIENTS' && clientIds.some(id => !rows.some(r => r[col] === id))) {
-      throw new Error('計画に対応するクライアントが見つかりません。');
+      throw new Error('計画に対応するメーカーが見つかりません。');
     }
     tables.push(appYearSnapshotTable_(name, rows));
   });

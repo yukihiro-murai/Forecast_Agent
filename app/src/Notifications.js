@@ -96,7 +96,7 @@ function appNotifyMaintenance_(ctx, codes) {
       const day = appToday_();
       const body = '毎日の処理で、確認してほしいことがあります。\n\n'
         + list.map(c => '・' + APP_MAINTENANCE_CODE_LABELS[c]).join('\n')
-        + '\n\nアプリを開き、「状態」と「操作の記録」で中身を確かめてください。\n（このメールは自動で送られています）';
+        + '\n\nアプリを開き、「記録と状態」で中身を確かめてください。\n（このメールは自動で送られています）';
       // 同じ日の控えを読む。控えの読み込み自体の失敗は外側の FAILED に任せる（読めずにリセットして再送しない）。
       // JSON が壊れているときだけ新しい控えとして始める（読めない印は残さない）
       const raw = appProps_().getProperty(APP_MAINTENANCE_NOTICES_PROP);

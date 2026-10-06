@@ -140,7 +140,7 @@ const hash = text => createHash('sha256').update(text, 'utf8').digest('hex');
   const sh = env.data().getSheetByName('CLIENTS');
   sh.rows.splice(3, 1);
   env.run('APP_STORE_CACHE_ = {}');
-  assert.throws(() => snapshot(env), /クライアントが見つかりません/);
+  assert.throws(() => snapshot(env), /メーカーが見つかりません/);
 }
 {
   const env = fixture();

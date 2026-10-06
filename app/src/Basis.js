@@ -12,7 +12,7 @@
  */
 const APP_BASIS_SHEETS = ['FORECAST_SNAPSHOT', 'AI_IMPACT_HISTORY', 'SUBJECTIVE_IMPACT_HISTORY', 'AI_RESEARCH_STRUCTURED', 'AI_SCORE_HISTORY',
   'CALIBRATION_STATE', 'VERTEX_FORECAST_LOG'];
-const APP_SOURCE_LABELS = { factor_product: '製品の入力', factor_client: 'クライアント全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'Vertex の補正' };
+const APP_SOURCE_LABELS = { factor_product: '製品の入力', factor_client: 'メーカー全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'Vertex の補正' };
 
 /** データ本体の表の形のシートを、見出し → 値の行にする（{ シート名: [行] }） */
 function appEngTableObjects_(planId, names) {

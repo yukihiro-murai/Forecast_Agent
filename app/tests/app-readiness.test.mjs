@@ -216,11 +216,8 @@ const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|verSubmit|
   for (const tab of ['forecast', 'input', 'eval', 'quarterly', 'version', 'steps']) {
     assert.doesNotMatch(vm.runInContext(`S.fc.tab='${tab}'; viewForecast()`, ui), WRITE_MARKS, `空の画面（${tab}）でも操作を出さない`);
   }
-  // ホームの役割の札: クライアント限定は ID を見せず「（限定）」と出す（ID は説明の中だけ）
-  const chip = vm.runInContext(`B.user.roles=[{role:'PLANNER',label:'予算策定担当',scopeType:'CLIENT',clientId:'CL-TEST-123'}]; homeRolesCard()`, ui);
-  assert.match(chip, /予算策定担当（限定）/);
-  assert.doesNotMatch(chip, /（CL-TEST-123）/, '札の見える文字にクライアントの ID を出さない');
-  assert.match(chip, /data-tip="このクライアントだけ: CL-TEST-123"/);
+  // ホームの役割の札は 2026-10-06 に外した（情報利得がない。村井さん）
+  assert.equal(vm.runInContext(`typeof homeRolesCard`, ui), 'undefined');
   // ボタンの名前は 8 字まで（長い名前はツールチップへ）
   const shorts = vm.runInContext(`JSON.stringify(FC_ACTION_SHORT)`, ui);
   assert.ok(Object.values(JSON.parse(shorts)).every((s) => s.length <= 8), 'ボタンの名前は 8 字まで');

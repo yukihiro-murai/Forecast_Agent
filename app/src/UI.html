@@ -237,6 +237,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .pre{white-space:pre-wrap;word-break:break-word}
 .logjson{max-height:320px;overflow:auto;background:var(--surface);padding:var(--s3);border-radius:var(--radius-s);font-size:var(--fs-s);margin:0}
 .tbl.wide{min-width:1080px}
+.tbl.mk{min-width:480px}   /* メーカーの表: スマホでも名前の列を残す（横に送る） */
 .row.foot{margin:var(--s5) calc(-1 * var(--s7)) 0;padding:var(--s5) var(--s7) 0;border-top:1px solid var(--line)}
 .tbl.mt12{margin-top:var(--s3)}
 
@@ -385,7 +386,7 @@ var JOB_DONE = {
   'LEARN.POOL': function(r){ toast('事前分布を ' + r.plans.length + ' 計画に入れました'); S.pfPool = null; },
   'PLAN.CREATE_SAVE': function(r){ toast(r.clientName + ' FY' + r.fy + ' の計画を作りました'); S.pf = null; S.fc.plans = null; S.fc.planId = r.planId; S.fc.tab = 'steps'; go('forecast'); },
   'YEAR.CLOSE': function(r){ S.year = { fy: '', preview: null, loading: false }; S.fc.plans = null;   // 計画の一覧の「締め済み」も新しくする
-    toast(r && r.already ? 'FY' + r.fy + ' はすでに締め済みです' : 'FY' + r.fy + ' を締めました（元の行は残したまま読み取り専用です）'); go('health'); },
+    toast(r && r.already ? 'FY' + r.fy + ' はすでに締め済みです' : 'FY' + r.fy + ' を締めました（元の行は残したまま読み取り専用です）'); goRec('health'); },
   'SYSTEM.RECOVER': function(r){ toast(r && r.nothing ? '書きかけの保存はありませんでした' : '保存の続きを書きました'); if (S.view === 'forecast' && S.fc.planId) loadForecast(S.fc.planId, true); }
 };
 function startJob(kind, payload){
@@ -438,18 +439,15 @@ function call(fn, args, ok, fail){
   r[fn].apply(r, args || []);
 }
 
-var NAV_ADMIN = [['home','ホーム'],['plans','計画の一覧'],['forecast','予測'],['members','メンバーと役割'],['clients','クライアント'],['settings','設定'],['audit','操作の記録'],['health','状態']];
+var NAV_ADMIN = [['home','ホーム'],['makers','メーカー'],['forecast','予測'],['settings','設定'],['records','記録と状態']];   // 2026-10-06 村井さん: 計画の一覧とメーカー→メーカー、メンバー→設定、操作の記録と状態→記録と状態
 /** メニューと画面の題の印（Dots2Lines と同じ線の絵: 20 の枠・線の太さ 1.7・角は丸） */
 var SVG_I = '<svg class="i" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
 var NAV_ICON = {
   home: SVG_I + '<path d="M3.5 9.2 10 3.8l6.5 5.4V16a1 1 0 0 1-1 1H12v-4.5H8V17H4.5a1 1 0 0 1-1-1z"/></svg>',
-  plans: SVG_I + '<rect x="3.5" y="3.5" width="13" height="13" rx="2"/><path d="M3.5 8h13M3.5 12.3h13M8 8v8.5"/></svg>',
   forecast: SVG_I + '<path d="M3.5 16.5h13"/><path d="M4.5 13 8 9.5l3 2.5 4.5-5.5"/><path d="M12.4 6.5h3.1v3.1"/></svg>',
-  members: SVG_I + '<circle cx="7.5" cy="7.5" r="2.5"/><path d="M3 15.5c.6-2.3 2.4-3.5 4.5-3.5s3.9 1.2 4.5 3.5"/><circle cx="13.8" cy="8" r="2"/><path d="M13 12c1.8 0 3.3.9 4 3"/></svg>',
-  clients: SVG_I + '<path d="M4 16.5V5.5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v11"/><path d="M12 8.5h3a1 1 0 0 1 1 1v7M3 16.5h14M7 7.5h2M7 10.5h2M7 13.5h2"/></svg>',
+  makers: SVG_I + '<path d="M4 16.5V5.5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v11"/><path d="M12 8.5h3a1 1 0 0 1 1 1v7M3 16.5h14M7 7.5h2M7 10.5h2M7 13.5h2"/></svg>',
   settings: SVG_I + '<path d="M4 6h7M15 6h1M4 14h1M9 14h7"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></svg>',
-  audit: SVG_I + '<path d="M10 3.2 15.5 5v4.6c0 3.4-2.3 6-5.5 7.2-3.2-1.2-5.5-3.8-5.5-7.2V5z"/><path d="m7.6 10 1.7 1.7 3.2-3.4"/></svg>',
-  health: SVG_I + '<path d="M2.5 10h3.2l1.8-4 3 8 2-4h5"/></svg>'
+  records: SVG_I + '<path d="M2.5 10h3.2l1.8-4 3 8 2-4h5"/></svg>'
 };
 /** 画面の題: 印（淡い水色の角丸）+ 題名。右の道具（計画を選ぶ欄など）は右端へ */
 function viewTitle(head){
@@ -463,9 +461,9 @@ function viewTitle(head){
 function render(){
   $('hdrUser').innerHTML = B.user && B.user.email ? '<b>' + esc(B.user.email.split('@')[0]) + '</b>' : '';
   $('hdrVer').textContent = B.user && B.user.isAdmin && B.app ? 'v' + B.app.version : '';
-  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN : B.setUp && B.allowed ? [['home','ホーム'],['plans','計画の一覧'],['forecast','予測']] : [['home','ホーム']];
+  var nav = B.user && B.user.isAdmin && B.setUp ? NAV_ADMIN : B.setUp && B.allowed ? [['home','ホーム'],['makers','メーカー'],['forecast','予測']] : [['home','ホーム']];
   $('nav').innerHTML = nav.map(function(n){ return '<button type="button" class="navbtn' + (S.view === n[0] ? ' on' : '') + '"' + (S.view === n[0] ? ' aria-current="page"' : '') + ' onclick="go(\'' + n[0] + '\')">' + (NAV_ICON[n[0]] || NAV_ICON.home) + '<span>' + n[1] + '</span></button>'; }).join('');
-  var v = { home: viewHome, plans: viewPlans, forecast: viewForecast, members: viewMembers, clients: viewClients, settings: viewSettings, audit: viewAudit, health: viewHealth }[S.view] || viewHome;
+  var v = { home: viewHome, makers: viewMakers, forecast: viewForecast, settings: viewSettings, records: viewRecords }[S.view] || viewHome;
   // 知らせ（エラー・裏の処理の進み）は、画面の見出しのすぐ下に出す（見出しの位置をどの画面でもそろえる）
   var body = v();
   var m = body.match(/^(<div class="page-head">[\s\S]*?<\/h1>[\s\S]*?<\/div>|<h1>[\s\S]*?<\/h1>)/);
@@ -488,14 +486,18 @@ function refreshJobBox(){ if ($('jobBox')) $('jobBox').innerHTML = jobBanner(); 
 function go(v){
   S.view = v;
   if (v === 'home' && B.setUp && B.allowed) homeLoad();
-  if (v === 'members' || v === 'clients') call('apiListDirectory', [], function(r){ S.dir = r; });
-  else if (v === 'settings') call('apiListSettings', [], function(r){ S.settings = r.settings; });
-  else if (v === 'audit') loadAudit();
-  else if (v === 'health') call('apiHealth', [], function(r){ S.health = r; });
-  else if (v === 'plans') call('apiPortfolio', [], function(r){ S.pf = r.plans; if (S.pfFy === undefined) S.pfFy = r.plans.length ? r.plans[0].fy : ''; });
+  if (v === 'settings') { call('apiListSettings', [], function(r){ S.settings = r.settings; }); call('apiListDirectory', [], function(r){ S.dir = r; }); }
+  else if (v === 'records') { if ((S.rec || 'health') === 'health') call('apiHealth', [], function(r){ S.health = r; }); else loadAudit(); }
+  else if (v === 'makers') {
+    call('apiPortfolio', [], function(r){ S.pf = r.plans; });
+    if (B.user && B.user.isAdmin) { call('apiListDirectory', [], function(r){ S.dir = r; }); if (!S.pfCand && !S.pcLoading) pfAutoCandidates(); }   // わかる範囲のメーカーを最初から出す
+  }
   else if (v === 'forecast') call('apiListPlans', [], function(r){ S.fc.plans = r.plans; if (!S.fc.planId && r.plans.length) S.fc.planId = r.plans[0].planId; if (S.fc.planId) loadForecast(S.fc.planId); });
   render();
 }
+/** 設定・記録と状態の中のタブへ移る */
+function goSet(t){ S.setTab = t; go('settings'); }
+function goRec(t){ S.rec = t; go('records'); }
 function guide(pose, html){ return '<div class="card"><div class="guide"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble">' + html + '</div></div></div>'; }
 /** 画面を読み込む間の表示: よみが画面の中で「観測中…」と話す（右下には出さない。2026-10-06 村井さん） */
 function loading(sub, extra, id, head){ return '<div class="card loading"' + (id ? ' id="' + id + '"' : '') + ' role="status" aria-live="polite"><div class="hero"><div class="charbox">' + YOMI_POSE.observe + '</div><div class="bubble">' + esc(head || '観測中…') + '<small>' + esc(sub || '読み込んでいます') + '</small>' + (extra || '') + '</div></div></div>'; }
@@ -504,7 +506,7 @@ function viewHome(){
   if (!B.allowed) return '<h1>Trends2Targets</h1>' + guide('guide', 'この画面を使う権限がありません。管理者に連絡してください。');
   if (!B.setUp) {
     if (B.user.isOwner) return '<h1>はじめに</h1>' + guide('explain', 'データ本体・操作の記録・バックアップの置き場所を作ります。所有者だけが実行できます。何度実行しても同じ結果になります。'
-      + '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(r){ B.setUp = true; toast(\'初期設定が終わりました\'); go(\'health\'); })">初期設定を実行</button></div>');
+      + '<div class="row"><button class="btn" onclick="call(\'apiSetup\', [], function(r){ B.setUp = true; toast(\'初期設定が終わりました\'); goRec(\'health\'); })">初期設定を実行</button></div>');
     return '<h1>Trends2Targets</h1>' + guide('observe', '準備中です。もうしばらくお待ちください。');
   }
   var h = B.home;
@@ -535,23 +537,15 @@ function viewHome(){
     : (p.mape !== null && p.mape >= 0.2) ? '<span class="chip st warn">誤差大</span>' : !p.runs ? '<span class="chip st off">予測なし</span>' : !p.officialNo ? '<span class="chip st off">公式版なし</span>' : '<span class="chip st ok">公式版 v' + p.officialNo + '</span>'; };
   var ch = function(p){ var c = pfChange(p); return c === null ? '-' : Math.abs(c) >= 0.05 ? '<span class="chip warn">' + pct1(c) + '</span>' : pct1(c); };
   var rows = plans.slice().sort(function(a, b){ return rank(a) - rank(b) || String(a.clientName).localeCompare(String(b.clientName), 'ja'); });
-  var table = '<div class="card"><div class="card-head"><h2>計画の状態（FY' + esc(h.fy) + '）</h2><button class="btn btn-ghost btn-sm" onclick="go(\'plans\')">計画の一覧</button></div>'
+  var table = '<div class="card"><div class="card-head"><h2>計画の状態（FY' + esc(h.fy) + '）</h2><button class="btn btn-ghost btn-sm" onclick="go(\'makers\')">メーカー</button></div>'
     + (rows.length ? '<div class="tblwrap"><table class="tbl"><colgroup><col><col style="width:136px"><col style="width:96px"><col style="width:136px"><col style="width:144px"><col style="width:152px"></colgroup>'
-      + '<thead><tr><th>クライアント</th><th class="num">P50</th><th class="num">前回から</th><th class="num">最終予算</th><th>状態</th><th></th></tr></thead><tbody>'
+      + '<thead><tr><th>メーカー</th><th class="num">P50</th><th class="num">前回から</th><th class="num">最終予算</th><th>状態</th><th></th></tr></thead><tbody>'
       + rows.slice(0, 12).map(function(p){ return '<tr><td>' + esc(p.clientName) + '</td><td class="num">' + yen(p.p50) + '</td><td class="num">' + ch(p) + '</td><td class="num">' + yen(p.budget) + '</td><td>' + state(p) + '</td>'
         + '<td><button class="btn btn-ghost btn-sm" onclick="openPlan(\'' + esc(p.planId) + '\')">開く</button></td></tr>'; }).join('') + '</tbody></table></div>'
       + (rows.length > 12 ? '<p class="meta mt8">ほかに ' + (rows.length - 12) + ' 計画</p>' : '') : '<p class="note">FY' + esc(h.fy) + ' の計画はまだありません</p>') + '</div>';
-  var recent = '<div class="card"><h2>最近の動き</h2>' + (h.recent.length ? '<ul class="recent">' + h.recent.map(function(x){ return '<li><span class="meta">' + esc(String(x.at || '').replace('T', ' ').slice(5, 16)) + '</span><span>' + esc(x.label) + '・' + esc(x.clientName)
-    + ' <span class="who">' + esc(x.actor) + '</span></span></li>'; }).join('') + '</ul>' : '<p class="note">まだ動きはありません</p>') + '</div>';
-  return '<h1>ホーム</h1>' + hero + kpis + table + recent + homeRolesCard();   // 1 カラム（2026-10-06 村井さん）
+  return '<h1>ホーム</h1>' + hero + kpis + table;   // 1 カラム・概要と重要点だけ（2026-10-06 村井さん: 最近の動き・役割は出さない）
 }
 function homeKpi(label, v, unit, tipText, main){ return '<div class="kpi' + (main ? ' main' : '') + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">' + v + (v === '-' ? '' : '<span class="u">' + unit + '</span>') + '</div></div>'; }
-function homeRolesCard(){
-  var roles = (B.user.roles || []).map(function(r){
-    return '<span class="chip"' + (r.scopeType === 'CLIENT' ? ' data-tip="このクライアントだけ: ' + esc(r.clientId) + '"' : '') + '>' + esc(r.label) + (r.scopeType === 'CLIENT' ? '（限定）' : '') + '</span>';
-  }).join('');
-  return '<div class="card"><h2>あなたの役割</h2><div class="row c mt0">' + (roles || '<span class="chip off">閲覧・情報提供</span>') + '</div></div>';
-}
 function homeLoad(){ S.homeLoading = true; call('apiHome', [], function(r){ S.homeLoading = false; B.home = r; }, function(){ S.homeLoading = false; }); }
 /** 計画を開く（タブも選ぶ） */
 function openPlan(planId, tab){ S.fc.planId = planId; S.fc.view = null; S.fc.data = null; S.fc.tab = tab || 'forecast'; go('forecast'); }
@@ -569,9 +563,9 @@ function yomiSays(h){
   plans.filter(function(p){ return p.stepErrors.length; }).forEach(function(p){ out.push({ lvl: 'ng', pose: 'discover', text: nm(p) + ' の手順でエラーを観測しました。「進み」で何が止まったかを確かめてください。', act: ['進みを開く', open(p, 'steps')] }); });
   if (sys) {
     var hk = sys.housekeeping, b = sys.backup || {};
-    if (hk && hk.ok === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日の手入れで、要確認が ' + (hk.problems || []).length + ' 件ありました。「状態」で中身を見てください。', act: null });
-    if (b.enabled === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日のバックアップが、まだ動いていません。「状態」で有効にできます。', act: null });
-    else if (b.ageHours !== null && b.ageHours !== undefined && b.ageHours > 26) out.push({ lvl: 'warn', pose: 'explain', text: 'バックアップが ' + b.ageHours + ' 時間止まっています。「状態」を確かめてください。', act: null });
+    if (hk && hk.ok === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日の手入れで、要確認が ' + (hk.problems || []).length + ' 件ありました。「記録と状態」で中身を見てください。', act: null });
+    if (b.enabled === false) out.push({ lvl: 'warn', pose: 'explain', text: '毎日のバックアップが、まだ動いていません。「記録と状態」で有効にできます。', act: null });
+    else if (b.ageHours !== null && b.ageHours !== undefined && b.ageHours > 26) out.push({ lvl: 'warn', pose: 'explain', text: 'バックアップが ' + b.ageHours + ' 時間止まっています。「記録と状態」を確かめてください。', act: null });
   }
   plans.filter(function(p){ return p.mape !== null && p.mape >= 0.2; }).forEach(function(p){ out.push({ lvl: 'warn', pose: 'discover', text: nm(p) + ' の月の誤差が ' + (p.mape * 100).toFixed(1) + '% と大きめです。「検証」で外れた月の原因を読み解きましょう。', act: ['検証を開く', open(p, 'eval')] }); });
   plans.filter(function(p){ return !p.runs && p.p50 === null; }).forEach(function(p){ out.push({ lvl: 'info', pose: 'explain', text: nm(p) + ' はまだ予測がありません。「進み」で A-2 → A-3 → 予測の順に進めましょう。', act: ['進みを開く', open(p, 'steps')] }); });
@@ -581,56 +575,68 @@ function yomiSays(h){
   h.mine.forEach(function(m){ out.push({ lvl: 'info', pose: 'observe', text: '出した公式版（' + nm(m) + ' v' + m.versionNo + '）は、承認者の確認を待っています。', act: null }); });
   var order = { ng: 0, warn: 1, info: 2 };
   out.sort(function(a, b){ return order[a.lvl] - order[b.lvl]; });
-  if (!out.length) out.push({ lvl: 'ok', pose: 'done', text: plans.length ? '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。' : 'FY' + h.fy + ' の計画はまだありません。「計画の一覧」から作れます。', act: plans.length ? ['計画の一覧', "go('plans')"] : ['計画を作る', "go('plans')"] });
+  if (!out.length) out.push({ lvl: 'ok', pose: 'done', text: plans.length ? '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。' : 'FY' + h.fy + ' の計画はまだありません。「メーカー」から作れます。', act: plans.length ? ['メーカー', "go('makers')"] : ['計画を作る', "go('makers')"] });
   return out;
 }
 
-// ---- 計画の一覧（全部のクライアント × 年度）と、新しい計画を作る ----
-var PF_SORT = [['client', 'クライアント順'], ['p50', 'P50 の大きい順'], ['change', '前回からの変化の大きい順'], ['mape', '誤差の大きい順']];
+// ---- メーカー（わかる範囲のメーカーを最初から並べ、年度ごとの予算策定の状態だけを見せる。数字は出さない。2026-10-06 村井さん） ----
 function pfChange(p){ return p.p50 !== null && p.prevP50 ? p.p50 / p.prevP50 - 1 : null; }
-function pfRows(){
-  var q = String(S.pfQ || '').trim().toLowerCase(), fy = S.pfFy || '';
-  var rows = (S.pf || []).filter(function(p){ return (!fy || p.fy === fy) && (!q || String(p.clientName).toLowerCase().indexOf(q) >= 0); });
-  var k = S.pfSort || 'client', val = function(p){ return k === 'p50' ? p.p50 : k === 'change' ? Math.abs(pfChange(p) || 0) : k === 'mape' ? p.mape : null; };
-  if (k !== 'client') rows = rows.slice().sort(function(a, b){ var x = val(a), y = val(b); return (y === null ? -Infinity : y) - (x === null ? -Infinity : x); });
-  return rows;
+var MK_STATES = { none: ['未着手', 'off'], draft: ['策定中', ''], pending: ['承認待ち', 'warn'], official: ['承認済み', 'ok'] };
+function mkFys(){
+  var fys = (S.pf || []).map(function(p){ return String(p.fy); });
+  fys.push(String(pfDefaultFy()));
+  return fys.filter(function(x, i, a){ return a.indexOf(x) === i; }).sort().reverse();
 }
-function viewPlans(){
-  if (!S.pf) return '<h1>計画の一覧</h1>' + loading();
-  var fys = S.pf.map(function(p){ return p.fy; }).filter(function(x, i, a){ return a.indexOf(x) === i; });
-  var rows = pfRows();
-  var pct1 = function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
-  var html = '<h1>計画の一覧</h1>';
-  html += '<div class="card"><h2>計画（クライアント × 年度）' + tip('P50 は最新の予測の年度合計（まだ予測していない計画は、計画を作ったときの値）。\n月の誤差は、実績のある月の予測（P50）と実績の差の割合の平均。\n公式版は承認済みの版（オレンジは承認待ち）') + '</h2><div class="row mt0">'
-    + '<div class="field"><label for="pf_q">クライアント</label><input class="inp" id="pf_q" value="' + esc(S.pfQ || '') + '" oninput="S.pfQ=this.value;pfRefresh()" placeholder="名前で絞り込む"></div>'
-    + '<div class="field"><label for="pf_fy">年度</label><select class="inp sm" id="pf_fy" onchange="S.pfFy=this.value;render()"><option value="">すべて</option>'
-    + fys.map(function(f){ return '<option value="' + esc(f) + '"' + (S.pfFy === f ? ' selected' : '') + '>FY' + esc(f) + '</option>'; }).join('') + '</select></div>'
-    + '<div class="field"><label for="pf_sort">並べ方</label><select class="inp" id="pf_sort" onchange="S.pfSort=this.value;render()">'
-    + PF_SORT.map(function(s){ return '<option value="' + s[0] + '"' + ((S.pfSort || 'client') === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div></div>'
-    + '<div class="tblwrap mt12" id="pfTable">' + pfTable(rows, pct1) + '</div></div>';
-  if (B.user.isAdmin) html += pfPoolCard() + pfCreateCard();
+/** メーカーの一覧: 計画のあるメーカー・登録済み・ZAC の実績の候補をまとめ、選んだ年度の計画の状態を付ける */
+function mkRows(fy){
+  var map = {}, order = [];
+  var add = function(name, o){ var k = String(name || '').trim(); if (!k) return; if (!map[k]) { map[k] = { name: k, zac: '', plan: null }; order.push(k); } Object.keys(o || {}).forEach(function(x){ if (o[x]) map[k][x] = o[x]; }); };
+  (S.pf || []).forEach(function(p){ add(p.clientName, String(p.fy) === fy ? { plan: p } : {}); });
+  (S.dir ? S.dir.clients : []).filter(function(c){ return c.is_active; }).forEach(function(c){ add(c.display_name || c.client_name, { zac: c.client_name }); });
+  (S.pfCand ? S.pfCand.candidates : []).forEach(function(n){ add(n.display, { zac: n.zac }); });
+  return order.map(function(k){ var r = map[k], p = r.plan;
+    r.state = !p ? 'none' : p.pendingNo ? 'pending' : p.officialNo ? 'official' : 'draft';
+    return r; }).sort(function(a, b){ return String(a.name).localeCompare(String(b.name), 'ja'); });
+}
+/** 表示する年度: 選んだ年度、無ければ計画のある最新の年度 */
+function mkFy(){
+  var fys = mkFys();
+  if (S.mkFy && fys.indexOf(S.mkFy) >= 0) return S.mkFy;
+  return fys.filter(function(f){ return (S.pf || []).some(function(p){ return String(p.fy) === f; }); })[0] || fys[0];
+}
+function viewMakers(){
+  if (!S.pf) return '<h1>メーカー</h1>' + loading();
+  var fys = mkFys(), fy = mkFy(), all = mkRows(fy);
+  var count = function(st){ return all.filter(function(r){ return r.state === st; }).length; };
+  var summary = '<div class="row c mt0">' + ['official', 'pending', 'draft', 'none'].map(function(st){ return '<span class="chip ' + MK_STATES[st][1] + '">' + MK_STATES[st][0] + ' ' + count(st) + '</span>'; }).join('') + '</div>';
+  var html = '<h1>メーカー</h1><div class="card"><div class="row mt0"><div class="field"><label for="mk_fy">年度</label><select class="inp sm" id="mk_fy" onchange="S.mkFy=this.value;render()">'
+    + fys.map(function(f){ return '<option value="' + esc(f) + '"' + (f === fy ? ' selected' : '') + '>FY' + esc(f) + '</option>'; }).join('') + '</select></div>'
+    + '<div class="field"><label for="mk_q">メーカー</label><input class="inp" id="mk_q" value="' + esc(S.mkQ || '') + '" oninput="S.mkQ=this.value;mkRefresh()" placeholder="名前で絞り込む"></div></div>'
+    + '<div class="mt12">' + summary + '</div>'
+    + '<div class="tblwrap mt12" id="mkTable">' + mkTable(all, fy) + '</div>'
+    + (S.pcLoading ? '<p class="meta mt8">ZAC の実績からメーカーを探しています…</p>' : '') + '</div>';
+  if (B.user.isAdmin) html += pfCreateCard();
   return html;
 }
-function pfRefresh(){ var el = $('pfTable'); if (el) el.innerHTML = pfTable(pfRows(), function(v){ return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }); }
-function pfTable(rows, pct1){
-  if (!rows.length) return '<p class="note">' + (S.pf.length ? '条件に合う計画がありません' : 'まだ計画がありません') + '</p>';
-  var sum = function(k){ return rows.reduce(function(a, p){ return a + (p[k] || 0); }, 0); };
-  var body = rows.map(function(p){
-    var ch = pfChange(p), gap = p.budget !== null && p.p50 !== null ? p.budget / p.p50 - 1 : null;
-    var off = p.officialNo ? '<span class="chip ok">v' + p.officialNo + '</span>' : '<span class="note">-</span>';
-    if (p.pendingNo) off += ' <span class="chip warn" data-tip="承認待ち">v' + p.pendingNo + '</span>';
-    return '<tr><td class="wrap">' + esc(p.clientName) + (p.stepErrors.length ? ' <span class="chip ng" data-tip="' + esc(p.stepErrors.join('、')) + '">手順のエラー</span>' : '') + '</td><td>FY' + esc(p.fy) + '</td>'
-      + '<td class="num">' + yen(p.p50) + '</td><td class="num">' + (ch === null ? '-' : Math.abs(ch) >= 0.05 ? '<span class="chip warn">' + pct1(ch) + '</span>' : pct1(ch)) + '</td>'
-      + '<td class="num">' + yen(p.budget) + '</td><td class="num">' + pct1(gap) + '</td>'
-      + '<td class="num"' + (p.mape === null ? '' : ' data-tip="' + p.mapeMonths + ' か月の平均"') + '>' + (p.mape === null ? '-' : (p.mape >= 0.2 ? '<span class="chip warn">' : '') + (p.mape * 100).toFixed(1) + '%' + (p.mape >= 0.2 ? '</span>' : '')) + '</td>'
-      + '<td>' + off + '</td><td>' + esc(String(p.lastRunAt || '').replace('T', ' ').slice(5, 16) || '-') + '</td>'
-      + '<td><button class="btn btn-ghost btn-sm" onclick="S.fc.planId=\'' + esc(p.planId) + '\';S.fc.view=null;S.fc.data=null;go(\'forecast\')">開く</button></td></tr>';
-  }).join('');
-  var foot = S.pfFy ? '<tr class="total"><td>合計（' + rows.length + ' 件）</td><td>FY' + esc(S.pfFy) + '</td><td class="num">' + yen(sum('p50')) + '</td><td></td><td class="num">' + yen(sum('budget')) + '</td><td colspan="5"></td></tr>' : '';
-  return '<table class="tbl wide"><colgroup><col><col style="width:88px"><col style="width:120px"><col style="width:96px"><col style="width:120px"><col style="width:88px"><col style="width:96px"><col style="width:96px"><col style="width:120px"><col style="width:152px"></colgroup>'
-    + '<thead><tr><th>クライアント</th><th>年度</th><th class="num">P50（最新）</th><th class="num">前回から</th><th class="num">最終予算</th><th class="num">予算/P50</th><th class="num">月の誤差</th><th>公式版</th><th>最後の予測</th><th></th></tr></thead><tbody>'
-    + body + foot + '</tbody></table>';
+function mkTable(all, fy){
+  var q = String(S.mkQ || '').trim().toLowerCase();
+  var rows = all.filter(function(r){ return !q || r.name.toLowerCase().indexOf(q) >= 0; });
+  if (!rows.length) return '<p class="note">' + (q ? '条件に合うメーカーがありません' : 'まだメーカーがありません') + '</p>';
+  return '<table class="tbl mk"><colgroup><col><col style="width:144px"><col style="width:152px"></colgroup><thead><tr><th>メーカー</th><th>予算策定</th><th></th></tr></thead><tbody>'
+    + rows.map(function(r){
+      var st = MK_STATES[r.state], p = r.plan;
+      var act = p ? '<button class="btn btn-ghost btn-sm" onclick="openPlan(\'' + esc(p.planId) + '\')">開く</button>'
+        : B.user.isAdmin ? '<button class="btn btn-ghost btn-sm" onclick="mkCreate(\'' + esc(String(r.zac || r.name).replace(/['\\]/g, '')) + '\',\'' + esc(fy) + '\')">計画を作る</button>' : '';
+      var tipText = p && p.pendingNo ? 'v' + p.pendingNo + ' が承認待ち' : p && p.officialNo ? '公式版 v' + p.officialNo : '';
+      return '<tr><td class="wrap">' + esc(r.name) + '</td><td><span class="chip st ' + st[1] + '"' + (tipText ? ' data-tip="' + esc(tipText) + '"' : '') + '>' + st[0] + '</span></td><td>' + act + '</td></tr>';
+    }).join('') + '</tbody></table>';
 }
+/** 絞り込み: 表だけを描き直す（入力中の欄を消さない） */
+function mkRefresh(){ var el = $('mkTable'); if (el) el.innerHTML = mkTable(mkRows(mkFy()), mkFy()); }
+/** 計画のないメーカーの「計画を作る」: 下の欄に名前と年度を入れて移る */
+function mkCreate(name, fy){ S.pcClient = name; S.pcFy = fy; render(); var el = $('pc_people'); if (el && el.scrollIntoView) { el.scrollIntoView({ block: 'center' }); el.focus(); } }
+/** 新しい計画の年度の目安（10 月からは次の年度） */
+function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
 function pfPoolCard(){
   var p = S.pfPool;
   var html = '<div class="card"><div class="card-head"><h2>全計画での学習' + tip('全部の計画の「当たった数」から、ベータ二項の経験ベイズで情報源の信頼度の事前分布を作ります。\n四半期レビュー（C-1）の信頼度の提案がこれを使い、予測に効くのは提案を承認（C-3）してから') + '</h2></div>';
@@ -643,19 +649,23 @@ function pfPoolCard(){
 function pfCreateCard(){
   var c = S.pfCand;
   var list = c ? '<datalist id="pc_list">' + c.candidates.map(function(n){ return '<option value="' + esc(n.display) + '">' + (n.display !== n.zac ? esc(n.zac) : '') + '</option>'; }).join('') + '</datalist>' : '';
-  return '<div class="card"><div class="card-head"><h2>計画を作る' + tip('新しいクライアント × 年度の計画を作ります。A-1 初期セットアップと同じシートを作り（1〜3 分ほど）、作った後は「進み」で A-2 → A-3 → 予測の順に実行します') + '</h2></div>'
-    + '<div class="row mt0"><div class="field"><label for="pc_client">クライアント（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
+  return '<div class="card"><div class="card-head"><h2>計画を作る' + tip('新しいメーカー × 年度の計画を作ります。A-1 初期セットアップと同じシートを作り（1〜3 分ほど）、作った後は「進み」で A-2 → A-3 → 予測の順に実行します') + '</h2></div>'
+    + '<div class="row mt0"><div class="field"><label for="pc_client">メーカー（ZAC の名前）</label><input class="inp md" id="pc_client" list="pc_list" value="' + esc(S.pcClient || '') + '" oninput="S.pcClient=this.value" placeholder="' + (c ? '候補から選ぶか、入力する' : '名前を入力する') + '">' + list + '</div>'
     + '<div class="field"><label for="pc_fy">年度（FY）</label><input class="inp sm num" id="pc_fy" type="number" min="2000" max="2100" value="' + esc(S.pcFy || (c ? c.defaultFy : pfDefaultFy())) + '" oninput="S.pcFy=this.value"></div>'
     + '<div class="field"><label for="pc_people">担当者（カンマ区切り）</label><input class="inp" id="pc_people" value="' + esc(S.pcPeople || '') + '" oninput="S.pcPeople=this.value"></div>'
-    + actBtn('<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す' : '候補を読み込む') + '</button>', 'ZAC の実績にある直近 2 年のクライアントを候補に出します' + (c ? '（今は ' + c.candidates.length + ' 件）' : '')) + '</div>'
+    + actBtn('<button class="btn btn-ghost" ' + (S.pcLoading ? 'disabled ' : '') + 'onclick="pfLoadCandidates()">' + (S.pcLoading ? '読み込み中…' : c ? '候補を読み直す' : '候補を読み込む') + '</button>', 'ZAC の実績にある直近 2 年のメーカーを候補に出します' + (c ? '（今は ' + c.candidates.length + ' 件）' : '')) + '</div>'
     + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="pfCreate()">計画を作る</button></div></div>';
 }
-/** 新しい計画の年度の目安（10 月からは次の年度） */
-function pfDefaultFy(){ var d = new Date(), fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return fy + (d.getMonth() >= 9 ? 1 : 0); }
 function pfLoadCandidates(){ S.pcLoading = true; render(); call('apiPlanCandidates', [{ refresh: !!S.pfCand }], function(r){ S.pcLoading = false; S.pfCand = r; if (!S.pcFy) S.pcFy = String(r.defaultFy); }, function(){ S.pcLoading = false; render(); }); }
+/** メーカーの画面を開いたときの候補の読み込み（失敗しても知らせを出さない。ZAC の実績の場所が未設定などのとき。押して読むときは知らせる） */
+function pfAutoCandidates(){
+  S.pcLoading = true;
+  google.script.run.withSuccessHandler(function(r){ S.pcLoading = false; S.pfCand = r; if (!S.pcFy) S.pcFy = String(r.defaultFy); if (S.view === 'makers') render(); })
+    .withFailureHandler(function(){ S.pcLoading = false; if (S.view === 'makers') render(); }).apiPlanCandidates({ refresh: false });
+}
 function pfCreate(){
   var typed = String($('pc_client').value || '').trim(), fy = String($('pc_fy').value || '').trim(), people = String($('pc_people').value || '').trim();
-  if (!typed || !fy || !people) { toast('クライアント・年度・担当者を入れてください', true); return; }
+  if (!typed || !fy || !people) { toast('メーカー・年度・担当者を入れてください', true); return; }
   // 候補から選んだときは ZAC の名前で作る（売上の取り込みで照合するため）。画面にはふつうの表記を出す
   var hit = S.pfCand && S.pfCand.candidates.filter(function(n){ return n.display === typed || n.zac === typed; })[0];
   var c = hit ? hit.zac : typed;
@@ -663,7 +673,24 @@ function pfCreate(){
   startJob('PLAN.CREATE', { clientName: c, fy: Number(fy), peopleCsv: people });
 }
 
-function viewMembers(){
+// ---- 設定（業務の設定・メンバーと役割・メーカーの表示名・全計画での学習）と、記録と状態（状態・操作の記録）。2026-10-06 村井さん ----
+/** 画面の中身から先頭の見出し（<h1>）を外す（タブの中に入れるため） */
+function bodyOf(html){ return String(html).replace(/^<h1>[\s\S]*?<\/h1>/, ''); }
+function subTabs(list, cur, onclick){ return '<div class="tabs sub">' + list.map(function(t){ return '<button class="tab' + (cur === t[0] ? ' on' : '') + '" onclick="' + onclick + '(\'' + t[0] + '\')">' + t[1] + '</button>'; }).join('') + '</div>'; }
+var SET_TABS = [['biz', '業務'], ['members', 'メンバー'], ['names', '表示名'], ['learn', '学習']];
+function setTab(t){ S.setTab = t; render(); }
+function viewSettings(){
+  var t = S.setTab || 'biz';
+  var body = t === 'members' ? bodyOf(membersView()) : t === 'names' ? bodyOf(namesView()) : t === 'learn' ? pfPoolCard() : bodyOf(settingsBizView());
+  return '<h1>設定</h1>' + subTabs(SET_TABS, t, 'setTab') + body;
+}
+var REC_TABS = [['health', '状態'], ['audit', '操作の記録']];
+function viewRecords(){
+  var t = S.rec || 'health';
+  return '<h1>記録と状態</h1>' + subTabs(REC_TABS, t, 'goRec') + (t === 'audit' ? bodyOf(auditView()) : bodyOf(healthView()));
+}
+
+function membersView(){
   var d = S.dir;
   if (!d) return '<h1>メンバーと役割</h1>' + loading();
   var clientName = {}; d.clients.forEach(function(c){ clientName[c.client_id] = c.display_name || c.client_name; });
@@ -677,7 +704,7 @@ function viewMembers(){
   }).join('');
   var memberOpts = d.members.filter(function(m){ return m.is_active; }).map(function(m){ return '<option value="' + esc(m.email) + '">' + esc(m.display_name) + '（' + esc(m.email) + '）</option>'; }).join('');
   var roleOpts = d.grantable.map(function(r){ return '<option value="' + r + '">' + esc(d.roleLabels[r]) + '</option>'; }).join('');
-  var clientOpts = '<option value="">（全クライアント）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.display_name || c.client_name) + '</option>'; }).join('');
+  var clientOpts = '<option value="">（全メーカー）</option>' + d.clients.filter(function(c){ return c.is_active; }).map(function(c){ return '<option value="' + esc(c.client_id) + '">' + esc(c.display_name || c.client_name) + '</option>'; }).join('');
   return '<h1>メンバーと役割</h1>'
     + '<div class="card"><h2>メンバー' + tip('社内の人は、登録しなくても閲覧と情報提供ができます。予算策定担当・承認者・管理者にする人を登録します') + '</h2>'
     + '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:var(--pitch)"><col style="width:calc(2 * var(--pitch))"><col style="width:var(--pitch)"><col></colgroup><thead><tr><th>名前</th><th>メール</th><th>部署</th><th>役割</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
@@ -687,30 +714,30 @@ function viewMembers(){
     + '<button class="btn" onclick="saveMember()">メンバーを登録</button></div></div>'
     + '<div class="card"><h2>役割を付ける</h2><div class="row"><div class="field"><label for="g_email">メンバー</label><select class="inp lg" id="g_email">' + memberOpts + '</select></div>'
     + '<div class="field"><label for="g_role">役割</label><select class="inp sm" id="g_role">' + roleOpts + '</select></div>'
-    + '<div class="field"><label for="g_client">範囲 ' + tip('予算策定担当だけ、クライアントを絞れます') + '</label><select class="inp" id="g_client">' + clientOpts + '</select></div>'
+    + '<div class="field"><label for="g_client">範囲 ' + tip('予算策定担当だけ、メーカーを絞れます') + '</label><select class="inp" id="g_client">' + clientOpts + '</select></div>'
     + '<button class="btn" onclick="grant()">役割を付ける</button></div></div>';
 }
-function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); go('members'); }); }
-function grant(){ var c = $('g_client').value; call('apiGrantRole', [{ email: $('g_email').value, role: $('g_role').value, scopeType: c ? 'CLIENT' : 'ALL', clientId: c }], function(){ toast('役割を付けました'); go('members'); }); }
-function revoke(id, ver){ if (!confirm('この役割を外しますか？')) return; call('apiRevokeRole', [{ roleId: id, rowVersion: ver }], function(){ toast('役割を外しました'); go('members'); }); }
+function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); goSet('members'); }); }
+function grant(){ var c = $('g_client').value; call('apiGrantRole', [{ email: $('g_email').value, role: $('g_role').value, scopeType: c ? 'CLIENT' : 'ALL', clientId: c }], function(){ toast('役割を付けました'); goSet('members'); }); }
+function revoke(id, ver){ if (!confirm('この役割を外しますか？')) return; call('apiRevokeRole', [{ roleId: id, rowVersion: ver }], function(){ toast('役割を外しました'); goSet('members'); }); }
 
-function viewClients(){
+function namesView(){
   var d = S.dir;
-  if (!d) return '<h1>クライアント</h1>' + loading();
+  if (!d) return '<h1>メーカー</h1>' + loading();
   var rows = d.clients.map(function(c, i){
     return '<tr><td><div class="cellform"><input class="inp cell" id="cn_' + i + '" value="' + esc(c.display_name) + '" aria-label="画面の名前">'
       + '<button class="btn btn-ghost btn-sm" onclick="saveClientName(' + i + ')">保存</button></div>' + (c.display_auto ? '' : '<span class="chip" data-tip="手で決めた名前。空にして保存すると自動に戻ります">手で決めた</span>') + '</td>'
-      + '<td>' + esc(c.client_name) + '</td><td>' + esc(c.zac_code) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>';
+      + '<td>' + esc(c.client_name) + '</td><td>' + (c.is_active ? '' : '<span class="chip off">無効</span>') + '</td></tr>';
   }).join('');
-  return '<h1>クライアント</h1><div class="card"><h2>クライアント' + tip('画面には「画面の名前」を出します。ZAC の名前から、半角カナを全角に直し、株式会社・（株）などを除いて自動で作ります。ふつうの表記と違うときだけ直してください。ZAC の名前は売上の取り込みで使うので変わりません') + '</h2>'
-    + '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:calc(3 * var(--pitch))"><col style="width:calc(2 * var(--pitch))"><col style="width:var(--pitch)"><col></colgroup><thead><tr><th>画面の名前</th><th>ZAC の名前</th><th>ZAC コード</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="4" class="note">まだ登録がありません</td></tr>') + '</tbody></table></div>'
-    + '<div class="row foot"><div class="field"><label for="c_name">クライアント名（ZAC の名前）</label><input class="inp" id="c_name"></div><div class="field"><label for="c_zac">ZAC コード（任意）</label><input class="inp sm" id="c_zac"></div>'
-    + '' + actBtn('<button class="btn" onclick="saveClient()">クライアント追加</button>', '計画を作ると、クライアントは自動で登録されます') + '</div></div>';
+  return '<h1>メーカー</h1><div class="card"><h2>メーカー' + tip('画面には「画面の名前」を出します。ZAC の名前から、半角カナを全角に直し、株式会社・（株）などを除いて自動で作ります。ふつうの表記と違うときだけ直してください。ZAC の名前は売上の取り込みで使うので変わりません') + '</h2>'
+    + '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:calc(3 * var(--pitch))"><col style="width:calc(2 * var(--pitch))"><col></colgroup><thead><tr><th>画面の名前</th><th>ZAC の名前</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="note">まだ登録がありません</td></tr>') + '</tbody></table></div>'
+    + '<div class="row foot"><div class="field"><label for="c_name">メーカー名（ZAC の名前）</label><input class="inp" id="c_name"></div>'
+    + '' + actBtn('<button class="btn" onclick="saveClient()">メーカー追加</button>', '計画を作ると、メーカーは自動で登録されます') + '</div></div>';
 }
-function saveClientName(i){ var c = S.dir.clients[i]; call('apiSaveClientName', [{ clientId: c.client_id, displayName: $('cn_' + i).value, rowVersion: c.display_row_version }], function(r){ toast(r.auto ? '自動の名前にしました' : '名前を保存しました'); go('clients'); }); }
-function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value, zacCode: $('c_zac').value }], function(){ toast('追加しました'); go('clients'); }); }
+function saveClientName(i){ var c = S.dir.clients[i]; call('apiSaveClientName', [{ clientId: c.client_id, displayName: $('cn_' + i).value, rowVersion: c.display_row_version }], function(r){ toast(r.auto ? '自動の名前にしました' : '名前を保存しました'); goSet('names'); }); }
+function saveClient(){ call('apiSaveClient', [{ clientName: $('c_name').value }], function(){ toast('追加しました'); goSet('names'); }); }
 
-function viewSettings(){
+function settingsBizView(){
   var s = S.settings;
   if (!s) return '<h1>設定</h1>' + loading();
   var rows = s.map(function(x, i){
@@ -723,11 +750,11 @@ function viewSettings(){
   }).join('');
   return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定' + tip('変えた値は履歴として残り、操作の記録にも変更前後が残ります') + '</h2></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:calc(2 * var(--pitch))"><col style="width:calc(2 * var(--pitch))"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
 }
-function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); go('settings'); }); }
+function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); goSet('biz'); }); }
 
 // 操作の名前（外した機能の名前も、前の記録を読めるように残す: MIGRATION.*・FORECAST.PARITY.*・LEGACY.*）
 var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバーの登録', 'ROLE.GRANT': '役割の付与', 'ROLE.REVOKE': '役割の取り消し',
-  'CLIENT.SAVE': 'クライアントの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
+  'CLIENT.SAVE': 'メーカーの登録', 'SETTING.SAVE': '設定の変更', 'BACKUP.RUN': 'バックアップ', 'BACKUP.DAILY': '毎日のバックアップ',
   'BACKUP.ENABLE': '毎日のバックアップを有効化', 'DIRECTORY.LIST': '名簿を見る', 'SETTINGS.LIST': '設定を見る', 'AUDIT.LIST': '記録を見る', 'HEALTH.CHECK': '状態を見る',
   'MIGRATION.DRYRUN': '旧ブックの試し読み', 'MIGRATION.IMPORT': '旧ブックの取り込み', 'MIGRATION.INSPECT': '旧ブックの試し読み', 'JOB.START': '処理の開始', 'JOB.STATUS': '処理の状態', 'JOB.RUN': '処理の実行',
   'FORECAST.PARITY.A': '計算の一致の確認（旧ブックの写し）', 'FORECAST.PARITY.B': '計算の一致の確認（データ本体）', 'PLANS.LIST': '計画を見る',
@@ -735,7 +762,7 @@ var ACTION_LABELS = { 'SETUP.INIT': '初期設定', 'MEMBER.SAVE': 'メンバー
   'PLAN.VIEW_CHECK': '画面の中身の確認', 'SYSTEM.RECOVER': '保存の続き', 'SCHEMA.ENSURE': '表の追加',
   'AUDIT.VERIFY': '記録の鎖の確認', 'HOUSEKEEPING.RUN': '手入れ', 'HOUSEKEEPING': '毎日の手入れ', 'BACKUP': 'バックアップ', 'JOURNAL.RECOVER': '保存の続き（自動）',
   'PLAN.CREATE.BUILD': '計画の作成（準備）', 'PLAN.CREATE.SAVE': '計画の作成（保存）', 'VERSION.SUBMIT': '公式版を出す', 'VERSION.DECIDE': '公式版の承認・却下',
-  'CLIENT.NAME': 'クライアントの画面の名前', 'LEARN.POOL': '学習の事前分布', 'LEGACY.ARCHIVE': '旧ブックをアーカイブへ', 'PORTFOLIO.LIST': '計画の一覧を見る' };
+  'CLIENT.NAME': 'メーカーの画面の名前', 'LEARN.POOL': '学習の事前分布', 'LEGACY.ARCHIVE': '旧ブックをアーカイブへ', 'PORTFOLIO.LIST': '計画の一覧を見る' };
 var PLAN_ACTION_LABELS = { 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': 'インサイトの記入の保存', 'REVIEW.DECIDE': '四半期レビューの承認の保存',
   'SETUP.PEOPLE': '担当者の保存', 'IMPORT.SALES': 'A-2 売上データの取り込み', 'IMPORT.ACTUALS': 'B-1 検証用の実績の取り込み', 'SALES.AGGREGATE': 'A-3 売上データの加工', 'AI.RESEARCH': 'A-4 AI 調査',
   'EVAL.REPORT': 'B-2 検証レポートの更新', 'EVAL.DASHBOARD': 'B-3 ダッシュボードの更新', 'EVAL.INSIGHTS': 'B-4 学習インサイトの更新', 'LEARN.MONTHLY': 'B-5 月次の自動学習',
@@ -747,7 +774,7 @@ function actionName(a){
   if (m && PLAN_ACTION_LABELS[m[1]]) return PLAN_ACTION_LABELS[m[1]] + (m[2] ? '（' + { BUILD: '準備', CALC: '実行', SAVE: '保存' }[m[2]] + '）' : '');
   return a;
 }
-var ENTITY_LABELS = { PLAN_VERSION: '公式版', MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'クライアント', SETTING: '設定', SYSTEM: 'システム', PLAN: '計画', PLAN_ACTION: '計画の操作', FORECAST_RUN: '予測' };
+var ENTITY_LABELS = { PLAN_VERSION: '公式版', MEMBER: 'メンバー', ROLE: '役割', CLIENT: 'メーカー', SETTING: '設定', SYSTEM: 'システム', PLAN: '計画', PLAN_ACTION: '計画の操作', FORECAST_RUN: '予測' };
 function auditStep(a){
   if (a.phase === 'DENIED') return ['拒否', 'ng'];
   if (a.phase === 'START') return ['開始', 'off'];
@@ -762,7 +789,7 @@ function loadAudit(){
   call('apiListAudit', [{ kind: a.kind, month: a.month, query: a.q }], function(r){ a.data = r; a.month = r.month; });
 }
 function logTime(o){ return String(o.occurred_at || o.finished_at || '').replace('T', ' ').slice(0, 19); }
-function viewAudit(){
+function auditView(){
   var a = S.au || (S.au = { kind: 'AUDIT', month: '', q: '' }), d = a.data;
   var html = '<h1>操作の記録</h1><div class="card"><div class="tabs sub">' + LOG_KINDS.map(function(k){ return '<button class="tab' + (a.kind === k[0] ? ' on' : '') + '" onclick="S.au.kind=\'' + k[0] + '\';S.au.month=\'\';loadAudit()">' + k[1] + '</button>'; }).join('') + '</div>'
     + '<div class="row"><div class="field"><label for="a_month">月</label><select class="inp sm" id="a_month" onchange="S.au.month=this.value;loadAudit()">'
@@ -823,11 +850,11 @@ function loadForecast(planId, force){
 }
 // ---- 予測（計画の画面: データ本体の上で見る・保存する・実行する） ----
 var FC_TABS = [['forecast','予測と予算'],['basis','根拠'],['input','入力'],['eval','検証'],['quarterly','四半期レビュー'],['version','公式版'],['steps','進み']];
-var INPUT_KINDS = [['product','製品'],['client','クライアント全体'],['opinions','見解'],['devspot','スポット案件']];
+var INPUT_KINDS = [['product','製品'],['client','メーカー全体'],['opinions','見解'],['devspot','スポット案件']];
 function viewForecast(){
   var f = S.fc, d = f.data, v = f.view;
   if (!f.plans) return '<h1>予測</h1>' + loading();
-  if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。' + (B.user.isAdmin ? '「計画の一覧」の「計画を作る」で作ってください。' : '管理者が計画を作ると、ここで見られます。'));
+  if (!f.plans.length) return '<h1>予測</h1>' + guide('guide', 'まだ計画がありません。' + (B.user.isAdmin ? '「メーカー」の「計画を作る」で作ってください。' : '管理者が計画を作ると、ここで見られます。'));
   var sel = f.plans.length > 1 ? '<select class="inp md" onchange="loadForecast(this.value)" aria-label="計画">' + f.plans.map(function(p){ return '<option value="' + esc(p.planId) + '"' + (p.planId === f.planId ? ' selected' : '') + '>' + esc(p.clientName) + ' FY' + esc(p.fy) + (p.frozen ? '（締め済み）' : '') + '</option>'; }).join('') + '</select>' : '';
   var html = '<div class="page-head"><h1>予測' + (d ? '：' + esc(d.plan.clientName) + ' FY' + esc(d.plan.fy) : '')
     + (d && (d.plan.frozen || (v && v.plan && v.plan.frozen)) ? ' <span class="chip warn" data-tip="この年度は締め済みです。元の行は残したまま、読み取り専用です">凍結</span>' : '') + '</h1>' + sel + '</div>';
@@ -967,7 +994,7 @@ function fcBasisTab(d, v){
   var a = r.annual, html = '';
   html += '<div class="kpis">' + fcKpi('過去の売上だけの予測（P50）', a.objective) + fcKpi('最終の予測（P50）', a.p50, true)
     + fcKpi('入力・AI・スポットの効き', a.p50 !== null && a.objective !== null ? a.p50 - a.objective : null) + fcKpi('前回からの変化', a.p50 !== null && a.prevP50 !== null ? a.p50 - a.prevP50 : null) + '</div>';
-  html += '<div class="card"><div class="card-head"><h2>月ごとの内訳' + tip('過去の売上だけ = 入力・AI を入れない予測。差 = 入力（製品・クライアント・見解）・AI・スポット・補正の効きの合計。押しの割合は月ごとの合計で、札に触れると内訳が出ます。「実績」の月は実績の確定した月') + '</h2>' + (r.latestRunAt ? '<span class="meta">' + esc(String(r.latestRunAt).replace('T', ' ').slice(5, 16)) + '</span>' : '') + '</div>'
+  html += '<div class="card"><div class="card-head"><h2>月ごとの内訳' + tip('過去の売上だけ = 入力・AI を入れない予測。差 = 入力（製品・メーカー・見解）・AI・スポット・補正の効きの合計。押しの割合は月ごとの合計で、札に触れると内訳が出ます。「実績」の月は実績の確定した月') + '</h2>' + (r.latestRunAt ? '<span class="meta">' + esc(String(r.latestRunAt).replace('T', ' ').slice(5, 16)) + '</span>' : '') + '</div>'
     + '<div class="tblwrap"><table class="tbl wide"><colgroup><col style="width:152px"><col style="width:128px"><col style="width:120px"><col style="width:112px"><col style="width:120px"><col style="width:88px"><col><col style="width:112px"></colgroup>'
     + '<thead><tr><th>月</th><th class="num">過去の売上だけ</th><th class="num">最終（P50）</th><th class="num">差</th><th class="num">スポット確定</th><th class="num">AI の倍率</th><th>入力・AI の押し</th><th class="num">前回から</th></tr></thead><tbody>'
     + r.monthly.map(function(m){
@@ -1183,7 +1210,7 @@ function fcStepsTab(d, v){
   var people = (v.boot.setup.people || []).join(', ');
   html += '<div class="card"><h2>担当者</h2>' + (fcCan('admin')
     ? '<div class="field"><label for="fc_people">担当者（カンマ区切り）</label><input class="inp lg" id="fc_people" value="' + esc(people) + '"></div>'
-      + '<div class="card-foot">' + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + tip('入力の「担当者」の選択肢になります。クライアントと年度は計画で決まります') + '</div>'
+      + '<div class="card-foot">' + fcSaveBtn('担当者を保存', 'fcEdit(\'SETUP.PEOPLE\', { peopleCsv: $(\'fc_people\').value })', true) + tip('入力の「担当者」の選択肢になります。メーカーと年度は計画で決まります') + '</div>'
     : '<p>' + esc(people || '（なし）') + '</p><p class="note mt4">変えるのは管理者です。</p>') + '</div>';
   if (v.recent && v.recent.length) html += '<div class="card"><h2>この計画の最近の操作</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:152px"><col style="width:260px"><col style="width:136px"><col></colgroup><thead><tr><th>日時</th><th>操作</th><th>した人</th><th>変わったシート</th></tr></thead><tbody>'
     + v.recent.map(function(r){ return '<tr><td>' + esc(String(r.finishedAt || '').replace('T', ' ').slice(0, 16)) + '</td><td>' + esc(r.label) + '</td><td>' + esc(String(r.actor || '').split('@')[0]) + '</td><td data-tip="' + esc((r.changed || []).join('、')) + '">' + esc((r.changed || []).join('、')) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
@@ -1192,7 +1219,7 @@ function fcStepsTab(d, v){
 function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLocaleString('ja-JP'); }
 function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 100).toFixed(2) + '%'; }
 
-function viewHealth(){
+function healthView(){
   var h = S.health;
   if (!h) return '<h1>状態</h1>' + loading('点検しています');
   var row = function(name, rows, ok, note){ return '<tr><td>' + esc(name) + '</td><td>' + rows + '</td><td>' + (ok ? '<span class="chip ok">OK</span>' : '<span class="chip ng">要確認</span> ' + esc(note)) + '</td></tr>'; };
@@ -1212,13 +1239,13 @@ function viewHealth(){
   var f = h.files || {};
   return '<h1>状態</h1>'
     + '<div class="card"><h2>表</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:100px"><col></colgroup><thead><tr><th>表</th><th>行数</th><th>点検</th></tr></thead><tbody>' + t + '</tbody></table></div>'
-    + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); go(\'health\'); })">足りない表を作る</button>' + tip('初期設定をもう一度実行します（ある表はそのまま）') + '</div>' : '') + '</div>'
+    + (missingAny && B.user.isOwner ? '<div class="card-foot"><button class="btn" onclick="call(\'apiSetup\', [], function(){ toast(\'表を作りました\'); goRec(\'health\'); })">足りない表を作る</button>' + tip('初期設定をもう一度実行します（ある表はそのまま）') + '</div>' : '') + '</div>'
     + hlAuditCard(a) + hlHousekeepingCard(h.housekeeping, h) + hlYearCard(h.years)
     + '<div class="card"><h2>バックアップ</h2><div class="row c mt0">' + (b.enabled ? '<span class="chip ok">毎日 自動</span>' : '<span class="chip off">自動は未設定</span>')
     + (b.ageHours !== null && b.ageHours !== undefined ? (b.ageHours > 26 ? '<span class="chip warn">最新は ' + b.ageHours + ' 時間前</span>' : '<span class="chip ok">最新は ' + b.ageHours + ' 時間前</span>') : '')
     + '<span class="meta" data-tip="新しい ' + (b.keep || 14) + ' 世代を残します。月の最初の写しは、アーカイブのフォルダに月ごとに残します">' + (b.count || 0) + ' 世代・最新 ' + esc(b.latest || 'なし') + '</span></div>'
-    + '<div class="card-foot">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); go(\'health\'); })">毎日自動にする</button>')
-    + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); go(\'health\'); })">今すぐ取る</button></div></div>'
+    + '<div class="card-foot">' + (b.enabled ? '' : '<button class="btn" onclick="call(\'apiEnableBackup\', [], function(){ toast(\'毎日のバックアップを有効にしました\'); goRec(\'health\'); })">毎日自動にする</button>')
+    + '<button class="btn btn-ghost" onclick="call(\'apiRunBackup\', [], function(r){ toast(\'バックアップしました\'); goRec(\'health\'); })">今すぐ取る</button></div></div>'
     + '<div class="card"><h2>ファイル' + tip('データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）') + '</h2><div class="row mt0">' + (f.folder ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.folder) + '">フォルダ</a>' : '') + (f.data ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.data) + '">データ本体</a>' : '') + (f.log ? '<a class="btn btn-ghost" target="_blank" href="' + esc(f.log) + '">今年度のログ</a>' : '') + '</div></div>';
 }
 
@@ -1241,7 +1268,7 @@ function hlHousekeepingCard(k, h){
     + (k.errors !== undefined ? 'エラー（24 時間） ' + k.errors + ' 件・' : '') + (k.openStarts !== undefined ? '途中で止まった操作 ' + k.openStarts + ' 件' : '') + '</span></div>'
     + ((k.problems || []).length ? '<ul class="mt8">' + k.problems.map(function(p){ return '<li class="warn-text">' + esc(p) + '</li>'; }).join('') + '</ul>' : '');
   if (h.journal) html += '<p class="warn-text mt8">書きかけの保存あり（' + esc(h.journal.label || '') + '）</p>';
-  return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiRunHousekeeping\', [], function(r){ toast(r.ok ? \'手入れが終わりました\' : \'手入れで要確認があります\', !r.ok); go(\'health\'); })">今すぐ手入れする</button>'
+  return html + '<div class="card-foot"><button class="btn btn-ghost" onclick="call(\'apiRunHousekeeping\', [], function(r){ toast(r.ok ? \'手入れが終わりました\' : \'手入れで要確認があります\', !r.ok); goRec(\'health\'); })">今すぐ手入れする</button>'
     + tip('古い処理の記録とトリガーの片付け・記録の鎖の確認・前の年度より古いログをアーカイブへ・月次の写し。どれも消しません') + '</div></div>';
 }
 /** 年度の締め（管理者だけ。締めた年度は、元の行を残したまま読み取り専用になる。元に戻す操作は無い） */
@@ -1287,7 +1314,7 @@ function ycClose(){
 }
 
 render();
-if (B.activeJob) { if (/^(PLAN|FORECAST\.RUN)/.test(B.activeJob.kind)) go('forecast'); else if (/^YEAR\./.test(B.activeJob.kind)) go('health'); render(); watchJob(B.activeJob); }
+if (B.activeJob) { if (/^(PLAN|FORECAST\.RUN)/.test(B.activeJob.kind)) go('forecast'); else if (/^YEAR\./.test(B.activeJob.kind)) goRec('health'); render(); watchJob(B.activeJob); }
 </script>
 </body>
 </html>

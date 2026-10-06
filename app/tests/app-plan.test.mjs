@@ -292,7 +292,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
   ui.__home = env.call('apiHome()');
   const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
-  assert.match(homeHtml, /P50 合計[\s\S]*計画の状態[\s\S]*計画の一覧[\s\S]*最近の動き[\s\S]*あなたの役割/);
+  assert.match(homeHtml, /P50 合計[\s\S]*計画の状態[\s\S]*メーカー/);
+  // 2026-10-06 村井さん: ホームは概要と重要点だけ（最近の動き・あなたの役割は出さない）
+  assert.doesNotMatch(homeHtml, /最近の動き|あなたの役割|クライアント/);
   // 2026-10-06 村井さん: 「よみが観測しました（時刻）」は出さない・1 カラム（左右に分けない）・「状態を見る」のボタンは出さない
   assert.doesNotMatch(homeHtml, /よみが観測しました|class="dash"|状態を見る/);
   // 2026-10-06 村井さん: 読み込みの待ちは、右下ではなく画面の中で、よみが「観測中…」と話す
@@ -340,11 +342,24 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const verHtml2 = vm.runInContext(`S.fc.ver = __ver; S.fc.verCmp = __ver.versions[0].versionId; viewForecast()`, ui);
   assert.match(verHtml2, /承認待ち（v1）[\s\S]*v1 と今の比べ/);
   assert.ok(!/undefined|NaN/.test(verHtml2), '公式版のタブに undefined や NaN を出さない');
-  // 計画の一覧（全部の計画）と「計画を作る」
+  // メーカー（計画の一覧とクライアントをまとめた画面。2026-10-06）: わかる範囲のメーカーと、年度ごとの予算策定の状態だけ（数字は出さない）
   ui.__pf = env.call('apiPortfolio()').plans;
-  const pfHtml = vm.runInContext(`S.pf = __pf; S.pfFy = __pf[0].fy; B.user.isAdmin = true; viewPlans()`, ui);
-  assert.match(pfHtml, /計画の一覧[\s\S]*テスト製薬[\s\S]*合計（1 件）[\s\S]*計画を作る/);
-  assert.ok(!/このタブを表示できませんでした|undefined|NaN/.test(pfHtml), '一覧に undefined や NaN を出さない');
+  ui.__cand = { candidates: [{ zac: 'ｼﾝｷ製薬(株)', display: 'シンキ製薬' }, { zac: 'テスト製薬', display: 'テスト製薬' }], defaultFy: 2026, existing: [] };
+  const mkHtml = vm.runInContext(`S.pf = __pf; S.pfCand = __cand; S.mkFy = String(__pf[0].fy); B.user.isAdmin = true; viewMakers()`, ui);
+  assert.match(mkHtml, /<h1>メーカー<\/h1>[\s\S]*予算策定[\s\S]*シンキ製薬[\s\S]*未着手[\s\S]*テスト製薬[\s\S]*(策定中|承認待ち|承認済み)[\s\S]*計画を作る/);
+  assert.equal((mkHtml.match(/>テスト製薬</g) || []).length, 1, '計画と候補の同じメーカーは 1 行にまとめる');
+  assert.doesNotMatch(mkHtml, /P50|最終予算|ZAC コード|undefined|NaN/, 'メーカーの画面に数字・ZAC コードを出さない');
+  // 計画のないメーカーの「計画を作る」は、下の欄に名前と年度を入れる
+  vm.runInContext(`mkCreate('ｼﾝｷ製薬(株)', '2026')`, ui);
+  assert.equal(vm.runInContext(`S.pcClient + '|' + S.pcFy`, ui), 'ｼﾝｷ製薬(株)|2026');
+  // メニュー: ホーム・メーカー・予測・設定・記録と状態（メンバーは設定へ、操作の記録と状態はまとめる）
+  assert.deepEqual(JSON.parse(vm.runInContext(`JSON.stringify(NAV_ADMIN.map(function(n){ return n[1]; }))`, ui)), ['ホーム', 'メーカー', '予測', '設定', '記録と状態']);
+  ui.__dir = env.call('apiListDirectory()'); ui.__set = env.call('apiListSettings()').settings;
+  const setHtml = vm.runInContext(`S.dir = __dir; S.settings = __set; S.setTab = 'members'; viewSettings()`, ui);
+  assert.match(setHtml, /<h1>設定<\/h1>[\s\S]*業務[\s\S]*メンバー[\s\S]*表示名[\s\S]*学習[\s\S]*役割を付ける/);
+  assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
+  assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
+  vm.runInContext(`S.setTab = 'biz'`, ui);
 }
 
 console.log('app-plan: all tests passed');
