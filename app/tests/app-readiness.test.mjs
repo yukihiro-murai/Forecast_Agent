@@ -187,7 +187,7 @@ function uiFor(env, who, isAdmin) {
   vm.runInContext(js, ui);
   return ui;
 }
-const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|verSubmit|verDecide|startJob\(|fcInputAdd|fcInputDel|fcBudget\(|fcDec\(|fcIns\(|fcInput\(/;
+const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|fcRvGo\(|verSubmit|verDecide|startJob\(|fcInputAdd|fcInputDel|fcBudget\(|fcDec\(|fcIns\(|fcInput\(/;
 {
   const { env, planId, planId2 } = seeded();
   env.as(OWNER);
@@ -233,7 +233,7 @@ const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|verSubmit|
   ua.__v = av;
   vm.runInContext(`S.fc.plans=[{planId:'${planId}'}]; S.fc.planId='${planId}'; S.fc.view=__v; S.fc.data={plan:__v.plan,latest:null,runs:[],stored:null};`, ua);
   const q = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ua);
-  assert.match(q, /fcRun\('REVIEW.APPLY'\)/, '承認者には適用の実行を出す');
+  assert.match(q, /fcRvGo\(/, '承認者には「承認して反映」（判断の保存 → 見直しを反映）を出す');
   assert.match(q, /fcRun\('REVIEW.GENERATE'\)/, '策定の実行も出る（承認者は策定担当の役割を含む）');
   assert.match(q, /fcDec\(/, '承認の選択は出す');
   const ev = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ua);
