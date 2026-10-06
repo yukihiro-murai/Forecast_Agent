@@ -61,7 +61,9 @@ function appLandingPost_(obs, tau2) {
  * 空模様（先に当てはまったもの）: 霧 mikakunin（no_budget）→ 雪 sekka（zero_sales）→ 霧（no_forecast）→ 霧（stale_actuals）
  *   → 天変地異 tenpen（shock / shift / premise。skyDir = up / down）→ 着地 ÷ 予算（ratio）: 猛暑 mousho ≥ 1.5・快晴 kaisei ≥ 1.1・
  *   晴れのち曇り harenochi > 0.9・曇り kumori > 0.5・雨 ame ≤ 0.5。
- * 着地の数字は、予測が使えれば空模様が霧・雪のときも出す（予算が無ければ ratio と pAbove は出さない）
+ * 着地の数字は、予測が使えれば雪・霧（予算が無い）のときも出す（予算が無ければ ratio と pAbove は出さない）。
+ * 霧（実績の取り込みが遅れている stale_actuals）のときは出さない（古い実績のままの数字を見せない。合計にも入らない）。
+ * 前提の変化（premise）は、締まっていない月があるときだけ（12 か月締まった年度の着地は実績の合計で動かない）
  */
 function appLandingSky_(inp) {
   const C = APP_LANDING;
@@ -107,7 +109,10 @@ function appLandingSky_(inp) {
   if (!(B !== null && B > 0)) { out.skyReason = 'no_budget'; return out; }
   if (k >= 1 && Math.abs(A) < 1) { out.sky = 'sekka'; out.skyReason = 'zero_sales'; return out; }
   if (!usable) { out.skyReason = 'no_forecast'; return out; }
-  if (closedByToday - k >= C.STALE_MONTHS) { out.skyReason = 'stale_actuals'; return out; }
+  if (closedByToday - k >= C.STALE_MONTHS) {
+    Object.assign(out, { landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null, theta: null, credibility: null, skyReason: 'stale_actuals' });
+    return out;
+  }
   // 5: 天変地異（月の外れは、その月の前までの実績で立てた見込みと比べる）
   let t1 = false, t2 = false, dir = 0;
   if (fcOk && k >= 1 && k < 12) {
@@ -133,7 +138,7 @@ function appLandingSky_(inp) {
     }
   }
   const r = inp.runs || [];
-  const t3 = r.length >= 2 && fin(r[0].p50) && fin(r[1].p50) && r[1].p50 > 0 && fin(r[0].ageDays) && r[0].ageDays <= C.PREMISE_DAYS
+  const t3 = k < 12 && r.length >= 2 && fin(r[0].p50) && fin(r[1].p50) && r[1].p50 > 0 && fin(r[0].ageDays) && r[0].ageDays <= C.PREMISE_DAYS
     && Math.abs(r[0].p50 / r[1].p50 - 1) >= C.PREMISE && Math.abs(r[0].p50 - r[1].p50) >= C.PREMISE_MATERIAL * B;
   if (t3 && !dir) dir = r[0].p50 - r[1].p50;
   if (t1 || t2 || t3) { out.sky = 'tenpen'; out.skyReason = t1 ? 'shock' : t2 ? 'shift' : 'premise'; out.skyDir = dir > 0 ? 'up' : 'down'; return out; }
@@ -218,7 +223,7 @@ function appLandingCutoff_(stRows) {
   const typeOf = s => String(s._types || '').charAt(1);   // last_run_date は見出しの 2 列目
   const t1 = appLandingTime_(typeOf(b1), b1.last_run_date), t2 = appLandingTime_(typeOf(b2), b2.last_run_date);
   if (t1 === null || t2 === null || t2 < t1) return '';
-  return appCellYm_(typeOf(b1), b1.last_run_date);
+  return Utilities.formatDate(new Date(t1), APP_TZ, 'yyyy/MM');   // 取り込んだ時刻の、日本の暦の月（文字の ISO 時刻も時差を見る）
 }
 
 /** 予測を実行した日から今日まで、日本の暦で何日か（today = 'yyyy-MM-dd'。読めなければ null） */

@@ -129,9 +129,12 @@ function appPortfolio_() {
     const v = Number(r.ape_p50);
     if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push(v);
     const ym = appCellYm_(String(r._types || '').charAt(0), r.target_month);
-    const act = r.actual_total === '' || r.actual_total === null ? null : Number(r.actual_total);
-    if (ym && act !== null && isFinite(act)) {
-      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p10: fnum(r.forecast_total_p10), p50: fnum(r.forecast_total_p50), p90: fnum(r.forecast_total_p90),
+    // 実績が空でも P50 のある行は残す（actual: null。ZAC に記録の無い月 = 売上 0。締まった月なら 0 円として数える）
+    const blank = r.actual_total === '' || r.actual_total === null || r.actual_total === undefined;
+    const act = blank ? null : Number(r.actual_total);
+    const p50 = fnum(r.forecast_total_p50);
+    if (ym && (blank ? p50 !== null : isFinite(act))) {
+      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p10: fnum(r.forecast_total_p10), p50: p50, p90: fnum(r.forecast_total_p90),
         out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null };
     }
   });
@@ -145,7 +148,8 @@ function appPortfolio_() {
   plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || []); });
   const prior = appLandingPrior_(plans.map(p => {
     const c = cmp[p.plan_id] || {};
-    return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort().map(ym => ({ f: c[ym].p50, a: c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));
+    return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort()
+      .map(ym => ({ f: c[ym].p50, a: c[ym].actual === null ? 0 : c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));   // 実績の空の締まった月は 0 円（着地の計算と同じ）
   }));
   return plans.map(p => {
     const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row);
@@ -191,19 +195,20 @@ function appPortfolio_() {
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
 
-/** セルの型と中身から 'yyyy/MM'（日時は日本の暦で。読めなければ ''） */
+/** セルの型と中身から 'yyyy/MM'（日時は日本の暦で。時刻つきの ISO の文字も時差を見て日本の暦で。読めなければ ''） */
 function appCellYm_(t, text) {
   if (text === '' || text === null || text === undefined) return '';
   if (t === 'd') { const d = new Date(text); return isNaN(d.getTime()) ? '' : Utilities.formatDate(d, APP_TZ, 'yyyy/MM'); }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(text))) { const ms = appLandingTime_('', text); return ms === null ? '' : Utilities.formatDate(new Date(ms), APP_TZ, 'yyyy/MM'); }
   const m = /^(\d{4})\D(\d{1,2})/.exec(String(text));
   return m ? m[1] + '/' + ('0' + m[2]).slice(-2) : '';
 }
 
 /**
  * 年度の締まった月（cutoffYm より前）の暫定実績（2026-10-06）。取り込んだ月とその後の月（締まっていない・途中の月）は数えない。
- * 実績の行が無い締まった月は 0 円として数える（ZAC に記録が無い月）。actualMonths は締まった月の数。
+ * 実績の行が無い・実績が空の締まった月は 0 円として数える（ZAC に記録が無い月）。actualMonths は締まった月の数。
  * forecastYtd は締まった月の予測（検証の表の P50）の合計（予実の差を見る）。予測の無い締まった月があれば出さない（比べられない）。
- * actual は締まった月ごとの実績（着地見込みの計算に渡す）
+ * 実績が空でも予測のある月は、0 円と予測で比べる。actual は締まった月ごとの実績（着地見込みの計算に渡す）
  */
 function appPlanYtd_(fy, cmpByYm, cutoffYm) {
   const yms = cutoffYm ? appLandingFyYms_(fy).filter(ym => ym < cutoffYm) : [];
@@ -211,9 +216,10 @@ function appPlanYtd_(fy, cmpByYm, cutoffYm) {
   let fcN = 0;
   yms.forEach(ym => {
     const c = cmpByYm[ym];
-    res.actualYtd = (res.actualYtd || 0) + (c ? c.actual : 0);
+    const a = c && typeof c.actual === 'number' ? c.actual : 0;
+    res.actualYtd = (res.actualYtd || 0) + a;
     if (!c) return;
-    res.actual[ym] = c.actual;
+    res.actual[ym] = a;
     if (c.p50 !== null) { res.forecastYtd = (res.forecastYtd || 0) + c.p50; fcN++; }
     if (c.out !== null) { res.rangeN++; res.rangeOut += c.out; }
   });

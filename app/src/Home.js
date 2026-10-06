@@ -9,7 +9,7 @@ function appPortfolioCached_() {
   return appCachedRead_('PORTFOLIO\u0001' + appToday_(), () => appPortfolio_());
 }
 
-/** その人のホーム（数字・計画の状態・着地見込みと空模様・承認待ち）＋ 管理者には仕組みの状態 */
+/** その人のホーム（数字・計画の状態・着地見込みと空模様・見せる年度の合計・承認待ち）＋ 管理者には仕組みの状態 */
 function appHome_(ctx) {
   const out = appCachedRead_('HOME\u0001' + ctx.actor + '\u0001' + appToday_(), () => appHomeData_(ctx));
   if (appHasRole_(ctx.roles, 'ADMIN')) out.system = appHomeSystem_();
@@ -44,8 +44,26 @@ function appHomeData_(ctx) {
       actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, rangeOut: p.rangeOut, rangeN: p.rangeN,
       landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
       sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource })),
+    totals: appHomeTotals_(plans, fy),
     approvals: approvals, mine: mine
   };
+}
+
+/**
+ * 見せる年度の合計。予算は空模様と同じ budgetUsed（承認済みの公式版の最終予算、無ければ今の予算）。
+ * 着地見込みの無い計画（霧: 実績の取り込みの遅れ・予測が無い など）は、着地の合計にも着地 ÷ 予算にも入れない。入れた計画の数も返す
+ * 返り値: { plans, budget, budgetPlans, actualYtd, landing, landingPlans, ratio（着地と予算の両方がある計画だけで）, ratioPlans }
+ */
+function appHomeTotals_(plans, fy) {
+  const rows = plans.filter(p => String(p.fy) === String(fy));
+  const num = v => typeof v === 'number' && isFinite(v);
+  const sum = (xs, k) => xs.reduce((s, p) => (num(p[k]) ? (s || 0) + p[k] : s), null);
+  const budgeted = rows.filter(p => num(p.budgetUsed) && p.budgetUsed > 0);
+  const landed = rows.filter(p => num(p.landing));
+  const both = budgeted.filter(p => num(p.landing));
+  const bb = sum(both, 'budgetUsed');
+  return { plans: rows.length, budget: sum(budgeted, 'budgetUsed'), budgetPlans: budgeted.length, actualYtd: sum(rows, 'actualYtd'),
+    landing: sum(landed, 'landing'), landingPlans: landed.length, ratio: bb ? sum(both, 'landing') / bb : null, ratioPlans: both.length };
 }
 
 /** 仕組みの状態（管理者）。バックアップは、バックアップしたときに残した要点を読む（ドライブを数えない。Backup.js の appBackupStatusFast_） */
