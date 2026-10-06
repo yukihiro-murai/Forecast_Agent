@@ -329,6 +329,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.ok(says3.every((x) => !x.act || x.act[0] !== '状態を見る'), JSON.stringify(says3));
   assert.doesNotMatch(vm.runInContext(`B.home = __h3; viewHome()`, ui), /状態を見る/);
   vm.runInContext(`B.home = __home`, ui);
+  // 予算・着地見込みが無いメーカーがあるのに「おおむね晴れ」とは言わない（2026-10-06 点検）
+  const fogSays = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays({ fy: '2026', plans: [{ fy: '2026', planId: 'P', clientName: 'X', stepErrors: [], runs: 1, p50: 10, budget: null, officialFinal: null, landing: null, lastRunAt: new Date().toISOString(), officialNo: 1 }], approvals: [], mine: [] }))`, ui));
+  assert.ok(fogSays.some((x) => /未確認/.test(x.text)) && !fogSays.some((x) => /おおむね晴れ/.test(x.text)), JSON.stringify(fogSays));
   vm.runInContext(`S.view = 'forecast'`, ui);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });

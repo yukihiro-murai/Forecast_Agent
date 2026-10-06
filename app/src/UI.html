@@ -641,6 +641,8 @@ function yomiSays(h){
   var noOfficial = plans.filter(function(p){ return p.runs && !p.officialNo && !p.pendingNo; });
   if (noOfficial.length) out.push({ lvl: 'info', pose: 'explain', text: n(noOfficial) + 'はまだ公式版がありません。予算が固まったら、公式版として出しましょう。', act: mk });
   if (h.mine.length) out.push({ lvl: 'info', pose: 'observe', text: '出した公式版 ' + h.mine.length + ' 件が、承認者の確認を待っています。', act: null });
+  var fog = plans.filter(function(p){ return skyOf(p) === 'mikakunin'; });
+  if (fog.length) out.push({ lvl: 'info', pose: 'observe', text: n(fog) + 'は予算か着地見込みがまだないため、空模様は霧の中（未確認）です。予算を保存し、予測を実行すると見えてきます。', act: mk });
   var order = { ng: 0, warn: 1, info: 2 };
   out.sort(function(a, b){ return order[a.lvl] - order[b.lvl]; });
   if (!out.length) out.push({ lvl: 'ok', pose: 'done', text: plans.length ? '今日の観測では、大きな崩れはありません。予報です。FY' + h.fy + ' の見通しは、おおむね晴れでしょう。' : 'FY' + h.fy + ' の計画はまだありません。「メーカー」から作れます。', act: mk });
@@ -824,7 +826,7 @@ function settingsBizView(){
     return '<tr><td class="wrap" data-tip="' + esc(x.unit + (x.isDefault ? (x.type === 'sheet' ? '' : '・既定値') : '・' + x.effectiveFrom + ' から')) + '">' + esc(x.label) + '</td><td class="wrap">' + val + '</td><td><div class="cellform">' + input
       + '<button class="btn btn-ghost btn-sm" onclick="saveSetting(' + i + ')">保存</button></div></td></tr>';
   }).join('');
-  return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定' + tip('変えた値は履歴として残り、操作の記録にも変更前後が残ります') + '</h2></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:calc(2 * var(--pitch))"><col style="width:calc(2 * var(--pitch))"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  return '<h1>設定</h1><div class="card"><div class="card-head"><h2>業務の設定' + tip('変えた値は履歴として残り、操作の記録にも変更前後が残ります') + '</h2></div><div class="tblwrap"><table class="tbl"><colgroup><col style="width:calc(2 * var(--pitch))"><col style="width:var(--pitch)"><col></colgroup><thead><tr><th>項目</th><th>今の値</th><th>変更</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
 }
 function saveSetting(i){ var x = S.settings[i]; call('apiSaveSetting', [{ key: x.key, value: $('s_' + i).value }], function(){ toast('保存しました'); goSet('biz'); }); }
 
@@ -1263,20 +1265,30 @@ function fcQuarterlyTab(d, v){
   var acts = fcActions([
     ['REVIEW.GENERATE', '前の四半期の結果から、設定の見直しの提案を作ります。'],
     ['REVIEW.APPLY', '「承認」にした提案を設定に反映します。', 'approve']]);
-  if (acts) html += '<div class="card"><div class="card-head"><h2>四半期レビュー' + tip('提案 → 承認 → 適用の順に進めます') + '</h2></div>' + acts + '</div>';
+  if (acts) html += '<div class="card"><div class="card-head"><h2>提案と適用' + tip('提案 → 承認 → 適用の順に進めます') + '</h2></div>' + acts + '</div>';
   if (q.proposals && q.proposals.length) {
     var dec = S.fc.dec;
     html += '<div class="card"><div class="card-head"><h2>' + esc(q.title || '提案') + '</h2><span class="meta">' + esc(q.period || '') + '</span>' + (q.applied ? '<span class="chip ok">反映済み</span>' : '') + '</div>'
       + '<div class="tblwrap"><table class="tbl scroll' + (canApprove ? ' edit' : '') + '"><colgroup><col style="width:200px"><col style="width:104px"><col style="width:104px"><col style="width:72px"><col><col style="width:96px"><col style="width:128px"></colgroup>'
       + '<thead><tr><th>対象</th><th>今</th><th>提案</th><th class="num">確度</th><th>理由</th><th>影響</th><th>承認</th></tr></thead><tbody>'
       + q.proposals.map(function(p){ var cur = dec[p.row] !== undefined ? dec[p.row] : p.decision;
-        return '<tr><td data-tip="' + esc(p.target) + '">' + esc(p.target) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td data-tip="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
+        return '<tr><td class="wrap" data-tip="' + esc(p.target) + '">' + esc(qrTarget(p.target)) + '</td><td>' + esc(p.current) + '</td><td>' + esc(p.proposed) + '</td><td class="num">' + esc(p.conf === null ? '' : p.conf) + '</td><td data-tip="' + esc(p.rationale) + '">' + esc(p.rationale) + '</td><td>' + esc(p.impact) + '</td><td>'
           + (canApprove ? '<select class="inp cell" onchange="fcDec(' + p.row + ',this.value)" aria-label="承認">' + ['', '承認', '却下', '保留'].map(function(o){ return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + (o || '—') + '</option>'; }).join('') + '</select>' : esc(cur)) + '</td></tr>'; }).join('')
       + '</tbody></table></div>' + (canApprove ? '<div class="card-foot">' + fcSaveBtn('承認を保存', 'fcSaveDec()', Object.keys(dec).length) + tip('保存した後に「' + fcActionLabel('REVIEW.APPLY') + '」で設定に反映します') + '</div>' : '<p class="note mt12">承認は承認者ができます。</p>') + '</div>';
   } else html += '<div class="card note">提案はまだありません。</div>';
   if (q.logRecent && q.logRecent.length) html += '<div class="card"><h2>これまでのレビュー</h2><div class="tblwrap"><table class="tbl"><colgroup><col style="width:120px"><col style="width:160px"><col style="width:96px"><col></colgroup><thead><tr><th>日付</th><th>四半期</th><th class="num">提案</th><th>反映</th></tr></thead><tbody>'
     + q.logRecent.map(function(r){ return '<tr><td>' + esc(r.at) + '</td><td>' + esc(r.quarter) + '</td><td class="num">' + r.proposals + '</td><td>' + (r.applied ? '<span class="chip ok">済み</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   return html;
+}
+/** 四半期レビューの対象を、ふつうの言葉に（中の名前はカーソルの説明だけに残す） */
+var QR_SOURCES = { factor_product: '製品の入力', factor_client: 'メーカー全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'Vertex の補正' };
+function qrTarget(t){
+  t = String(t || '');
+  if (t === 'ai_weight_override') return 'AI の効き';
+  if (t === 'bias_correction_factor') return '偏りの補正';
+  var m = /^reliability:([^:]*):?(.*)$/.exec(t);
+  if (m) return (QR_SOURCES[m[1]] || m[1]) + 'の信頼度' + (m[2] ? '（' + m[2] + '）' : '');
+  return t;
 }
 function fcDec(row, val){ S.fc.dec[row] = val; var btn = document.querySelector('[onclick="fcSaveDec()"]'); if (btn) btn.disabled = !!S.job; }
 function fcSaveDec(){ var dec = S.fc.dec; fcEdit('REVIEW.DECIDE', { rows: Object.keys(dec).map(function(r){ return { row: Number(r), decision: dec[r] }; }) }); }
