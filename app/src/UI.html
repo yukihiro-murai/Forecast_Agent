@@ -1008,7 +1008,7 @@ function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, acti
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
 function fcPct(v){ return v === null || v === undefined || v === '' ? '-' : (Number(v) * 100).toFixed(1) + '%'; }
 function fcSourceNote(){ return S.fc.view && !S.fc.view.sourceReady ? '「設定」の「ZAC の実績のスプレッドシート」を入れると使えます。' : ''; }
-function fcKpi(label, n, main){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="k">' + label + '</div><div class="v">' + yen(n) + '<span class="u">円</span></div></div>'; }
+function fcKpi(label, n, main){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="k">' + label + '</div><div class="v">' + yen(n) + (n === null || n === undefined ? '' : '<span class="u">円</span>') + '</div></div>'; }
 function fcSaveBtn(label, onclick, enabled){ return '<button class="btn" ' + (S.job || !enabled ? 'disabled ' : '') + 'onclick="' + onclick + '">' + label + '</button>'; }
 
 function fcForecastTab(d, v){
@@ -1023,7 +1023,7 @@ function fcForecastTab(d, v){
     + '<div class="pre">' + esc(cf.message) + '</div>'
     + '<div class="card-foot"><button class="btn" ' + (S.job ? 'disabled ' : '') + 'onclick="fcConfirmRun()">このまま実行</button>'
     + actBtn('<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button>', '入力を直す場合は「やめる」を押し、「入力」タブで直してから実行します') + '</div></div>';
-  var runInfo = '過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yen(obj.p90) + ' 円'
+  var runInfo = '過去売上のみ（客観）の年度合計: P10 ' + yen(obj.p10) + '・P50 ' + yen(obj.p50) + '・P90 ' + yenU(obj.p90) + ''
     + (d.runs.length > 1 ? '\nこれまでの実行: ' + d.runs.map(function(r){ return String(r.finishedAt || '').replace('T', ' ').slice(5, 16) + ' P50 ' + yen(r.p50); }).join('、') : '');
   html += '<div class="card"><div class="card-head"><h2>予測の実行</h2><span class="meta" data-tip="' + esc(runInfo) + '">' + (l ? '最新 ' + esc(String(l.finished_at || '').replace('T', ' ').slice(5, 16)) + '・' + esc((l.actor_email || '').split('@')[0]) : 'まだ実行していません') + '</span></div>'
     + (canPlan
@@ -1128,7 +1128,7 @@ function fcVersionTab(d, v){
   if (pend) {
     var mine = pend.submittedBy === r.me && !B.user.isOwner;
     html += '<div class="card caution"><div class="card-head"><h2>承認待ち（v' + pend.no + '）</h2>' + verChip('SUBMITTED') + '</div>'
-      + '<p>最終予算 ' + yen(pend.budget.final) + ' 円・P50 ' + yen(pend.annual.p50) + ' 円　出した人: ' + esc(String(pend.submittedBy).split('@')[0]) + '（' + esc(String(pend.submittedAt).replace('T', ' ').slice(0, 16)) + '）</p>'
+      + '<p>最終予算 ' + yenU(pend.budget.final) + '・P50 ' + yenU(pend.annual.p50) + '　出した人: ' + esc(String(pend.submittedBy).split('@')[0]) + '（' + esc(String(pend.submittedAt).replace('T', ' ').slice(0, 16)) + '）</p>'
       + (pend.note ? '<p class="note mt4">メモ: ' + esc(pend.note) + '</p>' : '')
       + (r.pendingChanged ? '<p class="warn-text mt8">出した後に計画が変わっています。承認するのは、出した時点の数字です。</p>' : '')
       + (r.can.approve && !mine ? '<div class="field mt12"><label for="ver_note">判断のメモ（却下のときは理由を書く）</label><input class="inp lg" id="ver_note"></div>'
@@ -1314,6 +1314,8 @@ function fcStepsTab(d, v){
   return html;
 }
 function yen(n){ return n === null || n === undefined ? '-' : Math.round(n).toLocaleString('ja-JP'); }
+/** 金額＋単位（値が無ければ「-」だけ。「- 円」にしない） */
+function yenU(n){ return n === null || n === undefined ? '-' : yen(n) + ' 円'; }
 function pct(a, b){ return a === null || b === null || !b ? '' : ((a / b - 1) * 100).toFixed(2) + '%'; }
 
 function healthView(){

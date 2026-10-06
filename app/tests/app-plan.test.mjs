@@ -370,6 +370,9 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
   assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
   vm.runInContext(`S.setTab = 'biz'`, ui);
+  // 値の無い金額に単位だけを付けない（「-円」「- 円」にしない）
+  assert.doesNotMatch(vm.runInContext(`fcKpi('最終予算', null)`, ui), /円/);
+  assert.equal(vm.runInContext(`yenU(null) + '|' + yenU(1200)`, ui), '-|1,200 円');
   // 2026-10-06 点検: 設定・記録と状態のタブは予測と同じ形、状態に中の表の名前を並べない
   assert.match(vm.runInContext(`S.setTab = 'biz'; viewSettings()`, ui), /<div class="tabs" role="tablist">/);
   ui.__health = env.call('apiHealth()');
