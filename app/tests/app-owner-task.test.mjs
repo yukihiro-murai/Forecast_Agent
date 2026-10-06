@@ -536,7 +536,14 @@ function during(env, name, fn, body) {
 
   // 直す（今の値と clientRowVersion を写し、変えたい項目だけ変える）
   ok(env, { action: 'saveClient', clientId: id, clientName: c.zacName, zacCode: 'Z-2', isActive: false, note: c.note, rowVersion: c.clientRowVersion });
-  assert.equal(audited(env, 'CLIENT.SAVE').end.entity_id, id);
+  const u = audited(env, 'CLIENT.SAVE');
+  assert.equal(u.end.entity_id, id);
+  // 開始の行にも、画面の入口と同じく対象のメーカー（entityId）と頼んだ中身（detail）が残る
+  assert.equal(u.start.entity_type, 'CLIENT');
+  assert.equal(u.start.entity_id, id, '開始の行の対象（opts の entityId）');
+  const detail = JSON.parse(u.start.detail_json);
+  assert.equal(detail.clientId, id, '開始の行の中身（opts の detail）');
+  assert.equal(detail.zacCode, 'Z-2');
   let row = env.table('CLIENTS').filter((x) => x.client_id === id)[0];
   assert.equal(row.zac_code, 'Z-2');
   assert.equal(row.is_active, 'FALSE');
