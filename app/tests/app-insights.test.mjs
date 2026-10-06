@@ -2,11 +2,12 @@
 /**
  * app-insights.test.mjs — 責任者の 3 つの画面の材料（分析・人の学び・AI の学び）。読むだけ。
  * 計算用の表をまとめて読む（appEngAll_）・月の日付と文字列の食い違い・振り返りの重複・ベータ分布の区間・Wilson の区間・空のとき。
+ * 承認待ちの提案の見分け・予算の上乗せと合計の予算・人の名前を見せる範囲・保存の後の控え（計画ごとの当たりと精度）。
  *
  *   node app/tests/app-insights.test.mjs
  */
 import assert from 'node:assert/strict';
-import { setUpEnv, STATS, OWNER, MEMBER, OUTSIDER, J } from './gas-mock.mjs';
+import { makeEnv, setUpEnv, STATS, OWNER, MEMBER, OUTSIDER, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const close = (a, b, eps = 1e-9, msg = '') => assert.ok(Math.abs(a - b) < eps, `${msg} ${a} ≈ ${b}`);
@@ -94,6 +95,8 @@ const bookB = env.makeBook('乙', {
   SOURCE_RELIABILITY: { values: [H.SOURCE_RELIABILITY, ['乙製薬', 'opinion', '鷹野', 0.9, '', 'FY2025-Q3', D(2026, 1, 12), 'owner', '']] },
   QUARTERLY_REVIEW_LOG: { values: [H.QUARTERLY_REVIEW_LOG, row('QUARTERLY_REVIEW_LOG', { review_id: 'R3', proposal_id: 'P-A-3', reviewed_at: D(2026, 8, 1), client: '乙製薬',
     quarter_label: 'FY2026-Q1', phase: 'A', target_field: 'ai_weight_override', current_value: '0.5', proposed_value: '0.75', confidence: '中', approval_status: '保留', applied: 0 })] },
+  QUARTERLY_REVIEW: { values: [['【四半期レビュー: FY2026-Q1】'], [], [], [], [], [], ['提案ID', '対象', '現在値', '提案値', '自信度', '根拠', '影響見積もり', '承認列', 'ロールバック'],
+    ['P-A-3', 'ai_weight_override', '0.5', '0.75', '中', '', '…', '', '…', 'R3']] },
   CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, ['乙製薬', D(2026, 6, 10), 'owner', '', '', '', 1, '', '{}', '', '', 1, '']] },
   AI_RESEARCH_STRUCTURED: { values: [H.AI_RESEARCH_STRUCTURED, research('乙製薬', D(2026, 9, 15), 'Market', 'event', 'up', 20)] },
 });
@@ -217,6 +220,12 @@ const people = env.call('apiPeopleLearning()');
   assert.equal(people.uplift.length, 1);
   const u = people.uplift[0];
   assert.deepEqual([u.planId, u.budgetFinal, u.complete], [A, 1320, false]);
+  // 年度の途中は実績で見る割合を出さない。統計の着地の見込みで見た割合は別の名前で（10 で詳しく）
+  const portA = env.call('apiPortfolio()').plans.find((p) => p.planId === A);
+  assert.deepEqual([u.ratio, u.upliftRealized, u.landing], [null, null, portA.landing]);
+  close(u.projectedRatio, portA.landing / 1320);
+  close(u.projectedUpliftRealized, (portA.landing - 1200) / 120);
+  assert.equal(people.detail, 'full', '所有者（管理者）には人ごとの行も出す');
 }
 
 // ==== 3. AI の学び ====
@@ -302,7 +311,8 @@ const ai = env.call('apiAiLearning()');
   env.call(`apiSaveMember({ email: '${MEMBER}', displayName: 'M' })`);
   env.as(MEMBER);
   assert.equal(env.call('apiCrossMaker(__in)', { __in: {} }).plans.length, 2);
-  assert.equal(env.call('apiPeopleLearning()').scoreboard.length, 4);
+  const pv = env.call('apiPeopleLearning()');
+  assert.deepEqual([pv.detail, pv.scoreboard.length], ['summary', 3], '閲覧の人には情報源の種類ごとのまとめ（11 で詳しく）');
   assert.equal(env.call('apiAiLearning()').curves.length, 5);
   env.as(OUTSIDER);
   assert.throws(() => env.call('apiPeopleLearning()'), /権限がありません/);
@@ -399,6 +409,201 @@ const ai = env.call('apiAiLearning()');
   close(a.curves[0].prior.mean, 0.5);
   assert.deepEqual([a.shrinkage.plans, a.shrinkage.pooled, a.shrinkage.mu, a.shrinkage.tau, a.timeline, a.calibration, a.pending, a.health],
     [[], false, 0, 0, [], [], [], []]);
+}
+
+// ==== 8. 承認待ちの提案: 一番新しいレビューが判断・適用済みなら出さない。画面の review_id が一番新しいレビューと違えば出さない（C-3 はもう適用できない） ====
+{
+  const e4 = setUpEnv();
+  const log = (client, o) => row('QUARTERLY_REVIEW_LOG', Object.assign({ client, quarter_label: 'FY2026-Q1', phase: 'A', target_field: 'ai_weight_override',
+    current_value: '0.5', proposed_value: '0.4', confidence: '中', approval_status: '保留', applied: 0 }, o));
+  const head = ['提案ID', '対象', '現在値', '提案値', '自信度', '根拠', '影響見積もり', '承認列', 'ロールバック'];
+  const screen = (rid, pid, decision) => ({ values: [['【四半期レビュー: FY2026-Q1】'], [], [], [], [], [], head, [pid, 'ai_weight_override', '0.5', '0.4', '中', '', '…', decision, '…', rid]] });
+  const plan = (client, logs, qr) => e4.seedPlan(e4.makeBook(client, { CONFIG: config(client, 2026), QUARTERLY_REVIEW_LOG: { values: [H.QUARTERLY_REVIEW_LOG].concat(logs) }, QUARTERLY_REVIEW: qr }));
+  const decidedAt = { approval_decided_at: D(2026, 7, 12), approval_decided_by: OWNER };
+  // 一番新しいレビューは却下と決めて処理した（古いレビューは保留のまま）
+  plan('丁製薬', [log('丁製薬', { review_id: 'R4', proposal_id: 'P-4', reviewed_at: D(2026, 4, 10) }),
+    log('丁製薬', Object.assign({ review_id: 'R5', proposal_id: 'P-5', reviewed_at: D(2026, 7, 10), approval_status: '却下' }, decidedAt))], screen('R5', 'P-5', '却下'));
+  // 一番新しいレビューは適用済み
+  plan('戊製薬', [log('戊製薬', { review_id: 'R6', proposal_id: 'P-6', reviewed_at: D(2026, 4, 10) }),
+    log('戊製薬', Object.assign({ review_id: 'R7', proposal_id: 'P-7', reviewed_at: D(2026, 7, 10), approval_status: '承認', applied: 1, applied_at: D(2026, 7, 12) }, decidedAt))], screen('R7', 'P-7', '承認'));
+  // その後の C-1 で提案が無かった（記録の表に行は増えず、画面の review_id だけが新しい）
+  plan('己製薬', [log('己製薬', { review_id: 'R8', proposal_id: 'P-8', reviewed_at: D(2026, 7, 10) })],
+    { values: [['【四半期レビュー: FY2026-Q2】'], [], [], [], [], [], head, ['', '', '', '', '', '', '', '', '', 'R9']] });
+  // 実績が足りず、画面を消した（review_id が無い）
+  plan('庚製薬', [log('庚製薬', { review_id: 'R10', proposal_id: 'P-10', reviewed_at: D(2026, 7, 10) })],
+    { values: [['⚠ 検証期間不足（2か月のみ確定）'], ['実績が3か月分確定後に C-1 を再実行してください。']] });
+  // 比べる: 画面の review_id が一番新しいレビューと同じで、まだ処理していない
+  const open = plan('辛製薬', [log('辛製薬', { review_id: 'R11', proposal_id: 'P-11', reviewed_at: D(2026, 7, 10) })], screen('R11', 'P-11', '承認'));
+  const pending = e4.call('apiAiLearning()').pending;
+  assert.deepEqual(pending.map((p) => [p.planId, p.reviewId, p.proposals.map((x) => [x.proposalId, x.decision])]), [[open, 'R11', [['P-11', '承認']]]],
+    '判断・適用済みのレビューと、画面から外れた古いレビューは出さない');
+  // 判断の記録には、どのレビューも残る
+  assert.deepEqual(e4.call('apiPeopleLearning()').decisions.map((d) => d.reviewId).sort(), ['R10', 'R11', 'R4', 'R5', 'R6', 'R7', 'R8']);
+}
+
+// ==== 9. 振り返り: 次回への反映だけを人が書いた行も、重複を除くときに残す。原因の数は画面に出す対応の名前でまとめる ====
+{
+  const e5 = setUpEnv();
+  const ins = (o) => row('EVAL_INSIGHTS', Object.assign({ client: '壬製薬', pred_p50: 1000, range_breach: 1, action_type: 'update',
+    next_cycle_reflection: '次回サイクルで前提更新を反映', status: 'open' }, o));
+  e5.seedPlan(e5.makeBook('壬', { CONFIG: config('壬製薬', 2026), EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS,
+    ins({ evaluated_at: D(2026, 5, 10), target_month: D(2026, 4), actual_total: 700, next_cycle_reflection: '単価の前提を見直す' }),   // 人は反映の欄だけを書いた
+    ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 4), actual_total: 700 }),   // B-4 の再実行で増えた行（自動の値だけ）
+    ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 5), actual_total: 800, action_type: '前提を更新' }),   // 人が画面で選んだ対応
+    ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 6), actual_total: 850 }),
+    ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 7), actual_total: 1000, range_breach: 0, action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'monitoring' }),
+  ] } }));
+  const p = e5.call('apiPeopleLearning()');
+  const by = Object.fromEntries(p.lessons.map((x) => [x.ym, x]));
+  assert.deepEqual([by['2026/04'].reflection, by['2026/04'].human, by['2026/04'].duplicates], ['単価の前提を見直す', true, 1], '反映の欄だけの記入も、新しい自動の行に負けない');
+  assert.deepEqual([by['2026/05'].human, by['2026/05'].actionLabel], [true, '前提を更新']);
+  assert.deepEqual([by['2026/06'].human, by['2026/07'].human, by['2026/07'].reflection], [false, false, '現行運用を継続'], '自動の値だけなら人の記入ではない');
+  assert.deepEqual(p.summary, { months: 4, misses: 3, withNotes: 2, duplicatesRemoved: 1 });
+  // 自動の update と、人が選んだ「前提を更新」は画面では同じ名前なので 1 行
+  assert.equal(p.causes.length, 1);
+  const c = p.causes[0];
+  assert.deepEqual([c.direction, c.range, c.actionLabel, c.n, c.actionTypes.slice().sort()], ['over', true, '前提を更新', 3, ['update', '前提を更新']]);
+  // 人の記入の見分け方（B-4 が自動で入れる action_type は update と keep、next_cycle_reflection は決まった 2 つの文だけ）
+  const human = (o) => e5.run(`appInsightHasHuman_(${JSON.stringify(o)})`);
+  assert.deepEqual([
+    human({ action_type: 'update', next_cycle_reflection: '次回サイクルで前提更新を反映', status: 'open' }),
+    human({ action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'monitoring' }),
+    human({ next_cycle_reflection: 'メモ' }), human({ action_type: 'add' }), human({ action_type: 'remove' }), human({ status: 'done' })],
+  [false, false, true, true, true, true]);
+}
+
+// ==== 10. 予算の上乗せは、年度の 12 か月が締まってから実績で見る（途中は統計の着地の見込みで、別の名前）。合計の予算は空模様と同じ（公式版があればその最終予算） ====
+{
+  const e6 = makeEnv();
+  e6.run(`appToday_ = function () { return '2026-10-06'; }`);
+  e6.as(OWNER);
+  e6.call('apiSetup()');
+  const yms = (fy) => Array.from({ length: 12 }, (_, i) => { const m = 4 + i; return (m > 12 ? fy + 1 : fy) + '/' + String(m > 12 ? m - 12 : m).padStart(2, '0'); });
+  const output = (fy) => {
+    const o = [['FY' + fy + ' 売上予測']];
+    for (let r = 2; r <= 25; r++) o.push([]);
+    o.push(['年度合計（予測）', 1080, 1200, 1320], [], ['月', 'P10', 'P50', 'P90', '', '', '', '採用予測', '上乗せ']);
+    yms(fy).forEach((ym) => o.push([ym, 90, 100, 110, '', '', '', 100, 10]));
+    return o;
+  };
+  const compare = (months, act) => ({ values: [H.EVAL_COMPARE_MONTHLY].concat(months.map((ym) => row('EVAL_COMPARE_MONTHLY', { target_month: ym, actual_total: act,
+    forecast_total_p10: 90, forecast_total_p50: 100, forecast_total_p90: 110, ape_p50: Math.abs(100 - act) / act, range_outside_flag: 0 }))), formats: { A: '@' } });
+  const HS = H.PROCESS_STATUS;
+  const status = (client, b1) => ({ values: [HS, ['step2_status', b1, 'owner', 'success', client, 10, ''], ['step5_status', new Date(b1.getTime() + 3600e3), 'owner', 'success', '', 6, '']] });
+  // 年度が終わった計画（FY2025・12 か月が締まった）・途中の計画（FY2026・4 か月）・予測の無い計画（FY2026）
+  const done = e6.seedPlan(e6.makeBook('癸', { CONFIG: config('癸製薬', 2025), OUTPUT: { values: output(2025) }, EVAL_COMPARE_MONTHLY: compare(yms(2025), 110),
+    PROCESS_STATUS: status('癸製薬', new Date(2026, 3, 5, 10)) }));
+  const mid = e6.seedPlan(e6.makeBook('子', { CONFIG: config('子製薬', 2026), OUTPUT: { values: output(2026) }, EVAL_COMPARE_MONTHLY: compare(yms(2026).slice(0, 4), 100),
+    PROCESS_STATUS: status('子製薬', new Date(2026, 7, 5, 10)) }));
+  const none = e6.seedPlan(e6.makeBook('丑', { CONFIG: config('丑製薬', 2026) }));
+  const ver = (id, planId, adopted, uplift) => ({ version_id: id, plan_id: planId, version_no: 1, state: 'APPROVED', annual_p50: 1200, budget_adopted: adopted, budget_uplift: uplift,
+    budget_final: adopted + uplift, row_version: 1 });
+  e6.run(`appInsertRows_('PLAN_VERSIONS', __v)`, { __v: [ver('V-D', done, 1200, 120), ver('V-M', mid, 1300, 200), ver('V-N', none, 500, 100)] });
+  const port = Object.fromEntries(e6.call('apiPortfolio()').plans.map((p) => [p.planId, p]));
+  const U = Object.fromEntries(e6.call('apiPeopleLearning()').uplift.map((u) => [u.planId, u]));
+  // 途中（4 か月）: 4 か月の実績を年間の予算と比べない（前は 400 / 1500 を出していた）。着地の見込みで見た割合は出す
+  const m = U[mid];
+  assert.deepEqual([m.actual, m.months, m.complete, m.ratio, m.upliftRealized], [400, 4, false, null, null]);
+  assert.equal(m.landing, port[mid].landing);
+  close(m.landing, 1200, 1e-6, '実績が予測どおりなら着地は予測の合計');
+  close(m.projectedRatio, port[mid].landing / 1500);
+  close(m.projectedUpliftRealized, (port[mid].landing - 1300) / 200);
+  // 着地の見込みが無い計画は、見込みの割合も null
+  assert.deepEqual([U[none].landing, U[none].projectedRatio, U[none].projectedUpliftRealized, U[none].ratio, U[none].upliftRealized], [null, null, null, null, null]);
+  // 12 か月が締まった年度: 実績で見る（着地の見込みは実績と同じ）
+  const d = U[done];
+  assert.deepEqual([d.actual, d.months, d.complete], [1320, 12, true]);
+  for (const k of ['ratio', 'upliftRealized', 'projectedRatio', 'projectedUpliftRealized']) close(d[k], 1, 1e-9, k);
+  // 合計: 予算は計画ごとの空模様と同じ予算（公式版の最終予算）。今の予算の合計は別の名前。着地の見込みが無い計画は着地の合計に入れない
+  assert.deepEqual([port[mid].budget, port[mid].budgetUsed, port[none].budget, port[none].budgetUsed, port[none].landing], [1320, 1500, null, 600, null]);
+  const t = e6.call('apiCrossMaker(__in)', { __in: { fy: 2026 } }).totals;
+  assert.deepEqual([t.plans, t.budget, t.budgetDraft, t.budgetPlans, t.landingPlans, t.p50, t.p50Budgeted], [2, 2100, 1320, 2, 1, 1200, 1200]);
+  close(t.landing, port[mid].landing);
+  close(t.ratioLanding, port[mid].ratio, 1e-12, '計画ごとの空模様の比（着地 ÷ 公式版の予算）と同じ');
+  close(t.ratioP50, 1200 / 1500, 1e-12, 'P50 のある計画の予算だけで割る');
+}
+
+// ==== 11. 人ごとの当たりと判断した人の名前は、予算策定担当以上だけ（ほかの人には情報源の種類ごとのまとめ）。見せ方の違う人に同じ控えを返さない ====
+{
+  env.as(OWNER);
+  const full = env.call('apiPeopleLearning()');
+  env.as(MEMBER);   // 社内の人（閲覧・情報提供だけ）
+  const sum = env.call('apiPeopleLearning()');
+  assert.deepEqual([full.detail, sum.detail], ['full', 'summary']);
+  const text = JSON.stringify(sum);
+  for (const s of ['鷹野', '佐藤', '田中', OWNER, '"decidedBy"', '"key"', '"plans"']) assert.ok(!text.includes(s), '閲覧の人には出さない: ' + s);
+  assert.ok(JSON.stringify(full).includes('鷹野') && full.decisions.some((x) => x.decidedBy === 'owner'), '予算策定担当以上には出す');
+  // 当たりは種類ごと（人や話題をまとめる）
+  assert.deepEqual(sum.scoreboard.map((s) => [s.type, s.n, s.hit, s.sources]).sort(), [['ai_topic', 2, 1, 1], ['factor_product', 2, 0, 1], ['opinion', 6, 4, 2]]);
+  const op = sum.scoreboard.find((s) => s.type === 'opinion');
+  assert.deepEqual([op.alpha, op.beta, op.prior.from], [10, 6, 'pool'], 'Beta(6, 4) に 4 当たり・2 外れ');
+  close(op.appliedR, 1.0, 1e-9, '今の信頼度の平均（甲 1.1・乙 0.9）');
+  assert.ok(sum.scoreboard.every((s, i) => i === 0 || s.ci80[0] <= sum.scoreboard[i - 1].ci80[0]));
+  // 判断の記録: 判断した人は無し。信頼度の対象は種類まで
+  const pb1 = sum.decisions.find((x) => x.proposalId === 'P-B-1');
+  assert.deepEqual([pb1.target, pb1.targetLabel, pb1.status, pb1.applied], ['reliability:opinion', '見解の信頼度', '承認', true]);
+  assert.equal(sum.decisions.find((x) => x.proposalId === 'P-B-2').targetLabel, '製品の入力の信頼度');
+  assert.deepEqual(sum.decisions.map((x) => x.proposalId), full.decisions.map((x) => x.proposalId));
+  // ほかは同じ（振り返りの担当だけ空）
+  const noOwner = (xs) => xs.map((x) => Object.assign({}, x, { owner: '' }));
+  assert.deepEqual(sum.lessons, noOwner(full.lessons));
+  assert.deepEqual(sum.openActions, noOwner(full.openActions));
+  assert.deepEqual([sum.causes, sum.repeats, sum.summary, sum.uplift], [full.causes, full.repeats, full.summary, full.uplift]);
+  // 控えは見せ方ごと: 同じデータのまま交互に呼んでも混ざらない（どちらも控えから）
+  const r0 = STATS.reads;
+  env.as(OWNER);
+  assert.deepEqual(env.call('apiPeopleLearning()'), full);
+  env.as(MEMBER);
+  assert.deepEqual(env.call('apiPeopleLearning()'), sum);
+  assert.equal(STATS.reads, r0, 'どちらも控えから');
+  // クライアント単位の予算策定担当でも、人ごとの行を出す
+  env.as(OWNER);
+  env.call(`apiGrantRole({ email: '${MEMBER}', role: 'PLANNER', scopeType: 'CLIENT', clientId: '${env.table('PLANS').find((p) => p.plan_id === B).client_id}' })`);
+  env.as(MEMBER);
+  const planner = env.call('apiPeopleLearning()');
+  assert.equal(planner.detail, 'full');
+  assert.deepEqual([planner.scoreboard, planner.decisions, planner.lessons], [full.scoreboard, full.decisions, full.lessons]);
+  env.as(OWNER);
+  // 役割の判定（予算策定担当以上。範囲は問わない。分からなければ出さない）
+  assert.deepEqual(['VIEWER', 'CONTRIBUTOR', 'PLANNER', 'APPROVER', 'ADMIN'].map((r) => env.run(`appInsightDetail_({ roles: [{ role: '${r}', scope_type: 'CLIENT', client_id: 'X' }] })`)),
+    ['summary', 'summary', 'full', 'full', 'full']);
+  assert.equal(env.run('appInsightDetail_(undefined)'), 'summary');
+  assert.equal(J(env.run('appPeopleLearning_()')).detail, 'summary');
+}
+
+// ==== 12. 保存の後は新しい結果を返す。計画ごとの当たりと精度の控えは、保存した計画の分だけ計算し直す（ほかの計画の履歴は読み直さない） ====
+{
+  env.as(OWNER);
+  env.call('apiPeopleLearning()'); env.call('apiAiLearning()');   // 控えがある状態から
+  env.run('appPlanReadMinRows_ = () => 0');   // 表が大きいとき（計画の行だけを探して読む）
+  env.run(`__evd = []; __acc = []; __evdOrig = appSourceEvidence_; __accOrig = appAccuracyOf_;
+    appSourceEvidence_ = function (ids, tab) { __evd.push(ids.slice()); return __evdOrig(ids, tab); };
+    appAccuracyOf_ = function (id, rows) { __acc.push(id); return __accOrig(id, rows); }`);
+  // 甲の振り返りを保存する（B-4 の再実行で増えた 4 月の行の、次回への反映だけ）
+  const v = env.call('apiPlanView(__in)', { __in: { planId: A } });
+  const st = env.runJob('PLAN.EDIT', { planId: A, action: 'INSIGHT.SAVE', inputHash: v.inputHash,
+    args: { rows: [{ row: 3, hypothesis: '', actionType: 'update', reflection: '受注時期の前提を見直す', owner: '', status: 'open' }] } });
+  assert.equal(st.status, 'DONE', st.error);
+  env.run('__evd = []; __acc = []');
+  for (const k of Object.keys(STATS)) STATS[k] = k === 'bySheet' ? {} : 0;
+  const after = env.call('apiPeopleLearning()');
+  const subjCells = STATS.bySheet.ENG_SUBJECTIVE_IMPACT_HISTORY.readCells;
+  const apr = after.lessons.find((x) => x.planId === A && x.ym === '2026/04');
+  assert.deepEqual([apr.reflection, apr.human, apr.duplicates], ['受注時期の前提を見直す', true, 1], '保存した記入がすぐ出る（古い控えを返さない）');
+  assert.equal(after.summary.withNotes, 2);
+  env.call('apiAiLearning()');
+  assert.deepEqual(J(env.run('__evd')), [[A]], '当たりは保存した計画の分だけ数え直す（乙は控えから）');
+  assert.deepEqual(J(env.run('__acc')), [A], '精度も保存した計画の分だけ');
+  // 履歴の表は、保存した計画の行だけを読む
+  for (const k of Object.keys(STATS)) STATS[k] = k === 'bySheet' ? {} : 0;
+  env.run(`(() => { APP_STORE_CACHE_ = {}; appReadTable_('ENG_SUBJECTIVE_IMPACT_HISTORY'); })()`);
+  assert.ok(subjCells < STATS.bySheet.ENG_SUBJECTIVE_IMPACT_HISTORY.readCells, `全部の行は読まない: ${subjCells} < ${STATS.bySheet.ENG_SUBJECTIVE_IMPACT_HISTORY.readCells}`);
+  // 控えを使っても、全部を数え直しても同じ結果
+  const aiAfter = env.call('apiAiLearning()');
+  for (const k of Object.keys(env.cache)) delete env.cache[k];
+  assert.deepEqual(env.call('apiPeopleLearning()'), after);
+  assert.deepEqual(env.call('apiAiLearning()'), aiAfter);
+  env.run('appSourceEvidence_ = __evdOrig; appAccuracyOf_ = __accOrig; appPlanReadMinRows_ = () => 3000');
 }
 
 console.log('app-insights: all tests passed');

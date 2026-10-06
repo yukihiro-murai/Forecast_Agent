@@ -9,6 +9,9 @@
  *                                 精度の推移（P10〜P90 に入った割合とその区間）・補正の変化・承認待ちの提案・学びの気になる点
  *
  * 計算用の表（ENG_*）は全計画の分を 1 回ずつ読む（appEngAll_）。計画ごとに組み立て直さない（計画が増えても読む回数は同じ）。
+ * 計画ごとの当たりと精度は、入力のハッシュが同じあいだ控える（EVD_・ACC_）。どこかで保存しても、控えが外れるのはその計画の分だけで、
+ * 控えの無い計画が少なければ、その計画の行だけを読む（履歴の表を全計画の分は読み直さない）。
+ * 人ごとの当たりと判断した人の名前は、予算策定担当以上の人だけに出す（ほかの人には情報源の種類ごとのまとめ。appInsightDetail_）。
  * 旧来の記録の 2 つの問題を避けて、ここで数え直す（旧来の計算と記録は変えない）:
  *   - SUBJECTIVE_IMPACT_HISTORY の月は日付に変わっていることがあり、旧来の当たりの数え方（RELIABILITY_EVIDENCE）は月が合わず空になる
  *     → 月を appYm_ でそろえ、評価できた月をすべて数える
@@ -27,7 +30,10 @@ const APP_INSIGHT_FACTOR_MIN = 0.75;       // 旧来の B-5 の偏りの補正�
 const APP_INSIGHT_FACTOR_MAX = 1.25;       // 同じく上限
 const APP_INSIGHT_STATUS = { open: '未着手', in_progress: '対応中', done: '済み', monitoring: '見守り' };
 const APP_INSIGHT_ACTION_LABELS = { update: '前提を更新', keep: '継続', add: '追加', remove: '削除' };
-const APP_INSIGHT_MACHINE_ACTIONS = ['update', 'keep', 'add', 'remove'];   // 旧来の B-4 が自動で入れる action_type
+const APP_INSIGHT_MACHINE_ACTIONS = ['update', 'keep'];   // 旧来の B-4 が自動で入れる action_type
+const APP_INSIGHT_MACHINE_REFLECTIONS = ['次回サイクルで前提更新を反映', '現行運用を継続'];   // 旧来の B-4 が自動で入れる next_cycle_reflection
+const APP_INSIGHT_FEW_PLANS = 3;           // 控えの無い計画がこれだけまでなら、その計画の行だけを読む（多ければ表をまとめて 1 回で読む）
+const APP_INSIGHT_DETAIL_ROLE = 'PLANNER'; // 人ごとの当たり・判断した人の名前を見せる役割（これ以上。クライアント単位の役割でもよい）
 const APP_INSIGHT_DIRECTION = { over: '予測が高すぎた', under: '予測が低すぎた', exact: '予測どおり' };
 const APP_INSIGHT_FIELD_LABELS = { ai_weight_override: 'AI の重み', ai_max_abs_effect_override: 'AI の効きの上限', ai_topic_disable_json: '使わない AI の話題',
   bias_correction_factor: '偏りの補正', residual_month_bias_json: '月ごとの偏りの補正', qual_scale_override: '入力の効きの倍率' };
@@ -44,18 +50,22 @@ const APP_INSIGHT_HEALTH = {
 /**
  * 計算用の表 ENG_<sheet> を 1 回だけ読み、計画ごとの行にする（{ 計画の ID: [見出し → 値] }）。値は型の並び（_types）で元の型に戻す
  * （appEngTableObjects_ と同じ値・同じ並び。数式のセルは空、すべて空の行は除く）。only（計画の ID の一覧）を渡すと、その計画だけ。
- * 見出しが旧来の定義と違い、行ごとに持っている計画（ENG_SHEETS の mode = rows）は、その計画だけ appEngTableObjects_ で読む
+ * 見出しが旧来の定義と違い、行ごとに持っている計画（ENG_SHEETS の mode = rows）は、その計画だけ appEngTableObjects_ で読む。
+ * perPlan = true なら、only の計画の行だけを読む（appReadPlanTable_。大きい表は計画の行だけを探して読む。控えの無い計画が少ないとき用）
  */
-function appEngAll_(sheet, only) {
+function appEngAll_(sheet, only, perPlan) {
   const reg = APP_ENGINE_SHEETS[sheet];
   if (!reg || reg.mode !== 'table') throw new Error('表の形のシートではありません: ' + sheet);
   if (only && !only.length) return {};
   const want = only ? appInsightSet_(only) : null;
+  const each = perPlan && only;
   const mode = {};
-  appReadTable_('ENG_SHEETS').forEach(r => { if (r.sheet === sheet && (!want || want[r.plan_id])) mode[r.plan_id] = r.mode; });
+  (each ? [].concat.apply([], only.map(id => appReadPlanTable_('ENG_SHEETS', id))) : appReadTable_('ENG_SHEETS'))
+    .forEach(r => { if (r.sheet === sheet && (!want || want[r.plan_id])) mode[r.plan_id] = r.mode; });
   const header = reg.header;
   const by = {};
-  appReadTable_('ENG_' + sheet).forEach(o => {
+  (each ? [].concat.apply([], Object.keys(mode).filter(id => mode[id] === 'table').map(id => appReadPlanTable_('ENG_' + sheet, id)))
+    : appReadTable_('ENG_' + sheet)).forEach(o => {
     if (mode[o.plan_id] !== 'table') return;
     const types = String(o._types || '');
     const x = {};
@@ -75,10 +85,38 @@ function appEngAll_(sheet, only) {
   return out;
 }
 
-/** 1 回の呼び出しの中で、同じ表を 2 度読まない（表の名前 → appEngAll_ の結果） */
+/**
+ * 1 回の呼び出しの中で、同じ表を 2 度読まない。tab(表の名前) = 全計画の分（appEngAll_ の結果）。
+ * tab(表の名前, few) = few の計画の分だけ（その計画の行だけを読む。全計画の分をもう読んでいれば、そこから）。few が null なら全計画の分
+ */
 function appInsightTables_(ids) {
-  const memo = {};
-  return sheet => memo[sheet] || (memo[sheet] = appEngAll_(sheet, ids));
+  const all = {};
+  const part = {};
+  return (sheet, few) => {
+    if (all[sheet]) return all[sheet];
+    if (!few) return (all[sheet] = appEngAll_(sheet, ids));
+    const got = part[sheet] = part[sheet] || {};
+    const need = few.filter(id => !Object.prototype.hasOwnProperty.call(got, id));
+    if (need.length) { const r = appEngAll_(sheet, need, true); need.forEach(id => { got[id] = r[id] || []; }); }
+    const out = {};
+    few.forEach(id => { out[id] = got[id]; });
+    return out;
+  };
+}
+
+/** 控えの無い計画（missing）が少なければ、その一覧（その計画の行だけ読む）。全部・多いときは null（表をまとめて 1 回で読む） */
+function appInsightFew_(missing, ids) {
+  return missing.length && missing.length < ids.length && missing.length <= APP_INSIGHT_FEW_PLANS ? missing : null;
+}
+
+/** 全計画の入力のハッシュを、ENG_SHEETS を 1 回で読んで出せるようにする（読めなければ計画ごとに読む） */
+function appInsightPreloadHashes_(ids) {
+  if (ids.length > 1) { try { appReadTable_('ENG_SHEETS'); } catch (e) { /* 読めなければ計画ごとに読む（その計画は控えない） */ } }
+}
+
+/** 計画ごとの控えをまとめて読む（{ 鍵: { found, value } }）。控えが読めなければ、どれも無いものとして計算し直す */
+function appInsightCacheGet_(keys) {
+  try { return appJobGetResults_(keys); } catch (e) { Logger.log('控えを読めません: ' + (e && e.message ? e.message : e)); return {}; }
 }
 
 function appInsightSet_(xs) {
@@ -95,11 +133,26 @@ function appInsightPlans_() {
     .sort((x, y) => y.fy.localeCompare(x.fy) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
 
-/** 計画ごとの精度（appAccuracyCached_ と同じ控え。控えが無い計画だけ、まとめて読んだ EVAL_LOG から計算する） */
+/**
+ * 計画ごとの精度（appAccuracyCached_ と同じ控え ACC_ を、getAll でまとめて読む）。控えの無い計画だけ EVAL_LOG から計算する
+ * （少なければ、その計画の行だけ読む。保存した計画の分だけ計算し直す）
+ */
 function appInsightAccuracies_(ids, tab) {
+  appInsightPreloadHashes_(ids);
+  const keys = {};
+  ids.forEach(id => { try { keys[id] = appAccuracyKey_(id); } catch (e) { Logger.log('精度を出せない計画: ' + id + ' ' + (e && e.message ? e.message : e)); } });
+  const has = ids.filter(id => Object.prototype.hasOwnProperty.call(keys, id));
+  const hits = appInsightCacheGet_(has.map(id => keys[id]));
+  const found = id => !!(hits[keys[id]] && hits[keys[id]].found);
+  const few = appInsightFew_(has.filter(id => !found(id)), ids);
   const accs = {};
-  ids.forEach(id => {
-    try { accs[id] = appAccuracyCached_(id, x => tab('EVAL_LOG')[x] || []); } catch (e) { Logger.log('精度を出せない計画: ' + id + ' ' + (e && e.message ? e.message : e)); }
+  has.forEach(id => {
+    if (found(id)) { accs[id] = hits[keys[id]].value; return; }
+    try {
+      const v = appAccuracyOf_(id, tab('EVAL_LOG', few)[id] || []);
+      try { appJobPutResult_(keys[id], v); } catch (e) { /* 控えられなくても返す */ }
+      accs[id] = v;
+    } catch (e) { Logger.log('精度を出せない計画: ' + id + ' ' + (e && e.message ? e.message : e)); }
   });
   return accs;
 }
@@ -161,6 +214,19 @@ function appInsightTargetLabel_(field) {
     return (APP_SOURCE_LABELS[type] || type) + (key ? '「' + key + '」' : '') + 'の信頼度';
   }
   return APP_INSIGHT_FIELD_LABELS[f] || f;
+}
+
+/** 提案・補正の対象と、その名前。hideKey = true なら人や話題を除く（reliability:<種類> と「見解の信頼度」のように） */
+function appInsightTarget_(field, hideKey) {
+  const f = String(field || '');
+  const t = hideKey && f.indexOf('reliability:') === 0 ? 'reliability:' + (f.split(':')[1] || '') : f;
+  return { target: t, label: appInsightTargetLabel_(t) };
+}
+
+/** 人ごとの当たり・判断した人の名前を見せるか: 予算策定担当以上の役割（クライアント単位でもよい）があれば 'full'、無ければ 'summary' */
+function appInsightDetail_(ctx) {
+  const need = APP_ROLES.indexOf(APP_INSIGHT_DETAIL_ROLE);
+  return ((ctx && ctx.roles) || []).some(r => APP_ROLES.indexOf(r.role) >= need) ? 'full' : 'summary';
 }
 
 // ---- 共通: ベータ分布と二項の区間 ----
@@ -305,7 +371,48 @@ function appSourceEvidence_(ids, tab) {
       out.push({ planId: id, ym: x.ym, quarter: appInsightQuarter_(x.ym), type: x.type, key: x.key, hit: x.dir === surprise ? 1 : 0 });
     });
   });
-  return out.sort((a, b) => a.ym.localeCompare(b.ym) || a.planId.localeCompare(b.planId) || a.type.localeCompare(b.type) || a.key.localeCompare(b.key));
+  return out.sort(appInsightEvidenceOrder_);
+}
+
+/** 当たりの行の並び（月 → 計画 → 種類 → 人や話題） */
+function appInsightEvidenceOrder_(a, b) {
+  return a.ym.localeCompare(b.ym) || a.planId.localeCompare(b.planId) || a.type.localeCompare(b.type) || a.key.localeCompare(b.key);
+}
+
+/** 計画の当たりの控えの鍵（入力のハッシュが変われば変わる。精度の控え appAccuracyKey_ と同じ作り） */
+function appInsightEvidenceKey_(planId) {
+  return 'EVD_' + appSha256Hex_([planId, appPlanInputHash_(planId), APP_VERSION].join('|')).slice(0, 32);
+}
+
+/**
+ * 全計画の当たり（appSourceEvidence_ と同じ行・同じ並び）。計画ごとに、入力のハッシュが同じあいだ控える（6 時間。精度の控え ACC_ と同じ）。
+ * どこかで保存すると画面の控え（appCachedRead_）は全部外れるが、この控えは保存した計画の分だけが外れる。
+ * 控えの無い計画だけ 3 つの表（SUBJECTIVE_IMPACT_HISTORY・AI_IMPACT_HISTORY・EVAL_LOG）を読む（少なければ、その計画の行だけ）。
+ * 控えは [月, 種類, 人や話題, 当たり] の並びで持つ（小さくするため）
+ */
+function appInsightEvidence_(ids, tab) {
+  appInsightPreloadHashes_(ids);
+  const keys = {};
+  ids.forEach(id => { try { keys[id] = appInsightEvidenceKey_(id); } catch (e) { /* 鍵を作れない計画は控えない（毎回数える） */ } });
+  const hits = appInsightCacheGet_(ids.filter(id => keys[id]).map(id => keys[id]));
+  const out = [];
+  const missing = [];
+  ids.forEach(id => {
+    const c = keys[id] ? hits[keys[id]] : null;
+    if (!c || !c.found || !Array.isArray(c.value)) { missing.push(id); return; }
+    c.value.forEach(x => out.push({ planId: id, ym: x[0], quarter: appInsightQuarter_(x[0]), type: x[1], key: x[2], hit: x[3] }));
+  });
+  if (missing.length) {
+    const few = appInsightFew_(missing, ids);
+    const mine = {};
+    missing.forEach(id => { mine[id] = []; });
+    appSourceEvidence_(missing, sheet => tab(sheet, few)).forEach(e => { mine[e.planId].push([e.ym, e.type, e.key, e.hit]); out.push(e); });
+    missing.forEach(id => {
+      if (!keys[id]) return;
+      try { appJobPutResult_(keys[id], mine[id]); } catch (e) { /* 控えられなくても返す */ }
+    });
+  }
+  return out.sort(appInsightEvidenceOrder_);
 }
 
 // ---- 分析（メーカーを横に並べる） ----
@@ -316,7 +423,9 @@ function appSourceEvidence_(ids, tab) {
  *   revisions: [{ at, p10, p50, p90 }]（新アプリで動かした予測。古い順に最近の 12 回）
  *   accuracy:  { n, leaks, mape, bias, coverage, coverageN, widthScale }（Learning.js の精度。締まった後の予測の月は除く）
  *   topics:    [{ topic, rowType, direction, impact, confidence, score, position, percentile, horizon, asOf }]（AI 調査の一番新しい回）
- *   totals:    { plans, budget, p50, landing, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding }（合計。比は予算のある計画だけで）
+ *   totals:    { plans, budget, budgetDraft, p50, landing, landingPlans, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding }
+ *              （合計。予算は計画ごとの空模様と同じ budgetUsed = 承認済みの公式版の最終予算、無ければ今の予算。budgetDraft = 今の予算（OUTPUT）の合計。
+ *               着地の見込みが無い計画は着地の合計に入れない（landingPlans = 入れた計画の数）。比は予算のある計画だけで）
  *   market:    [{ topic, makers, up, down, flat, meanScore }]（話題ごと。メーカーの向きは、その話題の行の点数の平均の符号）
  */
 function appCrossMaker_(fy) {
@@ -365,13 +474,17 @@ function appCrossMaker_(fy) {
       topics: topics
     });
   });
-  const sum = (xs, k) => xs.reduce((s, p) => (typeof p[k] === 'number' && isFinite(p[k]) ? (s || 0) + p[k] : s), null);
-  const budgeted = rows.filter(p => typeof p.budget === 'number' && p.budget > 0);
-  const totals = { plans: rows.length, budget: sum(rows, 'budget'), p50: sum(rows, 'p50'), landing: sum(rows, 'landing'), actualYtd: sum(rows, 'actualYtd'),
-    budgetPlans: budgeted.length, p50Budgeted: sum(budgeted.filter(p => typeof p.p50 === 'number'), 'p50'), landingBudgeted: sum(budgeted.filter(p => typeof p.landing === 'number'), 'landing') };
-  const budgetOf = k => sum(budgeted.filter(p => typeof p[k] === 'number'), 'budget');
-  totals.ratioP50 = totals.p50Budgeted !== null && budgetOf('p50') > 0 ? totals.p50Budgeted / budgetOf('p50') : null;
-  totals.ratioLanding = totals.landingBudgeted !== null && budgetOf('landing') > 0 ? totals.landingBudgeted / budgetOf('landing') : null;
+  const fin = v => typeof v === 'number' && isFinite(v);
+  const sum = (xs, f) => xs.reduce((s, p) => { const v = f(p); return fin(v) ? (s || 0) + v : s; }, null);
+  const used = p => (typeof p.budgetUsed === 'number' ? p.budgetUsed : p.budget);   // 空模様と同じ予算
+  const budgeted = rows.filter(p => fin(used(p)) && used(p) > 0);
+  const withP50 = budgeted.filter(p => fin(p.p50)), withLanding = budgeted.filter(p => fin(p.landing));
+  const totals = { plans: rows.length, budget: sum(rows, used), budgetDraft: sum(rows, p => p.budget), p50: sum(rows, p => p.p50),
+    landing: sum(rows, p => p.landing), landingPlans: rows.filter(p => fin(p.landing)).length, actualYtd: sum(rows, p => p.actualYtd),
+    budgetPlans: budgeted.length, p50Budgeted: sum(withP50, p => p.p50), landingBudgeted: sum(withLanding, p => p.landing) };
+  const b50 = sum(withP50, used), bLanding = sum(withLanding, used);
+  totals.ratioP50 = totals.p50Budgeted !== null && b50 > 0 ? totals.p50Budgeted / b50 : null;
+  totals.ratioLanding = totals.landingBudgeted !== null && bLanding > 0 ? totals.landingBudgeted / bLanding : null;
   return {
     fy: pick, fys: fys, plans: rows, totals: totals,
     market: Object.keys(market).map(k => ({ topic: k, makers: market[k].makers, up: market[k].up, down: market[k].down, flat: market[k].flat,
@@ -382,46 +495,59 @@ function appCrossMaker_(fy) {
 // ---- 人の学び ----
 
 /**
- * 人の学び。返り値:
+ * 人の学び（ctx = 見る人。人ごとの当たりと判断した人の名前は予算策定担当以上だけ: appInsightDetail_）。返り値:
+ *   detail:      'full'（予算策定担当以上）/ 'summary'（閲覧・情報提供。人の名前を出さない）
  *   lessons:     [{ planId, clientName, fy, ym, actual, pred, err, absErr, direction, directionLabel, range, miss, hypothesis, actionType, actionLabel,
- *                   reflection, owner, status, statusLabel, human, duplicates }]（誤差の大きい順に 50 件。err = (予測 − 実績) / |実績|）
- *   causes:      [{ direction, directionLabel, range, actionType, actionLabel, n }]（外れた月の、向き × 幅の外か × 対応の数）
+ *                   reflection, owner, status, statusLabel, human, duplicates }]（誤差の大きい順に 50 件。err = (予測 − 実績) / |実績|。summary では owner は空）
+ *   causes:      [{ direction, directionLabel, range, actionType, actionTypes, actionLabel, n }]（外れた月の、向き × 幅の外か × 対応（画面に出す名前）の数。
+ *                   actionTypes = まとめた action_type（自動の update と人が選んだ「前提を更新」は 1 行）。actionType はその最初のもの）
  *   openActions: [lessons と同じ形]（未着手・対応中。古い月から）
  *   repeats:     [{ clientName, month: 'MM', fys: [...], n }]（同じメーカーで、違う年度の同じ月にまた外れた）
  *   summary:     { months, misses, withNotes, duplicatesRemoved }
- *   scoreboard:  [{ type, label, key, n, hit, hitRate, alpha, beta, postMean, ci80: [下, 上], prior: { alpha0, beta0, from }, appliedR,
- *                   plans: [{ planId, clientName, fy, n, hit, appliedR }] }]（80% の区間の下の端が高い順。少ない数で上位に出ない）
+ *   scoreboard:  full:    [{ type, label, key, n, hit, hitRate, alpha, beta, postMean, ci80: [下, 上], prior: { alpha0, beta0, from }, appliedR,
+ *                            plans: [{ planId, clientName, fy, n, hit, appliedR }] }]（人や話題ごと）
+ *                summary: [{ type, label, sources, n, hit, hitRate, alpha, beta, postMean, ci80, prior, appliedR }]（情報源の種類ごと。sources = まとめた人や話題の数）
+ *                （どちらも 80% の区間の下の端が高い順。少ない数で上位に出ない）
  *   decisions:   [{ planId, clientName, fy, reviewId, proposalId, at, quarter, phase, phaseLabel, target, targetLabel, current, proposed,
- *                   confidence, rationale, status, decidedAt, decidedBy, applied, appliedAt }]（四半期レビューの提案と判断。新しい順）
- *   uplift:      [{ planId, clientName, fy, versionNo, budgetAdopted, budgetUplift, budgetFinal, p50, actual, months, complete, ratio, upliftRealized }]
- *                （公式版の予算と、その年度の実績の合計。complete = 12 か月の実績がそろった）
+ *                   confidence, rationale, status, decidedAt, decidedBy, applied, appliedAt }]（四半期レビューの提案と判断。新しい順。
+ *                   summary では decidedBy は無く、信頼度の対象は種類まで（reliability:<種類>・「見解の信頼度」））
+ *   uplift:      [{ planId, clientName, fy, versionNo, budgetAdopted, budgetUplift, budgetFinal, p50, actual, months, complete, ratio, upliftRealized,
+ *                   landing, projectedRatio, projectedUpliftRealized }]（公式版の予算と、その年度の実績。complete = 12 か月の実績がそろった。
+ *                   ratio・upliftRealized は年度が終わるまで null。projected* は統計の着地の見込みから（見込みが無ければ null））
  */
-function appPeopleLearning_() {
+function appPeopleLearning_(ctx) {
+  const detail = appInsightDetail_(ctx);
+  const hide = detail !== 'full';
   const plans = appInsightPlans_();
   const ids = plans.map(p => p.planId);
   const tab = appInsightTables_(ids);
-  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'));
-  const evidence = appSourceEvidence_(ids, tab);
-  return Object.assign(l, {
-    scoreboard: appSourceScoreboard_(plans, evidence, tab('POOL_PRIOR'), tab('SOURCE_RELIABILITY')),
-    decisions: appInsightDecisions_(plans, tab('QUARTERLY_REVIEW_LOG')),
+  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'), hide);
+  const evidence = appInsightEvidence_(ids, tab);
+  return Object.assign({ detail: detail }, l, {
+    scoreboard: appSourceScoreboard_(plans, evidence, tab('POOL_PRIOR'), tab('SOURCE_RELIABILITY'), hide),
+    decisions: appInsightDecisions_(plans, tab('QUARTERLY_REVIEW_LOG'), hide),
     uplift: appInsightUplift_(ids)
   });
 }
 
-/** 人が書いた跡があるか（旧来の B-4 は action_type・next_cycle_reflection・status を自動で入れるので、それ以外を見る） */
+/**
+ * 人が書いた跡があるか（旧来の B-4 は action_type（update / keep）・next_cycle_reflection（決まった 2 つの文）・status を自動で入れるので、
+ * それ以外の値を人の記入とみなす）
+ */
 function appInsightHasHuman_(r) {
   const s = k => String(r[k] === null || r[k] === undefined ? '' : r[k]).trim();
   const action = s('action_type');
+  const reflection = s('next_cycle_reflection');
   return !!(s('cause_hypothesis') || s('owner') || ['in_progress', 'done'].indexOf(s('status')) >= 0 ||
-    (action && APP_INSIGHT_MACHINE_ACTIONS.indexOf(action) < 0));
+    (action && APP_INSIGHT_MACHINE_ACTIONS.indexOf(action) < 0) || (reflection && APP_INSIGHT_MACHINE_REFLECTIONS.indexOf(reflection) < 0));
 }
 
 /**
  * 外れた月の振り返り。B-4 を動かし直すと同じ月の行が増える（月が日付に変わり、旧来の上書きの鍵が合わない）ので、計画 × 月で 1 つにする:
- * 数字（実績・予測・幅の外か）は一番新しい行から、人が書いた欄（原因・対応・担当・状態）は人が書いた一番新しい行から取る
+ * 数字（実績・予測・幅の外か）は一番新しい行から、人が書いた欄（原因・対応・次回への反映・担当・状態）は人が書いた一番新しい行から取る。
+ * hideNames = true なら担当（人の名前）を出さない
  */
-function appInsightLessons_(plans, insights) {
+function appInsightLessons_(plans, insights, hideNames) {
   const all = [];
   let dup = 0;
   const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
@@ -451,17 +577,19 @@ function appInsightLessons_(plans, insights) {
         direction: direction, directionLabel: APP_INSIGHT_DIRECTION[direction] || '', range: range,
         miss: (err !== null && Math.abs(err) >= APP_INSIGHT_MISS) || range,
         hypothesis: String(h.cause_hypothesis || ''), actionType: actionType, actionLabel: APP_INSIGHT_ACTION_LABELS[actionType] || actionType,
-        reflection: String(h.next_cycle_reflection || ''), owner: String(h.owner || ''), status: status, statusLabel: APP_INSIGHT_STATUS[status] || status,
+        reflection: String(h.next_cycle_reflection || ''), owner: hideNames ? '' : String(h.owner || ''), status: status, statusLabel: APP_INSIGHT_STATUS[status] || status,
         human: !!x.human, duplicates: x.rows - 1 });
     });
   });
   const byErr = all.slice().sort((a, b) => (b.absErr === null ? -1 : b.absErr) - (a.absErr === null ? -1 : a.absErr) || a.ym.localeCompare(b.ym));
   const misses = all.filter(x => x.miss);
-  const causes = {};
+  const causes = {};   // 画面に出す対応の名前でまとめる（自動の update と、人が選んだ「前提を更新」は同じ行）
   misses.forEach(x => {
-    const k = [x.direction, x.range ? 1 : 0, x.actionType].join('\u0001');
-    const o = causes[k] = causes[k] || { direction: x.direction, directionLabel: x.directionLabel, range: x.range, actionType: x.actionType, actionLabel: x.actionLabel, n: 0 };
+    const k = [x.direction, x.range ? 1 : 0, x.actionLabel].join('\u0001');
+    const o = causes[k] = causes[k] || { direction: x.direction, directionLabel: x.directionLabel, range: x.range, actionType: x.actionType, actionTypes: [],
+      actionLabel: x.actionLabel, n: 0 };
     o.n++;
+    if (o.actionTypes.indexOf(x.actionType) < 0) o.actionTypes.push(x.actionType);
   });
   const rep = {};
   misses.forEach(x => {
@@ -473,7 +601,7 @@ function appInsightLessons_(plans, insights) {
   });
   return {
     lessons: byErr.slice(0, APP_INSIGHT_LESSONS),
-    causes: Object.keys(causes).map(k => causes[k]).sort((a, b) => b.n - a.n || a.direction.localeCompare(b.direction)),
+    causes: Object.keys(causes).map(k => causes[k]).sort((a, b) => b.n - a.n || a.direction.localeCompare(b.direction) || a.actionLabel.localeCompare(b.actionLabel)),
     openActions: all.filter(x => x.status === 'open' || x.status === 'in_progress')
       .sort((a, b) => a.ym.localeCompare(b.ym) || String(a.clientName).localeCompare(String(b.clientName), 'ja')).slice(0, APP_INSIGHT_OPEN_MAX),
     repeats: Object.keys(rep).map(k => rep[k]).filter(o => o.fys.length >= 2).map(o => Object.assign(o, { fys: o.fys.sort() }))
@@ -482,8 +610,11 @@ function appInsightLessons_(plans, insights) {
   };
 }
 
-/** 人と話題ごとの当たり（全計画・全部の評価できた月）と、ベータ分布の事後。事前分布は POOL_PRIOR（無ければ Beta(2, 2)） */
-function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan) {
+/**
+ * 人と話題ごとの当たり（全計画・全部の評価できた月）と、ベータ分布の事後。事前分布は POOL_PRIOR（無ければ Beta(2, 2)）。
+ * byType = true なら人や話題を出さず、情報源の種類ごとにまとめる（key・plans は無し。sources = まとめた人や話題の数。appliedR はその人や話題の今の信頼度の平均）
+ */
+function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan, byType) {
   const info = {};
   plans.forEach(p => { info[p.planId] = p; });
   const priors = appInsightPriors_(poolByPlan);
@@ -496,9 +627,10 @@ function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan) {
   }));
   const g = {};
   evidence.forEach(e => {
-    const k = e.type + '\u0001' + e.key;
-    const o = g[k] = g[k] || { type: e.type, key: e.key, n: 0, hit: 0, by: {} };
+    const k = byType ? e.type : e.type + '\u0001' + e.key;
+    const o = g[k] = g[k] || { type: e.type, key: e.key, n: 0, hit: 0, by: {}, keys: {} };
     o.n++; o.hit += e.hit;
+    o.keys[e.key] = true;
     const b = o.by[e.planId] = o.by[e.planId] || { n: 0, hit: 0 };
     b.n++; b.hit += e.hit;
   });
@@ -506,48 +638,63 @@ function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan) {
     const o = g[k];
     const pr = priors[o.type] || appInsightPrior_(null);
     const post = appBetaSummary_(pr.alpha0 + o.hit, pr.beta0 + o.n - o.hit);
+    const row = { type: o.type, label: APP_SOURCE_LABELS[o.type] || o.type, n: o.n, hit: o.hit, hitRate: o.hit / o.n,
+      alpha: post.alpha, beta: post.beta, postMean: post.mean, ci80: post.ci80, prior: { alpha0: pr.alpha0, beta0: pr.beta0, from: pr.from } };
+    if (byType) {
+      const vals = [];
+      Object.keys(o.keys).forEach(key => { const ap = applied[o.type + '\u0001' + key] || {}; Object.keys(ap).forEach(id => vals.push(ap[id])); });
+      return Object.assign(row, { sources: Object.keys(o.keys).length, appliedR: appInsightMean_(vals) });
+    }
     const ap = applied[k] || {};
-    const apVals = Object.keys(ap).map(id => ap[id]);
-    return { type: o.type, label: APP_SOURCE_LABELS[o.type] || o.type, key: o.key, n: o.n, hit: o.hit, hitRate: o.hit / o.n,
-      alpha: post.alpha, beta: post.beta, postMean: post.mean, ci80: post.ci80, prior: { alpha0: pr.alpha0, beta0: pr.beta0, from: pr.from },
-      appliedR: appInsightMean_(apVals),
+    return Object.assign(row, { key: o.key, appliedR: appInsightMean_(Object.keys(ap).map(id => ap[id])),
       plans: Object.keys(o.by).map(id => ({ planId: id, clientName: (info[id] || {}).clientName || '', fy: (info[id] || {}).fy || '', n: o.by[id].n, hit: o.by[id].hit,
-        appliedR: ap[id] === undefined ? null : ap[id] })) };
-  }).sort((a, b) => b.ci80[0] - a.ci80[0] || b.n - a.n || a.type.localeCompare(b.type) || a.key.localeCompare(b.key));
+        appliedR: ap[id] === undefined ? null : ap[id] })) });
+  }).sort((a, b) => b.ci80[0] - a.ci80[0] || b.n - a.n || a.type.localeCompare(b.type) || String(a.key || '').localeCompare(String(b.key || '')));
 }
 
-/** 四半期レビューの提案と、人の判断（QUARTERLY_REVIEW_LOG。新しい順） */
-function appInsightDecisions_(plans, logs) {
+/** 四半期レビューの提案と、人の判断（QUARTERLY_REVIEW_LOG。新しい順）。hideNames = true なら判断した人を出さず、信頼度の対象は種類まで */
+function appInsightDecisions_(plans, logs, hideNames) {
   const out = [];
   plans.forEach(p => (logs[p.planId] || []).forEach((r, i) => {
-    const field = String(r.target_field || '');
+    const target = appInsightTarget_(r.target_field, hideNames);
     const phase = String(r.phase || '').trim();
-    out.push({ t: appTimeKey_(r.reviewed_at), i: i, planId: p.planId, clientName: p.clientName, fy: p.fy,
+    const o = { t: appTimeKey_(r.reviewed_at), i: i, planId: p.planId, clientName: p.clientName, fy: p.fy,
       reviewId: String(r.review_id || ''), proposalId: String(r.proposal_id || ''), at: appInsightIso_(r.reviewed_at), quarter: String(r.quarter_label || ''),
-      phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: field, targetLabel: appInsightTargetLabel_(field),
+      phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: target.target, targetLabel: target.label,
       current: appInsightVal_(r.current_value), proposed: appInsightVal_(r.proposed_value), confidence: String(r.confidence || ''),
       rationale: String(r.rationale || '').slice(0, 300), status: String(r.approval_status || ''), decidedAt: appInsightIso_(r.approval_decided_at),
-      decidedBy: String(r.approval_decided_by || '').split('@')[0], applied: Number(r.applied || 0) === 1, appliedAt: appInsightIso_(r.applied_at) });
+      decidedBy: String(r.approval_decided_by || '').split('@')[0], applied: Number(r.applied || 0) === 1, appliedAt: appInsightIso_(r.applied_at) };
+    if (hideNames) delete o.decidedBy;
+    out.push(o);
   }));
   return out.sort((a, b) => b.t - a.t || String(a.planId).localeCompare(String(b.planId)) || a.i - b.i).slice(0, APP_INSIGHT_DECISIONS)
     .map(x => { const o = Object.assign({}, x); delete o.t; delete o.i; return o; });
 }
 
-/** 公式版（承認された版）の予算と、その年度の実績の合計（計画の一覧の暫定実績 = EVAL_COMPARE_MONTHLY の年度の月の実績） */
+/**
+ * 公式版（承認された版）の予算と、その年度の実績の合計（計画の一覧の暫定実績 = 締まった月の実績）。
+ * 実績で見る割合（ratio・upliftRealized）は年度の 12 か月が締まってから出す（途中の実績を年間の予算と比べると、上乗せが外れたように見える）。
+ * 年度の途中は、統計の着地の見込み（計画の一覧の landing）で見た割合を別の名前（projected*）で出す
+ */
 function appInsightUplift_(ids) {
   const want = appInsightSet_(ids);
   const port = {};
   appPortfolioCached_().forEach(p => { if (want[p.planId]) port[p.planId] = p; });
   return appVersionTable_().filter(v => v.state === 'APPROVED' && port[v.plan_id]).map(v => {
     const p = port[v.plan_id];
-    const actual = typeof p.actualYtd === 'number' ? p.actualYtd : null;
+    const fin = x => typeof x === 'number' && isFinite(x);
+    const actual = fin(p.actualYtd) ? p.actualYtd : null;
+    const landing = fin(p.landing) ? p.landing : null;
     const months = Number(p.actualMonths || 0);
+    const complete = months >= 12;
+    const ratioOf = x => (x !== null && v.budget_final > 0 ? x / v.budget_final : null);
+    // 上乗せのうち実際に出た割合（(実績 − 採用した予算) / 上乗せ）
+    const upliftOf = x => (x !== null && v.budget_uplift && v.budget_adopted !== null ? (x - v.budget_adopted) / v.budget_uplift : null);
     return { planId: p.planId, clientName: p.clientName, fy: String(p.fy), versionNo: v.version_no,
       budgetAdopted: v.budget_adopted, budgetUplift: v.budget_uplift, budgetFinal: v.budget_final, p50: v.annual_p50,
-      actual: actual, months: months, complete: months >= 12,
-      ratio: actual !== null && v.budget_final > 0 ? actual / v.budget_final : null,
-      // 上乗せのうち実際に出た割合（(実績 − 採用した予算) / 上乗せ）。年度が終わるまでは途中の値
-      upliftRealized: actual !== null && v.budget_uplift && v.budget_adopted !== null ? (actual - v.budget_adopted) / v.budget_uplift : null };
+      actual: actual, months: months, complete: complete,
+      ratio: complete ? ratioOf(actual) : null, upliftRealized: complete ? upliftOf(actual) : null,
+      landing: landing, projectedRatio: ratioOf(landing), projectedUpliftRealized: upliftOf(landing) };
   }).sort((a, b) => b.fy.localeCompare(a.fy) || String(a.clientName).localeCompare(String(b.clientName), 'ja'));
 }
 
@@ -561,14 +708,14 @@ function appInsightUplift_(ids) {
  *   timeline:    [{ ym, n, mape, coverage, coverageN, coverageCi80: [下, 上], target, rolling3, rolling3N }]（全計画の月ごと。締まった後の予測の月は除く）
  *   calibration: [{ planId, clientName, fy, factorNow, path: [{ at, factor, factorLabel, old, new, source, sourceLabel, quarter }] }]
  *   pending:     [{ planId, clientName, fy, reviewId, at, quarter, proposals: [{ proposalId, phase, phaseLabel, target, targetLabel, current, proposed,
- *                   confidence, rationale, decision }] }]（一番新しい四半期レビューで、まだ適用していないもの。decision = 保存した判断）
+ *                   confidence, rationale, decision }] }]（一番新しい四半期レビューで、まだ適用していないもの（C-3 で適用できるものだけ）。decision = 保存した判断）
  *   health:      [{ planId, clientName, fy, key, label, value }]（気になる点。key = shadow_worse / factor_clamp / coverage_low / coverage_high）
  */
 function appAiLearning_() {
   const plans = appInsightPlans_();
   const ids = plans.map(p => p.planId);
   const tab = appInsightTables_(ids);
-  const evidence = appSourceEvidence_(ids, tab);
+  const evidence = appInsightEvidence_(ids, tab);
   const priors = appInsightPriors_(tab('POOL_PRIOR'));
   const curves = Object.keys(priors).map(type => {
     const pr = priors[type];
@@ -645,7 +792,9 @@ function appInsightCalibration_(plans, hist, factorNow) {
 
 /**
  * 承認待ちの提案: 計画ごとの一番新しい四半期レビュー（QUARTERLY_REVIEW_LOG の review_id）で、まだ C-3 で処理していないもの
- * （どの行も approval_decided_at が空で applied = 0）。保存した判断（承認・却下・保留）は、その計画の QUARTERLY_REVIEW の画面の行から読む
+ * （どの行も approval_decided_at が空で applied = 0）。保存した判断（承認・却下・保留）は、その計画の QUARTERLY_REVIEW の画面の行から読む。
+ * C-3 は画面に置いた review_id のレビューだけを適用する。画面の review_id が一番新しいレビューと違えば（その後の C-1 で提案が無かった・
+ * 実績が足りずに画面を消した）、もう適用できないので出さない
  */
 function appInsightPending_(plans, logs) {
   const out = [];
@@ -663,7 +812,8 @@ function appInsightPending_(plans, logs) {
     if (!latest) return;
     if (latest.rows.some(r => Number(r.applied || 0) === 1 || (r.approval_decided_at !== '' && r.approval_decided_at !== null && r.approval_decided_at !== undefined))) return;
     const saved = appInsightReviewDecisions_(p.planId);
-    const decided = saved.reviewId === latest.rid ? saved.byPid : {};
+    if (saved.reviewId !== latest.rid) return;
+    const decided = saved.byPid;
     const r0 = latest.rows[0];
     out.push({ planId: p.planId, clientName: p.clientName, fy: p.fy, reviewId: latest.rid, at: appInsightIso_(r0.reviewed_at), quarter: String(r0.quarter_label || ''),
       proposals: latest.rows.map(r => {
