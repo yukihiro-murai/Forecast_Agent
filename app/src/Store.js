@@ -151,6 +151,7 @@ function appStoreForget_(name) {
 const APP_GEN_KEY = 'APP_DATA_GEN';
 const APP_READ_TTL_SEC = 6 * 3600;
 const APP_READ_CHUNK = 30000;   // 1 つの値は 100KB（バイト）まで。日本語は 1 文字 3 バイト
+const APP_CACHE_CHUNKS_MAX = 1000;   // 分けた数の上限（壊れた数から、大きな鍵の一覧を作らない）
 
 function appNewGen_() { return String(new Date().getTime()) + '-' + Utilities.getUuid().slice(0, 8); }
 
@@ -171,18 +172,24 @@ function appBumpGen_() {
 
 /**
  * 分けて置いた控え（k = 分けた数、k_0, k_1, … = 中身）をつなげて返す（{ k: 中身 }。無い・欠けていれば null）。
- * いくつの控えでも getAll の 2 回までで取る: 1 回目は数と最初の 1 つ（ほとんどの控えは 1 つに収まる）、2 回目は残りをまとめて
+ * いくつの控えでも getAll の 2 回までで取る: 1 回目は数と最初の 1 つ（ほとんどの控えは 1 つに収まる）、2 回目は残りをまとめて。
+ * 数が壊れている（整数でない・上限を超える）か、最初の 1 つが無い控えは、残りを取らずに null にする
  */
 function appCacheChunksAll_(cache, keys) {
   const first = [];
   keys.forEach(k => { first.push(k, k + '_0'); });
   const got = first.length ? cache.getAll(first) : {};
+  const counts = {};
+  keys.forEach(k => {
+    const n = Number(got[k]);
+    counts[k] = typeof got[k + '_0'] === 'string' && Number.isInteger(n) && n >= 1 && n <= APP_CACHE_CHUNKS_MAX ? n : 0;
+  });
   const rest = [];
-  keys.forEach(k => { for (let i = 1; i < Number(got[k] || 0); i++) rest.push(k + '_' + i); });
+  keys.forEach(k => { for (let i = 1; i < counts[k]; i++) rest.push(k + '_' + i); });
   if (rest.length) Object.assign(got, cache.getAll(rest));
   const out = {};
   keys.forEach(k => {
-    const n = Number(got[k] || 0);
+    const n = counts[k];
     let text = n ? '' : null;
     for (let i = 0; i < n && text !== null; i++) { const part = got[k + '_' + i]; text = typeof part === 'string' ? text + part : null; }
     out[k] = text;
