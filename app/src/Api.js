@@ -122,9 +122,12 @@ function apiPortfolio() {
   return api_('PORTFOLIO.LIST', { minRole: 'VIEWER', audit: false }, () => ({ plans: appPortfolioCached_() }));
 }
 
-/** 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化）。閲覧は社内全員 */
+/**
+ * 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化）。閲覧は社内全員。
+ * 押したものの人や話題ごとの内訳（名前と信頼度）は予算策定担当以上だけ（ほかの人には情報源の種類ごと。appBasisFor_）
+ */
 function apiForecastBasis(input) {
-  return api_('FORECAST.BASIS', { minRole: 'VIEWER', audit: false }, () => appForecastBasis_(input && input.planId));
+  return api_('FORECAST.BASIS', { minRole: 'VIEWER', audit: false }, ctx => appForecastBasis_(ctx, input && input.planId));
 }
 
 /** 精度の推移と学習の影（月の誤差・偏り・P10〜P90 に入った割合・全計画で縮めた偏りの補正）。閲覧は社内全員 */
@@ -192,7 +195,10 @@ function apiForecastLatest(input) {
   return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('LATEST\u0001' + (input && input.planId), () => appForecastLatest_(input && input.planId)));
 }
 
-/** 計画の画面（入力・予測と予算・検証・四半期レビュー・進み。閲覧は社内全員）。中身は「今日」でも変わる（既定の年度など）ので、控えの鍵に日付も入れる */
+/**
+ * 計画の画面（入力・予測と予算・検証・四半期レビュー・進み。閲覧は社内全員）。中身は「今日」でも変わる（既定の年度など）ので、控えの鍵に日付も入れる。
+ * 人ごとの当たりと外れた月の担当は予算策定担当以上だけ（appPlanViewFor_）。控えの鍵は見る人ごと
+ */
 function apiPlanView(input) {
   return api_('PLAN.VIEW', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('VIEW\u0001' + ctx.actor + '\u0001' + (input && input.planId) + '\u0001' + appToday_(), () => appPlanView_(ctx, input && input.planId)));
 }

@@ -314,6 +314,7 @@ node app/tests/app-portfolio.test.mjs
 node app/tests/app-versions.test.mjs
 node app/tests/app-admin.test.mjs
 node app/tests/app-basis.test.mjs
+node app/tests/app-plan-privacy.test.mjs
 node app/tests/app-learning.test.mjs
 node app/tests/app-maintenance.test.mjs
 node app/tests/app-readiness.test.mjs
