@@ -375,6 +375,13 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
   assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
   vm.runInContext(`S.setTab = 'biz'`, ui);
+  // 確かめる画面はアプリの中（ブラウザ標準の confirm を使わない）。はい で実行、やめる で何もしない
+  assert.doesNotMatch(uiHtml.replace(/S\.fc\.confirm|fcConfirm|confirms/g, ''), /[^.\w]confirm\(/, 'confirm( を使わない');
+  const askRes = JSON.parse(vm.runInContext(`(function(){ var aw = { innerHTML: '', classList: { add() {}, remove() {} } }; var g = document.getElementById; document.getElementById = function(id){ return id === 'askwrap' ? aw : g(id); };
+    var hit = 0; ask('締めますか？', '締める', function(){ hit++; }, true); var h = aw.innerHTML; askDone(false); ask('出しますか？', '出す', function(){ hit += 10; }); askDone(true);
+    document.getElementById = g; return JSON.stringify([h, hit]); })()`, ui));
+  assert.match(askRes[0], /role="dialog"[\s\S]*締めますか？[\s\S]*>締める<[\s\S]*>やめる</);
+  assert.equal(askRes[1], 10, 'やめる では実行しない・はい で 1 回だけ実行');
   // 進みは実行する順（A → B → C・番号順）に並べる
   const stepsHtml = vm.runInContext(`var __kv = S.fc.view; S.fc.view = JSON.parse(JSON.stringify(__kv)); S.fc.view.boot.steps = [{ menu: 'A-2', label: 'a2', status: 'not_run' }, { menu: 'B-1', label: 'b1', status: 'not_run' }, { menu: 'A-9', label: 'a9', status: 'not_run' }, { menu: 'A-4', label: 'a4', status: 'not_run' }]; var __st = fcStepsTab(S.fc.data, S.fc.view); S.fc.view = __kv; __st`, ui);
   assert.match(stepsHtml, />a2<[\s\S]*>a4<[\s\S]*>a9<[\s\S]*>b1</);

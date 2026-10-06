@@ -186,6 +186,11 @@ h1 .tip,h2 .tip{margin-left:2px}
 [data-tip]:not(.tip):not(.act){cursor:help}
 .tipbox{position:fixed;left:0;top:0;z-index:120;max-width:360px;padding:10px 14px;border-radius:var(--radius-s);background:var(--navy);color:#fff;font-size:var(--fs-s);line-height:1.6;box-shadow:var(--shadow-pop);pointer-events:none;opacity:0;transition:opacity .12s;white-space:pre-line}
 .tipbox.on{opacity:1}
+.askwrap{position:fixed;inset:0;z-index:110;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(15,53,87,.32)}
+.askwrap.on{display:flex}
+.askwrap .card{width:min(560px,100%);margin:0}
+.askwrap .bubble{white-space:pre-line}
+.askwrap .card-foot{display:flex;gap:var(--s3)}
 .meta{font-size:var(--fs-s);color:var(--muted);white-space:nowrap}
 
 /* ---- 数字のまとめ ---- */
@@ -319,6 +324,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 <div class="layout"><nav class="sidenav" id="nav"></nav><main class="main" id="main"></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="tipbox" id="tipbox" role="tooltip"></div>
+<div class="askwrap" id="askwrap"></div>
 <script>
 <?!= charsJs ?>
 var B = <?!= bootJson ?>;
@@ -358,8 +364,25 @@ function actBtn(btnHtml, text){ return '<span class="act"' + (text ? ' data-tip=
   document.addEventListener('mouseover', function(e){ var el = near(e); if (el) { if (el !== cur) show(el); } else if (cur) hide(); });
   document.addEventListener('focusin', function(e){ var el = near(e); if (el) show(el); else hide(); });
   document.addEventListener('focusout', hide);
+  // スマホ: 説明の付いた文字・札をタップしても出す（ボタン・欄はそのまま動かす）
+  document.addEventListener('click', function(e){ var el = near(e); if (!el) { if (cur) hide(); return; } if (e.target.closest('button,a,select,input,textarea')) return; show(el); });
   window.addEventListener('scroll', hide, true);
 })();
+/**
+ * 確かめる画面（ブラウザ標準の confirm の代わり。よみが聞く。2026-10-06 点検）。
+ * danger: 元に戻せない操作は「やめる」を先に選んでおく
+ */
+var ASK = null;
+function ask(msg, okLabel, onOk, danger){
+  ASK = { ok: onOk };
+  var w = $('askwrap');
+  w.innerHTML = '<div class="card" role="dialog" aria-modal="true" aria-label="確認"><div class="guide"><div class="charbox">' + YOMI_POSE[danger ? 'discover' : 'explain'] + '</div><div class="bubble">' + esc(msg) + '</div></div>'
+    + '<div class="card-foot"><button class="btn" id="askOk" onclick="askDone(true)">' + esc(okLabel || 'はい') + '</button><button class="btn btn-ghost" id="askNo" onclick="askDone(false)">やめる</button></div></div>';
+  w.classList.add('on');
+  var f = $(danger ? 'askNo' : 'askOk'); if (f && f.focus) f.focus();
+}
+function askDone(yes){ var a = ASK; ASK = null; var w = $('askwrap'); w.classList.remove('on'); w.innerHTML = ''; if (yes && a && a.ok) a.ok(); }
+document.addEventListener('keydown', function(e){ if (ASK && e.key === 'Escape') askDone(false); });
 function errorBanner(){
   if (!S.lastError) return '';
   return '<div class="card alert" role="alert"><div class="card-head"><h2 class="err-text">エラー（' + esc(S.lastError.at) + '）' + tip('これまでのエラーは「操作の記録」でも見られます') + '</h2>'
@@ -730,7 +753,7 @@ function pfPoolCard(){
   html += '<div class="tblwrap"><table class="tbl"><colgroup><col style="width:200px"><col style="width:88px"><col style="width:104px"><col style="width:120px"><col style="width:120px"><col style="width:120px"><col></colgroup><thead><tr><th>情報源</th><th class="num">計画</th><th class="num">数</th><th class="num">当たる割合</th><th class="num" data-tip="何件分の重みで全体の割合に寄せるか">事前分布の強さ</th><th class="num">信頼度 r</th><th>メモ</th></tr></thead><tbody>'
     + p.types.map(function(t){ return '<tr><td>' + esc(t.label) + '</td><td class="num">' + t.plans + '</td><td class="num">' + t.n + '</td><td class="num">' + (t.ok ? pct0(t.hitRate) : '-') + '</td><td class="num">' + (t.ok ? t.precision : '-') + '</td><td class="num">' + (t.ok ? t.pooledR.toFixed(3) : '-') + '</td><td class="note ws">' + esc(t.note || '') + '</td></tr>'; }).join('')
     + '</tbody></table></div>';
-  return html + '<div class="card-foot">' + actBtn('<button class="btn" ' + (p.ready && !S.job ? '' : 'disabled ') + 'onclick="if(confirm(\'全部の計画の POOL_PRIOR に事前分布を書きますか？\'))startJob(\'LEARN.POOL\', {})">各計画に入れる</button>', '全部の計画の POOL_PRIOR に事前分布を書きます') + '</div></div>';
+  return html + '<div class="card-foot">' + actBtn('<button class="btn" ' + (p.ready && !S.job ? '' : 'disabled ') + 'onclick="ask(\'全部の計画の POOL_PRIOR に事前分布を書きますか？\', \'入れる\', function(){ startJob(\'LEARN.POOL\', {}); })">各計画に入れる</button>', '全部の計画の POOL_PRIOR に事前分布を書きます') + '</div></div>';
 }
 function pfCreateCard(){
   var c = S.pfCand;
@@ -755,8 +778,9 @@ function pfCreate(){
   // 候補から選んだときは ZAC の名前で作る（売上の取り込みで照合するため）。画面にはふつうの表記を出す
   var hit = S.pfCand && S.pfCand.candidates.filter(function(n){ return n.display === typed || n.zac === typed; })[0];
   var c = hit ? hit.zac : typed;
-  if (!confirm((hit ? hit.display : typed) + ' FY' + fy + ' の計画を作りますか？' + (hit && hit.zac !== hit.display ? '\n（ZAC の名前: ' + hit.zac + '）' : ''))) return;
-  startJob('PLAN.CREATE', { clientName: c, fy: Number(fy), peopleCsv: people });
+  ask((hit ? hit.display : typed) + ' FY' + fy + ' の計画を作りますか？' + (hit && hit.zac !== hit.display ? '\n（ZAC の名前: ' + hit.zac + '）' : ''), '作る', function(){
+    startJob('PLAN.CREATE', { clientName: c, fy: Number(fy), peopleCsv: people });
+  });
 }
 
 // ---- 設定（業務の設定・メンバーと役割・メーカーの表示名・全計画での学習）と、記録と状態（状態・操作の記録）。2026-10-06 村井さん ----
@@ -805,7 +829,7 @@ function membersView(){
 }
 function saveMember(){ call('apiSaveMember', [{ email: $('m_email').value, displayName: $('m_name').value, department: $('m_dept').value }], function(r){ toast('登録しました'); goSet('members'); }); }
 function grant(){ var c = $('g_client').value; call('apiGrantRole', [{ email: $('g_email').value, role: $('g_role').value, scopeType: c ? 'CLIENT' : 'ALL', clientId: c }], function(){ toast('役割を付けました'); goSet('members'); }); }
-function revoke(id, ver){ if (!confirm('この役割を外しますか？')) return; call('apiRevokeRole', [{ roleId: id, rowVersion: ver }], function(){ toast('役割を外しました'); goSet('members'); }); }
+function revoke(id, ver){ ask('この役割を外しますか？', '外す', function(){ call('apiRevokeRole', [{ roleId: id, rowVersion: ver }], function(){ toast('役割を外しました'); goSet('members'); }); }); }
 
 function namesView(){
   var d = S.dir;
@@ -1011,7 +1035,7 @@ function fcActions(items){
       full + '\n' + it[1] + (it[3] ? '\n' + it[3] : ''));
   }).join('') + '</div>';
 }
-function fcRun(action){ if (!confirm(fcActionLabel(action) + ' を実行しますか？（' + (action === 'AI.RESEARCH' ? '5〜15' : '3〜6') + ' 分ほど）')) return; startJob('PLAN.RUN', { planId: S.fc.planId, action: action }); }
+function fcRun(action){ var planId = S.fc.planId; ask(fcActionLabel(action) + ' を実行しますか？（' + (action === 'AI.RESEARCH' ? '5〜15' : '3〜6') + ' 分ほど）', '実行する', function(){ startJob('PLAN.RUN', { planId: planId, action: action }); }); }
 function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, action: action, args: args, inputHash: S.fc.view.inputHash }); }
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
 function fcPct(v){ return v === null || v === undefined || v === '' ? '-' : (Number(v) * 100).toFixed(1) + '%'; }
@@ -1175,14 +1199,17 @@ function fcVersionTab(d, v){
   return html;
 }
 function verSubmit(){
-  var r = S.fc.ver; if (!confirm('今の予測と予算を、公式版として出しますか？（承認待ちになります）')) return;
-  call('apiVersionSubmit', [{ planId: r.planId, note: $('ver_submit_note').value, inputHash: r.inputHash }], function(x){ toast('v' + x.version.no + ' を出しました（承認待ち）'); fcLoadVersions(); });
+  var r = S.fc.ver, note = $('ver_submit_note').value;
+  ask('今の予測と予算を、公式版として出しますか？（承認待ちになります）', '出す', function(){
+    call('apiVersionSubmit', [{ planId: r.planId, note: note, inputHash: r.inputHash }], function(x){ toast('v' + x.version.no + ' を出しました（承認待ち）'); fcLoadVersions(); });
+  });
 }
 function verDecide(decision){
   var r = S.fc.ver, p = r.pending, note = $('ver_note').value;
   if (decision === 'REJECTED' && !String(note).trim()) { toast('却下の理由を書いてください', true); return; }
-  if (!confirm('v' + p.no + ' を' + (decision === 'APPROVED' ? '承認' : '却下') + 'しますか？')) return;
-  call('apiVersionDecide', [{ versionId: p.versionId, decision: decision, note: note, rowVersion: p.rowVersion }], function(x){ toast('v' + x.version.no + ' を' + (decision === 'APPROVED' ? '公式版にしました' : '却下しました')); fcLoadVersions(); });
+  ask('v' + p.no + ' を' + (decision === 'APPROVED' ? '承認' : '却下') + 'しますか？', decision === 'APPROVED' ? '承認する' : '却下する', function(){
+    call('apiVersionDecide', [{ versionId: p.versionId, decision: decision, note: note, rowVersion: p.rowVersion }], function(x){ toast('v' + x.version.no + ' を' + (decision === 'APPROVED' ? '公式版にしました' : '却下しました')); fcLoadVersions(); });
+  });
 }
 function fcConfirmRun(){ var c = S.fc.confirm; S.fc.confirm = null; startJob('FORECAST.RUN', { planId: c.planId, confirms: c.confirms.concat([c.key]) }); }
 function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = val; var btn = document.querySelector('[onclick="fcSaveBudget()"]'); if (btn) btn.disabled = !!S.job; }
@@ -1424,8 +1451,9 @@ function ycPreview(){
 function ycClose(){
   var pv = S.year.preview;
   if (!pv || !pv.canClose || Number(pv.fy) !== Number(S.year.fy)) return;
-  if (!confirm('FY' + pv.fy + ' を締めます（' + pv.planCount + ' 計画・' + pv.rowCount + ' 行の控えを残し、読み取り専用にします）。元の行は消えませんが、元に戻す操作はありません。よいですか？')) return;
-  startJob('YEAR.CLOSE', { fy: Number(pv.fy), inputHash: pv.inputHash });
+  ask('FY' + pv.fy + ' を締めます（' + pv.planCount + ' 計画・' + pv.rowCount + ' 行の控えを残し、読み取り専用にします）。元の行は消えませんが、元に戻す操作はありません。よいですか？', '締める', function(){
+    startJob('YEAR.CLOSE', { fy: Number(pv.fy), inputHash: pv.inputHash });
+  }, true);
 }
 
 render();
