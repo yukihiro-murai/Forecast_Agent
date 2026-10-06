@@ -30,6 +30,15 @@ function apiAuthorizeAi() {
   return api_('SETUP.AUTHORIZE_AI', { ownerOnly: true, audit: false }, ctx => appAuthorizeAi_(ctx));
 }
 
+/**
+ * 所有者が Apps Script のエディタから管理の操作をする（管理の画面は画面から外す。2026-10-06 村井さん決定）。
+ * エディタからは引数を渡せないので、頼む中身はスクリプト プロパティ OWNER_TASK に JSON で置く。結果は OWNER_TASK_RESULT と実行ログ（OwnerTask.js）。
+ * 操作ごとに、画面の入口と同じ役割の判定・同じ操作の名前で監査に残すので、この入口そのものは記録しない（断ったことは記録する）
+ */
+function apiOwnerTask() {
+  return api_('OWNER.TASK', { ownerOnly: true, audit: false }, ctx => appOwnerTask_(ctx));
+}
+
 function apiListDirectory() {
   return api_('DIRECTORY.LIST', { minRole: 'ADMIN', audit: false }, ctx => appCachedRead_('DIRECTORY', () => appListDirectory_(ctx)));
 }
