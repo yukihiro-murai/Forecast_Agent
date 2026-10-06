@@ -268,20 +268,20 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   vm.runInContext(js, ui);
   ui.__v = view; ui.__d = latest;
   vm.runInContext(`S.view = 'forecast'; S.fc.plans = [{ planId: __v.plan.planId, clientName: 'x', fy: '2026' }]; S.fc.planId = __v.plan.planId; S.fc.view = __v; S.fc.data = __d;`, ui);
-  for (const tab of ['forecast', 'input', 'eval', 'quarterly', 'steps']) {
+  for (const tab of ['forecast', 'input', 'review', 'steps']) {
     const html = vm.runInContext(`S.fc.tab = '${tab}'; viewForecast()`, ui);
     assert.ok(!/このタブを表示できませんでした/.test(html), tab + ' タブを描ける: ' + (html.match(/<p class="note" style="margin-top:6px">([^<]*)/) || [])[1]);
   }
   assert.match(vm.runInContext(`S.fc.tab = 'steps'; viewForecast()`, ui), /予算の保存[\s\S]*OUTPUT/, '最近の操作に変わったシートが出る');
   // 旧来の計算が確認を求めたら、確認の窓（ブラウザが黙って「やめる」にすることがある）ではなく、画面の中のカードで聞く
-  vm.runInContext(`S.fc.tab = 'eval'; toast = function(){}; JOB_DONE['FORECAST.RUN_CALC']({ needConfirm: { key: 'extreme', title: '極端な入力', message: '増減率 +80%' } }, { planId: S.fc.planId, confirms: [] })`, ui);
+  vm.runInContext(`S.fc.tab = 'review'; toast = function(){}; JOB_DONE['FORECAST.RUN_CALC']({ needConfirm: { key: 'extreme', title: '極端な入力', message: '増減率 +80%' } }, { planId: S.fc.planId, confirms: [] })`, ui);
   const cf = vm.runInContext(`viewForecast()`, ui);
   assert.match(cf, /極端な入力[\s\S]*増減率 \+80%[\s\S]*このまま実行/, '確認のカードが予測と予算のタブに出る');
   assert.equal(vm.runInContext(`S.fc.tab`, ui), 'forecast');
   assert.doesNotMatch(vm.runInContext(`viewForecast()`, ui), /value="[0-9]+\.[0-9]+"/, '採用予測の欄は小数を見せない');
   // 検証のタブの、精度の推移と学習の影
   ui.__learn = env.call('apiLearningView(__in)', { __in: { planId } });
-  const evalHtml = vm.runInContext(`S.fc.learn = __learn; S.fc.tab = 'eval'; viewForecast()`, ui);
+  const evalHtml = vm.runInContext(`S.fc.learn = __learn; S.fc.tab = 'review'; viewForecast()`, ui);
   // 検証の記録が無い計画は案内 1 枚、記録があれば精度の推移と学習の影（2026-10-06）
   assert.match(evalHtml, ui.__learn.accuracy.months.length || ui.__learn.shadow ? /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/ : /まだ検証の記録がありません[\s\S]*検証の更新/);
   const withMonths = JSON.parse(JSON.stringify(ui.__learn)); withMonths.accuracy.months = [{ month: '2026/04', p10: 1, p50: 2, p90: 3, actual: 2, ape: 0, inside: true }];
@@ -289,15 +289,22 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   assert.match(vm.runInContext(`S.fc.learn = __learn2; viewForecast()`, ui), /月の誤差（平均）[\s\S]*精度の推移[\s\S]*学習の影/);
   vm.runInContext(`S.fc.learn = __learn`, ui);
   assert.ok(!/undefined|NaN/.test(evalHtml.split('検証の更新')[0]), '精度の推移に undefined や NaN を出さない');
-  ui.__pool = env.call('apiPoolPreview()');
-  assert.match(vm.runInContext(`S.pfPool = __pool; pfPoolCard()`, ui), /全計画での学習[\s\S]*各計画に入れる/);
+  // 管理の画面は外した（設定・記録と状態・年度の締め・計画を作る・全計画の学習・担当者の編集。所有者はエディタの apiOwnerTask。2026-10-06 村井さん）
+  assert.equal(vm.runInContext(`[typeof viewSettings, typeof viewRecords, typeof membersView, typeof namesView, typeof settingsBizView, typeof auditView, typeof logDetail, typeof healthView,
+    typeof hlAuditCard, typeof hlHousekeepingCard, typeof hlYearCard, typeof ycClose, typeof pfPoolCard, typeof pfCreateCard, typeof pfLoadCandidates, typeof mkCreate, typeof goSet, typeof goRec, typeof NAV_ADMIN].join()`, ui),
+    Array(19).fill('undefined').join());
+  assert.deepEqual(Object.keys(JSON.parse(vm.runInContext(`JSON.stringify(READS)`, ui))).filter((k) => /Directory|Settings|Audit|Health|PoolPreview|PlanCandidates|YearPreview|Bootstrap/.test(k)), [], '外した画面の読み込みは READS に残さない');
   // 旧ブックから移す画面・旧ブックの片付けは無い（このアプリだけを使う。2026-10-05）
   assert.equal(vm.runInContext(`[typeof viewMigrate, typeof legacyBooksCard, typeof NAV_OWNER].join()`, ui), 'undefined,undefined,undefined');
-  assert.doesNotMatch(vm.runInContext(`JSON.stringify(NAV_ADMIN) + Object.keys(NAV_ICON)`, ui), /旧ブック|migrate/, 'メニューに旧ブックを出さない');
+  assert.doesNotMatch(vm.runInContext(`JSON.stringify(NAV) + Object.keys(NAV_ICON)`, ui), /旧ブック|migrate/, 'メニューに旧ブックを出さない');
   // ホーム: 数字・計画の状態・最近の動きと、よみのセリフ（状況から選ぶ）
   ui.__home = env.call('apiHome()');
   const homeHtml = vm.runInContext(`S.view = 'home'; B.home = __home; viewHome()`, ui);
-  assert.match(homeHtml, /年間予算[\s\S]*暫定実績[\s\S]*着地見込み[\s\S]*見通しの空模様[\s\S]*データからわかること/);
+  assert.match(homeHtml, /年間予算[\s\S]*暫定実績[\s\S]*着地の推定[\s\S]*見通しの空模様[\s\S]*データからわかること/);
+  // 空模様はいつも 8 つ（猛暑 → 快晴 → 晴れのち曇り → 曇り → 雨 → 雪 → 天変地異 → 霧）。押すと分析へ
+  assert.match(homeHtml, /猛暑[\s\S]*快晴[\s\S]*晴れのち曇り[\s\S]*曇り[\s\S]*雨[\s\S]*雪[\s\S]*天変地異[\s\S]*霧/);
+  assert.equal((homeHtml.match(/class="sky( none)?"/g) || []).length, 8);
+  assert.match(homeHtml, /class="sky[^"]*" onclick="go\('analysis'\)"/);
   // 2026-10-06 村井さん: ホームは全体の概要だけ（個社の表・名前は出さない。最近の動き・あなたの役割も出さない）
   assert.doesNotMatch(homeHtml, /最近の動き|あなたの役割|クライアント|計画の状態/);
   const visible = homeHtml.replace(/data-tip="[^"]*"/g, '');
@@ -308,6 +315,10 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const waitHtml = vm.runInContext(`S.homeLoading = true; B.home = null; var __w = viewHome(); B.home = __home; S.homeLoading = false; __w`, ui);
   assert.match(waitHtml, /class="card loading"[\s\S]*観測中…[\s\S]*読み込んでいます/);
   assert.doesNotMatch(waitHtml, /読み込み中…/);
+  // 読み込みに失敗したら、理由と「もう一度読み込む」を出し、描くたびに読み直さない（前は失敗のたびに apiHome を呼び直していた）
+  const failHtml = JSON.parse(vm.runInContext(`var __n = 0, __c0 = call; call = function(){ __n++; }; B.home = null; S.ld.home = { error: 'つながりません', at: Date.now() }; var __f = viewHome() + viewHome(); call = __c0; B.home = __home; S.ld.home = { at: Date.now() }; JSON.stringify([__f, __n])`, ui));
+  assert.match(failHtml[0], /読み込めませんでした[\s\S]*つながりません[\s\S]*homeLoad\(\)[\s\S]*もう一度読み込む/);
+  assert.equal(failHtml[1], 0, '描くだけでは読み直さない');
   assert.doesNotMatch(String(vm.runInContext(`busy.toString()`, ui)), /観測中…/, '右下に「観測中…」を出さない');
   // 保存中・裏の処理の間も、画面の中（見出しの下）でよみが話す（2026-10-06 村井さん）
   const saving = vm.runInContext(`S.writing = true; S.writingFn = 'apiSaveSetting'; S.writeShow = true; var __s = jobBanner(); S.writing = false; S.writeShow = false; __s`, ui);
@@ -336,7 +347,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   vm.runInContext(`B.home = __home`, ui);
   // 予算・着地見込みが無いメーカーがあるのに「おおむね晴れ」とは言わない（2026-10-06 点検）
   const fogSays = JSON.parse(vm.runInContext(`JSON.stringify(yomiSays({ fy: '2026', plans: [{ fy: '2026', planId: 'P', clientName: 'X', stepErrors: [], runs: 1, p50: 10, budget: null, officialFinal: null, landing: null, lastRunAt: new Date().toISOString(), officialNo: 1 }], approvals: [], mine: [] }))`, ui));
-  assert.ok(fogSays.some((x) => /未確認/.test(x.text)) && !fogSays.some((x) => /おおむね晴れ/.test(x.text)), JSON.stringify(fogSays));
+  assert.ok(fogSays.some((x) => /霧/.test(x.text)) && !fogSays.some((x) => /おおむね晴れ/.test(x.text)), JSON.stringify(fogSays));
   vm.runInContext(`S.view = 'forecast'`, ui);
   // 根拠のタブ
   ui.__basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
@@ -352,29 +363,35 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   const verHtml2 = vm.runInContext(`S.fc.ver = __ver; S.fc.verCmp = __ver.versions[0].versionId; viewForecast()`, ui);
   assert.match(verHtml2, /承認待ち（v1）[\s\S]*v1 と今の比べ/);
   assert.ok(!/undefined|NaN/.test(verHtml2), '公式版のタブに undefined や NaN を出さない');
-  // メーカー（計画の一覧とクライアントをまとめた画面。2026-10-06）: わかる範囲のメーカーと、年度ごとの予算策定の状態だけ（数字は出さない）
+  // メーカー: その年度に計画のあるメーカーと、予算策定の状態・年度の数字（ZAC の候補・計画を作るは出さない。2026-10-06 村井さん）
   ui.__pf = env.call('apiPortfolio()').plans;
-  ui.__cand = { candidates: [{ zac: 'ｼﾝｷ製薬(株)', display: 'シンキ製薬' }, { zac: 'テスト製薬', display: 'テスト製薬' }], defaultFy: 2026, existing: [] };
-  const mkHtml = vm.runInContext(`S.pf = __pf; S.pfCand = __cand; S.mkFy = String(__pf[0].fy); B.user.isAdmin = true; viewMakers()`, ui);
-  assert.match(mkHtml, /<h1>メーカー<\/h1><select[^>]*data-near[\s\S]*ステータス[\s\S]*年間予算[\s\S]*暫定実績[\s\S]*着地見込み[\s\S]*シンキ製薬[\s\S]*未着手[\s\S]*テスト製薬[\s\S]*(策定中|承認待ち|承認済み)[\s\S]*合計[\s\S]*計画を作る/);
-  assert.equal((mkHtml.match(/>テスト製薬</g) || []).length, 1, '計画と候補の同じメーカーは 1 行にまとめる');
-  assert.doesNotMatch(mkHtml, /ZAC コード|絞り込|並べ方|undefined|NaN/, '絞り込み・並べ替え・ZAC コードは出さない');
+  const mkHtml = vm.runInContext(`S.pf = __pf; S.mkFy = String(__pf[0].fy); viewMakers()`, ui);
+  assert.match(mkHtml, /<h1>メーカー<\/h1><select[^>]*data-near[\s\S]*ステータス[\s\S]*年間予算[\s\S]*暫定実績[\s\S]*着地の推定[\s\S]*テスト製薬[\s\S]*(未着手|策定中|承認待ち|承認済み)[\s\S]*合計/);
+  assert.equal((mkHtml.match(/>テスト製薬</g) || []).length, 1);
+  assert.doesNotMatch(mkHtml, /ZAC コード|絞り込|並べ方|計画を作る|undefined|NaN/, '絞り込み・並べ替え・ZAC コード・計画を作るは出さない');
+  // 計画の一覧を読む前は、ホームの初期データ（同じ項目）ですぐ描く
+  assert.match(vm.runInContext(`var __kp = S.pf; S.pf = null; B.home = __home; var __m = viewMakers(); S.pf = __kp; __m`, ui), /<h1>メーカー<\/h1>[\s\S]*テスト製薬[\s\S]*開く/);
   // 年度は題のすぐ横に出す
   assert.match(vm.runInContext(`viewTitle('<div class="page-head"><h1>メーカー</h1><select data-near="1"></select></div>')`, ui), /<h1[^>]*>メーカー<\/h1><span class="vnear"><select/);
   // 予測は、まずメーカーを選ぶ（計画を勝手に開かない）
   const pick = vm.runInContext(`var __keep = S.fc.planId; S.fc.planId = null; S.fc.plans = [{ planId: 'P1', clientName: 'テスト製薬', fy: '2026' }]; var __p = viewForecast(); S.fc.planId = __keep; __p`, ui);
   assert.match(pick, /メーカーを選ぶ[\s\S]*テスト製薬[\s\S]*FY2026[\s\S]*開く/);
-  // 計画のないメーカーの「計画を作る」は、下の欄に名前と年度を入れる
-  vm.runInContext(`mkCreate('ｼﾝｷ製薬(株)', '2026')`, ui);
-  assert.equal(vm.runInContext(`S.pcClient + '|' + S.pcFy`, ui), 'ｼﾝｷ製薬(株)|2026');
-  // メニュー: ホーム・メーカー・予測・設定・記録と状態（メンバーは設定へ、操作の記録と状態はまとめる）
-  assert.deepEqual(JSON.parse(vm.runInContext(`JSON.stringify(NAV_ADMIN.map(function(n){ return n[1]; }))`, ui)), ['ホーム', 'メーカー', '予測', '設定', '記録と状態']);
-  ui.__dir = env.call('apiListDirectory()'); ui.__set = env.call('apiListSettings()').settings;
-  const setHtml = vm.runInContext(`S.dir = __dir; S.settings = __set; S.setTab = 'members'; viewSettings()`, ui);
-  assert.match(setHtml, /<h1>設定<\/h1>[\s\S]*業務[\s\S]*メンバー[\s\S]*表示名[\s\S]*学習[\s\S]*役割を付ける/);
-  assert.doesNotMatch(vm.runInContext(`S.setTab = 'names'; viewSettings()`, ui), /ZAC コード/);
-  assert.match(vm.runInContext(`S.rec = 'health'; S.health = null; viewRecords()`, ui), /<h1>記録と状態<\/h1>[\s\S]*状態[\s\S]*操作の記録[\s\S]*点検しています/);
-  vm.runInContext(`S.setTab = 'biz'`, ui);
+  // メニュー: ホーム・メーカー・予測・分析・学び（使える人は全員同じ。2026-10-06 村井さん）
+  assert.deepEqual(JSON.parse(vm.runInContext(`JSON.stringify(NAV.map(function(n){ return n[1]; }))`, ui)), ['ホーム', 'メーカー', '予測', '分析', '学び']);
+  assert.equal(vm.runInContext(`go('settings'); S.view`, ui), 'home', '無い画面へは移らない');
+  // 分析（apiCrossMaker）: 年度は題の横、タブは 俯瞰・市場
+  ui.__an = env.call('apiCrossMaker(__in)', { __in: {} });
+  const anHtml = vm.runInContext(`S.view = 'analysis'; S.an.data = __an; S.an.fy = String(__an.fy); viewAnalysis()`, ui);
+  assert.match(anHtml, /<h1>分析<\/h1><select[^>]*data-near[\s\S]*俯瞰[\s\S]*市場/);
+  assert.match(vm.runInContext(`anTab('market'); viewAnalysis()`, ui), /<button class="tab on"[^>]*>市場</);
+  assert.match(vm.runInContext(`S.an.data = null; S.ld.an = { error: 'x', at: 1 }; var __a = viewAnalysis(); S.an.data = __an; __a`, ui), /読み込めませんでした[\s\S]*anLoad\(\)/);
+  // 学び（人の学び: apiPeopleLearning・AI の学び: apiAiLearning）
+  ui.__lp = env.call('apiPeopleLearning()'); ui.__la = env.call('apiAiLearning()');
+  const lrHtml = vm.runInContext(`S.view = 'learning'; S.lr.people = __lp; S.lr.ai = __la; lrTab('people'); viewLearning()`, ui);
+  assert.match(lrHtml, /<h1>学び<\/h1>[\s\S]*人の学び[\s\S]*AI の学び/);
+  assert.match(vm.runInContext(`lrTab('ai'); viewLearning()`, ui), /<button class="tab on"[^>]*>AI の学び</);
+  for (const v of ['analysis', 'learning']) assert.ok(!/undefined|NaN/.test(vm.runInContext(`S.view = '${v}'; ${v === 'analysis' ? 'viewAnalysis()' : 'viewLearning()'}`, ui)), v);
+  vm.runInContext(`S.view = 'forecast'`, ui);
   // 確かめる画面はアプリの中（ブラウザ標準の confirm を使わない）。はい で実行、やめる で何もしない
   assert.doesNotMatch(uiHtml.replace(/S\.fc\.confirm|fcConfirm|confirms/g, ''), /[^.\w]confirm\(/, 'confirm( を使わない');
   const askRes = JSON.parse(vm.runInContext(`(function(){ var aw = { innerHTML: '', classList: { add() {}, remove() {} } }; var g = document.getElementById; document.getElementById = function(id){ return id === 'askwrap' ? aw : g(id); };
@@ -392,12 +409,36 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
   // 値の無い金額に単位だけを付けない（「-円」「- 円」にしない）
   assert.doesNotMatch(vm.runInContext(`fcKpi('最終予算', null)`, ui), /円/);
   assert.equal(vm.runInContext(`yenU(null) + '|' + yenU(1200)`, ui), '-|1,200 円');
-  // 2026-10-06 点検: 設定・記録と状態のタブは予測と同じ形、状態に中の表の名前を並べない
-  assert.match(vm.runInContext(`S.setTab = 'biz'; viewSettings()`, ui), /<div class="tabs" role="tablist">/);
-  ui.__health = env.call('apiHealth()');
-  const healthHtml = vm.runInContext(`S.rec = 'health'; S.health = __health; viewRecords()`, ui);
-  assert.match(healthHtml, /データの表（\d+）/);
-  assert.doesNotMatch(healthHtml, />_SCHEMA<|>MEMBERS<|>PLAN_VERSIONS</, '中の表の名前は並べない');
+  // 言葉: 予測の幅は 下振れ・中心・上振れ、操作は旧来の番号なし（ボタン 8 字まで・完全な名前）、サーバーの文の番号は直して出す
+  assert.equal(vm.runInContext(`[qName('p10'), qName('p50'), qName('p90')].join()`, ui), '下振れ,中心,上振れ');
+  assert.equal(vm.runInContext(`plainMsg('A-9 予測実行で失敗。先に A-2 を実行してください（SHA-256）')`, ui), '予測で失敗。先に 売上を取り込む を実行してください（SHA-256）');
+  assert.equal(vm.runInContext(`actName('REVIEW.APPLY') + '|' + actShort('EVAL.INSIGHTS')`, ui), '承認した見直し案を反映する|外れの原因を整理');
+  assert.equal(vm.runInContext(`[tone(1.1), tone(1.0), tone(0.9), tone(null)].join()`, ui), 'warm,neutral,cool,neutral');
+  assert.equal(vm.runInContext(`[accWeather(0.05), accWeather(0.12), accWeather(0.18), accWeather(0.25), accWeather(0.4), accWeather(0.05, true), accWeather(null)].join()`, ui), 'kaisei,harenochi,kumori,ame,taifuu,taifuu,mikakunin');
+  assert.equal(vm.runInContext(`[yenShort(123456789), yenShort(34000000), yenShort(8000), yenShort(-2.5e9)].join()`, ui), '1.2億,3,400万,8,000,-25億');
+  assert.equal(vm.runInContext(`SKY8.map(function(s){ return s.key; }).join()`, ui), 'mousho,kaisei,harenochi,kumori,ame,sekka,tenpen,mikakunin');
+  assert.equal(vm.runInContext(`[skyKey({ sky: 'taifuu' }), skyKey({}), skyKey({ sky: 'mousho' })].join()`, ui), 'mikakunin,mikakunin,mousho');
+  // グラフ: 空・null・1 点・負の値・幅 0 でも止まらず、SVG か「データがまだありません」を返す（NaN を描かない）
+  const charts = JSON.parse(vm.runInContext(`JSON.stringify([
+    chartBullet([]), chartBullet([{ label: 'A', low: 1, mid: 2, high: 3, target: 2.5, tone: 'warm' }, { label: 'B', mid: null }]), chartBullet([{ label: 'A', low: 5, mid: 5, high: 5 }]),
+    chartScatter(null), chartScatter([{ x: 1, y: 0.2, label: 'A', tone: 'cool' }], { refX: 1 }), chartScatter([{ x: 0.9, y: 0.1 }, { x: 1.3, y: -0.2 }, { x: NaN, y: 1 }]),
+    chartBars([{ label: 'A', value: null }]), chartBars([{ label: 'A', value: -0.1 }, { label: 'B', value: 0.2 }]), chartBars([{ label: 'A', value: 0 }]), chartBars([{ label: 'A', value: 0.4 }], { min: 0, max: 1, ref: 0.8 }),
+    chartIntervals([]), chartIntervals([{ label: 'A', lo: 0.2, mid: 0.5, hi: 0.9 }, { label: 'B', mid: 1.4 }], { ref: 0.8 }),
+    chartSpark([]), chartSpark([null, 3]), chartSpark([1, null, 2, 5]),
+    chartLine([]), chartLine([{ label: 'a', values: [1] }], { x: ['4月'] }), chartLine([{ label: 'a', values: [1, null, 3] }, { label: 'b', values: [2, 2, 2] }], { x: ['4月', '5月', '6月'], band: [{ lo: 0, hi: 3 }, null, { lo: 1, hi: 4 }], target: 2 }),
+    chartStep([]), chartStep([{ x: '2026/04', y: 1 }]), chartStep([{ x: 'a', y: 0.98 }, { x: 'b', y: 1.02 }], { ref: 1 }),
+    chartDensity([]), chartDensity([{ alpha: 0, beta: 1 }]), chartDensity([{ alpha: 2, beta: 2, dashed: true, label: '学ぶ前' }, { alpha: 30, beta: 10, label: '今', opacity: 0.6 }, { alpha: 0.5, beta: 0.5 }]),
+    chartArrows([]), chartArrows([{ label: 'A', raw: 0.1, shrunk: 0.04 }, { label: 'B', raw: -0.2, shrunk: null }], { mu: 0.01, tau: 0.05 }), chartArrows([{ label: 'A', raw: 0, shrunk: 0 }])
+  ])`, ui));
+  for (const [i, c] of charts.entries()) {
+    assert.ok(/^<svg|データがまだありません|^<span class="note">-<\/span>$/.test(c), `グラフ ${i}: ${c.slice(0, 120)}`);
+    assert.ok(!/NaN|undefined|Infinity/.test(c), `グラフ ${i} に NaN を描かない: ${c.slice(0, 200)}`);
+    if (c.startsWith('<svg class="chart"')) assert.match(c, /viewBox="0 0 \d+ \d+" width="100%"[\s\S]*role="img" aria-label="[^"]+"><title>/, `グラフ ${i} は幅いっぱいに縮み、名前がある`);
+  }
+  assert.ok(charts.filter((c) => c.startsWith('<svg class="chart"')).every((c) => /data-tip="/.test(c)), '印にカーソルの説明を付ける');
+  assert.doesNotMatch(charts.join(''), /(fill|stroke)="#/, '色は CSS の変数（クラス）だけ');
+  const cot = vm.runInContext(`var __t1 = chartOrTable('x', '<svg></svg>', '<table></table>'); cvSet('x', 'table'); __t1 + '|' + chartOrTable('x', '<svg></svg>', '<table></table>')`, ui);
+  assert.match(cot, /グラフ<\/button>[\s\S]*表で見る<\/button>[\s\S]*<svg><\/svg>[^|]*\|[\s\S]*class="tab on"[^>]*>表で見る<[\s\S]*<table><\/table>/, '「表で見る」を選ぶと表に替わり、選んだ方を覚える');
   // 予測の題に、横の選ぶ欄と同じ名前を重ねない
   const two = vm.runInContext(`var __k2 = [S.fc.plans, S.fc.planId]; S.fc.plans = [{ planId: S.fc.planId, clientName: 'テスト製薬', fy: '2026' }, { planId: 'PX', clientName: '別の製薬', fy: '2026' }]; var __t = viewForecast(); S.fc.plans = __k2[0]; S.fc.planId = __k2[1]; __t`, ui);
   assert.match(two, /<h1>予測(<| )[\s\S]*?<select[^>]*data-near/);
@@ -407,7 +448,7 @@ const engRows = (env, sheet, planId) => env.table('ENG_' + sheet).filter((r) => 
 // スマホ幅では表の列幅を中身で決める（決まった幅の列で残りの列が 0 に潰れないように。2026-10-06 点検）
 {
   const uiSrc = uiHtml;
-  const mobile = uiSrc.slice(uiSrc.indexOf('@media (max-width:760px){'));
+  const mobile = uiSrc.slice(uiSrc.lastIndexOf('@media (max-width:760px){'));   // 共通のスマホの決まり（最後。画面ごとの決まりは各区切りの中）
   assert.match(mobile.slice(0, 4000), /table\.tbl\{table-layout:auto\}/);
 }
 
