@@ -2,7 +2,7 @@
 /**
  * app-insights.test.mjs — 責任者の 3 つの画面の材料（分析・人の学び・AI の学び）。読むだけ。
  * 計算用の表をまとめて読む（appEngAll_）・月の日付と文字列の食い違い・振り返りの重複・ベータ分布の区間・Wilson の区間・空のとき。
- * 承認待ちの提案の見分け・予算の上乗せと合計の予算・人の名前を見せる範囲・保存の後の控え（計画ごとの当たりと精度）。
+ * 承認待ちの提案の見分け・予算の上乗せと合計の予算・人の名前を見せる範囲（人の学び・AI の学び）・保存の後の控え（計画ごとの当たりと精度）。
  *
  *   node app/tests/app-insights.test.mjs
  */
@@ -10,7 +10,11 @@ import assert from 'node:assert/strict';
 import { makeEnv, setUpEnv, STATS, OWNER, MEMBER, OUTSIDER, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
-const close = (a, b, eps = 1e-9, msg = '') => assert.ok(Math.abs(a - b) < eps, `${msg} ${a} ≈ ${b}`);
+/** 数の近さ。数でない値（null など）は通さない（null − b は −b になり、b が 0 なら通ってしまう） */
+const close = (a, b, eps = 1e-9, msg = '') => {
+  assert.ok(typeof a === 'number' && typeof b === 'number', `${msg} 数ではない: ${a} / ${b}`);
+  assert.ok(Math.abs(a - b) < eps, `${msg} ${a} ≈ ${b}`);
+};
 const env = setUpEnv();
 const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
 const row = (sheet, o) => H[sheet].map((h) => (o[h] === undefined ? '' : o[h]));
@@ -151,7 +155,8 @@ assert.ok(types(A).every((t) => t === 'd') && types(B).every((t) => t === 's'), 
   assert.equal(x.totals.budgetPlans, 1);
   assert.equal(x.totals.p50, 1013 + (b.p50 || 0));
   close(x.totals.ratioP50, 1013 / 1320);
-  assert.equal(x.totals.landing, a.landing + (b.landing || 0));
+  const landed = [a, b].filter((p) => typeof p.landing === 'number');
+  assert.equal(x.totals.landing, landed.length ? landed.reduce((s, p) => s + p.landing, 0) : null, '着地の合計は着地のある計画だけ（霧で数字の無い計画は入れない）');
   // 年度を選ぶ: 記録の無い計画でも形はそろう
   const y = env.call('apiCrossMaker(__in)', { __in: { fy: 2025 } });
   assert.equal(y.fy, '2025');
@@ -220,11 +225,15 @@ const people = env.call('apiPeopleLearning()');
   assert.equal(people.uplift.length, 1);
   const u = people.uplift[0];
   assert.deepEqual([u.planId, u.budgetFinal, u.complete], [A, 1320, false]);
-  // 年度の途中は実績で見る割合を出さない。統計の着地の見込みで見た割合は別の名前で（10 で詳しく）
+  // 年度の途中は実績で見る割合を出さない。統計の着地の見込みで見た割合は別の名前で（10 で詳しく）。
+  // 着地の見込みは計画の一覧から（霧・実績が古いときは null）。どちらでも、見込みが無ければ見込みの割合も null
   const portA = env.call('apiPortfolio()').plans.find((p) => p.planId === A);
   assert.deepEqual([u.ratio, u.upliftRealized, u.landing], [null, null, portA.landing]);
-  close(u.projectedRatio, portA.landing / 1320);
-  close(u.projectedUpliftRealized, (portA.landing - 1200) / 120);
+  if (portA.landing === null) assert.deepEqual([u.projectedRatio, u.projectedUpliftRealized], [null, null]);
+  else {
+    close(u.projectedRatio, portA.landing / 1320);
+    close(u.projectedUpliftRealized, (portA.landing - 1200) / 120);
+  }
   assert.equal(people.detail, 'full', '所有者（管理者）には人ごとの行も出す');
 }
 
@@ -523,16 +532,24 @@ const ai = env.call('apiAiLearning()');
   close(t.ratioP50, 1200 / 1500, 1e-12, 'P50 のある計画の予算だけで割る');
 }
 
-// ==== 11. 人ごとの当たりと判断した人の名前は、予算策定担当以上だけ（ほかの人には情報源の種類ごとのまとめ）。見せ方の違う人に同じ控えを返さない ====
+// ==== 11. 人ごとの当たりと判断した人の名前は、予算策定担当以上だけ（ほかの人には情報源の種類ごとのまとめ。AI の学びも同じ）。見せ方の違う人に同じ控えを返さない ====
 {
   env.as(OWNER);
   const full = env.call('apiPeopleLearning()');
+  const aiFull = env.call('apiAiLearning()');
   env.as(MEMBER);   // 社内の人（閲覧・情報提供だけ）
   const sum = env.call('apiPeopleLearning()');
-  assert.deepEqual([full.detail, sum.detail], ['full', 'summary']);
+  const aiSum = env.call('apiAiLearning()');
+  assert.deepEqual([full.detail, sum.detail, aiFull.detail, aiSum.detail], ['full', 'summary', 'full', 'summary']);
+  // 人の名前・判断した人・人ごとの的中率（信頼度の提案の根拠）は、どちらの画面にも出さない
+  const hidden = ['鷹野', '佐藤', '田中', OWNER, '的中率', '"decidedBy"'];
   const text = JSON.stringify(sum);
-  for (const s of ['鷹野', '佐藤', '田中', OWNER, '"decidedBy"', '"key"', '"plans"']) assert.ok(!text.includes(s), '閲覧の人には出さない: ' + s);
+  for (const s of hidden.concat(['"key"', '"plans"'])) assert.ok(!text.includes(s), '閲覧の人には出さない: ' + s);
+  const aiText = JSON.stringify(aiSum);
+  for (const s of hidden) assert.ok(!aiText.includes(s), 'AI の学びでも閲覧の人には出さない: ' + s);
   assert.ok(JSON.stringify(full).includes('鷹野') && full.decisions.some((x) => x.decidedBy === 'owner'), '予算策定担当以上には出す');
+  assert.equal(full.decisions.find((x) => x.proposalId === 'P-B-1').rationale, '的中率=67% / n=3');
+  assert.ok(JSON.stringify(aiFull).includes('鷹野') && JSON.stringify(aiFull).includes('佐藤'));
   // 当たりは種類ごと（人や話題をまとめる）
   assert.deepEqual(sum.scoreboard.map((s) => [s.type, s.n, s.hit, s.sources]).sort(), [['ai_topic', 2, 1, 1], ['factor_product', 2, 0, 1], ['opinion', 6, 4, 2]]);
   const op = sum.scoreboard.find((s) => s.type === 'opinion');
@@ -544,6 +561,21 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual([pb1.target, pb1.targetLabel, pb1.status, pb1.applied], ['reliability:opinion', '見解の信頼度', '承認', true]);
   assert.equal(sum.decisions.find((x) => x.proposalId === 'P-B-2').targetLabel, '製品の入力の信頼度');
   assert.deepEqual(sum.decisions.map((x) => x.proposalId), full.decisions.map((x) => x.proposalId));
+  assert.equal(sum.decisions.find((x) => x.proposalId === 'P-B-1').rationale, '', '信頼度の提案の根拠（その人の的中率）は出さない');
+  // AI の学び: 承認待ちの提案と補正の変化の、信頼度の対象は種類まで（値はそのまま）。ほかは同じ
+  const pa = aiSum.pending.find((p) => p.planId === A).proposals[0];
+  assert.deepEqual([pa.proposalId, pa.target, pa.targetLabel, pa.current, pa.proposed, pa.rationale, pa.decision],
+    ['P-B-2', 'reliability:factor_product', '製品の入力の信頼度', 1, 0.8, '', '承認']);
+  const pathOf = (x) => x.calibration.find((c) => c.planId === A).path.map((p) => [p.factor, p.factorLabel, p.old, p.new, p.source]);
+  assert.deepEqual(pathOf(aiSum)[0], ['reliability:opinion', '見解の信頼度', 1, 1.1, 'R1']);
+  assert.deepEqual(pathOf(aiFull)[0], ['reliability:opinion:鷹野', '見解「鷹野」の信頼度', 1, 1.1, 'R1']);
+  assert.deepEqual(pathOf(aiSum).slice(1), pathOf(aiFull).slice(1), '信頼度でない補正はそのまま');
+  assert.deepEqual(aiSum.pending.find((p) => p.planId === B), aiFull.pending.find((p) => p.planId === B), '信頼度でない提案はそのまま');
+  for (const k of ['curves', 'shrinkage', 'timeline', 'health']) assert.deepEqual(aiSum[k], aiFull[k], k);
+  // 根拠を出さないのは信頼度の提案だけ
+  const why = (o, hide) => env.run(`appInsightRationale_(${JSON.stringify(o)}, ${hide})`);
+  assert.deepEqual([why({ target_field: 'reliability:opinion:x', rationale: '的中率=50% / n=2' }, true), why({ target_field: 'reliability:opinion:x', rationale: '的中率=50% / n=2' }, false),
+    why({ target_field: 'ai_weight_override', rationale: '誤差が縮む' }, true)], ['', '的中率=50% / n=2', '誤差が縮む']);
   // ほかは同じ（振り返りの担当だけ空）
   const noOwner = (xs) => xs.map((x) => Object.assign({}, x, { owner: '' }));
   assert.deepEqual(sum.lessons, noOwner(full.lessons));
@@ -553,8 +585,10 @@ const ai = env.call('apiAiLearning()');
   const r0 = STATS.reads;
   env.as(OWNER);
   assert.deepEqual(env.call('apiPeopleLearning()'), full);
+  assert.deepEqual(env.call('apiAiLearning()'), aiFull);
   env.as(MEMBER);
   assert.deepEqual(env.call('apiPeopleLearning()'), sum);
+  assert.deepEqual(env.call('apiAiLearning()'), aiSum);
   assert.equal(STATS.reads, r0, 'どちらも控えから');
   // クライアント単位の予算策定担当でも、人ごとの行を出す
   env.as(OWNER);
@@ -563,12 +597,14 @@ const ai = env.call('apiAiLearning()');
   const planner = env.call('apiPeopleLearning()');
   assert.equal(planner.detail, 'full');
   assert.deepEqual([planner.scoreboard, planner.decisions, planner.lessons], [full.scoreboard, full.decisions, full.lessons]);
+  assert.deepEqual(env.call('apiAiLearning()'), aiFull);
   env.as(OWNER);
   // 役割の判定（予算策定担当以上。範囲は問わない。分からなければ出さない）
   assert.deepEqual(['VIEWER', 'CONTRIBUTOR', 'PLANNER', 'APPROVER', 'ADMIN'].map((r) => env.run(`appInsightDetail_({ roles: [{ role: '${r}', scope_type: 'CLIENT', client_id: 'X' }] })`)),
     ['summary', 'summary', 'full', 'full', 'full']);
   assert.equal(env.run('appInsightDetail_(undefined)'), 'summary');
   assert.equal(J(env.run('appPeopleLearning_()')).detail, 'summary');
+  assert.equal(J(env.run('appAiLearning_()')).detail, 'summary');
 }
 
 // ==== 12. 保存の後は新しい結果を返す。計画ごとの当たりと精度の控えは、保存した計画の分だけ計算し直す（ほかの計画の履歴は読み直さない） ====

@@ -12,6 +12,7 @@
  * 計画ごとの当たりと精度は、入力のハッシュが同じあいだ控える（EVD_・ACC_）。どこかで保存しても、控えが外れるのはその計画の分だけで、
  * 控えの無い計画が少なければ、その計画の行だけを読む（履歴の表を全計画の分は読み直さない）。
  * 人ごとの当たりと判断した人の名前は、予算策定担当以上の人だけに出す（ほかの人には情報源の種類ごとのまとめ。appInsightDetail_）。
+ * AI の学びの承認待ちの提案と補正の変化も同じ（ほかの人には、信頼度の対象は種類まで。信頼度の提案の根拠（その人の的中率）は出さない）。
  * 旧来の記録の 2 つの問題を避けて、ここで数え直す（旧来の計算と記録は変えない）:
  *   - SUBJECTIVE_IMPACT_HISTORY の月は日付に変わっていることがあり、旧来の当たりの数え方（RELIABILITY_EVIDENCE）は月が合わず空になる
  *     → 月を appYm_ でそろえ、評価できた月をすべて数える
@@ -221,6 +222,12 @@ function appInsightTarget_(field, hideKey) {
   const f = String(field || '');
   const t = hideKey && f.indexOf('reliability:') === 0 ? 'reliability:' + (f.split(':')[1] || '') : f;
   return { target: t, label: appInsightTargetLabel_(t) };
+}
+
+/** 提案の根拠。hideKey = true なら、信頼度の提案の根拠は出さない（旧来の C-1 は、その人や話題の的中率と数を書く） */
+function appInsightRationale_(r, hideKey) {
+  if (hideKey && String(r.target_field || '').indexOf('reliability:') === 0) return '';
+  return String(r.rationale || '').slice(0, 300);
 }
 
 /** 人ごとの当たり・判断した人の名前を見せるか: 予算策定担当以上の役割（クライアント単位でもよい）があれば 'full'、無ければ 'summary' */
@@ -510,7 +517,7 @@ function appCrossMaker_(fy) {
  *                （どちらも 80% の区間の下の端が高い順。少ない数で上位に出ない）
  *   decisions:   [{ planId, clientName, fy, reviewId, proposalId, at, quarter, phase, phaseLabel, target, targetLabel, current, proposed,
  *                   confidence, rationale, status, decidedAt, decidedBy, applied, appliedAt }]（四半期レビューの提案と判断。新しい順。
- *                   summary では decidedBy は無く、信頼度の対象は種類まで（reliability:<種類>・「見解の信頼度」））
+ *                   summary では decidedBy は無く、信頼度の対象は種類まで（reliability:<種類>・「見解の信頼度」）。信頼度の提案の rationale は空）
  *   uplift:      [{ planId, clientName, fy, versionNo, budgetAdopted, budgetUplift, budgetFinal, p50, actual, months, complete, ratio, upliftRealized,
  *                   landing, projectedRatio, projectedUpliftRealized }]（公式版の予算と、その年度の実績。complete = 12 か月の実績がそろった。
  *                   ratio・upliftRealized は年度が終わるまで null。projected* は統計の着地の見込みから（見込みが無ければ null））
@@ -652,7 +659,7 @@ function appSourceScoreboard_(plans, evidence, poolByPlan, relByPlan, byType) {
   }).sort((a, b) => b.ci80[0] - a.ci80[0] || b.n - a.n || a.type.localeCompare(b.type) || String(a.key || '').localeCompare(String(b.key || '')));
 }
 
-/** 四半期レビューの提案と、人の判断（QUARTERLY_REVIEW_LOG。新しい順）。hideNames = true なら判断した人を出さず、信頼度の対象は種類まで */
+/** 四半期レビューの提案と、人の判断（QUARTERLY_REVIEW_LOG。新しい順）。hideNames = true なら判断した人を出さず、信頼度の対象は種類まで（根拠も出さない） */
 function appInsightDecisions_(plans, logs, hideNames) {
   const out = [];
   plans.forEach(p => (logs[p.planId] || []).forEach((r, i) => {
@@ -662,7 +669,7 @@ function appInsightDecisions_(plans, logs, hideNames) {
       reviewId: String(r.review_id || ''), proposalId: String(r.proposal_id || ''), at: appInsightIso_(r.reviewed_at), quarter: String(r.quarter_label || ''),
       phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: target.target, targetLabel: target.label,
       current: appInsightVal_(r.current_value), proposed: appInsightVal_(r.proposed_value), confidence: String(r.confidence || ''),
-      rationale: String(r.rationale || '').slice(0, 300), status: String(r.approval_status || ''), decidedAt: appInsightIso_(r.approval_decided_at),
+      rationale: appInsightRationale_(r, hideNames), status: String(r.approval_status || ''), decidedAt: appInsightIso_(r.approval_decided_at),
       decidedBy: String(r.approval_decided_by || '').split('@')[0], applied: Number(r.applied || 0) === 1, appliedAt: appInsightIso_(r.applied_at) };
     if (hideNames) delete o.decidedBy;
     out.push(o);
@@ -701,17 +708,22 @@ function appInsightUplift_(ids) {
 // ---- AI の学び ----
 
 /**
- * AI の学び。返り値:
+ * AI の学び（ctx = 見る人。信頼度の提案と補正の、人や話題の名前は予算策定担当以上だけ: appInsightDetail_）。返り値:
+ *   detail:      'full'（予算策定担当以上）/ 'summary'（閲覧・情報提供。人や話題の名前を出さない）
  *   curves:      [{ type, label, prior: { alpha0, beta0, mu, precision, from, mean, ci80 }, n, hit,
  *                   quarters: [{ quarter, n, hit, cumN, cumHit, alpha, beta, mean, ci80 }] }]（四半期ごとに積み上げた事後。画面がベータ分布の曲線を描く）
  *   shrinkage:   { mu, tau, tau2, pooled, plans: [{ planId, clientName, fy, n, bias, se, shrunk, factorShadow, mapeNow, mapeShadow }] }
  *   timeline:    [{ ym, n, mape, coverage, coverageN, coverageCi80: [下, 上], target, rolling3, rolling3N }]（全計画の月ごと。締まった後の予測の月は除く）
  *   calibration: [{ planId, clientName, fy, factorNow, path: [{ at, factor, factorLabel, old, new, source, sourceLabel, quarter }] }]
+ *                  （summary では信頼度の factor は種類まで: reliability:<種類>・「見解の信頼度」）
  *   pending:     [{ planId, clientName, fy, reviewId, at, quarter, proposals: [{ proposalId, phase, phaseLabel, target, targetLabel, current, proposed,
- *                   confidence, rationale, decision }] }]（一番新しい四半期レビューで、まだ適用していないもの（C-3 で適用できるものだけ）。decision = 保存した判断）
+ *                   confidence, rationale, decision }] }]（一番新しい四半期レビューで、まだ適用していないもの（C-3 で適用できるものだけ）。decision = 保存した判断。
+ *                   summary では信頼度の target は種類まで、その rationale は空）
  *   health:      [{ planId, clientName, fy, key, label, value }]（気になる点。key = shadow_worse / factor_clamp / coverage_low / coverage_high）
  */
-function appAiLearning_() {
+function appAiLearning_(ctx) {
+  const detail = appInsightDetail_(ctx);
+  const hide = detail !== 'full';
   const plans = appInsightPlans_();
   const ids = plans.map(p => p.planId);
   const tab = appInsightTables_(ids);
@@ -750,9 +762,9 @@ function appAiLearning_() {
   const factorNow = {};
   ids.forEach(id => { const c = (state[id] || []).slice(-1)[0]; factorNow[id] = c ? appNum_(c.bias_correction_factor) : null; });
   return {
-    curves: curves, shrinkage: shrinkage, timeline: appInsightTimeline_(accs),
-    calibration: appInsightCalibration_(plans, tab('CALIBRATION_HISTORY'), factorNow),
-    pending: appInsightPending_(plans, tab('QUARTERLY_REVIEW_LOG')),
+    detail: detail, curves: curves, shrinkage: shrinkage, timeline: appInsightTimeline_(accs),
+    calibration: appInsightCalibration_(plans, tab('CALIBRATION_HISTORY'), factorNow, hide),
+    pending: appInsightPending_(plans, tab('QUARTERLY_REVIEW_LOG'), hide),
     health: appInsightHealth_(plans, accs, shadow, factorNow)
   };
 }
@@ -774,8 +786,8 @@ function appInsightTimeline_(accs) {
   });
 }
 
-/** 補正の変化（CALIBRATION_HISTORY。月次の自動学習 AUTO-MONTHLY と、四半期レビューの適用） */
-function appInsightCalibration_(plans, hist, factorNow) {
+/** 補正の変化（CALIBRATION_HISTORY。月次の自動学習 AUTO-MONTHLY と、四半期レビューの適用）。hideKeys = true なら信頼度の対象は種類まで */
+function appInsightCalibration_(plans, hist, factorNow, hideKeys) {
   return plans.map(p => {
     const rows = (hist[p.planId] || []).map((r, i) => ({ t: appTimeKey_(r.changed_at), i: i, r: r })).sort((a, b) => a.t - b.t || a.i - b.i);
     return { planId: p.planId, clientName: p.clientName, fy: p.fy, factorNow: factorNow[p.planId] === undefined ? null : factorNow[p.planId],
@@ -783,7 +795,8 @@ function appInsightCalibration_(plans, hist, factorNow) {
         const r = x.r;
         const rid = String(r.review_id || '').trim();
         const auto = rid === 'AUTO-MONTHLY';
-        return { at: appInsightIso_(r.changed_at), factor: String(r.factor_name || ''), factorLabel: appInsightTargetLabel_(r.factor_name),
+        const f = appInsightTarget_(r.factor_name, hideKeys);
+        return { at: appInsightIso_(r.changed_at), factor: f.target, factorLabel: f.label,
           old: appInsightVal_(r.old_value), new: appInsightVal_(r.new_value), source: rid, sourceLabel: auto ? '月次の自動学習' : '四半期レビュー',
           quarter: String(r.quarter_label || '') };
       }) };
@@ -794,9 +807,9 @@ function appInsightCalibration_(plans, hist, factorNow) {
  * 承認待ちの提案: 計画ごとの一番新しい四半期レビュー（QUARTERLY_REVIEW_LOG の review_id）で、まだ C-3 で処理していないもの
  * （どの行も approval_decided_at が空で applied = 0）。保存した判断（承認・却下・保留）は、その計画の QUARTERLY_REVIEW の画面の行から読む。
  * C-3 は画面に置いた review_id のレビューだけを適用する。画面の review_id が一番新しいレビューと違えば（その後の C-1 で提案が無かった・
- * 実績が足りずに画面を消した）、もう適用できないので出さない
+ * 実績が足りずに画面を消した）、もう適用できないので出さない。hideKeys = true なら信頼度の対象は種類まで（根拠も出さない）
  */
-function appInsightPending_(plans, logs) {
+function appInsightPending_(plans, logs, hideKeys) {
   const out = [];
   plans.forEach(p => {
     const byRid = {};
@@ -817,12 +830,12 @@ function appInsightPending_(plans, logs) {
     const r0 = latest.rows[0];
     out.push({ planId: p.planId, clientName: p.clientName, fy: p.fy, reviewId: latest.rid, at: appInsightIso_(r0.reviewed_at), quarter: String(r0.quarter_label || ''),
       proposals: latest.rows.map(r => {
-        const field = String(r.target_field || '');
+        const target = appInsightTarget_(r.target_field, hideKeys);
         const phase = String(r.phase || '').trim();
         const pid = String(r.proposal_id || '');
-        return { proposalId: pid, phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: field, targetLabel: appInsightTargetLabel_(field),
+        return { proposalId: pid, phase: phase, phaseLabel: APP_INSIGHT_PHASES[phase] || phase, target: target.target, targetLabel: target.label,
           current: appInsightVal_(r.current_value), proposed: appInsightVal_(r.proposed_value), confidence: String(r.confidence || ''),
-          rationale: String(r.rationale || '').slice(0, 300), decision: decided[pid] || '' };
+          rationale: appInsightRationale_(r, hideKeys), decision: decided[pid] || '' };
       }) });
   });
   return out;
