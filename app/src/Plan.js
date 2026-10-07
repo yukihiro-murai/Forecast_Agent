@@ -4,7 +4,8 @@
  * - 見る: データ本体から読むだけのブック（appStoreBook_）を組み立て、旧来の webGetBootstrap_ をそのまま動かす。
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
  *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
- *         検証の記入は、予測と実績が今の検証の版の B-2 が測った数字と違う行を出さない（appPlanViewDropStale_。学びの振り返りと同じ決まり）。
+ *         検証の記入は、予測と実績が今の検証の版の B-2 が測った数字（B-4 が写す形）と違う行と、今の版の B-2 が初めて動く前に書いた行を出さない
+ *         （appPlanViewDropStale_。学びの振り返りと同じ決まり）。
  *         予測の注記は、止めている C-1 への案内を除き、所有者が承認した補正の値をそう書く（appPlanViewNotes_）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
@@ -17,7 +18,7 @@
  */
 
 /** 止めている操作の理由（始める前に断る文・画面のボタンの説明） */
-const APP_REVIEW_GENERATE_PAUSED = '見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。';
+const APP_REVIEW_GENERATE_PAUSED = '見直し案を作る操作は、学びの仕組みを直すまで止めています（2026/10/07 所有者の決定）。';
 /** 予測の注記（OUTPUT!A6。旧来の A-9 の buildOutputCalibrationSummary_ が「 / 」でつなぐ）の、C-1 を動かすよう案内する文 */
 const APP_PLAN_NOTE_C1_HINT = / \/ (?:3か月以上の実績確定後に|次回の四半期レビューは3か月後に) C-1 を実行してください。/g;
 /**
@@ -252,33 +253,44 @@ function appPlanView_(ctx, planId) {
 
 /**
  * 計画の画面の検証の記入（boot.eval.insights。旧来の webParseEval_ が、今の決まりで測った月の行を出す）から、予測と実績が、その月の
- * 今の版の EVAL_LOG の neutral の行と違う行を除く（前の版の予測の数字のまま・実績を取り込み直して測り直す前の数字のまま。学びの振り返り
- * appInsightLessons_ と同じ決まり（appInsightRowScored_）。次の B-4 が書き直すと出る。行は消さない）。
- * 行の番号（row）は旧来の画面と同じ読むだけのブック（appStoreBook_）のシートの行なので、同じブックの EVAL_INSIGHTS からそのまま引く
- * （旧来の画面が読んだシートなので、データ本体を読み直さない）
+ * 今の版の EVAL_LOG の neutral の行を B-4 が写す形（appInsightB4View_。実績が負なら 0 円）と違う行（前の版の予測の数字のまま・
+ * 実績を取り込み直して測り直す前の数字のまま）と、その計画で今の版の B-2 が初めて動く前に書いた行（前の版の B-4 の機械の列のまま）を除く
+ * （学びの振り返り appInsightLessons_ と同じ決まり（appInsightRowScored_・appEvalPolicySince_）。次の B-4 が書き直すと出る。行は消さない）。
+ * 行の番号（row）は旧来の画面と同じ読むだけのブック（appStoreBook_）のシートの行なので、同じブックの EVAL_INSIGHTS からそのまま引く。
+ * 初めの B-2 の時刻も同じブックの EVAL_LOG・RUN_LOG から（旧来の画面と同じ読むだけのブックなので、データ本体を読み直さない）
  */
 function appPlanViewDropStale_(boot, book) {
   const ins = boot && boot.eval && boot.eval.insights;
   if (!Array.isArray(ins) || !ins.length) return;
-  const log = book.getSheetByName('EVAL_LOG');
   const sh = book.getSheetByName('EVAL_INSIGHTS');
-  if (!log || !sh || log.getLastRow() < 2) return;
-  const lv = log.getDataRange().getValues();
-  const idx = {};
-  lv[0].forEach((h, i) => { const k = String(h || '').trim(); if (k && idx[k] === undefined) idx[k] = i; });
-  if (['target_month', 'scenario', 'pred', 'actual', 'evaluation_policy_version'].some(k => idx[k] === undefined)) return;
-  const scored = {};   // 月 → 今の版の B-2 が測った予測と実績（neutral の行。同じ月が 2 行あれば後の行）
-  lv.slice(1).forEach(r => {
-    if (String(r[idx.scenario] || '').trim() !== 'neutral' || String(r[idx.evaluation_policy_version] || '').trim() !== APP_EVAL_POLICY_VERSION) return;
-    scored[appYm_(r[idx.target_month])] = { pred: r[idx.pred], actual: r[idx.actual] };
+  const ev = appPlanSheetRows_(book.getSheetByName('EVAL_LOG'));
+  if (!sh || !ev.length || ['target_month', 'scenario', 'pred', 'actual', 'evaluation_policy_version'].some(k => !Object.prototype.hasOwnProperty.call(ev[0], k))) return;
+  const scored = {};   // 月 → 今の版の B-2 が測った予測と実績を B-4 が写す形（neutral の行。同じ月が 2 行あれば後の行）
+  ev.forEach(r => {
+    if (String(r.scenario || '').trim() !== 'neutral' || String(r.evaluation_policy_version || '').trim() !== APP_EVAL_POLICY_VERSION) return;
+    scored[appYm_(r.target_month)] = appInsightB4View_(r.pred, r.actual);
   });
-  const iv = sh.getDataRange().getValues();   // 3 列目 target_month・4 列目 actual_total・5 列目 pred_p50（旧来の webParseEval_ と同じ並び）
+  const since = appEvalPolicySince_(ev, appPlanSheetRows_(book.getSheetByName('RUN_LOG')));
+  // 1 列目 evaluated_at・3 列目 target_month・4 列目 actual_total・5 列目 pred_p50（旧来の webParseEval_ と同じ並び）
+  const iv = sh.getDataRange().getValues();
   boot.eval.insights = ins.filter(x => {
     const r = iv[Number(x.row) - 1];
     if (!r) return true;
     const ym = appYm_(r[2]);
     if (!Object.prototype.hasOwnProperty.call(scored, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
-    return appInsightRowScored_(scored, ym, r[4], r[3]);
+    return appInsightRowScored_(scored, ym, r[4], r[3], r[0], since);
+  });
+}
+
+/** 読むだけのブックの表の形のシートを、見出し → 値の行にする（シートが無い・行が無ければ空。同じ見出しが 2 つあれば前の列） */
+function appPlanSheetRows_(sh) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  const v = sh.getDataRange().getValues();
+  const head = v[0].map(h => String(h || '').trim());
+  return v.slice(1).map(r => {
+    const o = {};
+    head.forEach((h, i) => { if (h && !Object.prototype.hasOwnProperty.call(o, h)) o[h] = r[i]; });
+    return o;
   });
 }
 

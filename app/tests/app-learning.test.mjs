@@ -268,4 +268,39 @@ env.run('appPlanReadMinRows_ = () => 3000');
   for (const id of [hei, tei, bo, ki]) assert.equal(e5.table('ENG_POOL_PRIOR').find((r) => r.plan_id === id && r.pool_scope === 'reliability:opinion').pooled_value, '1.2', '書く値も同じ決まりで作る（2 × 12 / 20）');
   assert.deepEqual([hei, tei, bo, ki].map((id) => e5.table('ENG_RELIABILITY_EVIDENCE').filter((r) => r.plan_id === id).length), [2, 1, 1, 1], '読み飛ばした行も残る');
 }
+
+// ==== 9. 検証の画面の scoredMonths: 今の決まりで B-2 が測った月の数（締まった月で、今の版の neutral の行がある月。実績 0 円の月も数える）。
+// 精度の月（accuracy.months・n）は実績 0 円の月を除くので、画面は scoredMonths で「まだ比べていない」と「比べた月がどれも売上 0 円」を見分ける ====
+{
+  const e6 = setUpEnv();
+  /** 検証の記録: [月, 実績, P50, 版]（P10・P90 は P50 の ±5%） */
+  const evalRows = (client, months) => [H.EVAL_LOG].concat(...months.map(([ym, act, p50, ver], i) => [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]
+    .map(([sc, p]) => ['E' + i + sc, D(2026, 10, 6), client, ym, sc, p, act, act ? Math.abs(p - act) / Math.abs(act) : '', 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act),
+      '', '', '', '', '', '', ver, 1])));
+  // B-1 は 10/06（9 月まで締まった）
+  const plan = (client, months) => e6.seedPlan(e6.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    EVAL_LOG: { values: evalRows(client, months), formats: { D: '@' } },
+    PROCESS_STATUS: status(client, new Date(2026, 9, 6, 10)),
+  }));
+  const V2 = 'policy-2026H1-v2';
+  const never = plan('未比較製薬', [['2026/07', 1000, 1100, V2], ['2026/08', 1000, 1100, V2]]);   // 前の版の行だけ（今の版の B-2 はまだ）
+  const zero = plan('売上なし製薬', [['2026/07', 0, 100, POLICY], ['2026/08', 0, 100, POLICY], ['2026/09', 0, 0, POLICY], ['2026/10', 0, 100, POLICY]]);   // 10 月は締まっていない
+  const mixed = plan('一部製薬', [['2026/06', 1000, 1100, V2], ['2026/07', 0, 100, POLICY], ['2026/08', 1000, 1100, POLICY], ['2026/09', -50, 100, POLICY]]);
+  const view = (id) => e6.call('apiLearningView(__in)', { __in: { planId: id } });
+  const v0 = view(never), vz = view(zero), vm = view(mixed);
+  assert.deepEqual([v0.scoredMonths, v0.accuracy.months.length, v0.accuracy.n], [0, 0, 0], '今の版の B-2 の前: まだ比べていない');
+  assert.deepEqual([vz.scoredMonths, vz.accuracy.months.length, vz.accuracy.n], [3, 0, 0], '比べた月はどれも売上 0 円（精度の月は 0 でも scoredMonths は 3。締まっていない 10 月は数えない）');
+  assert.deepEqual([vm.scoredMonths, vm.accuracy.months.map((m) => m.month)], [3, ['2026/08', '2026/09']], '前の版の 6 月は数えない・0 円の 7 月は数える（負の月は精度にも入る）');
+  assert.ok([v0, vz, vm].every((v) => typeof v.scoredMonths === 'number' && typeof v.accuracy === 'object'), 'scoredMonths は accuracy と同じ高さの数');
+  // 学びの scoredMonths と同じ月の決まり（appEvalScoredMonths_）
+  assert.deepEqual(J(e6.run(`appEvalScoredMonths_(appEngTableObjects_('${mixed}', ['EVAL_LOG']).EVAL_LOG, '2026/10')`)),
+    [['2026/07', 100, 0], ['2026/08', 1100, 1000], ['2026/09', 100, 0]], '月と、B-4 が写す形の数字（負の実績は 0 円）');
+  // 前の形の精度の控え（scoredMonths が無い）が残っていても、その計画の分は数え直して返す
+  e6.run(`(() => { const v = appAccuracyOf_(__id); delete v.scoredMonths; appJobPutResult_(appAccuracyKey_(__id), v); })()`, { __id: zero });
+  for (const k of Object.keys(e6.cache)) if (!k.includes('APP_JOB_RESULT_')) delete e6.cache[k];
+  const again = view(zero);
+  assert.deepEqual([again.scoredMonths, again.accuracy.n], [3, 0], '前の形の控えは数え直す');
+  assert.equal(J(e6.run(`appJobGetResult_(appAccuracyKey_(__id)).value.scoredMonths`, { __id: zero })), 3, '数え直した精度を控え直す');
+}
 console.log('app-learning: all tests passed');
