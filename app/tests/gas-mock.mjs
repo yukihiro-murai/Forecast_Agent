@@ -73,7 +73,7 @@ let SHEET_SEQ = 0;
  * strict でないシートは、書式が '@' でないセルに書いた文字列を本物のように変換する。
  */
 /** 見た目だけの操作（色・幅・入力規則・枠線・表示/非表示など）は何もしない（計算の結果に関係しない）。値と表示形式は本物のとおりに扱う */
-const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|breakApart|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation|setDescription|setWarningOnly)$/;
+const LOOKS = /^(set(Background|FontColor|FontWeight|FontSize|FontStyle|FontFamily|HorizontalAlignment|VerticalAlignment|Wrap|WrapStrategy|Border|DataValidation|Note|ColumnWidth|ColumnWidths|RowHeight|RowHeights|TabColor|FrozenColumns|Backgrounds|FontColors|FontWeights|HorizontalAlignments|Notes|TextStyle|ConditionalFormatRules)|merge|mergeAcross|mergeVertically|breakApart|showColumns|hideColumns|showRows|hideRows|autoResizeColumns|autoResizeColumn|protect|activate|clearDataValidations|clearNote|clearConditionalFormatRules|createFilter|setDataValidations|clearFormats|setFrozenRows|setFrozenColumns|setFontLine|setTextRotation|setDescription|setWarningOnly)$/;
 function looks(obj) {
   const p = new Proxy(obj, { get(t, k) {
     if (k in t || typeof k === 'symbol') return t[k];
@@ -81,6 +81,9 @@ function looks(obj) {
     if (k === 'getFilter' || k === 'getDataValidation') return () => null;
     if (k === 'getMergedRanges') return () => [];
     if (k === 'getCharts' || k === 'getConditionalFormatRules' || k === 'getProtections' || k === 'getDataValidations' || k === 'getNamedRanges' || k === 'getBandings') return () => [];
+    // グラフも見た目だけ（作る・置く・外すは何もしない）
+    if (k === 'newChart') { const b = new Proxy({}, { get: (x, kk) => (kk === 'build' ? () => ({}) : () => b) }); return () => b; }
+    if (k === 'insertChart' || k === 'removeChart' || k === 'updateChart') return () => p;
     if (k === 'isSheetHidden') return () => !!t.__hidden;
     if (k === 'hideSheet') return () => { t.__hidden = true; return p; };
     if (k === 'showSheet') return () => { t.__hidden = false; return p; };
@@ -231,6 +234,12 @@ export function makeSheet(name, { strict = false, rows: maxR = 1000, cols: maxC 
         },
         setValue(v) { if (sh.failWrites) throw new Error('write failed'); each((y, x) => writeCell(y, x, v)); return range; },
         setFormula(f) { assert.ok(!sh.strict); each((y, x) => { put(fmls, y, x, f); put(rows, y, x, evalFormula(f)); }); return range; },
+        setFormulas(fs) {
+          assert.ok(!sh.strict);
+          if (fs.length !== nr || fs.some((row) => row.length !== nc)) throw new Error('The number of rows or columns in the data does not match the range.');
+          each((y, x, i, j) => { put(fmls, y, x, fs[i][j]); put(rows, y, x, evalFormula(fs[i][j])); });
+          return range;
+        },
       };
       range = looks(range);   // 値・形式の操作の続き（.setNumberFormat(..).setHorizontalAlignment(..)）でも見た目の操作を受ける
       return range;

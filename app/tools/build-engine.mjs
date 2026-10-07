@@ -29,6 +29,8 @@ export const ENGINE_EXPORTS = [
   'runPhase1Forecast', 'updatePhase1EvaluationReport', 'updatePhase1Dashboard', 'updatePhase1LearningInsights',
   'runMonthlyAutoLearn_', 'runQuarterlyReview', 'applyQuarterlyProposals', 'syncSalesFromSalesInput_',
   'readCalibrationState_', 'requireStepSuccess_', 'updateProcessStatus_', 'getForecastFYStart_', 'getForecastFYEnd_',
+  // 所有者が承認した補正の値を書き、履歴を足す（Calibration.js。B-5・C-3 と同じ関数で書く）
+  'writeCalibrationState_', 'appendCalibrationHistory_', 'quarterLabelFromYm_',
   // 旧来の Web アプリ（Forecast_WebApp.js）
   'webGetBootstrap_', 'webSaveInputs', 'webSaveBudget', 'webSaveEvalInsights', 'webSaveQuarterlyDecisions',
   'webRunAggregate', 'webRunEvalReport', 'webRunDashboard', 'webRunInsights', 'webRunMonthlyLearn', 'webRunQuarterly', 'webApplyQuarterly',

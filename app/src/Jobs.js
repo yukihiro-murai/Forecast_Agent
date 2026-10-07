@@ -23,7 +23,9 @@ function appJobSpec_(kind) {
     'FORECAST.RUN_SAVE': { minRole: 'PLANNER', planScoped: true, label: '予測の実行', internal: true },
     // 計画への保存・実行（Plan.js）: 操作ごとの役割（予算策定担当・承認者）。その計画のクライアントの担当でもよい
     // direct: 最近かかった時間から見て短ければ、トリガーを待たずに頼まれた通信の中で動かす（保存はふつう数十秒。トリガーを待つだけで数十秒かかる）
-    'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, planScoped: true, label: '保存', direct: true },
+    // 所有者だけの保存（補正の値 CALIBRATION.SET）は、管理者の役割があっても所有者でなければ断る（ownerOnlyOf）
+    'PLAN.EDIT': { minRoleOf: p => appPlanAction_(p && p.action, 'edit').minRole, ownerOnlyOf: p => !!appPlanAction_(p && p.action, 'edit').ownerOnly,
+      planScoped: true, label: '保存', direct: true },
     'PLAN.RUN': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行' },
     'PLAN.RUN_CALC': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
     'PLAN.RUN_SAVE': { minRoleOf: p => appPlanAction_(p && p.action, 'run').minRole, planScoped: true, label: '実行', internal: true },
@@ -42,17 +44,23 @@ function appJobSpec_(kind) {
   return s;
 }
 
-/** apiStartJob の権限（種類ごと） */
+/** apiStartJob の権限（種類ごと）。所有者だけの処理は ownerOnly（api_ が所有者でなければ断り、断ったことを記録する） */
 function appJobStartOpts_(input) {
   const spec = appJobSpec_(input && input.kind);
   if (spec.internal) throw new Error('この処理は画面から始められません: ' + input.kind);
-  return { minRole: appJobMinRole_(spec, input.payload), clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
+  return { minRole: appJobMinRole_(spec, input.payload), ownerOnly: appJobOwnerOnly_(spec, input.payload) || undefined,
+    clientId: spec.planScoped ? appJobPlanClient_(input.payload) : undefined, audit: false,
     detail: { kind: input.kind, planId: input.payload && input.payload.planId, action: input.payload && input.payload.action } };
 }
 
 /** 処理に要る役割（操作ごとに決まる処理は、頼んだ中身から） */
 function appJobMinRole_(spec, payload) {
   return (spec.minRoleOf ? spec.minRoleOf(payload || {}) : spec.minRole) || 'ADMIN';
+}
+
+/** 所有者だけの処理か（操作ごとに決まる処理は、頼んだ中身から） */
+function appJobOwnerOnly_(spec, payload) {
+  return spec.ownerOnlyOf ? !!spec.ownerOnlyOf(payload || {}) : !!spec.ownerOnly;
 }
 
 /**
@@ -249,6 +257,11 @@ function appStartJob_(ctx, input) {
       // 計画に書く処理は、年度が締められていたら待ち行列に入れる前に止める
       appRequireOpenPlan_(payload && payload.planId);
     }
+    // 止めている操作（四半期の見直し案を作る。2026-10-07 村井さん決定）は始めない
+    if (kind === 'PLAN.RUN' || kind === 'PLAN.EDIT') {
+      const paused = appPlanActionPaused_(payload && payload.action);
+      if (paused) throw new Error(paused);
+    }
     const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });
@@ -387,7 +400,7 @@ function appRunJob_(id) {
     const ctx = appJobContext_(job);
     const spec = appJobSpec_(job.kind);
     const clientId = spec.planScoped ? appJobPlanClient_(job.payload) : undefined;
-    const allowed = appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId);
+    const allowed = appHasRole_(ctx.roles, appJobMinRole_(spec, job.payload), clientId) && (!appJobOwnerOnly_(spec, job.payload) || ctx.user.isOwner);
     if (!allowed) throw new Error('この操作をする権限がありません。');
     // 計画に書く処理（続きの段・内部の段も）は、年度が締められていたら始める前に止める
     if (spec.planScoped) appRequireOpenPlan_(job.payload && job.payload.planId);

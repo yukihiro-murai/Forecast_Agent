@@ -10,8 +10,9 @@
  *
  * どの操作も、画面の入口（Api.js）と同じ中の関数・同じ役割の判定・同じ監査の項目で動かす。
  * 書く操作は、入口と同じ操作の名前（SETTING.SAVE など）で監査に開始と終了が残る（理由の欄に OWNER_TASK と残す）。
- * 時間のかかる処理（計画の作成・担当者の保存・年度の締め・事前分布の書き込み）は、画面と同じく裏の処理として始め、
+ * 時間のかかる処理（計画の作成・担当者の保存・年度の締め・事前分布の書き込み・補正の値の書き込み）は、画面と同じく裏の処理として始め、
  * 記録はその処理が残す。結果は jobStatus で見る。年度の締めは、画面と同じく yearPreview の指紋（inputHash）が要る。
+ * 補正の値（setCalibration）は、所有者が承認した値を計画の旧来の CALIBRATION_STATE に書く（2026-10-07 村井さん決定。Calibration.js）。
  */
 const APP_OWNER_TASK_PROP = 'OWNER_TASK';
 const APP_OWNER_RESULT_PROP = 'OWNER_TASK_RESULT';
@@ -79,6 +80,14 @@ const APP_OWNER_ACTIONS = {
   // ---- 全計画の情報源の信頼度の事前分布（Learning.js・裏の処理 LEARN.POOL） ----
   poolPreview: { name: 'POOL.PREVIEW', opts: () => ({ minRole: 'ADMIN', audit: false }), run: () => appPoolPreview_() },
   poolApply: { job: 'LEARN.POOL', payload: () => ({}) },
+  // ---- 計画の補正の値（Calibration.js。2026-10-07 村井さん決定 D1〜D3・D7・D8）: 今の値を見て、承認した値を書く・承認待ちの見直し案を取り下げる ----
+  calibrationPreview: { name: 'CALIBRATION.PREVIEW', args: ['planId'], check: t => appOwnerCheckPlanId_(t), opts: () => ({ minRole: 'ADMIN', audit: false }),
+    run: (ctx, i) => appCalibrationPreview_(i.planId) },
+  // 計画への保存（PLAN.EDIT の CALIBRATION.SET。所有者だけ）。項目と値は始める前に確かめる（裏の処理の中でも確かめ直す）
+  setCalibration: { job: 'PLAN.EDIT', args: ['planId', 'set', 'withdrawPendingReview', 'reason', 'inputHash'],
+    check: t => { appOwnerCheckPlanId_(t); appCalibrationCheck_(t); appOwnerCheckHash_(t); },
+    payload: i => ({ planId: i.planId, action: 'CALIBRATION.SET', args: { set: i.set || {}, withdrawPendingReview: i.withdrawPendingReview === true, reason: i.reason },
+      inputHash: i.inputHash }) },
   // ---- 裏の処理の状態（jobId を省くと、自分が最後に始めた処理） ----
   jobStatus: { name: 'JOB.STATUS', args: ['jobId'], opts: () => ({ minRole: 'VIEWER', audit: false }),
     run: (ctx, i) => appJobStatus_(ctx, i.jobId || appOwnerLastJobId_(ctx)) }
@@ -180,6 +189,16 @@ function appOwnerParseTask_(raw) {
 function appOwnerCheckFy_(t) {
   const fy = String(t.fy === undefined || t.fy === null ? '' : t.fy).trim();
   if (!/^\d{4}$/.test(fy)) throw new Error(t.action + ' には年度（fy）を 4 桁の数で入れてください（例: "fy":2027）。');
+}
+
+/** 計画（planId）が要る操作: 無ければ、何もせずに止める（計画が見つからないときは、始める前の判定が止める） */
+function appOwnerCheckPlanId_(t) {
+  if (typeof t.planId !== 'string' || !t.planId.trim()) throw new Error(t.action + ' には計画の ID（planId。listPlans の planId）を入れてください。');
+}
+
+/** 指紋（inputHash）は省ける。入れるなら calibrationPreview などで受け取った 64 桁のまま */
+function appOwnerCheckHash_(t) {
+  if (t.inputHash !== undefined && !/^[a-f0-9]{64}$/.test(String(t.inputHash))) throw new Error('inputHash は calibrationPreview の inputHash（64 桁）をそのまま入れてください（省くと確かめずに書きます）。');
 }
 
 /**

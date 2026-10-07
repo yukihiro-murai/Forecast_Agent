@@ -895,7 +895,8 @@ var FC_ACTION_SHORT = { 'IMPORT.SALES': '売上を取り込む', 'SALES.AGGREGAT
 var FC_ACTION_FULL = { 'IMPORT.SALES': '売上を取り込む（ZAC の実績から過去の売上）', 'SALES.AGGREGATE': '売上を月ごとに集計する', 'AI.RESEARCH': '市場・競合の動きを AI で調べる',
   'IMPORT.ACTUALS': '確定した月の実績を取り込む', 'EVAL.REPORT': '予測と実績を比べて当たり具合を計算する', 'EVAL.INSIGHTS': '外れた月の原因を整理する',
   'LEARN.MONTHLY': '実績から補正を学び直す（次の予測に効く）', 'REVIEW.GENERATE': 'AI の見直し案を作る', 'REVIEW.APPLY': '承認した見直し案を反映する',
-  'EVAL.DASHBOARD': '指標の更新', 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': '振り返りの記入の保存', 'REVIEW.DECIDE': '見直し案の判断の保存', 'SETUP.PEOPLE': '担当者の保存' };
+  'EVAL.DASHBOARD': '指標の更新', 'INPUT.SAVE': '入力の保存', 'BUDGET.SAVE': '予算の保存', 'INSIGHT.SAVE': '振り返りの記入の保存', 'REVIEW.DECIDE': '見直し案の判断の保存', 'SETUP.PEOPLE': '担当者の保存',
+  'CALIBRATION.SET': '補正の値を書く（所有者が承認した値）' };
 function actName(a){ return FC_ACTION_FULL[a] || plainMsg(a || ''); }
 function actShort(a){ return FC_ACTION_SHORT[a] || actName(a); }
 /** サーバーの文に残る旧来の番号（A-2 など。後ろの旧来の名前も）を、ふつうの言葉に直す（エラーの知らせ・エラーの欄・進みのメモ） */
@@ -978,6 +979,7 @@ function qrTarget(t, hideKey){
   if (t === 'bias_correction_factor') return '偏りの補正';
   if (t === 'qual_scale_override') return '入力の効きの倍率';
   if (t === 'ai_topic_disable_json') return '使わない AI の話題';
+  if (t === 'auto_update_enabled') return '自動の学び';
   if (/month_bias/.test(t)) return '月ごとの補正';
   var m = /^reliability:([^:]*):?(.*)$/.exec(t);
   if (m) return (QR_SOURCES[m[1]] || 'ほかの情報') + 'の信頼度' + (m[2] && !hideKey ? '（' + qrKey(m[2]) + '）' : '');
@@ -988,6 +990,8 @@ function qrKey(k){ return plainMsg(String(k || '').replace(/^\s*(market|competit
 /** 見直し案の値（今・案）を、対象に合わせた言い方に（元の値はカーソルで） */
 function qrValue(target, x){
   var s = String(x == null ? '' : x).trim(), n = Number(s), t = String(target || '');
+  if (t === 'ai_weight_override' && s === '') return '既定';
+  if (t === 'auto_update_enabled') return s === '0' ? '止める' : s === '1' ? '動かす' : (s || '-');
   if (s === '' || !isFinite(n)) return s ? (s.length > 40 ? s.slice(0, 40) + '…' : s) : '-';
   if (t === 'bias_correction_factor') return Math.abs(n - 1) < 0.0005 ? '補正なし' : Math.abs((n - 1) * 100).toFixed(1) + '% ' + (n < 1 ? '下げ' : '上げ');
   if (t === 'ai_weight_override') return Math.round(n * 100) + '%';
@@ -1913,15 +1917,24 @@ function fcTab(t){ S.fc.tab = t; fcTabData(t); render(); }
 function fcCan(kind){ var v = S.fc.view; return !!(v && v.can && (kind === 'approve' ? v.can.approve : kind === 'admin' ? v.can.admin : v.can.plan)); }
 /** 裏の処理・画面からの保存が動いている間は、ほかの処理を始めない（ボタンを押せなくする） */
 function fcBusy(){ return !!(S.job || S.starting || S.writing); }
-/** 実行の一覧（ボタンは同じ幅で並べ、説明はカーソルを置いたときに出す）。items: [[action, 説明, 役割, 補足]]。権限のない実行はボタンを出さない（押せないボタンを見せない） */
+/**
+ * 実行の一覧（ボタンは同じ幅で並べ、説明はカーソルを置いたときに出す）。items: [[action, 説明, 役割, 補足]]。権限のない実行はボタンを出さない（押せないボタンを見せない）。
+ * 止めている操作（サーバーの actions の paused。見直し案を作る: 2026-10-07 所有者の決定）は押せないボタンにし、止めている理由をカーソルで出す
+ */
 function fcActions(items){
   var shown = items.filter(function(it){ return fcCan(it[2] || 'plan'); });
   if (!shown.length) return '';
   return '<div class="btngrid">' + shown.map(function(it){
-    var full = actName(it[0]);
+    var full = actName(it[0]), paused = fcPaused(it[0]);
+    if (paused) return actBtn('<button class="btn btn-ghost" disabled aria-disabled="true">' + esc(actShort(it[0])) + '</button>', full + '\n' + paused);
     return actBtn('<button class="btn btn-ghost" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="fcRun(\'' + it[0] + '\')">' + esc(actShort(it[0])) + '</button>',
       full + '\n' + it[1] + (it[3] ? '\n' + it[3] : ''));
   }).join('') + '</div>';
+}
+/** 止めている操作なら、その理由（計画の画面の actions から。止めていなければ空） */
+function fcPaused(action){
+  var v = S.fc.view, a = ((v && v.actions) || []).filter(function(x){ return x.action === action; })[0];
+  return a && a.paused ? plainMsg(a.paused) : '';
 }
 /** 実行の前に確かめる（保存していない入力があれば、そのことも。実行が終わって読み直すと消えることがあるため） */
 function fcDirtyNote(){ return fcDirty() ? '\n' + FC_DIRTY_MSG + '先に保存してください（終わって画面を読み直すと、消えることがあります）。' : ''; }
@@ -2294,7 +2307,9 @@ function fcSaveIns(){
 }
 /** AI の見直し案（承認者は行ごとに 承認・却下・保留 を選び、ボタン 1 つで判断の保存 → 反映。2026-10-06 村井さん） */
 function fcRvProposals(q){
-  var canApprove = fcCan('approve'), dec = S.fc.dec, applied = !!q.applied, edit = canApprove && !applied, hide = !seePeople();   // 人ごとの当たりは、予算策定担当以上の人にだけ（学びと同じ決まり）
+  // 所有者が取り下げた案（Calibration.js: 判断が「取り下げ」・反映する review_id に「取り下げ:」）は、判断も反映もしない（2026-10-07 所有者の決定）
+  var withdrawn = /^取り下げ/.test(String(q.reviewId || '')) || (q.proposals.length > 0 && q.proposals.every(function(p){ return p.decision === '取り下げ'; }));
+  var canApprove = fcCan('approve'), dec = S.fc.dec, applied = !!q.applied, edit = canApprove && !applied && !withdrawn, hide = !seePeople();   // 人ごとの当たりは、予算策定担当以上の人にだけ（学びと同じ決まり）
   var hist = (q.logRecent || []).map(function(x){ return fcQuarter(x.quarter) + '（' + x.at + '）' + x.proposals + ' 件' + (x.applied ? '・反映済み' : ''); }).join('\n');
   var cur = function(p){ var x = dec[p.row] !== undefined ? dec[p.row] : p.decision; return String(x || ''); };
   var quarter = fcQuarter((/FY\d{4}-Q\d/.exec(String(q.title || '')) || [''])[0]);
@@ -2309,10 +2324,12 @@ function fcRvProposals(q){
   var busyNow = fcBusy();
   return '<div class="card"><div class="card-head"><h2>AI の見直し案' + tip('AI が前の四半期の結果から作った、設定の見直し案です。承認して反映した案だけが、次の予測から効きます' + (hist ? '\nこれまでの見直し:\n' + hist : '')) + '</h2>'
     + (quarter ? '<span class="meta"' + (q.period ? ' data-tip="' + esc(q.period) + '"' : '') + '>' + esc(quarter) + '</span>' : '')
-    + (applied ? '<span class="chip ok" data-tip="この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります">反映済み</span>' : '<span class="chip warn" data-tip="承認者が判断して反映すると、次の予測から効きます">未反映</span>') + '</div>'
+    + (applied ? '<span class="chip ok" data-tip="この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります">反映済み</span>'
+      : withdrawn ? '<span class="chip off" data-tip="締まっていない月から作られた案なので、所有者が取り下げました（2026-10-07 の決定）。反映しません">取り下げ</span>'
+      : '<span class="chip warn" data-tip="承認者が判断して反映すると、次の予測から効きます">未反映</span>') + '</div>'
     + '<div class="tblwrap"><table class="tbl scroll fc-props' + (edit ? ' edit' : '') + '"><colgroup><col style="width:176px"><col style="width:96px"><col style="width:96px"><col style="width:72px"><col><col style="width:184px"><col style="width:152px"></colgroup>'
     + '<thead><tr><th>対象</th><th class="num" data-tip="今の設定">今</th><th class="num" data-tip="AI の案">案</th><th class="num" data-tip="AI がこの案をどれだけ確かだと見ているか">確度</th><th>理由</th><th data-tip="この案を効かせたときの、予測への影響の見込み">効かせたら</th>'
-    + '<th data-tip="' + (edit ? '承認・却下・保留を選びます。選ばなかった案は承認として扱います' : canApprove ? 'この見直し案は反映済みです' : '承認は承認者ができます') + '">判断</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+    + '<th data-tip="' + (edit ? '承認・却下・保留を選びます。選ばなかった案は承認として扱います' : withdrawn ? '取り下げた案です。反映しません' : canApprove ? 'この見直し案は反映済みです' : '承認は承認者ができます') + '">判断</th></tr></thead><tbody>' + body + '</tbody></table></div>'
     + (edit ? '<div class="card-foot">' + actBtn('<button class="btn" ' + (busyNow ? 'disabled ' : '') + 'onclick="fcRvGo()">承認して反映</button>', '判断を保存してから、承認した案を設定に反映します（3〜6 分ほど）。判断を選んでいない案は承認になります') + '</div>' : '') + '</div>';
 }
 function fcDec(row, val){ S.fc.dec[row] = val; }
@@ -2978,6 +2995,7 @@ function lrDecision(x, saved){
   if (/承認|approv/i.test(s)) return ['承認', 'ok', '承認しました' + on + '。まだ反映していません'];
   if (/却下|reject/i.test(s)) return ['却下', 'ng', '却下しました' + on];
   if (/保留|hold|defer/i.test(s)) return ['保留', 'warn', '保留にしました' + on];
+  if (/取り下げ/.test(s)) return ['取り下げ', 'off', '所有者が取り下げました' + on + '。反映しません'];
   // 判断を保存して、まだ反映していない（振り返りで保存した判断。AI の学びの「承認待ち」から）
   if (/承認/.test(saved || '')) return ['承認', 'ok', '判断を保存しました（承認）。まだ反映していません'];
   if (/却下/.test(saved || '')) return ['却下', 'ng', '判断を保存しました（却下）。まだ反映していません'];
@@ -3172,7 +3190,7 @@ function lrTimeCard(tl){
     chartOrTable('lrTime', '<h3 class="lr-h3">月の外れ幅</h3>' + c1 + '<h3 class="lr-h3">見通しの幅に収まった割合</h3>' + c2, table),
     lrMore('外れ幅 = |予測の中心 − 実績| ÷ 実績 の平均（MAPE）。確かさの幅 = 収まった割合の Wilson の 80% 区間。締まった後に予測し直した月は除きます'));
 }
-/** 補正の履歴（選んだ計画の、予測に掛ける倍率の移り変わり。月次の自動学習と、承認した見直し案で変わる） */
+/** 補正の履歴（選んだ計画の、予測に掛ける倍率の移り変わり。月次の自動学習・承認した見直し案・所有者が承認した値で変わる） */
 function lrCalCard(cal, health){
   if (!cal.length) return '';
   var multi = lrMultiFy(cal);
@@ -3183,7 +3201,8 @@ function lrCalCard(cal, health){
       || cal.slice().sort(function(a, b){ return (b.path || []).length - (a.path || []).length; })[0];
   }
   var path = cur.path || [], isBias = function(p){ return p.factor === 'bias_correction_factor' && isNum(p.new); };
-  var src = function(p){ var auto = p.source === 'AUTO-MONTHLY'; return { short: auto ? '自動' : '見直し', full: auto ? '月次の自動学習' : '承認した見直し案' }; };
+  var src = function(p){ var auto = p.source === 'AUTO-MONTHLY', owner = p.source === 'OWNER-APPROVED';
+    return { short: auto ? '自動' : owner ? '所有者' : '見直し', full: auto ? '月次の自動学習' : owner ? '所有者が承認した値' : '承認した見直し案' }; };
   var bias = path.filter(isBias), pts = [];
   // 倍率は「何 % 下げ・上げ」で見せる（振り返り・根拠と同じ言い方。元の倍率はカーソルで）
   var fx = function(v){ return qrValue('bias_correction_factor', v); }, raw = function(v){ return isNum(v) ? '（倍率 ' + v.toFixed(3) + '）' : ''; };
@@ -3197,7 +3216,7 @@ function lrCalCard(cal, health){
     : '<p class="note">この計画の補正は、まだ変わっていません</p>';
   var sel = '<select class="inp md" id="lr_cal" aria-label="メーカー" onchange="S.lr.calPlan=this.value;render()">' + cal.map(function(c){ return '<option value="' + esc(c.planId) + '"' + (c === cur ? ' selected' : '') + '>' + esc(lrName(c, multi)) + '</option>'; }).join('') + '</select>';
   var now = isNum(cur.factorNow) ? '<span class="chip" data-tip="' + esc('今の補正（予測に掛けている倍率 ' + cur.factorNow.toFixed(3) + '。1 = 補正なし）') + '">今 ' + esc(fx(cur.factorNow)) + '</span>' : '';
-  return lrCard('補正の履歴', 'これまでの外れ方から、予測をどれだけ下げ・上げているかの移り変わりです（0% = 補正なし）。月次の自動学習と、承認した見直し案で変わります。表には信頼度の変更も出ます',
+  return lrCard('補正の履歴', 'これまでの外れ方から、予測をどれだけ下げ・上げているかの移り変わりです（0% = 補正なし）。月次の自動学習・承認した見直し案・所有者が承認した値で変わります。表には信頼度の変更も出ます',
     chartOrTable('lrCal', chart, table), now + sel);
 }
 // ==== END REGION: LEARNING ====
