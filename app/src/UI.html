@@ -575,7 +575,8 @@ function actBtn(btnHtml, text){ return '<span class="act"' + (text ? ' data-tip=
   var near = function(e){ return e.target && e.target.closest ? e.target.closest('[data-tip]') : null; };
   document.addEventListener('mouseover', function(e){ var el = near(e); if (el) { if (el !== cur) show(el); } else if (cur) hide(); });
   document.addEventListener('focusin', function(e){ var el = near(e); if (el) show(el); else hide(); });
-  document.addEventListener('focusout', hide);
+  // 消すのは、出している説明の元（とその中）から選びが外れたときだけ（スマホで欄を選んだまま押せないボタンに触れると、欄の focusout で説明がすぐ消えるため）
+  document.addEventListener('focusout', function(e){ var t = e && e.target; if (cur && t && (t === cur || (cur.contains && cur.contains(t)))) hide(); });
   // スマホ: 説明の付いた文字・札・グラフの印をタップしても出す（ボタン・欄はそのまま動かす）
   document.addEventListener('click', function(e){ var el = near(e); if (!el) { if (cur) hide(); return; } if (e.target.closest('button,a,select,input,textarea')) return; show(el); });
   // スマホ: 押せないボタン（保存するものが無いなど）に触れたら、なぜ押せないか・何をするかの説明を出す
@@ -724,7 +725,7 @@ var JOB_DONE = {
 var JOB_FAIL = {};
 function jobFail(kind, st, payload){ try { (JOB_FAIL[kind] || function(){})(st || {}, payload || {}); } catch (e) { if (window.console) console.error('job fail', e); } }
 /** 計画が増えた・年度を締めたとき: 一覧の控えを捨て、今の画面を読み直す（開いている計画の入力中の欄は消さない） */
-function listsChanged(){ S.pf = null; S.fc.plans = null; if (S.an) S.an.data = null; if (S.lr) { S.lr.people = null; S.lr.ai = null; } go(S.view); }
+function listsChanged(){ S.pf = null; S.fc.plans = null; if (S.an) { S.an.data = null; S.an.plans = null; } if (S.lr) { S.lr.people = null; S.lr.ai = null; } go(S.view); }
 function startJob(kind, payload){
   // すでに動いている・始めている途中・画面からの保存の途中なら何もしない（保存の途中に始めると、通信が受け付けられず「始めている途中」のまま残るため）
   if (S.job || S.starting || S.writing) { jobFail(kind, { status: 'BUSY' }, payload); return; }
@@ -968,6 +969,17 @@ function accRough(a){
 }
 /** 人ごとの当たり・担当の名前を見せてよいか（サーバーの appInsightDetail_ と同じ: 予算策定担当以上の役割がある。学びの画面と同じ決まり） */
 function seePeople(){ var lv = ['VIEWER', 'CONTRIBUTOR', 'PLANNER', 'APPROVER', 'ADMIN']; return ((B.user && B.user.roles) || []).some(function(r){ return lv.indexOf(r.role) >= 2; }); }
+/**
+ * 振り返りの操作で出るものの案内（ホーム・分析・学び）。操作は計画の予算策定担当が動かすので、どこかの計画で予算策定担当以上の役割がある人
+ * （seePeople と同じ役割。メーカー単位でもよい）には「各計画の振り返りで「当たり具合を計算」を動かすと」、ほかの人には「当たり具合が計算されると」。
+ * acts: 操作（既定は当たり具合を計算だけ）
+ */
+var RUN_DONE = { 'EVAL.REPORT': '当たり具合が計算され', 'EVAL.INSIGHTS': '外れの原因が整理され' };
+function runWhen(acts){
+  acts = acts || ['EVAL.REPORT'];
+  return seePeople() ? '各計画の振り返りで' + acts.map(function(a){ return '「' + actShort(a) + '」'; }).join('と') + 'を動かすと'
+    : acts.map(function(a){ return RUN_DONE[a]; }).join('、') + 'ると';
+}
 
 // ---- 見直し案の言葉（振り返りと学びで同じ言い方にする） ----
 var QR_SOURCES = { factor_product: '製品の入力', factor_client: 'メーカー全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'AI の見立て' };
@@ -999,8 +1011,16 @@ function qrValue(target, x){
   if (/^reliability:/.test(t)) return n.toFixed(2) + ' 倍';
   return String(Math.round(n * 1000) / 1000);
 }
-/** AI の効きの割合（範囲は 0〜1% ほど。整数の % では 0.08% も 0% になるので、0 でなければ 2 けた: 0.08%・0.2%・1%。0 は 0%） */
-function aiPct(n){ n = Number(n) * 100; return n === 0 ? '0%' : String(Number(n.toPrecision(2))) + '%'; }
+/**
+ * AI の効きの割合（範囲は 0〜1% ほど。整数の % では 0.08% も 0% になるので、0 でなければ 2 けた: 0.08%・0.2%・1%。0 は 0%）。
+ * 空・数でない・マイナスは -。0.001% より小さい値は「0.001% 未満」（1e-7% のような書き方にしない）
+ */
+function aiPct(n){
+  if (n === null || n === undefined || String(n).trim() === '') return '-';
+  n = Number(n) * 100;
+  if (!isFinite(n) || n < 0) return '-';
+  return n === 0 ? '0%' : n < 0.001 ? '0.001% 未満' : String(Number(n.toPrecision(2))) + '%';
+}
 /** 見直し案の理由（「的中率=40% / n=10」のような書き方を、ふつうの言葉に）。target が信頼度で、人ごとの当たりを見せない人には出さない */
 function qrWhy(s, target, hideKey){ if (hideKey && /^reliability:/.test(String(target || ''))) return ''; return plainMsg(String(s == null ? '' : s).replace(/的中率\s*=\s*([\d.]+%)\s*\/\s*n\s*=\s*(\d+)/g, '当たった割合 $1（$2 件）')); }
 /** 確度（高・中・低、または 0〜1） */
@@ -1539,7 +1559,7 @@ function homeKpis(h, plans){
     + (isNum(t.ratio) ? '\n予算の ' + (t.ratio * 100).toFixed(1) + '%（着地と予算の両方がある ' + t.ratioPlans + ' メーカーで比べています' + (isNum(bothB) ? '。その予算の合計 ' + yenU(bothB) : '') + '）' : '');
   var actTip = '暫定実績の合計: ' + yenU(t.actualYtd) + '\n締まった月（月末から 5 日たってから取り込んだ月）の実績を足しています' + (months ? '（最大 ' + months + ' か月）' : '');
   var mapeTip = '締まった月の、予測の中心と実績の差の割合（向きは問わない）の平均です。メーカーごとの平均を、さらにメーカーで平均しています'
-    + (m.n ? '（' + m.n + ' メーカー）' : '\nまだ実績と比べたメーカーがありません。各計画の振り返りで「当たり具合を計算」を動かすと出ます');
+    + (m.n ? '（' + m.n + ' メーカー）' : '\nまだ実績と比べたメーカーがありません。' + runWhen() + '出ます');
   return '<div class="kpis hm-kpis">'
     + homeKpi('年間予算', yenShort(t.budget), '円', budgetTip, true, isNum(t.budget) ? (t.budgetPlans < all ? t.budgetPlans + ' / ' + all + ' メーカー' : all + ' メーカー') : '')
     + homeKpi('着地の推定', yenShort(t.landing), '円', landTip, false, isNum(t.landing) ? [(t.landingPlans < all ? t.landingPlans + ' / ' + all + ' メーカー' : all + ' メーカー'),
@@ -1563,6 +1583,7 @@ function homeSkyCard(plans){
 // ---- 学びの進み（精度の天気・承認待ちの見直し案。apiAiLearning は学びの画面と同じ読み込み S.lr.ai。失敗はこのカードだけ） ----
 /** 「荒れている」とみなす学びの気になる点: 補正が上限・下限に張りついた（外れが補正で追いつかない）・見通しの幅に収まる割合が 80% より低い（幅の外の外れが多い） */
 var HOME_ROUGH = { factor_clamp: '補正が上限か下限に張りついたメーカー', coverage_low: '見通しの幅の外れが多いメーカー' };
+var HOME_ROUGH_SHORT = { factor_clamp: '補正が限度', coverage_low: '幅が狭すぎる' };   // 学びの気になる点の札（LR_HEALTH）と同じ名前
 function homeToLearn(){ S.lr.tab = 'ai'; go('learning'); }   // 先にタブを決める（人の学びを読まない）
 function homeLearnCard(h, plans){
   var head = '<div class="card-head"><h2>学びの進み' + tip('予測の当たり方（精度の天気）と、承認を待っている AI の見直し案です。見直し案は、承認して反映するまで予測に効きません') + '</h2></div>';
@@ -1578,9 +1599,11 @@ function homeLearnCard(h, plans){
     rough[z.planId] = 1; (roughN[z.key] = roughN[z.key] || {})[z.planId] = 1;
   });
   var nRough = Object.keys(rough).length, key = accWeather(m.v, nRough > 0);
-  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? (nRough ? '' : '\n各計画の振り返りで「当たり具合を計算」を動かすと出ます') : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
+  // まだ比べた月が無いときは、荒れていても（補正が限度に張りついただけでも）出し方を言う（動かせない人には「計算されると出ます」）
+  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? '\n' + (nRough ? 'まだ実績と比べたメーカーがありません。' : '') + runWhen() + '出ます' : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
     + (nRough ? '\n荒れている印: ' + Object.keys(roughN).map(function(k){ return HOME_ROUGH[k] + ' ' + Object.keys(roughN[k]).length; }).join('・') : '') + '\n精度の推移は、学びの「AI の学び」で見られます';
-  var sub = nRough ? '荒れています（' + nRough + ' メーカー）' : m.v === null ? '比べる実績はまだです' : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
+  // 荒れの印が 1 種類だけなら、その印の名前で言う（補正が限度に張りついただけで「荒れています」とまとめない）
+  var kinds = Object.keys(roughN), sub = nRough ? (kinds.length === 1 ? HOME_ROUGH_SHORT[kinds[0]] : '荒れています') + '（' + nRough + ' メーカー）' : m.v === null ? '比べる実績はまだです' : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
   var pend = d.pending || [], nProp = pend.reduce(function(a, p){ return a + (p.proposals || []).length; }, 0);
   var pTip = 'AI が作った見直し案のうち、承認を待っているものです。承認者が承認して反映するまで、予測には効きません' + (pend.length ? '\n' + pend.length + ' メーカーの分' : '');
   return '<div class="card">' + head + '<div class="hm-lr">'
@@ -2096,6 +2119,11 @@ function fcCalText(f, done){
   var p = Math.abs((f - 1) * 100).toFixed(1) + '% ';
   return done ? '最新の予測は ' + p + (f < 1 ? '下げて' : '上げて') + '計算しました' : 'これまでの外れ方から ' + p + (f < 1 ? '下げています' : '上げています');
 }
+/** 出している予測の補正（ap）と今の補正（f）が違うときの一文: 最新の予測は 3.0% 下げています（次の予測から補正なし） */
+function fcCalShown(ap, f){
+  var none = function(x){ return !isFinite(Number(x)) || Math.abs(Number(x) - 1) < 0.0005; };
+  return '最新の予測は' + (none(ap) ? '、補正なしです' : ' ' + qrValue('bias_correction_factor', ap) + 'ています') + '（次の予測から' + (none(f) ? '補正なし' : ' ' + qrValue('bias_correction_factor', f)) + '）';
+}
 function fcBasisTab(d, v){
   var r = S.fc.basis;
   if (!r || r.planId !== S.fc.planId) return slot('fcBasis', '根拠を読み込んでいます', 'fcLoadBasis()') || loading('根拠を読み込んでいます');
@@ -2147,15 +2175,18 @@ function fcBasisTab(d, v){
     if (mk.length) lines.push('月ごとにも直しています: ' + mk.map(function(k){ var b = Number(mb[k]); return Number(k) + ' 月 ' + Math.abs(b * 100).toFixed(1) + '% ' + (b < 0 ? '下げ' : '上げ'); }).join('・'));
     lines.push('補正は、実績がまだの月だけに効きます');
     var ap = r.applied && r.applied.bias_correction_factor !== undefined && r.applied.bias_correction_factor !== null ? Number(r.applied.bias_correction_factor) : null;
-    if (ap !== null && isFinite(ap) && isNum(c.factor) && Math.abs(ap - c.factor) >= 0.0005) lines.push(fcCalText(ap, true) + '（今の補正は、次の予測から効きます）');
+    // 出している予測（数字・グラフ）を計算した補正と今の補正が違う（所有者が戻した直後など）ときは、見える一文は出している予測のことを言い、今の補正は（ ）とカーソルで
+    var shownDiff = ap !== null && isFinite(ap) && isNum(c.factor) && Math.abs(ap - c.factor) >= 0.0005;
+    if (shownDiff) lines.push(fcCalText(ap, true) + '\n今の補正: ' + qrValue('bias_correction_factor', c.factor) + '（次の予測から効きます）');
     if (isNum(c.aiWeight) || isNum(c.aiMax)) lines.push('AI の効き ' + (isNum(c.aiWeight) ? aiPct(c.aiWeight) : '既定') + (isNum(c.aiMax) ? '・上限 ±' + Math.round(c.aiMax * 100) + '%' : ''));
     if (c.quarter) lines.push('最後に反映した見直し: ' + qrQuarter(c.quarter));
     if (c.updatedAt) lines.push('更新 ' + fcDate(c.updatedAt));
-    // 所有者が承認した値で書いたとき・自動の学びを止めているときは、そのことを言う（「補正を学び直す」で決まるとは言わない。2026-10-07 所有者の決定）
-    var L = fcLearnInfo(v), own = fcOwnerSet(L);
-    var cTip = own ? '所有者が承認した値（' + own + '）で決めた、予測の直し方です' : '「補正を学び直す」と「見直しを反映」で決まる、予測の直し方です';
-    if (L.autoUpdate === false) cTip += '\n自動の学び（補正を学び直す）は、今は止めています';
-    html += '<div class="card"><div class="card-head"><h2>補正' + tip(cTip) + '</h2></div><p class="fc-say" data-tip="' + esc(lines.join('\n')) + '">' + esc(fcCalText(c.factor)) + '</p></div>';
+    // 所有者が承認した値で書いたとき・自動の学びを止めているときは、そのことを言う（「補正を学び直す」で決まるとは言わない。2026-10-07 所有者の決定）。
+    // 旗が 0 の間は、補正を学び直す・見直しを反映のどちらでも値は変わらない（所有者の書いた跡が無くても、そう言う）
+    var L = fcLearnInfo(v), own = fcOwnerSet(L), off = L.autoUpdate === false;
+    var cTip = own ? '所有者が承認した値（' + own + '）で決めた、予測の直し方です' : off ? '今の値のまま使う、予測の直し方です' : '「補正を学び直す」と「見直しを反映」で決まる、予測の直し方です';
+    if (off) cTip += '\n自動の学びを止めているので、「補正を学び直す」と「見直しを反映」では変わりません';
+    html += '<div class="card"><div class="card-head"><h2>補正' + tip(cTip) + '</h2></div><p class="fc-say" data-tip="' + esc(lines.join('\n')) + '">' + esc(shownDiff ? fcCalShown(ap, c.factor) : fcCalText(c.factor)) + '</p></div>';
   }
   // 市場の調査（AI が調べた話題・向き・根拠）と AI の見立て
   var vx = r.vertex && r.vertex.rationale ? r.vertex : null;
@@ -2231,9 +2262,13 @@ function fcReviewTab(d, v){
   if (!acc) html += slot('fcLearn', '当たり具合を読み込んでいます', 'fcLoadLearning()') || loading('当たり具合を読み込んでいます');
   // 何も無いときは、「まだありません」を重ねず、よみの案内 1 枚と更新の操作だけ（2026-10-06 村井さん）。見直し案を作る操作を止めている間は、見直し案が出るとは言わない
   var genPaused = fcPaused('REVIEW.GENERATE');
+  // 締め済みの年度は、当たり具合を計算し直さない（ずっと出ない）。動かせない人には「計算されると出ます」
+  var frozen = !!(v.plan && v.plan.frozen), accHow = frozen ? '締め済みの年度は、当たり具合を計算し直しません。' : canPlan ? '「当たり具合を計算」で出ます。' : '当たり具合が計算されると出ます。';
   if (acc && !hasAcc && !ins.length && !props.length) html += guide('explain', canPlan
     ? 'まだ振り返りの記録がありません。月の実績が締まったら、下の「振り返りの更新」を左から順に実行してください。当たり具合・外れの原因' + (genPaused ? '' : '・AI の見直し案') + 'がここに出ます。'
-    : 'まだ振り返りの記録がありません。月の実績が締まって当たり具合が計算されると、ここに出ます。');
+    : frozen ? 'まだ振り返りの記録がありません。' + accHow : 'まだ振り返りの記録がありません。月の実績が締まって当たり具合が計算されると、ここに出ます。');
+  // 人の記入・見直し案はあるのに、比べた月がまだ無い: 精度の天気の場所に 1 行だけ（案内 1 枚とは重ねない）
+  else if (acc && !hasAcc) html += '<div class="card"><div class="card-head"><h2>精度の天気</h2></div><p class="note">まだ実績と比べた月がありません。' + accHow + '</p></div>';
   if (hasAcc) html += fcRvWeather(acc) + fcRvTrend(acc);
   if (ins.length) html += fcRvNotes(ins, canPlan);
   if (props.length) html += fcRvProposals(q);
@@ -2348,15 +2383,17 @@ function fcRvProposals(q){
   // 反映済みの札: 見直し案を作る操作を止めている間（2026-10-07 所有者の決定）は、そのボタンを案内せず、止めている理由を出す
   var genPaused = fcPaused('REVIEW.GENERATE');
   var appliedTip = 'この見直し案は反映済みです。' + (genPaused ? genPaused : '新しい案は「見直し案を作る」で作ります');
+  // 自動の学びの旗が 0 の間は、承認して反映しても判断を記録するだけで、補正の値は変わらない（旧来の C-3。ボタンは押せるまま、そう言う）
+  var offNote = fcLearnInfo(S.fc.view).autoUpdate === false ? '自動の学びを止めている間は、判断を記録するだけで、補正の値は変わりません' : '';
   return '<div class="card"><div class="card-head"><h2>AI の見直し案' + tip('AI が前の四半期の結果から作った、設定の見直し案です。承認して反映した案だけが、次の予測から効きます' + (hist ? '\nこれまでの見直し:\n' + hist : '')) + '</h2>'
     + (quarter ? '<span class="meta"' + (q.period ? ' data-tip="' + esc(q.period) + '"' : '') + '>' + esc(quarter) + '</span>' : '')
     + (applied ? '<span class="chip ok" data-tip="' + esc(appliedTip) + '">反映済み</span>'
       : withdrawn ? '<span class="chip off" data-tip="締まっていない月から作られた案なので、所有者が取り下げました（2026-10-07 の決定）。反映しません">取り下げ</span>'
-      : '<span class="chip warn" data-tip="承認者が判断して反映すると、次の予測から効きます">未反映</span>') + '</div>'
+      : '<span class="chip warn" data-tip="' + esc(offNote || '承認者が判断して反映すると、次の予測から効きます') + '">未反映</span>') + '</div>'
     + '<div class="tblwrap"><table class="tbl scroll fc-props' + (edit ? ' edit' : '') + '"><colgroup><col style="width:176px"><col style="width:96px"><col style="width:96px"><col style="width:72px"><col><col style="width:184px"><col style="width:152px"></colgroup>'
     + '<thead><tr><th>対象</th><th class="num" data-tip="今の設定">今</th><th class="num" data-tip="AI の案">案</th><th class="num" data-tip="AI がこの案をどれだけ確かだと見ているか">確度</th><th>理由</th><th data-tip="この案を効かせたときの、予測への影響の見込み">効かせたら</th>'
     + '<th data-tip="' + (edit ? '承認・却下・保留を選びます。選ばなかった案は承認として扱います' : withdrawn ? '取り下げた案です。反映しません' : canApprove ? 'この見直し案は反映済みです' : '承認は承認者ができます') + '">判断</th></tr></thead><tbody>' + body + '</tbody></table></div>'
-    + (edit ? '<div class="card-foot">' + actBtn('<button class="btn" ' + (busyNow ? 'disabled ' : '') + 'onclick="fcRvGo()">承認して反映</button>', '判断を保存してから、承認した案を設定に反映します（3〜6 分ほど）。判断を選んでいない案は承認になります') + '</div>' : '') + '</div>';
+    + (edit ? '<div class="card-foot">' + actBtn('<button class="btn" ' + (busyNow ? 'disabled ' : '') + 'onclick="fcRvGo()">承認して反映</button>', '判断を保存してから、承認した案を設定に反映します（3〜6 分ほど）。判断を選んでいない案は承認になります' + (offNote ? '\n' + offNote : '')) + '</div>' : '') + '</div>';
 }
 function fcDec(row, val){ S.fc.dec[row] = val; }
 /** 承認して反映: 判断の無い案は承認にし、確かめてから判断を保存（PLAN.EDIT）。保存が終わったら続けて反映（PLAN.RUN）を始める */
@@ -2365,9 +2402,12 @@ function fcRvGo(){
   if (!props.length || fcBusy()) return;
   var rows = props.map(function(p){ var x = S.fc.dec[p.row] !== undefined ? S.fc.dec[p.row] : p.decision; return { row: p.row, decision: String(x || '承認') }; });
   var n = function(x){ return rows.filter(function(r){ return r.decision === x; }).length; }, ok = n('承認'), ng = n('却下'), hold = n('保留');
-  var msg = (ok ? ok + ' 件を承認して反映します。' : '承認する案はありません。判断だけを記録します。')
+  // 自動の学びの旗が 0 の間は、判断を記録するだけで補正の値は変わらない（旧来の C-3 が値を書かない）ので、そう言う
+  var off = fcLearnInfo(v).autoUpdate === false;
+  var msg = (ok ? ok + ' 件を承認' + (off ? 'します。' : 'して反映します。') : '承認する案はありません。判断だけを記録します。')
     + (ng || hold ? (ng ? '却下 ' + ng + ' 件' : '') + (ng && hold ? '・' : '') + (hold ? '保留 ' + hold + ' 件' : '') + 'は反映しません。' : '')
-    + '\n判断を保存してから反映します（3〜6 分ほど）。反映した補正は、次の予測から効きます。';
+    + (off ? '\n自動の学びを止めている間は、判断を記録するだけで、補正の値は変わりません（3〜6 分ほど）。'
+      : '\n判断を保存してから反映します（3〜6 分ほど）。反映した補正は、次の予測から効きます。');
   var planId = S.fc.planId;
   ask(msg, '承認して反映', function(){ rvChainSet({ planId: planId, at: Date.now() }); fcEdit('REVIEW.DECIDE', { rows: rows }); });
 }
@@ -2521,7 +2561,20 @@ var AN_TABS = [['overview', '俯瞰'], ['market', '市場']];
 function anEnter(){ if (!S.an.data || !ldFresh('an', 600000)) anLoad(); }
 function anLoad(){
   var fy = S.an.fy;
-  load('an', function(ok, fail){ call('apiCrossMaker', [{ fy: fy }], ok, fail); }, null, function(r){ if (String(S.an.fy || '') === String(fy || '')) { S.an.data = r; S.an.fy = String(r.fy); } });
+  load('an', function(ok, fail){ call('apiCrossMaker', [{ fy: fy }], ok, fail); }, null, function(r){ if (String(S.an.fy || '') === String(fy || '')) { S.an.data = r; S.an.fy = String(r.fy); anLoadPlans(r); } });
+}
+/** 今の年度（ホームと同じ: サーバーが決めた B.home.fy。無ければ今日の日付から。4 月始まり） */
+function anThisFy(){ if (B.home && B.home.fy) return Number(B.home.fy); var d = new Date(); return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; }
+/** 前の年度を開いたときだけ、締め済みかを知るために計画の一覧を 1 回読む（年度を締めるのは終わった年度だけ。読めなくても分析はそのまま出す） */
+function anLoadPlans(r){
+  if (S.an.plans || ldBusy('anPlans') || !(Number(r.fy) < anThisFy()) || (r.plans || []).some(function(p){ return typeof p.frozen === 'boolean'; })) return;
+  load('anPlans', function(ok, fail){ call('apiListPlans', [], ok, fail); }, null, function(x){ S.an.plans = x.plans || []; });
+}
+/** 締め済みの年度か（計画の frozen。分析の中身に無ければ、anLoadPlans で読んだ一覧から。分からなければ締めていないとみなす） */
+function anClosed(d){
+  var ps = (d.plans || []).filter(function(p){ return typeof p.frozen === 'boolean'; });
+  if (!ps.length) ps = (S.an.plans || []).filter(function(p){ return String(p.fy) === String(d.fy); });
+  return ps.length > 0 && ps.every(function(p){ return p.frozen; });
 }
 function anTab(t){ S.an.tab = t === 'market' ? 'market' : 'overview'; render(); }
 /** 年度を変える（その年度を読み直す） */
@@ -2602,11 +2655,14 @@ function anOverview(d){
     [anScatterCard(plans), '着地 ÷ 予算と不確かさ'], [anBulletCard(plans), '着地の推定と予算'], [anProbCard(plans), '予算を超える確率'],
     [anMapeCard(plans), '外れ幅'], [anBiasCard(plans), '読みのクセ'], [anRevCard(plans), '予測の見直しの流れ']];
   var body = parts.map(function(x){ if (!x[0]) miss.push(x[1]); return x[0]; }).join('');
-  // 描けないグラフは、カードを並べずに、よみの案内 1 枚にまとめる。外れ幅・読みのクセは、各計画の「当たり具合を計算」で出る（実績の取り込みだけでは出ない）
-  var accMiss = miss.filter(function(x){ return x === '外れ幅' || x === '読みのクセ'; }), onlyAcc = accMiss.length === miss.length;
-  var accHow = accMiss.length ? (onlyAcc ? '' : accMiss.join('・') + 'は、') + '各計画の振り返りで「当たり具合を計算」を動かすと' + (onlyAcc ? '、ここに出てきます。' : '出ます。') : '';
-  var g = miss.length === parts.length ? guide('explain', 'まだ着地の推定や、予測と実績の比べがないため、グラフは出していません。予測を動かし、実績を取り込むと、ここに出てきます。' + esc(accHow))
-    : miss.length ? guide('explain', 'まだ数字がそろっていないため、' + esc(miss.join('・')) + ' は出していません。' + (onlyAcc ? '' : '予測を動かし、実績を取り込むと、ここに出てきます。') + esc(accHow)) : '';
+  // 描けないグラフは、カードを並べずに、よみの案内 1 枚にまとめる。外れ幅・読みのクセは、各計画の「当たり具合を計算」で出る（実績の取り込みだけでは出ない。
+  // 動かせない人には「計算されると出ます」）。締め済みの年度は、予測も当たり具合も計算し直さないので、動かし方は言わない
+  var accMiss = miss.filter(function(x){ return x === '外れ幅' || x === '読みのクセ'; }), onlyAcc = accMiss.length === miss.length, closed = anClosed(d);
+  var accHow = closed ? 'FY' + d.fy + ' は締め済みのため、' + (onlyAcc ? '' : '予測や') + '当たり具合は計算し直しません。'
+    : accMiss.length ? (onlyAcc ? '' : accMiss.join('・') + 'は、') + runWhen() + (onlyAcc ? '、ここに出てきます。' : '出ます。') : '';
+  var more = closed ? '' : '予測を動かし、実績を取り込むと、ここに出てきます。';
+  var g = miss.length === parts.length ? guide('explain', 'まだ着地の推定や、予測と実績の比べがないため、グラフは出していません。' + more + esc(accHow))
+    : miss.length ? guide('explain', 'まだ数字がそろっていないため、' + esc(miss.join('・')) + 'は出していません。' + (onlyAcc ? '' : more) + esc(accHow)) : '';
   return anTotals(d, plans) + anSkyBoard(plans) + g + body;   // 出していないグラフの案内は、グラフより先に
 }
 /** 合計の 4 つ（年間予算・着地の推定・予算を超える見込みのメーカー・霧）。大きな金額は短い形で、正確な金額はカーソルで */
@@ -2922,24 +2978,28 @@ function lrPeopleView(d){
   var full = d.detail === 'full';
   // 何も無いときは、よみの案内 1 つだけ（空の注記を並べない）。中身の無いカードは出さない
   if (!((d.lessons || []).length || (d.openActions || []).length || (d.causes || []).length || (d.scoreboard || []).length || (d.decisions || []).length || (d.uplift || []).length))
-    return guide('guide', '実績が締まって、各計画の振り返りで「当たり具合を計算」を動かすと、大きく外れた月の振り返りと、読みの当たりがここに並びます。');
+    return guide('guide', '実績が締まって、' + runWhen(['EVAL.REPORT', 'EVAL.INSIGHTS']) + '、大きく外れた月の振り返りと、読みの当たりがここに並びます。');
   return lrPeopleHero(d) + lrLessonCard(d, full) + lrCauseCard(d) + lrScoreCard(d, full) + lrDecisionCard(d, full) + lrUpliftCard(d);
 }
 /**
- * よみのまとめ（数だけ。メーカーの名前は出さない）。今の決まりで実績と比べた月がまだ無い（出した直後。各計画の当たり具合を計算し直すまで）ときは、
- * 「外れた月はありません」とは言わず、まだ比べていないことと動かし方を言う
+ * よみのまとめ（数だけ。メーカーの名前は出さない）。外れた月の振り返りが無いときは「外れた月はありません」とは言わず、何がまだかと動かし方を言う:
+ *   実績と比べた月（summary.scoredMonths。今の検証の版で当たり具合を計算した 計画 × 月）が無い → 当たり具合を計算（出した直後。各計画で計算し直すまで）
+ *   比べた月はあるが、振り返りの記録（summary.months）が無い → 外れの原因を整理
+ * scoredMonths を返さないサーバーでは、振り返りの記録が無ければ前者とみなす（今までどおり）。動かせない人には「計算されると」の言い方（runWhen）
  */
 function lrPeopleHero(d){
-  var s = d.summary || {}, none = !(s.months > 0), misses = s.misses || 0, open = (d.openActions || []).length, rep = (d.repeats || []).length;
-  var t = none ? 'まだ今の決まりで実績と比べた月がありません。各計画の振り返りで「当たり具合を計算」を動かすと、大きく外れた月がここに出ます。'
+  var s = d.summary || {}, months = s.months > 0 ? s.months : 0, scored = isNum(s.scoredMonths) ? s.scoredMonths : months;
+  var none = !months && !(scored > 0), notYet = !months && scored > 0, misses = s.misses || 0, open = (d.openActions || []).length, rep = (d.repeats || []).length;
+  var t = none ? 'まだ実績と比べた月がありません。' + runWhen(['EVAL.REPORT', 'EVAL.INSIGHTS']) + '、大きく外れた月がここに出ます。'
+    : notYet ? '実績と比べた月が のべ ' + scored + ' か月あります。' + runWhen(['EVAL.INSIGHTS']) + '、大きく外れた月がここに出ます。'
     : misses ? '大きく外れた月を ' + misses + ' 件観測しました。人の振り返りは ' + (s.withNotes || 0) + ' 件、残っている対応は ' + open + ' 件です。'
     : '大きく外れた月はありません。予報どおりの空模様が続いています。';
   if (rep) t += '同じメーカーの同じ月に、年度をまたいでまた外れたのが ' + rep + ' 件あります。';
-  var pose = none ? 'explain' : !misses ? 'done' : open || rep ? 'discover' : 'explain';
+  var pose = none || notYet ? 'explain' : !misses ? 'done' : open || rep ? 'discover' : 'explain';
   var tipText = '大きく外れた月: 締まった月で、予測が実績から 10% 以上外れたか、見通しの幅（下振れ〜上振れ）の外に出た月です。メーカーごとの月で数えます'
     + (s.months ? '（振り返りの記録がある月は ' + s.months + ' 件）' : '')
-    + (none ? '\n締まった月（月末から 5 日たってから実績を取り込んだ月）を、その月が始まる前の最後の予測と比べます' : '')
-    + (d.noPreMonth > 0 ? '\n締まった月のうち ' + d.noPreMonth + ' か月は、その月が始まる前の予測が無いので比べていません' : '');
+    + (none || notYet ? '\n締まった月（月末から 5 日たってから実績を取り込んだ月）を、その月が始まる前の最後の予測と比べます' : '')
+    + (d.noPreMonth > 0 ? '\n締まった月のうち のべ ' + d.noPreMonth + ' か月は、その月が始まる前の予測が無いので比べていません' : '');
   return '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble"><span data-tip="' + esc(tipText) + '">' + esc(t) + '</span></div></div></div>';
 }
 /** 大きく外れた月（外れの大きい順 / 残っている対応）。開くと、その計画の振り返り */
@@ -3094,7 +3154,7 @@ function lrAiView(d){
   var curves = (d.curves || []).filter(function(c){ return c && c.prior && (c.quarters || []).length; });
   var sh = d.shrinkage || {}, tl = d.timeline || [], cal = d.calibration || [], pend = d.pending || [];
   if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length)
-    return guide('guide', '実績が締まって、各計画の振り返りで「当たり具合を計算」を動かすと、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');
+    return guide('guide', '実績が締まって、' + runWhen() + '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');   // AI の学びは当たり具合の計算から（外れの原因の整理は使わない）
   return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []);
 }
 /** 今の年度（ホームと同じ: サーバーが決めた B.home.fy。無ければ今日の日付から。4 月始まり） */
@@ -3110,6 +3170,14 @@ function lrRough(health){
   (health || []).forEach(function(h){ if (LR_ROUGH[h.key] && String(h.fy) === fy) out[h.planId] = 1; });
   return out;
 }
+/** 荒れの文（今の年度に出ている荒れの印から。両方なら両方を言う） */
+function lrRoughSay(health){
+  var fy = lrFy(), k = {};
+  (health || []).forEach(function(h){ if (LR_ROUGH[h.key] && String(h.fy) === fy) k[h.key] = 1; });
+  return k.factor_clamp && k.coverage_low ? '補正が限度に張りついたり、実績が見通しの幅から外れたりしていて、予測がぶれやすい状態です。'
+    : k.factor_clamp ? '補正が限度に張りついていて、外れを補正で追いきれていない状態です。'
+    : '実績が見通しの幅から外れることが多く、幅が狭すぎる状態です。';
+}
 /** 精度の天気に使う外れ幅（ホームと同じ: 今の年度のメーカーごとの外れ幅の平均。ホームの中身が無ければ、全計画の直近 3 か月の平均） */
 function lrMape(tl){
   var fy = lrFy(), xs = B.home && B.home.plans ? B.home.plans.filter(function(p){ return String(p.fy) === fy && isNum(p.mape); }).map(function(p){ return p.mape; }) : [];
@@ -3121,8 +3189,10 @@ function lrMape(tl){
 function lrAiHero(d){
   var health = d.health || [], fy = lrFy(), rough = Object.keys(lrRough(health)).length, m = lrMape(d.timeline || []), wk = accWeather(m.v, rough > 0);
   var nProp = (d.pending || []).reduce(function(a, p){ return a + (p.proposals || []).length; }, 0);
-  var t = rough ? '予測の当たり方が荒れています（' + rough + ' メーカー）。補正が限度に張りついたり、実績が見通しの幅から外れたりしていて、予測がぶれやすい状態です。'
-    : isNum(m.v) ? '外れ幅は平均 ' + pct0(m.v) + '、精度の天気は「' + skyName(wk) + '」です。' : 'まだ実績と比べた月がありません。各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。';
+  var notYet = 'まだ実績と比べた月がありません。' + runWhen() + '、外れ幅がここに出ます。';
+  // 荒れの文は、出ている印だけで作る（補正が限度に張りついただけなら、幅の外れは言わない）。比べた月がまだ無ければ、出し方も言う
+  var t = rough ? '予測の当たり方が荒れています（' + rough + ' メーカー）。' + lrRoughSay(health) + (isNum(m.v) ? '' : notYet)
+    : isNum(m.v) ? '外れ幅は平均 ' + pct0(m.v) + '、精度の天気は「' + skyName(wk) + '」です。' : notYet;
   if (nProp) t += '承認を待っている見直し案が ' + nProp + ' 件あります。';
   // 今の年度の気になる点を、種類ごとに数える（荒れの印を先に）
   var kinds = [];
