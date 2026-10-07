@@ -16,6 +16,8 @@ const reset = () => { for (const k of Object.keys(STATS)) STATS[k] = k === 'bySh
 const reads = (name) => (STATS.bySheet[name] || { reads: 0 }).reads;
 const env = setUpEnv();
 const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
+/** 今の検証の版（B-2 が EVAL_LOG に書く。精度は今の版の行だけで測る。2026-10-07 D4〜D6） */
+const POLICY = env.run('APP_EVAL_POLICY_VERSION');
 
 /** 計画のブック: OUTPUT（年度合計・月ごと・採用予測と上乗せ・目標）と、検証の記録（予測は実績の over 倍） */
 function book(client, base, over) {
@@ -32,7 +34,7 @@ function book(client, base, over) {
     const act = 1000 + i * 15;
     const p50 = act * over;
     for (const [sc, p] of [['nega', p50 * 0.9], ['neutral', p50], ['posi', p50 * 1.1]]) {
-      ev.push(['E' + i + sc, D(2026, 1, 5), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', '', 1]);
+      ev.push(['E' + i + sc, D(2026, 1, 5), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', POLICY, 1]);
     }
   }
   return env.makeBook(client, {

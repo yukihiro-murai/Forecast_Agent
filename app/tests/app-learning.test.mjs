@@ -2,11 +2,18 @@
  * app-learning.test.mjs — 精度の推移・全計画で縮めた偏りの補正（影）・幅の較正・情報源の信頼度の事前分布（ベータ二項）。
  */
 import assert from 'node:assert/strict';
-import { setUpEnv, STATS, J } from './gas-mock.mjs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { setUpEnv, STATS, J, repoRoot } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const env = setUpEnv();
 const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
+/**
+ * 今の検証の版。B-2 は EVAL_LOG の evaluation_policy_version（21 列目）に書き、精度は今の版の行だけで測る（2026-10-07 D4〜D6。
+ * 前の版の行は月が始まった後の予測で測っている）。下の記録は今の B-2 が書いた形にする
+ */
+const POLICY = env.run('APP_EVAL_POLICY_VERSION');
 /**
  * 実績の取り込み（B-1）と検証（B-2）の記録。締まった月は、B-1 の日に月末から 5 日たった月だけ（2026-10-07 D5）なので、
  * 精度を測るには B-1 → B-2 の記録が要る（無ければ締まった月は無い）。2026-01-05 の取り込みなら 2025/12 まで締まっている
@@ -21,7 +28,7 @@ function book(client, over, width, hit) {
     const act = 1000 + i * 10 * (i % 3 === 0 ? -1 : 1);
     const p50 = i === 11 ? act : act * over;
     for (const [sc, p] of [['nega', p50 * (1 - width)], ['neutral', p50], ['posi', p50 * (1 + width)]]) {
-      ev.push(['E' + i + sc, D(2026, 1, 5), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', '', 1]);
+      ev.push(['E' + i + sc, D(2026, 1, 5), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', POLICY, 1]);
     }
   }
   const evid = [H.RELIABILITY_EVIDENCE];
@@ -108,7 +115,7 @@ env.run('appPlanReadMinRows_ = () => 3000');
   /** 甲製薬と同じ 12 か月（2025/01〜12。最後の月は予測 = 実績）に、extra の月（途中の実績 10 に予測 1000。誤差がとても大きい）を足した記録 */
   const evalRows = (client, extra) => {
     const ev = [H.EVAL_LOG];
-    const add = (i, ym, act, p50) => { for (const [sc, p] of [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]) ev.push(['E' + i + sc, D(2026, 2, 3), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', '', 1]); };
+    const add = (i, ym, act, p50) => { for (const [sc, p] of [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]) ev.push(['E' + i + sc, D(2026, 2, 3), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', POLICY, 1]); };
     for (let i = 0; i < 12; i++) { const act = 1000 + i * 10 * (i % 3 === 0 ? -1 : 1); add(i, '2025/' + String(i + 1).padStart(2, '0'), act, i === 11 ? act : act * 1.1); }
     extra.forEach((ym, j) => add(12 + j, ym, 10, 1000));
     return ev;
@@ -139,5 +146,81 @@ env.run('appPlanReadMinRows_ = () => 3000');
   assert.ok(!v3.accuracy.months.some((m) => m.month >= '2026/01'), '画面に締まっていない月を出さない');
   // 行は消さない
   assert.equal(e2.table('ENG_EVAL_LOG').filter((r) => r.plan_id === day3).length, 14 * 3, '締まっていない月の行も残る');
+}
+// ==== 6. 今の検証の版の行だけで測る（2026-10-07 D4〜D6）。前の版の行は、締まった月の行でも読み飛ばす（消さない） ====
+// B-2 は同じ月の行を上書きし、測らなくなった月（その月が始まる前の予測が無い月）の行は消さないので、前の版で
+// 一番新しい回（月が始まった後の予測）と比べた行が締まった月に残る。旧来の B-3〜C-1 はその行を使わないので、新アプリも使わない
+{
+  const e3 = setUpEnv();
+  /** 検証の記録: [月, 実績, P50, 版]（P10・P90 は P50 の ±5%） */
+  const evalRows = (client, months) => [H.EVAL_LOG].concat(...months.map(([ym, act, p50, ver], i) => [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]
+    .map(([sc, p]) => ['E' + i + sc, D(2026, 10, 3), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', ver, 1])));
+  // B-1 は 10/03（9 月はまだ途中。8 月まで締まった）
+  const plan = (client, months) => e3.seedPlan(e3.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    EVAL_LOG: { values: evalRows(client, months), formats: { D: '@' } },
+    PROCESS_STATUS: status(client, new Date(2026, 9, 3, 10)),
+  }));
+  const acc = (id) => J(e3.run(`appAccuracyOf_('${id}')`));
+  // 4 月は前の版（v2）の行（月が始まった後の予測 1500 で測った）、7 月は今の版の行
+  const probe = plan('版製薬', [['2026/04', 1000, 1500, 'policy-2026H1-v2'], ['2026/07', 1000, 1100, POLICY]]);
+  const ap = acc(probe);
+  assert.deepEqual([ap.cutoffYm, ap.months.map((m) => m.month), ap.n], ['2026/09', ['2026/07'], 1], '締まった 4 月でも、前の版の行は数えない');
+  assert.ok(Math.abs(ap.mape - 0.1) < 1e-12, '7 月の外れ幅だけ: ' + ap.mape);
+  // 同じ今の版の 3 か月に、前の版（v2）・版の無い行（v1 より前）・締まっていない 9 月の今の版の行を足した計画は、足す前の計画と同じ精度・縮めた偏り
+  const cur = [['2026/05', 1000, 1100, POLICY], ['2026/06', 1200, 1260, POLICY], ['2026/07', 900, 990, POLICY]];
+  const clean = plan('今の版製薬', cur);
+  const stale = plan('前の版製薬', [['2026/04', 1000, 1500, 'policy-2026H1-v2']].concat(cur, [['2026/08', 1000, 3000, ''], ['2026/09', 100, 1000, POLICY]]));
+  const strip = (a) => Object.assign({}, a, { months: a.months.map((m) => Object.assign({}, m, { evaluatedAt: undefined })) });
+  assert.deepEqual(strip(acc(stale)), strip(acc(clean)), '前の版・版の無い行・締まっていない月の行があっても、精度は無いときと同じ');
+  assert.deepEqual([acc(stale).n, acc(stale).months.map((m) => m.month)], [3, ['2026/05', '2026/06', '2026/07']]);
+  const vs = e3.call('apiLearningView(__in)', { __in: { planId: stale } }), vc = e3.call('apiLearningView(__in)', { __in: { planId: clean } });
+  assert.deepEqual([vs.accuracy.n, vs.accuracy.months.map((m) => m.month)], [3, ['2026/05', '2026/06', '2026/07']], '検証の画面にも前の版の月を出さない');
+  assert.ok(vs.shadow && vc.shadow, '3 か月あるので縮めた偏りを出す');
+  for (const k of ['bias', 'se', 'shrunk', 'factorShadow', 'mapeNow', 'mapeShadow']) assert.ok(Math.abs(vs.shadow[k] - vc.shadow[k]) < 1e-12, '縮めた偏りの材料も同じ: ' + k);
+  // 行は消さない
+  assert.equal(e3.table('ENG_EVAL_LOG').filter((r) => r.plan_id === stale).length, 6 * 3, '前の版の行も残る');
+  assert.equal(e3.table('ENG_EVAL_LOG').filter((r) => r.plan_id === stale && r.evaluation_policy_version === 'policy-2026H1-v2').length, 3);
+  // 今の検証の版は、旧来の側（Forecast_Agent.js）の EVALUATION_POLICY_VERSION と同じ（1 つの決まりを両方で使う）。
+  // 旧来の側の直し（締まりの日数の定数 …CLOSE…DAYS と一緒に版を上げる）がまだ入っていないときは、知らせて飛ばす
+  const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
+  const legacyVer = (/\bconst EVALUATION_POLICY_VERSION = '([^']+)'/.exec(legacySrc) || [])[1];
+  assert.ok(legacyVer, '旧来の側に EVALUATION_POLICY_VERSION がある');
+  if (/\b[A-Z][A-Z0-9_]*CLOSE[A-Z0-9_]*DAYS?\b\s*[:=]\s*\d+/.test(legacySrc)) assert.equal(legacyVer, POLICY, '旧来の EVALUATION_POLICY_VERSION と同じ版');
+  else if (legacyVer !== POLICY) console.log(`app-learning: 旧来の側（Forecast_Agent.js）は検証の決まりの直しの前（${legacyVer}）なので、版の照合を飛ばしました`);
+}
+
+// ==== 7. 全計画の事前分布（LEARN.POOL）は、締まった月で数えた当たりだけから作る（D4）。数えた日に四半期の最後の月が締まっていない行は読み飛ばす（消さない） ====
+{
+  const e4 = setUpEnv();
+  const ev = (client, key, qEnd, at, n, hit) => [client, 'opinion', key, 'FY2026-Q', qEnd, n, hit, hit / n, at, 'R', ''];
+  const plan = (client, rows) => e4.seedPlan(e4.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    RELIABILITY_EVIDENCE: { values: [H.RELIABILITY_EVIDENCE].concat(rows.map((r) => ev(client, ...r))) },
+    POOL_PRIOR: { values: [H.POOL_PRIOR] },
+  }));
+  const x = plan('甲製薬', [
+    ['a', '2026/06', new Date('2026-07-10T01:00:00Z'), 10, 6],      // 7/10 に数えた 6 月まで: 締まっていた
+    ['b', '2026/09', new Date('2026-10-03T01:00:00Z'), 10, 0],      // 10/03 に数えた 9 月まで: 9 月は途中（読み飛ばす）
+  ]);
+  const y = plan('乙製薬', [
+    ['a', D(2026, 6), '2026-07-10T09:00:00+09:00', 10, 8],         // 月が日付・数えた日時が文字でも読む
+    ['b', '2026/09', new Date('2026-10-04T15:00:00Z'), 10, 4],      // 日本の暦で 10/05 0:00: 9 月は締まった
+    ['c', '2026/09', new Date('2026-10-04T14:59:00Z'), 10, 0],      // 日本の暦で 10/04 23:59: 9 月は途中（読み飛ばす）
+    ['d', '2026/06', '', 5, 0],                                    // 数えた日時が読めない（読み飛ばす）
+  ]);
+  const pv = e4.call('apiPoolPreview()');
+  const op = pv.types.find((t) => t.type === 'opinion');
+  assert.deepEqual([op.ok, op.plans, op.n, op.hit], [true, 2, 30, 18], '締まった月で数えた行だけ（甲 6/10・乙 12/20）');
+  assert.ok(Math.abs(op.pooledR - 1.2) < 1e-9, '2 × 18 / 30: ' + op.pooledR);
+  assert.equal(pv.skippedEvidence, 3, '読み飛ばした行の数');
+  const st = e4.runJob('LEARN.POOL', {});
+  assert.equal(st.status, 'DONE', st.error);
+  for (const id of [x, y]) assert.equal(e4.table('ENG_POOL_PRIOR').find((r) => r.plan_id === id && r.pool_scope === 'reliability:opinion').pooled_value, '1.2');
+  assert.deepEqual([x, y].map((id) => e4.table('ENG_RELIABILITY_EVIDENCE').filter((r) => r.plan_id === id).length), [2, 4], '読み飛ばした行も残る');
+  // 決まりの境目（appEvidenceClosed_）: 9 月は 10/05 に数えた行から
+  const closedAt = (qEnd, at) => e4.run(`appEvidenceClosed_({ quarter_end_month: '${qEnd}', computed_at: new Date('${at}') })`);
+  assert.deepEqual([closedAt('2026/09', '2026-10-04T14:59:59Z'), closedAt('2026/09', '2026-10-04T15:00:00Z'), closedAt('', '2026-10-06T00:00:00Z'), closedAt('2026/12', '2027-01-05T00:00:00Z')],
+    [false, true, false, true]);
 }
 console.log('app-learning: all tests passed');

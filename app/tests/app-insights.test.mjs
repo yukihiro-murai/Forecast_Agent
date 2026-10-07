@@ -18,10 +18,13 @@ const close = (a, b, eps = 1e-9, msg = '') => {
 const env = setUpEnv();
 const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
 const row = (sheet, o) => H[sheet].map((h) => (o[h] === undefined ? '' : o[h]));
+/** 今の検証の版（B-2 が EVAL_LOG に書く。精度・当たりの実績・振り返りは今の版で測った月だけ。2026-10-07 D4〜D6） */
+const POLICY = env.run('APP_EVAL_POLICY_VERSION');
 const config = (client, fy) => ({ values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', fy], ['[必須] 担当者（カンマ区切り）', '鷹野']] });
-/** 検証の記録: [月, 実績, P50, 幅]（P10 = P50 × (1 − 幅)・P90 = P50 × (1 + 幅)） */
-const evalLog = (client, months) => [H.EVAL_LOG].concat(...months.map(([ym, act, p50, w], i) => [['nega', p50 * (1 - w)], ['neutral', p50], ['posi', p50 * (1 + w)]]
-  .map(([sc, p]) => row('EVAL_LOG', { eval_id: 'E' + i + sc, evaluated_at: D(2026, 9, 1), client, target_month: ym, scenario: sc, pred: p, actual: act, constraint_relevant_flag: 1 }))));
+/** 検証の記録: [月, 実績, P50, 幅, 版（省くと今の版）]（P10 = P50 × (1 − 幅)・P90 = P50 × (1 + 幅)） */
+const evalLog = (client, months) => [H.EVAL_LOG].concat(...months.map(([ym, act, p50, w, ver = POLICY], i) => [['nega', p50 * (1 - w)], ['neutral', p50], ['posi', p50 * (1 + w)]]
+  .map(([sc, p]) => row('EVAL_LOG', { eval_id: 'E' + i + sc, evaluated_at: D(2026, 9, 1), client, target_month: ym, scenario: sc, pred: p, actual: act,
+    evaluation_policy_version: ver, constraint_relevant_flag: 1 }))));
 const impact = (client, runAt, ym, quant, src = 'forecast_open') => row('AI_IMPACT_HISTORY', { run_id: 'R' + runAt.getTime(), run_at: runAt, client, target_month: ym, k_ai: 1,
   pred_p50_quant_only: quant, forecast_source: src });
 const push = (client, runAt, ym, type, key, dir, src = 'forecast_open') => row('SUBJECTIVE_IMPACT_HISTORY', { run_id: 'R' + runAt.getTime(), run_at: runAt, client, target_month: ym,
@@ -44,7 +47,9 @@ for (let i = 0; i < 12; i++) { const m = 4 + i; output.push([(m > 12 ? 2027 : 20
 const bookA = env.makeBook('甲', {
   CONFIG: config('甲製薬', 2026),
   OUTPUT: { values: output },
-  EVAL_LOG: { values: evalLog('甲製薬', [['2026/04', 1250, 1000, 0.05], ['2026/05', 900, 1000, 0.05], ['2026/06', 1000, 1000, 0.05], ['2026/07', 1100, 1050, 0.05]]), formats: { D: '@' } },
+  // 2025/05 は前の年度の、今の版で測った月（締まった後の予測 = 実績なので精度には数えない。振り返りは今の版で測った月だけに出す。2026-10-07）
+  EVAL_LOG: { values: evalLog('甲製薬', [['2025/05', 800, 800, 0.05], ['2026/04', 1250, 1000, 0.05], ['2026/05', 900, 1000, 0.05], ['2026/06', 1000, 1000, 0.05],
+    ['2026/07', 1100, 1050, 0.05]]), formats: { D: '@' } },
   EVAL_COMPARE_MONTHLY: { values: [H.EVAL_COMPARE_MONTHLY].concat([['2026/04', 1250], ['2026/05', 900], ['2026/06', 1000], ['2026/07', 1100]]
     .map(([ym, a]) => row('EVAL_COMPARE_MONTHLY', { target_month: ym, actual_total: a, forecast_total_p50: 1000, ape_p50: Math.abs(1000 - a) / a, range_outside_flag: 1 }))), formats: { A: '@' } },
   AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY,
@@ -147,7 +152,7 @@ assert.ok(types(A).every((t) => t === 'd') && types(B).every((t) => t === 's'), 
   assert.deepEqual(b.revisions, []);
   // 精度（締まった後の予測の月は除く）
   assert.equal(a.accuracy.n, 3);
-  assert.equal(a.accuracy.leaks, 1);
+  assert.equal(a.accuracy.leaks, 2, '2026/06 と、振り返りのために足した 2025/05（どちらも予測 = 実績）');
   close(a.accuracy.mape, (0.2 + 100 / 900 + 50 / 1100) / 3, 1e-9, 'MAPE');
   close(a.accuracy.coverage, 1 / 3, 1e-9, 'P10〜P90 に入った割合');
   assert.equal(b.accuracy.coverage, 0);
@@ -343,8 +348,10 @@ const ai = env.call('apiAiLearning()');
   const r = (sheet, o) => H2[sheet].map((h) => (o[h] === undefined ? '' : o[h]));
   const p1 = e2.seedPlan(e2.makeBook('一', {
     CONFIG: config('一製薬', 2026),
-    EVAL_LOG: { values: [H2.EVAL_LOG, r('EVAL_LOG', { eval_id: 'E1', evaluated_at: D(2026, 9, 1), client: '一製薬', target_month: D(2026, 4), scenario: 'neutral', pred: 100, actual: 110, constraint_relevant_flag: 1 }),
-      [], r('EVAL_LOG', { eval_id: 'E2', evaluated_at: D(2026, 9, 1), client: '一製薬', target_month: '2026/05', scenario: 'neutral', pred: -0, actual: 90, was_overridden: true })],
+    EVAL_LOG: { values: [H2.EVAL_LOG, r('EVAL_LOG', { eval_id: 'E1', evaluated_at: D(2026, 9, 1), client: '一製薬', target_month: D(2026, 4), scenario: 'neutral', pred: 100, actual: 110,
+      evaluation_policy_version: POLICY, constraint_relevant_flag: 1 }),
+      [], r('EVAL_LOG', { eval_id: 'E2', evaluated_at: D(2026, 9, 1), client: '一製薬', target_month: '2026/05', scenario: 'neutral', pred: -0, actual: 90, was_overridden: true,
+        evaluation_policy_version: POLICY })],
     formulas: { H2: '=1+1' } },
     SOURCE_RELIABILITY: { values: [H2.SOURCE_RELIABILITY, ['一製薬', 'opinion', '鷹野', 1.2, '', '', '', '', '']] },
     PROCESS_STATUS: doneStatus('一製薬', new Date(2026, 5, 6, 10)),
@@ -465,7 +472,10 @@ const ai = env.call('apiAiLearning()');
   const e5 = setUpEnv();
   const ins = (o) => row('EVAL_INSIGHTS', Object.assign({ client: '壬製薬', pred_p50: 1000, range_breach: 1, action_type: 'update',
     next_cycle_reflection: '次回サイクルで前提更新を反映', status: 'open' }, o));
-  e5.seedPlan(e5.makeBook('壬', { CONFIG: config('壬製薬', 2026), EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS,
+  // 振り返りに出すのは、今の版で測った月（EVAL_LOG の neutral の行がある締まった月）だけ（2026-10-07 D4〜D6）
+  e5.seedPlan(e5.makeBook('壬', { CONFIG: config('壬製薬', 2026),
+    EVAL_LOG: { values: evalLog('壬製薬', [['2026/04', 700, 1000, 0.05], ['2026/05', 800, 1000, 0.05], ['2026/06', 850, 1000, 0.05], ['2026/07', 1000, 1000, 0.05]]), formats: { D: '@' } },
+    EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS,
     ins({ evaluated_at: D(2026, 5, 10), target_month: D(2026, 4), actual_total: 700, next_cycle_reflection: '単価の前提を見直す' }),   // 人は反映の欄だけを書いた
     ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 4), actual_total: 700 }),   // B-4 の再実行で増えた行（自動の値だけ）
     ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 5), actual_total: 800, action_type: '前提を更新' }),   // 人が画面で選んだ対応
@@ -718,7 +728,7 @@ const ai = env.call('apiAiLearning()');
   // withB = false なら、B の回では人が押していない
   const tabs = (runA, runB, idA = 'A', withB = true) => ({
     PROCESS_STATUS: { P: [{ step_key: 'step2_status', status: 'success', last_run_date: new Date('2026-08-06T01:00:00Z') }, { step_key: 'step5_status', status: 'success', last_run_date: new Date('2026-08-06T02:00:00Z') }] },
-    EVAL_LOG: { P: [{ scenario: 'neutral', constraint_relevant_flag: 1, target_month: '2026/06', actual: 1000 }] },
+    EVAL_LOG: { P: [{ scenario: 'neutral', constraint_relevant_flag: 1, target_month: '2026/06', actual: 1000, evaluation_policy_version: POLICY }] },
     AI_IMPACT_HISTORY: { P: [{ run_id: 'A', run_at: runA, target_month: '2026/06', pred_p50_quant_only: 900, forecast_source: 'forecast_open' },
       { run_id: 'B', run_at: runB, target_month: '2026/06', pred_p50_quant_only: 1100, forecast_source: 'forecast_open' }] },
     SUBJECTIVE_IMPACT_HISTORY: { P: [{ run_id: idA, run_at: runA, target_month: '2026/06', source_type: 'opinion', source_key: 'x', push_direction: 1, forecast_source: 'forecast_open' }]
@@ -734,6 +744,62 @@ const ai = env.call('apiAiLearning()');
     '6 月の前の最後の回（B）で押していなければ、前の回（A）の押しでは数えない（run_id が無くても時刻で見分ける）');
   const none = ev(tabs(first, new Date('2026-06-15T00:00:00Z')));
   assert.deepEqual([none.rows, none.noPre], [[], { P: ['2026/06'] }], '6 月が始まる前の回が無ければ数えず、その月を返す');
+}
+
+// ==== 14. 今の検証の版で測った月だけ（2026-10-07 D4〜D6）。前の版の EVAL_LOG の行（月が始まった後の予測で測った）が締まった月に残っていても、
+// 精度・精度の推移・縮めた偏り・当たり・振り返りには使わない（消さない）。その月が始まる前の予測が無い月は数える ====
+{
+  const e8 = setUpEnv();
+  const pRun = D(2026, 4, 10);   // 4 月が始まった後・5 月より前の回（4 月には、その月が始まる前の回が無い）
+  const imp = (ym) => impact('β製薬', pRun, ym, 900);
+  const pu = (ym, dir) => push('β製薬', pRun, ym, 'opinion', '鷹野', dir);
+  const V2 = 'policy-2026H1-v2';
+  const id = e8.seedPlan(e8.makeBook('β', {
+    CONFIG: config('β製薬', 2026),
+    // 4・5 月は前の版の行だけ（今の B-2 は測らず、上書きもしない）。6〜8 月は今の版
+    EVAL_LOG: { values: evalLog('β製薬', [['2026/04', 1000, 1500, 0.05, V2], ['2026/05', 1000, 600, 0.05, V2],
+      ['2026/06', 1000, 1100, 0.05], ['2026/07', 1000, 1100, 0.05], ['2026/08', 1000, 1100, 0.05]]), formats: { D: '@' } },
+    EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS].concat([
+      { evaluated_at: D(2026, 9, 7), target_month: '2026/04', actual_total: 1000, pred_p50: 1500, cause_hypothesis: '前の版の外れ', owner: '鷹野', action_type: 'update', status: 'in_progress', range_breach: 1 },
+      { evaluated_at: D(2026, 10, 6), target_month: '2026/06', actual_total: 1000, pred_p50: 1100, action_type: 'update', status: 'open', range_breach: 1 },
+    ].map((o) => row('EVAL_INSIGHTS', Object.assign({ client: 'β製薬' }, o)))) },
+    AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY, imp('2026/04'), imp('2026/05'), imp('2026/06'), imp('2026/07'), imp('2026/08')] },
+    SUBJECTIVE_IMPACT_HISTORY: { values: [H.SUBJECTIVE_IMPACT_HISTORY, pu('2026/04', 1), pu('2026/05', 1), pu('2026/06', 1), pu('2026/07', 1), pu('2026/08', -1)] },
+    PROCESS_STATUS: doneStatus('β製薬', new Date(2026, 9, 6, 10)),   // 10/06 の取り込み: 9 月まで締まった
+  }));
+  const acc = J(e8.run(`appAccuracyOf_('${id}')`));
+  assert.deepEqual([acc.cutoffYm, acc.n, acc.months.map((m) => m.month)], ['2026/10', 3, ['2026/06', '2026/07', '2026/08']], '前の版の 4・5 月は精度に入れない');
+  close(acc.mape, 0.1, 1e-12);
+  const ai = e8.call('apiAiLearning()');
+  assert.deepEqual(ai.timeline.map((t) => t.ym), ['2026/06', '2026/07', '2026/08'], '精度の推移に前の版の月を出さない');
+  assert.deepEqual(ai.shrinkage.plans.map((p) => [p.planId, p.n]), [[id, 3]]);
+  close(ai.shrinkage.plans[0].mapeNow, 0.1, 1e-12, '縮めた偏りの材料も今の版の月だけ');
+  // 当たり: 6・7 月は当たり（900 < 1000・+）、8 月は外れ（−）。5 月は月が始まる前の回（4/10）があるが、前の版の行の実績では数えない。
+  // 4 月は月が始まる前の回が無い（その月が始まる前の予測が無い月として数える）
+  const pl = e8.call('apiPeopleLearning()');
+  const tk = pl.scoreboard.find((x) => x.key === '鷹野');
+  assert.deepEqual([tk.n, tk.hit], [3, 2]);
+  assert.deepEqual([pl.noPreMonth, ai.noPreMonth], [1, 1], '4 月（締まって実績の行はあるが、その月が始まる前の予測が無い）');
+  assert.deepEqual(ai.curves.find((c) => c.type === 'opinion').quarters.map((q) => [q.quarter, q.n, q.hit]), [['FY2026-Q1', 1, 1], ['FY2026-Q2', 2, 1]]);
+  // 振り返り: 今の版で測った 6 月だけ（前の版の 4 月の行は、人の記入があっても出さない）
+  assert.deepEqual([pl.lessons.map((l) => l.ym), pl.summary.months, pl.openActions.map((l) => l.ym)], [['2026/06'], 1, ['2026/06']]);
+  // 控え（{ rows, noPre, cur }）から読んでも同じ。前の形の控え（cur が無い）は使わずに数え直す
+  for (const k of Object.keys(e8.cache)) if (!k.includes('EVD_')) delete e8.cache[k];
+  const again = e8.call('apiPeopleLearning()');
+  assert.deepEqual([again.lessons, again.scoreboard, again.noPreMonth], [pl.lessons, pl.scoreboard, pl.noPreMonth]);
+  const fromCache = (value) => {
+    e8.run(`appJobPutResult_(appInsightEvidenceKey_('${id}'), __v)`, { __v: value });
+    for (const k of Object.keys(e8.cache)) if (!k.includes('EVD_') && !k.includes('APP_JOB_RESULT_')) delete e8.cache[k];
+    return e8.call('apiPeopleLearning()');
+  };
+  const empty = fromCache({ rows: [], noPre: [], cur: [] });
+  assert.deepEqual([empty.lessons, empty.scoreboard, empty.noPreMonth], [[], [], 0], '今の形の控えはそのまま使う（振り返りの月も控えから）');
+  const old = fromCache({ rows: [], noPre: [] });
+  assert.deepEqual([old.lessons, old.scoreboard, old.noPreMonth], [pl.lessons, pl.scoreboard, pl.noPreMonth], '前の形の控え（cur が無い）は数え直す');
+  // 行は消さない
+  assert.equal(e8.table('ENG_EVAL_LOG').filter((r) => r.plan_id === id).length, 5 * 3);
+  assert.equal(e8.table('ENG_EVAL_LOG').filter((r) => r.plan_id === id && r.evaluation_policy_version === V2).length, 2 * 3);
+  assert.equal(e8.table('ENG_EVAL_INSIGHTS').filter((r) => r.plan_id === id).length, 2);
 }
 
 console.log('app-insights: all tests passed');
