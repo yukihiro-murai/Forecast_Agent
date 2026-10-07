@@ -1,32 +1,36 @@
 /**
  * Config.js — Trends2Targets の定数（段階1: 土台）。
- * 設計: Trends2Targets/DESIGN_data_platform_JA.md。正本は「Trends2Targets データ」、記録は年度ごとの「Trends2Targets ログ FYyyyy」。
+ * 設計: Trends2Targets/DESIGN_data_platform_JA.md。正本は「Trends2Targets_Data」、記録は年度ごとの「Trends2Targets_Logs_FYyyyy」。
  * 公開する関数は doGet・api*・trigger* だけにし、すべて api_（本人確認・役割・記録）を通す（app/tests が見張る）。
  * それ以外の関数は名前の末尾を _ にする（Web アプリでは _ でない関数をブラウザから呼べるため）。
  */
 /** アプリの名前（社内の Web アプリと同じく英語 + 日本語。ブラウザのタブは英語だけ。2026-10-02 村井さん決定） */
 const APP_NAME = 'Trends2Targets';
 const APP_NAME_JA = '売上予測と予算策定';
-const APP_VERSION = '0.27.1';
+const APP_VERSION = '0.27.2';
 const APP_TZ = 'Asia/Tokyo';
 
+/** 新しく作るファイルの名前（名前の決まりの正本は gas-workspace の .ai/memory/projects/application-catalog.md: アプリ名_役割。2026-10-07） */
 const APP_FILES = {
-  folder: 'Trends2Targets（システム）',
-  data: 'Trends2Targets データ',
-  logPrefix: 'Trends2Targets ログ ',
+  folder: 'Trends2Targets_System',
+  data: 'Trends2Targets_Data',
+  logPrefix: 'Trends2Targets_Logs_',   // + 'FY2026'
   backupFolder: 'バックアップ',
   archiveFolder: 'アーカイブ',
-  backupPrefix: 'Trends2Targets データ バックアップ ',
-  scratch: 'Trends2Targets 計算用（自動）',
-  journalPrefix: 'Trends2Targets 保存の控え（自動） ',   // 書き終えたらゴミ箱へ（Journal.js）
-  monthlyBackupPrefix: 'Trends2Targets データ 月次 ',   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
-  yearPrefix: 'Trends2Targets 年度 FY'   // 年度の締めの控え（アーカイブのフォルダへ。消さない）
+  backupPrefix: 'Trends2Targets_Data_Backup_',
+  scratch: 'Trends2Targets_Calculations',
+  journalPrefix: 'Trends2Targets_Journal_',   // 書き終えたらゴミ箱へ（Journal.js）
+  monthlyBackupPrefix: 'Trends2Targets_Data_Monthly_',   // 月の最初のバックアップを、アーカイブのフォルダに月ごとに残す（消さない）
+  yearPrefix: 'Trends2Targets_Year_FY'   // 年度の締めの控え（アーカイブのフォルダへ。消さない）
 };
 /**
- * 2026-10-06 に「売上予測アプリ …」から Trends2Targets へ改名する前の名前（今あるファイルは同じ ID のまま改名済み）。
+ * 前の名前（2026-10-06 まで「売上予測アプリ …」、2026-10-06〜07 の「Trends2Targets データ …」）。今あるファイルは同じ ID のまま改名済み。
  * ファイルはどれも ID で開くので名前に頼らないが、バックアップの世代と月次の写しは名前で探すため、前の名前のものも数える。
  */
-const APP_FILES_LEGACY = { backupPrefix: '売上予測アプリ データ バックアップ ', monthlyBackupPrefix: '売上予測アプリ データ 月次 ' };
+const APP_FILES_LEGACY = {
+  backupPrefixes: ['売上予測アプリ データ バックアップ ', 'Trends2Targets データ バックアップ '],
+  monthlyBackupPrefixes: ['売上予測アプリ データ 月次 ', 'Trends2Targets データ 月次 ']
+};
 
 /** Script Properties のキー（ファイルの ID と鎖の最新ハッシュ。秘密情報は置かない） */
 const APP_PROP = {

@@ -13,19 +13,19 @@
 ## 初期設定で作るもの（所有者のマイドライブ、どれも所有者だけ）
 
 ```
-Trends2Targets（システム）/
-├─ Trends2Targets データ        … データ本体（表 = シート。1 行目は列名、2 行目から値だけ）
-├─ Trends2Targets ログ FY2026   … 年度ごとに 1 つ（4月〜翌3月、始まりの年で呼ぶ。旧来の計算・vNext と同じ）。月ごとに AUDIT_ / RUN_ / ERROR_ のシート
+Trends2Targets_System/
+├─ Trends2Targets_Data          … データ本体（表 = シート。1 行目は列名、2 行目から値だけ）
+├─ Trends2Targets_Logs_FY2026   … 年度ごとに 1 つ（4月〜翌3月、始まりの年で呼ぶ。旧来の計算・vNext と同じ）。月ごとに AUDIT_ / RUN_ / ERROR_ のシート
 ├─ バックアップ/               … データ本体の毎日の複製（新しい 14 世代。古いものはアーカイブのフォルダへ移す。v0.23.0 から）
 ├─ アーカイブ/                 … 古いバックアップと、年度を締めたときの凍結先（段階2〜）
-└─ Trends2Targets 計算用（自動） … 旧来の計算を動かす作業場所（段階2〜。初めて使うときに作る。人は触らない）
+└─ Trends2Targets_Calculations  … 旧来の計算を動かす作業場所（段階2〜。初めて使うときに作る。人は触らない）
 ```
 
 ### 名前と技術 ID（2026-10-06 に Trends2Targets へ統一）
 
-- 改名したもの（どれも同じ ID のまま）: GitHub のリポジトリ（`Forecast_Agent` → `Trends2Targets`。旧 URL は GitHub が転送）、Mac のフォルダ（`~/Documents/GAS/Trends2Targets`。旧パス `Forecast_Agent` は互換の symlink）、Apps Script（「売上予測アプリ」→「Trends2Targets」）、Drive のフォルダ・データ本体・ログ・計算用ブック（「売上予測アプリ …」→「Trends2Targets …」）。
+- 改名したもの（どれも同じ ID のまま）: GitHub のリポジトリ（`Forecast_Agent` → `Trends2Targets`。旧 URL は GitHub が転送）、Mac のフォルダ（`~/Documents/GAS/Trends2Targets`。旧パス `Forecast_Agent` は互換の symlink）、Apps Script（「売上予測アプリ」→「Trends2Targets」）、Drive のフォルダ・データ本体・ログ・計算用ブック（「売上予測アプリ …」→ `Trends2Targets_System`・`Trends2Targets_Data`・`Trends2Targets_Logs_FY2026`・`Trends2Targets_Calculations`。名前の決まりの正本は gas-workspace の `.ai/memory/projects/application-catalog.md`＝アプリ名_役割）。アプリが新しく作るファイル（バックアップ `Trends2Targets_Data_Backup_…`・月次 `Trends2Targets_Data_Monthly_…`・次の年度のログ・年度の控え `Trends2Targets_Year_FY…`）も v0.27.2 から同じ形。
 - 変えないもの: スクリプト・ファイル・デプロイの ID、Script Properties のキー、旧来の計算のファイル名 `Forecast_Agent.js`、表とシートの名前、過去の記録の文面。ファイルは ID で開くので、名前を変えても動きは変わりません。
-- 名前で探すのはバックアップの世代と月次の写しだけです。前の名前（`APP_FILES_LEGACY`）のものも数えます。
+- 名前で探すのはバックアップの世代と月次の写しだけです。前の名前（`APP_FILES_LEGACY`: 「売上予測アプリ データ …」と「Trends2Targets データ …」）のものも数えます。
 - もう一台の Mac の追従: `git remote set-url origin git@github.com:yukihiro-murai/Trends2Targets.git` → `git fetch` → 変更が無いのを確かめてから GAS の親フォルダで `mv Forecast_Agent Trends2Targets && ln -s Trends2Targets Forecast_Agent`（`Trends2Targets` が既にあれば止める）。
 
 メンバーにはどのファイルも共有しません。メンバーはアプリ画面だけを使い、誰が何をできるかはアプリが判定します。データ本体は直接編集しないでください（画面からの変更だけが記録に残ります）。

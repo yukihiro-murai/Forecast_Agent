@@ -86,9 +86,9 @@ assert.equal(closures[0].state, 'CLOSED');
 assert.equal(closures[0].snapshot_sha256, result.snapshotSha256);
 assert.equal(closures[0].file_id, result.fileId);
 // 控えのファイル（アーカイブに置いた。中身は YearSnapshot が作った文字のまま）
-const ycFiles = Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets 年度 FY/.test(f.name));
+const ycFiles = Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets_Year_FY/.test(f.name));
 assert.equal(ycFiles.length, 1);
-assert.match(ycFiles[0].name, new RegExp('Trends2Targets 年度 FY' + past + ' '));
+assert.match(ycFiles[0].name, new RegExp('Trends2Targets_Year_FY' + past + ' '));
 const snap = env.call('appYearSnapshot_(__fy)', { __fy: past });
 assert.equal(ycFiles[0].content, snap.text, '控えはそのままの文字');
 assert.equal(sha(snap.text), snap.sha256);
@@ -106,7 +106,7 @@ for (const s of after) {
 assert.equal(env.call('apiYearPreview(__in)', { __in: { fy: past } }).canClose, false);
 const again = env.runJob('YEAR.CLOSE', { fy: past, inputHash: result.snapshotSha256 }).result;
 assert.equal(again.already, true);
-assert.equal(Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets 年度 FY/.test(f.name)).length, 1, '同じ年度の控えは 1 つ');
+assert.equal(Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Trends2Targets_Year_FY/.test(f.name)).length, 1, '同じ年度の控えは 1 つ');
 
 // ==== 4. 凍結した年度は読めるが、書けない ====
 health = env.call('apiHealth()');
@@ -175,7 +175,7 @@ const openList = env.run('appReadTable_("PLANS").filter(x => x.state !== "ARCHIV
 assert.ok(openList.indexOf(planA) < 0 && openList.indexOf(planB) < 0 && openList.indexOf(planC) >= 0, '最初の残りから凍結を除く');
 
 // ==== 8. 締められない条件（控えのファイルも記録も作らない） ====
-const filesNow = () => Object.values(env.files).filter((f) => f.parent === archiveFolderId && /年度/.test(f.name)).length;
+const filesNow = () => Object.values(env.files).filter((f) => f.parent === archiveFolderId && /Year_FY|年度/.test(f.name)).length;
 const noClose = (fy, label) => {
   const n = filesNow();
   env.as(OWNER);
@@ -268,7 +268,7 @@ const st3 = env3.runJob('YEAR.CLOSE', { fy: past3, inputHash: pv3.inputHash });
 assert.equal(st3.status, 'FAILED');
 assert.match(st3.error, /アーカイブ/);
 assert.equal(env3.table('YEAR_CLOSURES').length, 0);
-assert.equal(Object.values(env3.files).filter((f) => /年度/.test(f.name)).length, 0, 'フォルダが無ければ控えを作らない');
+assert.equal(Object.values(env3.files).filter((f) => /Year_FY|年度/.test(f.name)).length, 0, 'フォルダが無ければ控えを作らない');
 
 // ==== 10. 控えの読み戻しが合わないとき: ファイルは残すが凍結しない ====
 const env4 = setUpEnv();
@@ -284,7 +284,7 @@ af4.createFile = (n, c, m) => { const x = origCreate.call(af4, n, c, m); const o
 const st4 = env4.runJob('YEAR.CLOSE', { fy: past4, inputHash: pv4.inputHash });
 assert.equal(st4.status, 'FAILED');
 assert.equal(env4.table('YEAR_CLOSURES').length, 0, '読み戻しが合わなければ凍結しない');
-assert.equal(Object.values(env4.files).filter((f) => f.parent === env4.props.APP_ARCHIVE_FOLDER_ID && /年度/.test(f.name)).length, 1, '置いた控えは残す（消さない）');
+assert.equal(Object.values(env4.files).filter((f) => f.parent === env4.props.APP_ARCHIVE_FOLDER_ID && /Year_FY|年度/.test(f.name)).length, 1, '置いた控えは残す（消さない）');
 // アーカイブ以外に置かれた場合も凍結しない
 const env5 = setUpEnv();
 const past5 = env5.run('appFy_(new Date())') - 1;
@@ -298,7 +298,7 @@ af5.createFile = (n, c, m) => { const x = orig5.call(af5, n, c, m); x.parent = '
 const st5 = env5.runJob('YEAR.CLOSE', { fy: past5, inputHash: pv5.inputHash });
 assert.equal(st5.status, 'FAILED');
 assert.equal(env5.table('YEAR_CLOSURES').length, 0);
-assert.equal(Object.values(env5.files).filter((f) => /年度/.test(f.name)).length, 1, '置いた控えは残す');
+assert.equal(Object.values(env5.files).filter((f) => /Year_FY|年度/.test(f.name)).length, 1, '置いた控えは残す');
 // 記録の追記だけ失敗したとき: ファイルと元の行はそのまま、凍結にもしない
 const env6 = setUpEnv();
 const past6 = env6.run('appFy_(new Date())') - 1;
@@ -310,7 +310,7 @@ const before6 = allSheetRows(env6);
 env6.data().getSheetByName('YEAR_CLOSURES').failWrites = true;
 const st6 = env6.runJob('YEAR.CLOSE', { fy: past6, inputHash: pv6.inputHash });
 assert.equal(st6.status, 'FAILED');
-assert.equal(Object.values(env6.files).filter((f) => /年度/.test(f.name)).length, 1, '置いた控えは残す');
+assert.equal(Object.values(env6.files).filter((f) => /Year_FY|年度/.test(f.name)).length, 1, '置いた控えは残す');
 const after6 = allSheetRows(env6);
 for (const s of after6) {
   const b = before6.find((x) => x.name === s.name);
@@ -405,7 +405,7 @@ for (const kind of ['PLAN.RUN_CALC', 'PLAN.RUN_SAVE', 'FORECAST.RUN_CALC', 'FORE
   assert.equal(st7.status, 'FAILED', '読み戻した元の指紋が違えば凍結しない');
   assert.match(st7.error, /変わりました/);
   assert.equal(env7.table('YEAR_CLOSURES').length, 0, '凍結の記録は作らない');
-  assert.equal(Object.values(env7.files).filter((f) => /年度/.test(f.name)).length, 1, '置いた控えは残す（消さない）');
+  assert.equal(Object.values(env7.files).filter((f) => /Year_FY|年度/.test(f.name)).length, 1, '置いた控えは残す（消さない）');
   // 元の表が変わったのは置き方のまねだけ（締める処理が元を変えたわけではない）
   const after7 = allSheetRows(env7);
   assert.equal(JSON.stringify(after7.filter((s) => s.name === 'PLANS')) !== JSON.stringify(before7.filter((s) => s.name === 'PLANS')), true);

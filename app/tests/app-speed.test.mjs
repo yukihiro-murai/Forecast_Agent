@@ -363,7 +363,7 @@ assert.deepEqual([expectNumbers(1200).budget.uplift, expectNumbers(1200).monthly
   listed = 0;
   assert.deepEqual(fast(), slow());
   assert.equal(listed, 1, '要点から返す（数えたのは比べた側だけ）');
-  assert.deepEqual([fast().count, fast().enabled, fast().latest.startsWith('Trends2Targets データ バックアップ ')], [2, false, true]);
+  assert.deepEqual([fast().count, fast().enabled, fast().latest.startsWith('Trends2Targets_Data_Backup_')], [2, false, true]);
   listed = 0;
   const home = env.call('apiHome()');
   assert.deepEqual(home.system.backup, slow());

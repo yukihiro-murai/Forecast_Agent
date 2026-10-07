@@ -12,7 +12,7 @@ const DCTX = `{ user: appCurrentUser_(), roles: [], actor: 'test', requestId: 'M
 const notify = (env, codes) => env.call(`appNotifyMaintenance_(${DCTX}, __c)`, { __c: codes });
 const daily = (env) => env.call(`appDailyMaintenance_(${DCTX})`);
 const recipients = (env, extra) => env.call(`appMaintenanceRecipients_(${extra || DCTX})`);
-const isBackup = (f) => f.kind === 'file' && f.name.startsWith('Trends2Targets データ バックアップ ');
+const isBackup = (f) => f.kind === 'file' && f.name.startsWith('Trends2Targets_Data_Backup_');
 const all = (env) => Object.values(env.files).filter(isBackup).sort((a, b) => a.created - b.created);
 const SUBJECT = 'Trends2Targets 要対応';
 
@@ -396,9 +396,23 @@ const grant = (env, row) => env.run(`appInsertRows_('ROLES', [__r])`, { __r: Obj
   assert.deepEqual([st.count, st.latest], [1, '売上予測アプリ データ バックアップ 2026-10-01 0300'], '前の名前の世代も数える');
   assert.equal(env.run('appMonthlyBackup_()'), '', '前の名前で今月の写しがあれば作らない');
   const r = daily(env);
-  assert.ok(r.backup.backup.startsWith('Trends2Targets データ バックアップ '), '新しい世代は新しい名前');
+  assert.ok(r.backup.backup.startsWith('Trends2Targets_Data_Backup_'), '新しい世代は新しい名前');
   assert.equal(J(env.run('appBackupStatus_()')).count, 2, '前の名前と新しい名前の世代を合わせて数える');
-  assert.equal(Object.values(env.files).filter((f) => f.kind === 'file' && f.parent === env.props.APP_ARCHIVE_FOLDER_ID && /月次/.test(f.name)).length, 1, '月次の写しは増えない');
+  assert.equal(Object.values(env.files).filter((f) => f.kind === 'file' && f.parent === env.props.APP_ARCHIVE_FOLDER_ID && /Monthly_|月次/.test(f.name)).length, 1, '月次の写しは増えない');
+}
+// ==== 11. 2026-10-06〜07 の間の名前（「Trends2Targets データ …」）で作ったものも数える ====
+{
+  const env = setUpEnv();
+  const J = (x) => (typeof x === 'string' ? JSON.parse(x) : x);
+  const ym = env.run(`Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM')`);
+  env.run(`DriveApp.getFileById(__d).makeCopy('Trends2Targets データ バックアップ 2026-10-07 0300', DriveApp.getFolderById(__b))`,
+    { __d: env.props.APP_DATA_SPREADSHEET_ID, __b: env.props.APP_BACKUP_FOLDER_ID });
+  env.run(`DriveApp.getFileById(__d).makeCopy('Trends2Targets データ 月次 ' + __ym, DriveApp.getFolderById(__a))`,
+    { __d: env.props.APP_DATA_SPREADSHEET_ID, __a: env.props.APP_ARCHIVE_FOLDER_ID, __ym: ym });
+  assert.equal(J(env.run('appBackupStatus_()')).count, 1, '間の名前の世代も数える');
+  assert.equal(env.run('appMonthlyBackup_()'), '', '間の名前で今月の写しがあれば作らない');
+  assert.equal(env.run('APP_FILES.backupPrefix + "|" + APP_FILES.data + "|" + APP_FILES.logPrefix + "FY2026"'), 'Trends2Targets_Data_Backup_|Trends2Targets_Data|Trends2Targets_Logs_FY2026',
+    '新しい名前は名前の決まり（アプリ名_役割。Drive の今のファイル名と同じ形）');
 }
 
 console.log('app-maintenance: all tests passed');

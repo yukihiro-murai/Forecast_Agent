@@ -41,7 +41,7 @@ const dropBackupTriggers = (env) => { for (let i = env.triggers.length - 1; i >=
   env.as('');
   const daily = env.call(`triggerDailyBackup({ triggerUid: '${t.uid}' })`);
   env.as(OWNER);
-  assert.ok(daily.backup && /^Trends2Targets データ バックアップ /.test(daily.backup.backup), 'トリガーからバックアップを取れる');
+  assert.ok(daily.backup && /^Trends2Targets_Data_Backup_/.test(daily.backup.backup), 'トリガーからバックアップを取れる');
   assert.equal(backupTriggers(env).length, 1, '毎日の処理はバックアップのトリガーを増やさない');
 }
 

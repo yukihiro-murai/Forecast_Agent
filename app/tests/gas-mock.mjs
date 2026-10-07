@@ -345,7 +345,7 @@ export function makeEnv({ owner = OWNER, active = owner, order = 'name' } = {}) 
   const logs = [];
   const newId = (p) => p + '-' + String(++state.seq).padStart(24, '0');
   const iter = (arr) => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
-  const strictName = (n) => /^Trends2Targets (データ|ログ)/.test(n);
+  const strictName = (n) => /^Trends2Targets_(Data|Logs_)/.test(n);
   function newSpreadsheet(name) {
     const ss = makeSpreadsheet(newId('SS'), name, { strict: strictName(name) });
     sheetsById[ss.id] = ss;

@@ -160,7 +160,7 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
   const au = env.audit().filter((a) => /^FORECAST\.RUN/.test(a.action) && a.phase === 'END').map((a) => [a.action, a.result]);
   assert.deepEqual(au, [['FORECAST.RUN.BUILD', 'OK'], ['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.BUILD', 'OK'], ['FORECAST.RUN.CALC', 'OK'], ['FORECAST.RUN.SAVE', 'OK']]);
   assert.equal(env.props.APP_WRITE_JOURNAL, undefined, '書き終えたら保存の控えを消す');
-  const journals = Object.values(env.files).filter((f) => f.kind === 'file' && /保存の控え/.test(f.name));
+  const journals = Object.values(env.files).filter((f) => f.kind === 'file' && /Journal_|保存の控え/.test(f.name));
   assert.ok(journals.length >= 1 && journals.every((f) => f.trashed), '控えのファイルはゴミ箱へ');
   // 2 回目: また足された行だけ
   const st3 = env.runJob('FORECAST.RUN', { planId, confirms: ['extreme'] });

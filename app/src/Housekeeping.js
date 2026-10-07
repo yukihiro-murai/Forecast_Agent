@@ -139,7 +139,7 @@ function appMonthlyBackup_() {
   const name = APP_FILES.monthlyBackupPrefix + ym;
   const folder = DriveApp.getFolderById(archiveId);
   // 改名の前の名前（APP_FILES_LEGACY）で今月の写しを作っていれば、それで足りる
-  for (const n of [name, APP_FILES_LEGACY.monthlyBackupPrefix + ym]) {
+  for (const n of [name].concat(APP_FILES_LEGACY.monthlyBackupPrefixes.map(p => p + ym))) {
     const it = folder.getFilesByName(n);
     while (it.hasNext()) { if (!it.next().isTrashed()) return ''; }
   }
