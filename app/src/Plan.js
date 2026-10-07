@@ -5,6 +5,7 @@
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
  *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
  *         検証の記入は、その月を今の検証の版で B-2 が測る前に B-4 が書いた行を出さない（appPlanViewDropStale_。学びの振り返りと同じ決まり）。
+ *         予測の注記は、止めている C-1 への案内を除き、所有者が承認した補正の値をそう書く（appPlanViewNotes_）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
  * - 実行（A-3・B-2〜B-5・C-1・C-3）: 予測の実行と同じく、全部のシートを組み立てて旧来の webRun* を動かし、
@@ -17,6 +18,11 @@
 
 /** 止めている操作の理由（始める前に断る文・画面のボタンの説明） */
 const APP_REVIEW_GENERATE_PAUSED = '見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。';
+/** 予測の注記（OUTPUT!A6。旧来の A-9 の buildOutputCalibrationSummary_ が「 / 」でつなぐ）の、C-1 を動かすよう案内する文 */
+const APP_PLAN_NOTE_C1_HINT = / \/ (?:3か月以上の実績確定後に|次回の四半期レビューは3か月後に) C-1 を実行してください。/g;
+/** 同じ注記の「四半期チューニングが無い」の書き方と、所有者が承認した値を書いた（setCalibration）ときの書き方 */
+const APP_PLAN_NOTE_DEFAULT = 'なし（全項目既定値）';
+const APP_PLAN_NOTE_OWNER = '所有者が承認した値';
 
 /** 計画への保存・実行（名前は旧来の Web アプリの操作の記録と同じ） */
 const APP_PLAN_ACTIONS = {
@@ -214,6 +220,7 @@ function appPlanView_(ctx, planId) {
     const boot = appSerialize_(call.value);
     delete boot.user; delete boot.bookUrl; delete boot.access;   // 計算用ブックの URL・旧来の管理者の判定は出さない
     appPlanViewDropStale_(boot, book);   // 見る人によらない直しは、覚えておく前に（覚えておいた中身はほかの人にも返す）
+    appPlanViewNotes_(boot, book);
     view = { boot: boot, engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
       builtMs: new Date().getTime() - t0 };
     // 覚えておけなくても画面は出す（次の表示がまた組み立てになるだけ）
@@ -269,6 +276,43 @@ function appPlanViewDropStale_(boot, book) {
     if (!Object.prototype.hasOwnProperty.call(at, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
     return appTimeKey_(r[0]) >= at[ym];
   });
+}
+
+/**
+ * 予測の注記（OUTPUT!A6 の写し: boot.output.policyLines・engineNote。旧来の A-9 が書く）を、今の決まりに合わせる（見る人によらない。行のほかの文はそのまま）:
+ *   - 見直し案を作る操作（REVIEW.GENERATE・C-1）を止めている間は、C-1 を動かすよう案内する文を除く
+ *   - 計画の CALIBRATION_STATE の note が 'owner-approved'（setCalibration が書く。Calibration.js）で始まれば、
+ *     「適用中の四半期チューニング: なし（全項目既定値）」の「なし（全項目既定値）」を「所有者が承認した値」にする（既定値ではないため）
+ */
+function appPlanViewNotes_(boot, book) {
+  const o = boot && boot.output;
+  if (!o) return;
+  const paused = !!appPlanActionPaused_('REVIEW.GENERATE');
+  const owner = appPlanOwnerApproved_(book);
+  if (!paused && !owner) return;
+  const fix = t => {
+    let x = String(t || '');
+    if (paused) x = x.replace(APP_PLAN_NOTE_C1_HINT, '');
+    if (owner) x = x.split('適用中の四半期チューニング: ' + APP_PLAN_NOTE_DEFAULT).join('適用中の四半期チューニング: ' + APP_PLAN_NOTE_OWNER);
+    return x;
+  };
+  if (Array.isArray(o.policyLines)) o.policyLines = o.policyLines.map(fix);
+  if (o.engineNote) o.engineNote = fix(o.engineNote);
+}
+
+/** 計画の補正の値が、所有者が承認した値か（CALIBRATION_STATE のメーカーの行（無ければ 1 つだけの行）の note が 'owner-approved' で始まる） */
+function appPlanOwnerApproved_(book) {
+  const sh = book.getSheetByName('CALIBRATION_STATE');
+  if (!sh || sh.getLastRow() < 2) return false;
+  const cfg = book.getSheetByName('CONFIG');
+  const client = cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '';
+  const v = sh.getDataRange().getValues();
+  const head = v[0].map(h => String(h || '').trim());
+  const ci = head.indexOf('client'), ni = head.indexOf('note');
+  if (ni < 0) return false;
+  const rows = v.slice(1).filter(r => r.some(x => x !== '' && x !== null));
+  const row = rows.filter(r => ci >= 0 && String(r[ci] || '').trim() === client)[0] || (rows.length === 1 ? rows[0] : null);
+  return !!row && String(row[ni] || '').trim().indexOf('owner-approved') === 0;
 }
 
 /**
