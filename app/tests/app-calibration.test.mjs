@@ -21,10 +21,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
-import { setUpEnv, extractFunction, repoRoot, uiHtml, OWNER, MEMBER } from './gas-mock.mjs';
+import { setUpEnv, extractFunction, repoRoot, uiHtml, OWNER, MEMBER, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const CLIENT = 'テスト製薬';
+/** 係数が 1 以外か月ごとの補正があるときの注意（旧来の A-9 は月の P10/P50/P90 にだけ掛け、年度の P10/P50/P90 には掛けない） */
+const ANNUAL_WARNING = '係数が 1 以外か、月ごとの補正があると、年度の P10/P50/P90（ホームの中心・公式版の中心）には掛からず、月の合計とずれます。';
 const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
 
 // ---- 道具 ----
@@ -307,6 +309,7 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   const st = setCal(env, { planId, set: { ai_weight_override: 0 }, reason: 'D8 AI の効きを止める' });
   assert.equal(st.status, 'DONE', st.error);
   assert.deepEqual(st.result.result.changed, [{ field: 'ai_weight_override', old: '', new: 0 }]);
+  assert.deepEqual(st.result.result.warnings, [ANNUAL_WARNING], '書いた後も係数 0.8・月ごとの補正が残る（年度の P10/P50/P90 には掛からない）');
   assert.equal(engRows(env, 'CALIBRATION_STATE', planId)[0].ai_weight_override, '0', '0 は空にしない（0 を未設定として扱わない）');
   assert.equal(engRows(env, 'CALIBRATION_STATE', planId)[0].bias_correction_factor, '0.8', 'ほかの項目はそのまま');
 
@@ -338,6 +341,7 @@ let readmeTask;
   assert.deepEqual(pv.sheets, { state: true, history: true, reviewLog: true });
   assert.equal(pv.pending, null, 'この計画には承認待ちの見直し案が無い');
   assert.equal(pv.frozen, false);
+  assert.deepEqual(pv.warnings, [ANNUAL_WARNING], '今の係数 0.8 と月ごとの補正は、年度の P10/P50/P90 には掛からない（止めない）');
   assert.match(pv.inputHash, /^[a-f0-9]{64}$/);
   assert.equal(env.props.OWNER_TASK, JSON.stringify({ action: 'calibrationPreview', planId }), '読むだけなので頼みは残る');
   delete env.props.OWNER_TASK;
@@ -365,6 +369,7 @@ let readmeTask;
     { field: 'auto_update_enabled', old: 1, new: 0 }]);
   assert.deepEqual(res.unchanged, [{ field: 'ai_weight_override', value: 0 }], 'もう 0 の項目は書かない');
   assert.equal(res.withdrawn, null, '取り下げる見直し案が無ければ何もしない');
+  assert.deepEqual(res.warnings, [], '係数 1・月ごとの補正なしなら注意は無い');
   assert.deepEqual(st.result.changed.sort(), ['CALIBRATION_HISTORY', 'CALIBRATION_STATE']);
 
   // CALIBRATION_STATE: 承認した値・書いた人と日時・理由。ほかの列はそのまま
@@ -453,6 +458,24 @@ let readmeTask;
   assert.deepEqual(histBefore().slice(-1).map((r) => [r.factor_name, r.old_value, r.new_value]), [['ai_weight_override', '0', '']]);
   const again = setCal(env, { planId, set: { ai_weight_override: 0 }, reason: 'D8 にもう一度' });
   assert.deepEqual(again.result.result.changed, [{ field: 'ai_weight_override', old: '', new: 0 }]);
+  assert.deepEqual(again.result.result.warnings, []);
+  // 注意: 月ごとの補正だけでも出す（書くのは止めない）。値を書かない頼み（取り下げだけ）でも、書いた後の値で決める。戻せば消える
+  const pv0 = task(env, { action: 'calibrationPreview', planId }).result;
+  delete env.props.OWNER_TASK;
+  assert.deepEqual(pv0.warnings, [], '係数 1・月ごとの補正なし');
+  const mb = setCal(env, { planId, set: { residual_month_bias_json: '{"4":0.05}' }, reason: '注意の確かめ' });
+  assert.equal(mb.status, 'DONE', mb.error);
+  assert.deepEqual([mb.result.result.changed.map((x) => x.field), mb.result.result.warnings], [['residual_month_bias_json'], [ANNUAL_WARNING]], '書いて、注意を返す');
+  const only = setCal(env, { planId, withdrawPendingReview: true, reason: '取り下げだけ' });
+  assert.deepEqual([only.status, only.result.result.withdrawn, only.result.result.warnings], ['DONE', null, [ANNUAL_WARNING]], '値を書かなくても、今の値の注意');
+  const pv1 = task(env, { action: 'calibrationPreview', planId }).result;
+  delete env.props.OWNER_TASK;
+  assert.deepEqual(pv1.warnings, [ANNUAL_WARNING]);
+  const f = setCal(env, { planId, set: { residual_month_bias_json: '{}', bias_correction_factor: 1.1 }, reason: '係数だけ' });
+  assert.deepEqual(f.result.result.warnings, [ANNUAL_WARNING], '係数だけでも出す');
+  const off = setCal(env, { planId, set: { bias_correction_factor: 1 }, reason: '戻す' });
+  assert.deepEqual(off.result.result.warnings, [], '戻せば消える');
+  assert.deepEqual(J(env.run(`appCalibrationWarnings_(null)`)), [], '値が読めなければ出さない');
 }
 
 // ==== 6. 見直し案を作る（C-1）は止めている。判断の保存と反映（C-3）はそのまま ====
