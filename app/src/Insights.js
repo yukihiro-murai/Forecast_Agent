@@ -19,6 +19,9 @@
  *     月が合わず空だった（直す前の四半期の分は空のまま）→ 月を appYm_ でそろえ、評価できた月をすべて数える
  *   - 直す前に書かれた EVAL_INSIGHTS の cause_bucket は向きが逆（実績 > 予測を over_forecast と書いた。2026-10-07 からは B-4 が
  *     毎回書き直すが、B-4 を動かし直すまでは逆のまま）→ 使わず、予測 − 実績の符号で決める
+ * 振り返り・当たり・精度・縮めた偏り・精度の推移は、締まった月（月末から 5 日たってから取り込んだ月。appLandingCutoff_）だけで数える
+ * （2026-10-07 村井さん承認 D4・D5。締まっていない月の EVAL_LOG・EVAL_INSIGHTS の行は消さずに読み飛ばす）。
+ * 当たりは、その月が始まる前の最後の予測の回で測る（D6。appSourceEvidence_）。
  */
 const APP_INSIGHT_REVISIONS = 12;          // 予測の改訂の道すじ（最近の回数）
 const APP_INSIGHT_MISS = 0.1;              // 外れた月: 誤差が 10% 以上か P10〜P90 の外（旧来の B-4 の振り分けと同じ）
@@ -136,9 +139,16 @@ function appInsightPlans_() {
     .sort((x, y) => y.fy.localeCompare(x.fy) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
 
+/** 計画ごとの締まった月の境目（{ 計画の ID: 'yyyy/MM' か '' }。status = 計画ごとの PROCESS_STATUS の行。appLandingCutoff_） */
+function appInsightCutoffs_(ids, status) {
+  const out = {};
+  ids.forEach(id => { out[id] = appLandingCutoff_(status[id] || []); });
+  return out;
+}
+
 /**
  * 計画ごとの精度（appAccuracyCached_ と同じ控え ACC_ を、getAll でまとめて読む）。控えの無い計画だけ EVAL_LOG から計算する
- * （少なければ、その計画の行だけ読む。保存した計画の分だけ計算し直す）
+ * （少なければ、その計画の行だけ読む。保存した計画の分だけ計算し直す）。締まった月の境目は PROCESS_STATUS から（D4）
  */
 function appInsightAccuracies_(ids, tab) {
   appInsightPreloadHashes_(ids);
@@ -152,7 +162,7 @@ function appInsightAccuracies_(ids, tab) {
   has.forEach(id => {
     if (found(id)) { accs[id] = hits[keys[id]].value; return; }
     try {
-      const v = appAccuracyOf_(id, tab('EVAL_LOG', few)[id] || []);
+      const v = appAccuracyOf_(id, tab('EVAL_LOG', few)[id] || [], appLandingCutoff_(tab('PROCESS_STATUS', few)[id] || []));
       try { appJobPutResult_(keys[id], v); } catch (e) { /* 控えられなくても返す */ }
       accs[id] = v;
     } catch (e) { Logger.log('精度を出せない計画: ' + id + ' ' + (e && e.message ? e.message : e)); }
@@ -347,13 +357,18 @@ function appInsightPriors_(poolByPlan) {
 /**
  * 入力と AI の話題が、評価できた月に当たったか（旧来の computeReliabilityHitStats_ と同じ判定。月をそろえ、全部の月で数える）。
  * 当たり = 押した向き（push_direction の符号）が、実績 − 過去の売上だけの予測（AI_IMPACT_HISTORY の pred_p50_quant_only）の符号と同じ。
- * 月・種類・人（話題）ごとに、予測の対象だった月（forecast_open）の一番新しい回だけを使う。実績は EVAL_LOG の neutral・constraint_relevant_flag = 1。
+ * 数えるのは締まった月だけ（appLandingCutoff_ の境目より前。D4）。実績は EVAL_LOG の neutral・constraint_relevant_flag = 1。
+ * 月ごとに、その月が始まる前（日本の暦の 1 日 0 時より前）の最後の予測の回（forecast_open）だけで測る（2026-10-07 村井さん承認 D6）。
+ * 回は AI_IMPACT_HISTORY（予測のたびに 12 か月を書く）で選び、人や話題の押した向きは同じ回（run_id。無ければ run_at）の行だけを使う
+ * （その回で押していなければ、その月は数えない）。締まった月で実績があるのに、その月が始まる前の予測が無い月は数えず、
+ * noPre（渡したときだけ。{ 計画の ID: [月] }）に入れる（その月が始まる前の予測が無い月）。
  * 返り値: [{ planId, ym, quarter, type, key, hit(0/1) }]
  */
-function appSourceEvidence_(ids, tab) {
+function appSourceEvidence_(ids, tab, noPre) {
   const subj = tab('SUBJECTIVE_IMPACT_HISTORY');
   const impact = tab('AI_IMPACT_HISTORY');
   const evals = tab('EVAL_LOG');
+  const cut = appInsightCutoffs_(ids, tab('PROCESS_STATUS'));
   const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
   const out = [];
   ids.forEach(id => {
@@ -361,33 +376,38 @@ function appSourceEvidence_(ids, tab) {
     (evals[id] || []).forEach(r => {
       if (String(r.scenario) !== 'neutral' || String(r.constraint_relevant_flag) !== '1') return;
       const ym = appYm_(r.target_month);
-      if (ym) actual[ym] = Number(r.actual || 0);
+      if (cut[id] && /^\d{4}\/\d{2}$/.test(ym) && ym < cut[id]) actual[ym] = Number(r.actual || 0);   // 締まっていない月は読み飛ばす
     });
-    const quant = {};
+    const pre = {};   // 月 → その月が始まる前の最後の回 { v: 過去の売上だけの予測, t, i, run }
     (impact[id] || []).forEach((r, i) => {
       if (String(r.forecast_source || '').trim() !== 'forecast_open') return;
       const ym = appYm_(r.target_month);
+      const start = appMonthStartMs_(ym);
       const t = appTimeKey_(r.run_at);
-      if (ym && newer(quant[ym], t, i)) quant[ym] = { v: Number(r.pred_p50_quant_only || 0), t: t, i: i };
+      if (start === null || !(t > 0) || t >= start) return;   // 月が始まった後の回と、時刻の読めない回は使わない
+      if (newer(pre[ym], t, i)) pre[ym] = { v: Number(r.pred_p50_quant_only || 0), t: t, i: i, run: String(r.run_id || '').trim() };
     });
+    const sameRun = (p, r, t) => { const run = String(r.run_id || '').trim(); return p.run && run ? run === p.run : t === p.t; };
     const latest = {};
     (subj[id] || []).forEach((r, i) => {
       if (String(r.forecast_source || '').trim() !== 'forecast_open') return;
       const ym = appYm_(r.target_month);
       const type = String(r.source_type || '').trim();
       const key = String(r.source_key || '').trim();
-      if (!ym || !type || !key) return;
-      const u = ym + '\u0001' + type + '\u0001' + key;
+      if (!ym || !type || !key || !pre[ym]) return;
       const t = appTimeKey_(r.run_at);
+      if (!sameRun(pre[ym], r, t)) return;
+      const u = ym + '\u0001' + type + '\u0001' + key;
       if (newer(latest[u], t, i)) latest[u] = { ym: ym, type: type, key: key, dir: Math.sign(Number(r.push_direction || 0)), t: t, i: i };
     });
     Object.keys(latest).forEach(u => {
       const x = latest[u];
-      if (!Object.prototype.hasOwnProperty.call(actual, x.ym) || !quant[x.ym] || !isFinite(actual[x.ym]) || !isFinite(quant[x.ym].v)) return;
-      const surprise = Math.sign(actual[x.ym] - quant[x.ym].v);
+      if (!Object.prototype.hasOwnProperty.call(actual, x.ym) || !isFinite(actual[x.ym]) || !isFinite(pre[x.ym].v)) return;
+      const surprise = Math.sign(actual[x.ym] - pre[x.ym].v);
       if (!surprise || !x.dir) return;
       out.push({ planId: id, ym: x.ym, quarter: appInsightQuarter_(x.ym), type: x.type, key: x.key, hit: x.dir === surprise ? 1 : 0 });
     });
+    if (noPre) noPre[id] = Object.keys(actual).filter(ym => !pre[ym]).sort();
   });
   return out.sort(appInsightEvidenceOrder_);
 }
@@ -405,10 +425,11 @@ function appInsightEvidenceKey_(planId) {
 /**
  * 全計画の当たり（appSourceEvidence_ と同じ行・同じ並び）。計画ごとに、入力のハッシュが同じあいだ控える（6 時間。精度の控え ACC_ と同じ）。
  * どこかで保存すると画面の控え（appCachedRead_）は全部外れるが、この控えは保存した計画の分だけが外れる。
- * 控えの無い計画だけ 3 つの表（SUBJECTIVE_IMPACT_HISTORY・AI_IMPACT_HISTORY・EVAL_LOG）を読む（少なければ、その計画の行だけ）。
- * 控えは [月, 種類, 人や話題, 当たり] の並びで持つ（小さくするため）
+ * 控えの無い計画だけ 4 つの表（SUBJECTIVE_IMPACT_HISTORY・AI_IMPACT_HISTORY・EVAL_LOG・PROCESS_STATUS）を読む（少なければ、その計画の行だけ）。
+ * 控えは { rows: [[月, 種類, 人や話題, 当たり]], noPre: [その月が始まる前の予測が無い月] } で持つ（小さくするため。前の形の控えは使わずに数え直す）。
+ * noPre（渡したときだけ）に、計画ごとの「その月が始まる前の予測が無い月」を入れる（appSourceEvidence_）
  */
-function appInsightEvidence_(ids, tab) {
+function appInsightEvidence_(ids, tab, noPre) {
   appInsightPreloadHashes_(ids);
   const keys = {};
   ids.forEach(id => { try { keys[id] = appInsightEvidenceKey_(id); } catch (e) { /* 鍵を作れない計画は控えない（毎回数える） */ } });
@@ -417,20 +438,28 @@ function appInsightEvidence_(ids, tab) {
   const missing = [];
   ids.forEach(id => {
     const c = keys[id] ? hits[keys[id]] : null;
-    if (!c || !c.found || !Array.isArray(c.value)) { missing.push(id); return; }
-    c.value.forEach(x => out.push({ planId: id, ym: x[0], quarter: appInsightQuarter_(x[0]), type: x[1], key: x[2], hit: x[3] }));
+    if (!c || !c.found || !c.value || !Array.isArray(c.value.rows) || !Array.isArray(c.value.noPre)) { missing.push(id); return; }
+    c.value.rows.forEach(x => out.push({ planId: id, ym: x[0], quarter: appInsightQuarter_(x[0]), type: x[1], key: x[2], hit: x[3] }));
+    if (noPre) noPre[id] = c.value.noPre;
   });
   if (missing.length) {
     const few = appInsightFew_(missing, ids);
     const mine = {};
+    const gaps = {};
     missing.forEach(id => { mine[id] = []; });
-    appSourceEvidence_(missing, sheet => tab(sheet, few)).forEach(e => { mine[e.planId].push([e.ym, e.type, e.key, e.hit]); out.push(e); });
+    appSourceEvidence_(missing, sheet => tab(sheet, few), gaps).forEach(e => { mine[e.planId].push([e.ym, e.type, e.key, e.hit]); out.push(e); });
     missing.forEach(id => {
+      if (noPre) noPre[id] = gaps[id] || [];
       if (!keys[id]) return;
-      try { appJobPutResult_(keys[id], mine[id]); } catch (e) { /* 控えられなくても返す */ }
+      try { appJobPutResult_(keys[id], { rows: mine[id], noPre: gaps[id] || [] }); } catch (e) { /* 控えられなくても返す */ }
     });
   }
   return out.sort(appInsightEvidenceOrder_);
+}
+
+/** 計画ごとの月の一覧（{ 計画の ID: [月] }）の月の数の合計 */
+function appInsightCountMonths_(byPlan) {
+  return Object.keys(byPlan).reduce((s, id) => s + (byPlan[id] || []).length, 0);
 }
 
 // ---- 分析（メーカーを横に並べる） ----
@@ -439,7 +468,7 @@ function appInsightEvidence_(ids, tab) {
  * 年度（省くと今の年度。無ければ一番新しい年度）のメーカーごとの要点。
  * 返り値: { fy, fys, plans: [計画の一覧（appPortfolioCached_）の行の項目すべて + revisions, accuracy, topics], totals, market }
  *   revisions: [{ at, p10, p50, p90 }]（新アプリで動かした予測。古い順に最近の 12 回）
- *   accuracy:  { n, leaks, mape, bias, coverage, coverageN, widthScale }（Learning.js の精度。締まった後の予測の月は除く）
+ *   accuracy:  { n, leaks, mape, bias, coverage, coverageN, widthScale }（Learning.js の精度。締まった月だけ。締まった後の予測の月は除く）
  *   topics:    [{ topic, rowType, direction, impact, confidence, score, position, percentile, horizon, asOf }]（AI 調査の一番新しい回）
  *   totals:    { plans, budget, budgetDraft, p50, landing, landingPlans, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding }
  *              （合計。予算は計画ごとの空模様と同じ budgetUsed = 承認済みの公式版の最終予算、無ければ今の予算。budgetDraft = 今の予算（OUTPUT）の合計。
@@ -526,6 +555,7 @@ function appCrossMaker_(fy) {
  *                            plans: [{ planId, clientName, fy, n, hit, appliedR }] }]（人や話題ごと）
  *                summary: [{ type, label, sources, n, hit, hitRate, alpha, beta, postMean, ci80, prior }]（情報源の種類ごと。sources = まとめた人や話題の数。今の信頼度は出さない）
  *                （どちらも 80% の区間の下の端が高い順。少ない数で上位に出ない）
+ *   noPreMonth:  締まった月で実績があるのに、その月が始まる前の予測が無いので当たりを数えなかった月の数（計画 × 月。D6）
  *   decisions:   [{ planId, clientName, fy, reviewId, proposalId, at, quarter, phase, phaseLabel, target, targetLabel, current, proposed,
  *                   confidence, rationale, status, decidedAt, decidedBy, applied, appliedAt }]（四半期レビューの提案と判断。新しい順。
  *                   summary では decidedBy は無く、信頼度の対象は種類まで（reliability:<種類>・「見解の信頼度」）。信頼度の提案の rationale は空）
@@ -539,10 +569,12 @@ function appPeopleLearning_(ctx) {
   const plans = appInsightPlans_();
   const ids = plans.map(p => p.planId);
   const tab = appInsightTables_(ids);
-  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'), hide);
-  const evidence = appInsightEvidence_(ids, tab);
+  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'), hide, appInsightCutoffs_(ids, tab('PROCESS_STATUS')));
+  const noPre = {};
+  const evidence = appInsightEvidence_(ids, tab, noPre);
   return Object.assign({ detail: detail }, l, {
     scoreboard: appSourceScoreboard_(plans, evidence, tab('POOL_PRIOR'), tab('SOURCE_RELIABILITY'), hide),
+    noPreMonth: appInsightCountMonths_(noPre),
     decisions: appInsightDecisions_(plans, tab('QUARTERLY_REVIEW_LOG'), hide),
     uplift: appInsightUplift_(ids)
   });
@@ -565,17 +597,19 @@ function appInsightHasHuman_(r) {
 /**
  * 外れた月の振り返り。B-4 を動かし直すと同じ月の行が増える（月が日付に変わり、旧来の上書きの鍵が合わない）ので、計画 × 月で 1 つにする:
  * 数字（実績・予測・幅の外か）は一番新しい行から、人が書いた欄（原因・対応・次回への反映・担当・状態）は人が書いた一番新しい行から取る。
+ * 締まった月（cutoffs = { 計画の ID: 境目 }。appInsightCutoffs_）の行だけを使う（D4。途中の実績で書かれた行は消さずに読み飛ばす）。
  * hideNames = true なら担当（人の名前）を出さない
  */
-function appInsightLessons_(plans, insights, hideNames) {
+function appInsightLessons_(plans, insights, hideNames, cutoffs) {
   const all = [];
   let dup = 0;
   const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
   plans.forEach(p => {
     const byYm = {};
+    const cutoff = (cutoffs || {})[p.planId] || '';
     (insights[p.planId] || []).forEach((r, i) => {
       const ym = appYm_(r.target_month);
-      if (!/^\d{4}\/\d{2}$/.test(ym)) return;
+      if (!/^\d{4}\/\d{2}$/.test(ym) || !cutoff || ym >= cutoff) return;
       const o = byYm[ym] = byYm[ym] || { latest: null, human: null, rows: 0 };
       const t = appTimeKey_(r.evaluated_at);
       o.rows++;
@@ -724,8 +758,9 @@ function appInsightUplift_(ids) {
  *   detail:      'full'（予算策定担当以上）/ 'summary'（閲覧・情報提供。人や話題の名前を出さない）
  *   curves:      [{ type, label, prior: { alpha0, beta0, mu, precision, from, mean, ci80 }, n, hit,
  *                   quarters: [{ quarter, n, hit, cumN, cumHit, alpha, beta, mean, ci80 }] }]（四半期ごとに積み上げた事後。画面がベータ分布の曲線を描く）
+ *   noPreMonth:  その月が始まる前の予測が無いので当たりを数えなかった、締まった月の数（人の学びと同じ。D6）
  *   shrinkage:   { mu, tau, tau2, pooled, plans: [{ planId, clientName, fy, n, bias, se, shrunk, factorShadow, mapeNow, mapeShadow }] }
- *   timeline:    [{ ym, n, mape, coverage, coverageN, coverageCi80: [下, 上], target, rolling3, rolling3N }]（全計画の月ごと。締まった後の予測の月は除く）
+ *   timeline:    [{ ym, n, mape, coverage, coverageN, coverageCi80: [下, 上], target, rolling3, rolling3N }]（全計画の締まった月ごと。締まった後の予測の月は除く）
  *   calibration: [{ planId, clientName, fy, factorNow, path: [{ at, factor, factorLabel, old, new, source, sourceLabel, quarter }] }]
  *                  （summary では信頼度の factor は種類まで: reliability:<種類>・「見解の信頼度」）
  *   pending:     [{ planId, clientName, fy, reviewId, at, quarter, proposals: [{ proposalId, phase, phaseLabel, target, targetLabel, current, proposed,
@@ -739,7 +774,8 @@ function appAiLearning_(ctx) {
   const plans = appInsightPlans_();
   const ids = plans.map(p => p.planId);
   const tab = appInsightTables_(ids);
-  const evidence = appInsightEvidence_(ids, tab);
+  const noPre = {};
+  const evidence = appInsightEvidence_(ids, tab, noPre);
   const priors = appInsightPriors_(tab('POOL_PRIOR'));
   const curves = Object.keys(priors).map(type => {
     const pr = priors[type];
@@ -774,14 +810,17 @@ function appAiLearning_(ctx) {
   const factorNow = {};
   ids.forEach(id => { const c = (state[id] || []).slice(-1)[0]; factorNow[id] = c ? appNum_(c.bias_correction_factor) : null; });
   return {
-    detail: detail, curves: curves, shrinkage: shrinkage, timeline: appInsightTimeline_(accs),
+    detail: detail, curves: curves, noPreMonth: appInsightCountMonths_(noPre), shrinkage: shrinkage, timeline: appInsightTimeline_(accs),
     calibration: appInsightCalibration_(plans, tab('CALIBRATION_HISTORY'), factorNow, hide),
     pending: appInsightPending_(plans, tab('QUARTERLY_REVIEW_LOG'), hide),
     health: appInsightHealth_(plans, accs, shadow, factorNow)
   };
 }
 
-/** 全計画の月ごとの誤差と、P10〜P90 に入った割合（Wilson の 80% の区間）。rolling3 = その月までの 3 か月の誤差の平均（全計画の月をまとめて） */
+/**
+ * 全計画の月ごとの誤差と、P10〜P90 に入った割合（Wilson の 80% の区間）。rolling3 = その月までの 3 か月の誤差の平均（全計画の月をまとめて）。
+ * 月は accs（appAccuracyOf_）の月 = 締まった月だけ（D4）
+ */
 function appInsightTimeline_(accs) {
   const by = {};
   Object.keys(accs).forEach(id => (accs[id].months || []).forEach(m => {

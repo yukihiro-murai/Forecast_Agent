@@ -2,11 +2,17 @@
  * app-learning.test.mjs — 精度の推移・全計画で縮めた偏りの補正（影）・幅の較正・情報源の信頼度の事前分布（ベータ二項）。
  */
 import assert from 'node:assert/strict';
-import { setUpEnv, STATS } from './gas-mock.mjs';
+import { setUpEnv, STATS, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const env = setUpEnv();
 const H = env.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
+/**
+ * 実績の取り込み（B-1）と検証（B-2）の記録。締まった月は、B-1 の日に月末から 5 日たった月だけ（2026-10-07 D5）なので、
+ * 精度を測るには B-1 → B-2 の記録が要る（無ければ締まった月は無い）。2026-01-05 の取り込みなら 2025/12 まで締まっている
+ */
+const status = (client, b1 = new Date(2026, 0, 5, 10)) => ({ values: [H.PROCESS_STATUS, ['step2_status', b1, 'owner', 'success', client, 36, ''],
+  ['step5_status', new Date(b1.getTime() + 3600e3), 'owner', 'success', client, 36, '']] });
 /** 12 か月の検証の記録: 予測は実績の over 倍。P10〜P90 は ±width。最後の月は締まった後の予測（予測 = 実績） */
 function book(client, over, width, hit) {
   const ev = [H.EVAL_LOG];
@@ -26,6 +32,7 @@ function book(client, over, width, hit) {
     RELIABILITY_EVIDENCE: { values: evid },
     POOL_PRIOR: { values: [H.POOL_PRIOR] },
     CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, [client, D(2026, 1, 5), 'owner', '', '', '', 0.98, '', '{}', '', '', 1, '']] },
+    PROCESS_STATUS: status(client),
   });
 }
 const ids = {};
@@ -94,4 +101,43 @@ assert.equal(env.call('apiLearningView(__in)', { __in: { planId: ids['甲製薬'
 const again = env.runJob('LEARN.POOL', {});
 assert.equal(again.status, 'DONE', again.error);
 env.run('appPlanReadMinRows_ = () => 3000');
+
+// ==== 5. 締まった月だけで測る（2026-10-07 村井さん承認 D4・D5）。締まっていない月の EVAL_LOG の行は消さずに読み飛ばす ====
+{
+  const e2 = setUpEnv();
+  /** 甲製薬と同じ 12 か月（2025/01〜12。最後の月は予測 = 実績）に、extra の月（途中の実績 10 に予測 1000。誤差がとても大きい）を足した記録 */
+  const evalRows = (client, extra) => {
+    const ev = [H.EVAL_LOG];
+    const add = (i, ym, act, p50) => { for (const [sc, p] of [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]) ev.push(['E' + i + sc, D(2026, 2, 3), client, ym, sc, p, act, Math.abs(p - act) / act, 0, '', '', sc === 'neutral' ? 1 : 0, p - act, Math.abs(p - act), '', '', '', '', '', '', '', 1]); };
+    for (let i = 0; i < 12; i++) { const act = 1000 + i * 10 * (i % 3 === 0 ? -1 : 1); add(i, '2025/' + String(i + 1).padStart(2, '0'), act, i === 11 ? act : act * 1.1); }
+    extra.forEach((ym, j) => add(12 + j, ym, 10, 1000));
+    return ev;
+  };
+  const plan = (client, extra, b1) => e2.seedPlan(e2.makeBook(client, Object.assign({
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2025], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    EVAL_LOG: { values: evalRows(client, extra), formats: { D: '@' } },
+  }, b1 ? { PROCESS_STATUS: status(client, b1) } : {})));
+  const base = plan('基準製薬', [], new Date(2026, 0, 5, 10));                                   // 締まっていない月の行が無い
+  const day3 = plan('三日製薬', ['2026/01', '2026/02'], new Date(2026, 1, 3, 10));               // 2/03 の取り込み: 1 月はまだ途中
+  const day6 = plan('六日製薬', ['2026/01', '2026/02'], new Date(2026, 1, 6, 10));               // 2/06 の取り込み: 1 月は締まった（2 月は途中）
+  const none = plan('記録無し製薬', [], null);                                                   // B-1 → B-2 の記録が無い
+  const acc = (id) => J(e2.run(`appAccuracyOf_('${id}')`));
+  const strip = (a) => Object.assign({}, a, { cutoffYm: undefined });
+  const a0 = acc(base), a3 = acc(day3), a6 = acc(day6), aN = acc(none);
+  assert.deepEqual([a0.cutoffYm, a3.cutoffYm, a6.cutoffYm, aN.cutoffYm], ['2026/01', '2026/01', '2026/02', '']);
+  assert.deepEqual(strip(a3), strip(a0), '締まっていない月の行があっても、精度は無いときと同じ（読み飛ばす）');
+  assert.deepEqual([a0.n, a0.leaks, a0.months.length], [11, 1, 12]);
+  assert.deepEqual([a6.n, a6.months.length, a6.months[12].month], [12, 13, '2026/01'], '6 日の取り込みなら 1 月を数える（2 月は数えない）');
+  assert.ok(a6.mape > a0.mape + 0.05, '締まった 1 月の大きな外れが入る: ' + a6.mape);
+  assert.deepEqual([aN.n, aN.months, aN.mape, aN.coverage, aN.widthScale], [0, [], null, null, null], 'B-1 → B-2 の記録が無ければ締まった月は無い');
+  // 境目を渡しても同じ（全計画をまとめて読む学びの画面が使う形）
+  assert.deepEqual(J(e2.run(`appAccuracyOf_('${day3}', appEngTableObjects_('${day3}', ['EVAL_LOG']).EVAL_LOG, '2026/01')`)), a3);
+  // 検証の画面: 全計画で縮めた偏りの影も、締まった月だけ（day3 の今の誤差は基準と同じ）
+  const v3 = e2.call('apiLearningView(__in)', { __in: { planId: day3 } }), v0 = e2.call('apiLearningView(__in)', { __in: { planId: base } });
+  assert.equal(v3.accuracy.n, 11);
+  assert.ok(Math.abs(v3.shadow.mapeNow - v0.shadow.mapeNow) < 1e-12 && Math.abs(v3.shadow.bias - v0.shadow.bias) < 1e-12, '縮めた偏りの材料も同じ');
+  assert.ok(!v3.accuracy.months.some((m) => m.month >= '2026/01'), '画面に締まっていない月を出さない');
+  // 行は消さない
+  assert.equal(e2.table('ENG_EVAL_LOG').filter((r) => r.plan_id === day3).length, 14 * 3, '締まっていない月の行も残る');
+}
 console.log('app-learning: all tests passed');

@@ -3,7 +3,9 @@
  *
  * 旧来の計算は変えない。ここで計算するものは、次の 2 つに分ける:
  *   影（予測に効かない。画面に出すだけ）
- *     - 精度の推移: 月の誤差・偏り・P10〜P90 に実績が入った割合（目標 80%）。締まった後の予測（誤差 0）は除いて数える
+ *     - 精度の推移: 月の誤差・偏り・P10〜P90 に実績が入った割合（目標 80%）。締まった後の予測（誤差 0）は除いて数える。
+ *       締まった月（月末から 5 日たってから取り込んだ月。appLandingCutoff_）だけを使う（2026-10-07 村井さん承認 D4。締まっていない月の
+ *       EVAL_LOG の行は消さずに読み飛ばす）。どの回の予測で測るか（その月が始まる前の最後の回。D6）は、EVAL_LOG を書く旧来の B-2 が決める
  *     - 全計画で縮めた偏りの補正（階層ベイズ / 経験ベイズ）: 計画ごとの偏りを、全計画の平均へ、ばらつきに応じて縮める
  *     - P10〜P90 の幅の較正（コンフォーマル）: 実績の 80% が入る幅にするには、今の幅を何倍にすればよいか
  *   人の判断で入れるもの
@@ -17,12 +19,17 @@ const APP_POOL_PRECISION_MIN = 2;
 const APP_POOL_PRECISION_MAX = 50;
 const APP_BIAS_HALF_LIFE = 4;      // 旧来の B-5 と同じ（月）
 
-/** 計画の EVAL_LOG を、月ごとの P10/P50/P90 と実績にする（rows = 読んである EVAL_LOG の行。省くとその計画の分を読む） */
-function appEvalMonths_(planId, rows) {
+/**
+ * 計画の EVAL_LOG を、締まった月（cutoffYm より前）ごとの P10/P50/P90 と実績にする（rows = 読んである EVAL_LOG の行。省くとその計画の分を読む）。
+ * cutoffYm が '' なら締まった月は無い（空を返す）
+ */
+function appEvalMonths_(planId, rows, cutoffYm) {
   rows = rows || appEngTableObjects_(planId, ['EVAL_LOG']).EVAL_LOG;
+  const cutoff = String(cutoffYm || '');
   const by = {};
   rows.forEach(r => {
     const ym = appYm_(r.target_month);
+    if (!cutoff || !/^\d{4}\/\d{2}$/.test(ym) || ym >= cutoff) return;   // 締まっていない月（途中の実績）は読み飛ばす
     const o = by[ym] = by[ym] || { month: ym };
     const pred = appNum_(r.pred), act = appNum_(r.actual);
     if (r.scenario === 'nega') o.p10 = pred;
@@ -83,9 +90,15 @@ function appAccuracyAll_(planIds) {
   return accs;
 }
 
-/** 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう）。evalRows は appEvalMonths_ と同じ */
-function appAccuracyOf_(planId, evalRows) {
-  const ms = appEvalMonths_(planId, evalRows).map(m => {
+/**
+ * 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう）。evalRows は appEvalMonths_ と同じ。
+ * 締まった月だけで測る（D4）。cutoffYm（締まった月の境目。appLandingCutoff_）を省くと、その計画の PROCESS_STATUS を読んで決める
+ */
+function appAccuracyOf_(planId, evalRows, cutoffYm) {
+  const need = (evalRows ? [] : ['EVAL_LOG']).concat(typeof cutoffYm === 'string' ? [] : ['PROCESS_STATUS']);
+  const t = need.length ? appEngTableObjects_(planId, need) : {};
+  const cutoff = typeof cutoffYm === 'string' ? cutoffYm : appLandingCutoff_(t.PROCESS_STATUS);
+  const ms = appEvalMonths_(planId, evalRows || t.EVAL_LOG, cutoff).map(m => {
     const err = (m.p50 - m.actual) / Math.abs(m.actual);
     const hasRange = m.p10 !== null && m.p10 !== undefined && m.p90 !== null && m.p90 !== undefined && m.p90 > m.p10;
     return Object.assign({}, m, { err: err, ape: Math.abs(err), leak: Math.abs(m.p50 - m.actual) < 1e-6,
@@ -100,7 +113,7 @@ function appAccuracyOf_(planId, evalRows) {
   const w = use.map((m, i) => Math.pow(0.5, (use.length - 1 - i) / APP_BIAS_HALF_LIFE));
   const half = Math.floor(use.length / 2);
   return {
-    months: ms, n: use.length, leaks: ms.length - use.length,
+    months: ms, n: use.length, leaks: ms.length - use.length, cutoffYm: cutoff,
     mape: mean(use.map(m => m.ape)), bias: appWMean_(use.map(m => m.err), w), biasW: w.reduce((a, b) => a + b, 0),
     errVar: use.length > 1 ? mean(use.map(m => Math.pow(m.err - mean(use.map(x => x.err)), 2))) : null,
     coverage: inside.length ? inside.filter(m => m.inside).length / inside.length : null, coverageN: inside.length,
@@ -113,6 +126,7 @@ function appAccuracyOf_(planId, evalRows) {
 
 /**
  * 全計画の偏りの補正を、全体の平均へ縮める（経験ベイズ・DerSimonian–Laird の τ²）。影: 予測には効かない。
+ * 使う月は accs（appAccuracyOf_）の月 = 締まった月だけ（D4）。
  * 返り値: { mu, tau2, plans: { planId: { bias, se, shrunk, factorShadow, mapeNow, mapeShadow } } }（se = 偏りの標準誤差。縮める強さを決めたもの）
  */
 function appBiasShadow_(accs) {

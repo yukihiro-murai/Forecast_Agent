@@ -1531,7 +1531,7 @@ function homeKpis(h, plans){
   var same = t.ratioPlans === t.budgetPlans && t.ratioPlans === t.landingPlans;
   var landTip = '着地の推定の合計: ' + yenU(t.landing) + '\n締まった月の実績に、残りの月の予測を足して推定しています\n' + homeRangeTip(r, all)
     + (isNum(t.ratio) ? '\n予算の ' + (t.ratio * 100).toFixed(1) + '%（着地と予算の両方がある ' + t.ratioPlans + ' メーカーで比べています' + (isNum(bothB) ? '。その予算の合計 ' + yenU(bothB) : '') + '）' : '');
-  var actTip = '暫定実績の合計: ' + yenU(t.actualYtd) + '\n締まった月の実績を足しています' + (months ? '（最大 ' + months + ' か月）' : '');
+  var actTip = '暫定実績の合計: ' + yenU(t.actualYtd) + '\n締まった月（月末から 5 日たってから取り込んだ月）の実績を足しています' + (months ? '（最大 ' + months + ' か月）' : '');
   var mapeTip = '締まった月の、予測の中心と実績の差の割合（向きは問わない）の平均です。メーカーごとの平均を、さらにメーカーで平均しています（' + m.n + ' メーカー）';
   return '<div class="kpis hm-kpis">'
     + homeKpi('年間予算', yenShort(t.budget), '円', budgetTip, true, isNum(t.budget) ? (t.budgetPlans < all ? t.budgetPlans + ' / ' + all + ' メーカー' : all + ' メーカー') : '')
@@ -1771,7 +1771,7 @@ function mkTable(rows){
     + '<td class="num" data-tip="' + esc(homeRangeTip(r, all)) + '">' + yen(r ? r.landing : null) + cnt(r ? r.n : 0) + '</td><td class="mk-open"></td></tr>';
   // 列の幅（左右の余白 8px）: 空模様 144・ステータス 128（同じ幅の札 112）・数字 128。残りをメーカーの名前に（1280px の画面で 7 文字）
   return '<table class="tbl mk"><colgroup><col><col style="width:144px"><col style="width:128px"><col style="width:128px"><col style="width:128px"><col style="width:128px"><col class="mk-open" style="width:152px"></colgroup>'
-    + '<thead><tr><th class="colmin"' + colMinStyle(rows.map(function(p){ return p.clientName; })) + '>メーカー</th><th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた見通しです">空模様</th><th data-tip="未着手 = まだ予測がない・策定中 = 予測はあるが公式版をまだ出していない・承認待ち = 出した版を承認者が確認中・承認済み = 公式版が承認された">ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th class="mk-open"><span class="sr">開く</span></th></tr></thead><tbody>'
+    + '<thead><tr><th class="colmin"' + colMinStyle(rows.map(function(p){ return p.clientName; })) + '>メーカー</th><th data-tip="締まった月の実績と予測から推定した着地を、予算と比べた見通しです">空模様</th><th data-tip="未着手 = まだ予測がない・策定中 = 予測はあるが公式版をまだ出していない・承認待ち = 出した版を承認者が確認中・承認済み = 公式版が承認された">ステータス</th><th class="num" data-tip="承認済みの公式版の最終予算（無ければ今の予算）">年間予算</th><th class="num" data-tip="締まった月（月末から 5 日たってから取り込んだ月）の実績の合計">暫定実績</th><th class="num" data-tip="締まった月の実績と、残りの月の予測から推定した年度の着地">着地の推定</th><th class="mk-open"><span class="sr">開く</span></th></tr></thead><tbody>'
     + body + foot + '</tbody></table>';
 }
 // ==== END REGION: MAKERS ====
@@ -2206,7 +2206,7 @@ function fcReviewTab(d, v){
   if (ins.length) html += fcRvNotes(ins, canPlan);
   if (props.length) html += fcRvProposals(q);
   var acts = fcActions([
-    ['IMPORT.ACTUALS', '確定した月の実績を、ZAC の実績から取り込み直します。', 'admin', fcSourceNote()],
+    ['IMPORT.ACTUALS', 'ZAC の実績を取り込み直します。締まった月として数えるのは、月末から 5 日たってから取り込んだ月だけです。', 'admin', fcSourceNote()],
     ['EVAL.REPORT', '予測と実績を比べて、月ごとの当たり具合を計算し直します。'],
     ['EVAL.INSIGHTS', '外れた月の原因の見立てを作り直します。'],
     ['LEARN.MONTHLY', '実績から補正の係数を学び直します（次の予測に反映）。'],

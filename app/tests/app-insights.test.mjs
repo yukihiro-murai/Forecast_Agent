@@ -26,6 +26,12 @@ const impact = (client, runAt, ym, quant, src = 'forecast_open') => row('AI_IMPA
   pred_p50_quant_only: quant, forecast_source: src });
 const push = (client, runAt, ym, type, key, dir, src = 'forecast_open') => row('SUBJECTIVE_IMPACT_HISTORY', { run_id: 'R' + runAt.getTime(), run_at: runAt, client, target_month: ym,
   source_type: type, source_key: key, push_step: dir * 0.05, push_direction: dir, applied_reliability_r: 1, forecast_source: src });
+/**
+ * 実績の取り込み（B-1）→ 検証（B-2）の記録。2026-10-07 から（D4・D5）、振り返り・当たり・精度は締まった月（B-1 の日に月末から 5 日たった月）
+ * だけで数えるので、この記録の無い計画には締まった月が無い。既定の 2026-10-06 の取り込みなら 2026/09 まで締まっている
+ */
+const doneStatus = (client, b1 = new Date(2026, 9, 6, 10)) => ({ values: [H.PROCESS_STATUS, ['step2_status', b1, 'owner', 'success', client, 10, ''],
+  ['step5_status', new Date(b1.getTime() + 3600e3), 'owner', 'success', client, 10, '']] });
 const research = (client, asOf, topic, rowType, dir, score) => row('AI_RESEARCH_STRUCTURED', { client, as_of_date: asOf, topic, row_type: rowType, direction: dir, impact_score: 3,
   confidence: 0.7, blended_score: score, relative_position_label: '中位' });
 
@@ -81,6 +87,7 @@ const bookA = env.makeBook('甲', {
     { change_id: 'C3', changed_at: D(2026, 6, 10), quarter_label: 'FY2026-Q1', review_id: 'AUTO-MONTHLY', factor_name: 'residual_month_bias_json', old_value: '', new_value: '{"04":-0.05}' },
   ].map((o) => row('CALIBRATION_HISTORY', Object.assign({ client: '甲製薬', changed_by: 'owner' }, o)))) },
   CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, ['甲製薬', D(2026, 6, 10), 'owner', '', '', '', 0.75, '', '{}', '', '', 1, '']] },
+  PROCESS_STATUS: doneStatus('甲製薬'),
   AI_RESEARCH_STRUCTURED: { values: [H.AI_RESEARCH_STRUCTURED, research('甲製薬', D(2026, 8, 1), 'Market', 'event', 'down', -30),
     research('甲製薬', D(2026, 9, 1), 'Market', 'event', 'up', 10), research('甲製薬', D(2026, 9, 1), 'Market', 'benchmark', 'positive', 14),
     research('甲製薬', D(2026, 9, 1), 'Competitor', 'event', '低下', -5)] },
@@ -102,6 +109,7 @@ const bookB = env.makeBook('乙', {
   QUARTERLY_REVIEW: { values: [['【四半期レビュー: FY2026-Q1】'], [], [], [], [], [], ['提案ID', '対象', '現在値', '提案値', '自信度', '根拠', '影響見積もり', '承認列', 'ロールバック'],
     ['P-A-3', 'ai_weight_override', '0.5', '0.75', '中', '', '…', '', '…', 'R3']] },
   CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, ['乙製薬', D(2026, 6, 10), 'owner', '', '', '', 1, '', '{}', '', '', 1, '']] },
+  PROCESS_STATUS: doneStatus('乙製薬'),
   AI_RESEARCH_STRUCTURED: { values: [H.AI_RESEARCH_STRUCTURED, research('乙製薬', D(2026, 9, 15), 'Market', 'event', 'up', 20)] },
 });
 // ---- 丙製薬 FY2025: 記録が何も無い計画 ----
@@ -339,6 +347,7 @@ const ai = env.call('apiAiLearning()');
       [], r('EVAL_LOG', { eval_id: 'E2', evaluated_at: D(2026, 9, 1), client: '一製薬', target_month: '2026/05', scenario: 'neutral', pred: -0, actual: 90, was_overridden: true })],
     formulas: { H2: '=1+1' } },
     SOURCE_RELIABILITY: { values: [H2.SOURCE_RELIABILITY, ['一製薬', 'opinion', '鷹野', 1.2, '', '', '', '', '']] },
+    PROCESS_STATUS: doneStatus('一製薬', new Date(2026, 5, 6, 10)),
   }));
   const renamed = H2.SOURCE_RELIABILITY.map((h) => (h === 'note' ? 'memo' : h));
   const p2 = e2.seedPlan(e2.makeBook('二', {
@@ -362,6 +371,7 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual(Object.keys(J(e2.run(`appEngAll_('EVAL_LOG', ['${p2}'])`))), [p2], '計画を選べる');
   // 精度は、まとめて読んだ行から計算しても同じ
   assert.equal(e2.run(`JSON.stringify(appAccuracyOf_('${p1}'))`), e2.run(`JSON.stringify(appAccuracyOf_('${p1}', appEngAll_('EVAL_LOG')['${p1}']))`));
+  assert.equal(J(e2.run(`appAccuracyOf_('${p1}')`)).n, 2, '締まった 2 か月で比べる（記録が無ければ 0 か月で、比べても意味が無い）');
   // 読むのは表 1 回（表示形式や行ごとの表は読まない）
   for (const k of Object.keys(STATS)) STATS[k] = k === 'bySheet' ? {} : 0;
   e2.run(`(() => { APP_STORE_CACHE_ = {}; return appEngAll_('EVAL_LOG'); })()`);
@@ -461,7 +471,7 @@ const ai = env.call('apiAiLearning()');
     ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 5), actual_total: 800, action_type: '前提を更新' }),   // 人が画面で選んだ対応
     ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 6), actual_total: 850 }),
     ins({ evaluated_at: D(2026, 6, 10), target_month: D(2026, 7), actual_total: 1000, range_breach: 0, action_type: 'keep', next_cycle_reflection: '現行運用を継続', status: 'monitoring' }),
-  ] } }));
+  ] }, PROCESS_STATUS: doneStatus('壬製薬', new Date(2026, 7, 6, 10)) }));
   const p = e5.call('apiPeopleLearning()');
   const by = Object.fromEntries(p.lessons.map((x) => [x.ym, x]));
   assert.deepEqual([by['2026/04'].reflection, by['2026/04'].human, by['2026/04'].duplicates], ['単価の前提を見直す', true, 1], '反映の欄だけの記入も、新しい自動の行に負けない');
@@ -617,8 +627,8 @@ const ai = env.call('apiAiLearning()');
   env.call('apiPeopleLearning()'); env.call('apiAiLearning()');   // 控えがある状態から
   env.run('appPlanReadMinRows_ = () => 0');   // 表が大きいとき（計画の行だけを探して読む）
   env.run(`__evd = []; __acc = []; __evdOrig = appSourceEvidence_; __accOrig = appAccuracyOf_;
-    appSourceEvidence_ = function (ids, tab) { __evd.push(ids.slice()); return __evdOrig(ids, tab); };
-    appAccuracyOf_ = function (id, rows) { __acc.push(id); return __accOrig(id, rows); }`);
+    appSourceEvidence_ = function (ids) { __evd.push(ids.slice()); return __evdOrig.apply(null, arguments); };
+    appAccuracyOf_ = function (id) { __acc.push(id); return __accOrig.apply(null, arguments); }`);
   // 甲の振り返りを保存する（B-4 の再実行で増えた 4 月の行の、次回への反映だけ）
   const v = env.call('apiPlanView(__in)', { __in: { planId: A } });
   const st = env.runJob('PLAN.EDIT', { planId: A, action: 'INSIGHT.SAVE', inputHash: v.inputHash,
@@ -644,6 +654,86 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual(env.call('apiPeopleLearning()'), after);
   assert.deepEqual(env.call('apiAiLearning()'), aiAfter);
   env.run('appSourceEvidence_ = __evdOrig; appAccuracyOf_ = __accOrig; appPlanReadMinRows_ = () => 3000');
+}
+
+// ==== 13. 締まった月だけで数える（2026-10-07 村井さん承認 D4・D5）・当たりはその月が始まる前の最後の予測の回で測る（D6） ====
+{
+  const e7 = setUpEnv();
+  // B-1 は 10/03（9 月はまだ途中。8 月まで締まった）。9 月・10 月の記録（途中の実績で、大きく外れて見える）は読み飛ばす（消さない）
+  const pRun = D(2026, 5, 20), qRun = D(2026, 6, 10), rRun = D(2026, 7, 15);   // P は 6 月の前・Q は 7 月の前・R は 8 月の前の最後の回
+  const imp = (runAt, ym, quant) => impact('α製薬', runAt, ym, quant);
+  const pu = (runAt, ym, key, dir) => push('α製薬', runAt, ym, 'opinion', key, dir);
+  const id = e7.seedPlan(e7.makeBook('α', {
+    CONFIG: config('α製薬', 2026),
+    EVAL_LOG: { values: evalLog('α製薬', [['2026/05', 1000, 1100, 0.05], ['2026/06', 1000, 1100, 0.05], ['2026/07', 1000, 1100, 0.05], ['2026/08', 1000, 1100, 0.05],
+      ['2026/09', 100, 1000, 0.05], ['2026/10', 50, 1000, 0.05]]), formats: { D: '@' } },
+    EVAL_COMPARE_MONTHLY: { values: [H.EVAL_COMPARE_MONTHLY].concat([['2026/05', 1000], ['2026/06', 1000], ['2026/07', 1000], ['2026/08', 1000], ['2026/09', 100]]
+      .map(([ym, a]) => row('EVAL_COMPARE_MONTHLY', { target_month: ym, actual_total: a, forecast_total_p50: 1100, ape_p50: Math.abs(1100 - a) / a, range_outside_flag: 1 }))), formats: { A: '@' } },
+    EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS].concat([
+      { evaluated_at: D(2026, 10, 3), target_month: '2026/06', actual_total: 1000, pred_p50: 1100, action_type: 'update', status: 'open', range_breach: 1 },
+      { evaluated_at: D(2026, 10, 3), target_month: '2026/09', actual_total: 100, pred_p50: 1000, cause_hypothesis: '途中の実績', action_type: 'update', status: 'open', range_breach: 1 },
+    ].map((o) => row('EVAL_INSIGHTS', Object.assign({ client: 'α製薬' }, o)))) },
+    AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY,
+      imp(pRun, '2026/05', 900), imp(pRun, '2026/06', 900), imp(pRun, '2026/07', 900), imp(pRun, '2026/08', 900), imp(pRun, '2026/09', 900),
+      imp(qRun, '2026/06', 1100), imp(qRun, '2026/07', 1100), imp(qRun, '2026/08', 1100), imp(qRun, '2026/09', 1100),
+      imp(rRun, '2026/07', 1300), imp(rRun, '2026/08', 1300), imp(rRun, '2026/09', 1300)] },
+    SUBJECTIVE_IMPACT_HISTORY: { values: [H.SUBJECTIVE_IMPACT_HISTORY,
+      pu(pRun, '2026/06', '鷹野', 1), pu(pRun, '2026/07', '鷹野', 1), pu(pRun, '2026/08', '佐藤', 1),
+      pu(qRun, '2026/06', '鷹野', 1), pu(qRun, '2026/07', '鷹野', -1),
+      pu(rRun, '2026/07', '鷹野', 1), pu(rRun, '2026/08', '鷹野', -1), pu(rRun, '2026/09', '鷹野', -1)] },
+    PROCESS_STATUS: doneStatus('α製薬', new Date(2026, 9, 3, 10)),
+  }));
+  // 精度・精度の推移・縮めた偏りの材料: 締まった 4 か月（5〜8 月）だけ
+  const acc = J(e7.run(`appAccuracyOf_('${id}')`));
+  assert.deepEqual([acc.cutoffYm, acc.n, acc.months.map((m) => m.month)], ['2026/09', 4, ['2026/05', '2026/06', '2026/07', '2026/08']]);
+  close(acc.mape, 0.1, 1e-12, '締まった月の外れ幅だけ（9・10 月の途中の実績は入れない）');
+  const x = e7.call('apiCrossMaker(__in)', { __in: { fy: 2026 } }).plans[0];
+  assert.deepEqual([x.accuracy.n, x.mapeMonths], [4, 4]);
+  close(x.mape, 0.1, 1e-12, '計画の一覧の外れ幅（検証の表）も締まった月だけ（9 月の行の外れ幅 9.0 は入れない）');
+  assert.deepEqual([x.k, x.actualMonths, x.actualYtd], [5, 5, 4000], '暫定実績は締まった 4〜8 月（行の無い 4 月は 0 円）。9 月の途中の実績は入れない');
+  const ai = e7.call('apiAiLearning()');
+  assert.deepEqual(ai.timeline.map((t) => t.ym), ['2026/05', '2026/06', '2026/07', '2026/08'], '精度の推移に締まっていない月を出さない');
+  // 振り返り: 締まった 6 月だけ（9 月の行は人の記入があっても出さない）
+  const pl = e7.call('apiPeopleLearning()');
+  assert.deepEqual(pl.lessons.map((l) => l.ym), ['2026/06']);
+  assert.deepEqual([pl.summary.months, pl.openActions.map((l) => l.ym)], [1, ['2026/06']]);
+  // 当たり（D6）: 6 月は P（6/10 の Q は 6 月が始まった後）、7 月は Q、8 月は R で測る。佐藤は 8 月の前の最後の回（R）で押していないので数えない。
+  // 9 月は締まっていない。5 月は締まって実績もあるが、5 月が始まる前の回が無い（P は 5/20）ので数えない
+  //   6 月: P の過去の売上だけの予測 900 < 実績 1000（上）・鷹野 + → 当たり（前は 6/10 の Q（1100・下）で外れにしていた）
+  //   7 月: Q の 1100 > 1000（下）・鷹野 − → 当たり（前は R（7/15）の + で外れ）
+  //   8 月: R の 1300 > 1000（下）・鷹野 − → 当たり
+  const tk = pl.scoreboard.find((s) => s.key === '鷹野');
+  assert.deepEqual([tk.n, tk.hit], [3, 3]);
+  assert.equal(pl.scoreboard.find((s) => s.key === '佐藤'), undefined, '前の回でしか押していない人は数えない');
+  assert.deepEqual([pl.noPreMonth, ai.noPreMonth], [1, 1], 'その月が始まる前の予測が無い月（5 月）');
+  assert.deepEqual(ai.curves.find((c) => c.type === 'opinion').quarters.map((q) => [q.quarter, q.n, q.hit]), [['FY2026-Q1', 1, 1], ['FY2026-Q2', 2, 2]]);
+  // 控えから読んでも同じ（控えの形は { rows, noPre }）
+  for (const k of Object.keys(e7.cache)) if (!k.includes('EVD_')) delete e7.cache[k];
+  const again = e7.call('apiPeopleLearning()');
+  assert.deepEqual([again.scoreboard, again.noPreMonth], [pl.scoreboard, pl.noPreMonth]);
+  // 行は消さない
+  assert.equal(e7.table('ENG_EVAL_LOG').filter((r) => r.plan_id === id).length, 6 * 3);
+  assert.equal(e7.table('ENG_EVAL_INSIGHTS').filter((r) => r.plan_id === id).length, 2);
+  // 月の初めちょうど（日本の暦の 1 日 0 時）の回は、その月が始まった後の回。idA = A の回の人の行の run_id（空なら時刻で同じ回を見分ける）。
+  // withB = false なら、B の回では人が押していない
+  const tabs = (runA, runB, idA = 'A', withB = true) => ({
+    PROCESS_STATUS: { P: [{ step_key: 'step2_status', status: 'success', last_run_date: new Date('2026-08-06T01:00:00Z') }, { step_key: 'step5_status', status: 'success', last_run_date: new Date('2026-08-06T02:00:00Z') }] },
+    EVAL_LOG: { P: [{ scenario: 'neutral', constraint_relevant_flag: 1, target_month: '2026/06', actual: 1000 }] },
+    AI_IMPACT_HISTORY: { P: [{ run_id: 'A', run_at: runA, target_month: '2026/06', pred_p50_quant_only: 900, forecast_source: 'forecast_open' },
+      { run_id: 'B', run_at: runB, target_month: '2026/06', pred_p50_quant_only: 1100, forecast_source: 'forecast_open' }] },
+    SUBJECTIVE_IMPACT_HISTORY: { P: [{ run_id: idA, run_at: runA, target_month: '2026/06', source_type: 'opinion', source_key: 'x', push_direction: 1, forecast_source: 'forecast_open' }]
+      .concat(withB ? [{ run_id: 'B', run_at: runB, target_month: '2026/06', source_type: 'opinion', source_key: 'x', push_direction: -1, forecast_source: 'forecast_open' }] : []) }
+  });
+  const ev = (t) => J(e7.run(`(() => { const noPre = {}; const rows = appSourceEvidence_(['P'], s => __t[s] || {}, noPre); return { rows: rows, noPre: noPre }; })()`, { __t: t }));
+  const last = new Date('2026-05-31T14:59:59Z'), first = new Date('2026-05-31T15:00:00Z');
+  const one = (t) => ev(t).rows.map((r) => [r.ym, r.key, r.hit]);
+  assert.deepEqual(one(tabs(new Date('2026-05-30T01:00:00Z'), last)), [['2026/06', 'x', 1]], '5/31 23:59:59 の回（B）が 6 月の前の最後: 1100 > 1000・− → 当たり（A の + は使わない）');
+  assert.deepEqual(one(tabs(last, first)), [['2026/06', 'x', 1]], '6/1 0:00 の回（B）は使わない: A の 900 < 1000・+ → 当たり');
+  assert.deepEqual(one(tabs(last, first, '')), [['2026/06', 'x', 1]], 'run_id の無い行は、時刻で同じ回を見分ける');
+  assert.deepEqual([one(tabs(new Date('2026-05-30T01:00:00Z'), last, 'A', false)), one(tabs(new Date('2026-05-30T01:00:00Z'), last, '', false))], [[], []],
+    '6 月の前の最後の回（B）で押していなければ、前の回（A）の押しでは数えない（run_id が無くても時刻で見分ける）');
+  const none = ev(tabs(first, new Date('2026-06-15T00:00:00Z')));
+  assert.deepEqual([none.rows, none.noPre], [[], { P: ['2026/06'] }], '6 月が始まる前の回が無ければ数えず、その月を返す');
 }
 
 console.log('app-insights: all tests passed');

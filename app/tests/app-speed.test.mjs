@@ -40,6 +40,9 @@ function book(client, base, over) {
     OUTPUT: { values: out, formats: { B: '#,##0', C: '#,##0' } },
     EVAL_LOG: { values: ev, formats: { D: '@' } },
     CALIBRATION_STATE: { values: [H.CALIBRATION_STATE, [client, D(2026, 1, 5), 'owner', '', '', '', 0.97, '', '{}', '', '', 1, '']] },
+    // 実績の取り込み（B-1）→ 検証（B-2）の記録（2026-01-05）。精度は締まった月（月末から 5 日たってから取り込んだ月。2026-10-07 D5）だけで測るので要る
+    PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step2_status', new Date(2026, 0, 5, 10), 'owner', 'success', client, 18, ''],
+      ['step5_status', new Date(2026, 0, 5, 11), 'owner', 'success', client, 18, '']] },
   });
 }
 const SPECS = [['甲製薬', 1200, 1.08], ['乙製薬', 3600, 0.96], ['丙製薬', 2400, 1.02]];   // メーカー・年度の予測・検証の記録の予測が実績の何倍か

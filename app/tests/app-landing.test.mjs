@@ -6,7 +6,9 @@
  *   node app/tests/app-landing.test.mjs
  */
 import assert from 'node:assert/strict';
-import { OWNER, makeEnv, STATS, J } from './gas-mock.mjs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { OWNER, makeEnv, STATS, J, repoRoot } from './gas-mock.mjs';
 
 const near = (a, b, tol, msg) => assert.ok(typeof a === 'number' && Math.abs(a - b) <= tol, `${msg || ''}: ${a} と ${b}`);
 const yms = Array.from({ length: 12 }, (_, i) => { const m = 4 + i; return (m > 12 ? 2027 : 2026) + '/' + String(m > 12 ? m - 12 : m).padStart(2, '0'); });
@@ -184,18 +186,61 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.equal(H[1], 'last_run_date');
   const st = (key, t, v, status = 'success') => ({ step_key: key, last_run_date: v, status, _types: 's' + t + 'sssns' });
   const cut = (rows) => pure.run('appLandingCutoff_(__in)', { __in: rows });
-  assert.equal(cut([st('step2_status', 'd', '2026-10-05T01:00:00.000Z'), st('step5_status', 'd', '2026-10-05T02:00:00.000Z')]), '2026/10', 'B-1 の後に B-2');
-  assert.equal(cut([st('step2_status', 'd', '2026-09-30T16:00:00.000Z'), st('step5_status', 'd', '2026-09-30T17:00:00.000Z')]), '2026/10', '日本の暦で 10 月 1 日');
+  assert.equal(cut([st('step2_status', 'd', '2026-10-05T01:00:00.000Z'), st('step5_status', 'd', '2026-10-05T02:00:00.000Z')]), '2026/10', 'B-1 の後に B-2（10/05 の取り込みで 9 月は締まる）');
   assert.equal(cut([st('step2_status', 'd', '2026-10-05T01:00:00.000Z'), st('step5_status', 'd', '2026-09-05T02:00:00.000Z')]), '', 'B-2 が古い');
   assert.equal(cut([st('step2_status', 'd', '2026-10-05T01:00:00.000Z'), st('step5_status', 'd', '2026-10-06T02:00:00.000Z', 'error')]), '', 'B-2 が失敗');
   assert.equal(cut([st('step2_status', 'd', '2026-10-05T01:00:00.000Z')]), '', 'B-2 が無い');
   assert.equal(cut([st('step2_status', 's', '2026/10/05 10:00:00'), st('step5_status', 's', '2026/10/05 10:30')]), '2026/10', '文字の日時');
-  assert.equal(cut([st('step2_status', 's', '2026-09-30T16:00:00Z'), st('step5_status', 's', '2026-09-30T17:00:00Z')]), '2026/10', '文字の ISO 時刻も日本の暦で 10 月 1 日');
-  assert.equal(cut([st('step2_status', 's', '2026-09-30T14:59:00Z'), st('step5_status', 's', '2026-09-30T17:00:00Z')]), '2026/09', '日本の暦で 9 月 30 日 23:59');
-  assert.equal(cut([st('step2_status', 's', '2026-10-01T00:30:00+0900'), st('step5_status', 's', '2026-10-01T01:00:00+0900')]), '2026/10', '時差つき（+0900）');
+  // 2026-10-07 から（D5）: 月末から 5 日たってから取り込んだ月だけが締まった月。前は「取り込んだ月より前」だったので、
+  // 10/01 の取り込みでも 9 月を締まった月にしていた（下の 3 つは前は '2026/10'）。境目の 10/04 と 10/05 の間で、日本の暦を見ることを確かめ直す
+  assert.equal(cut([st('step2_status', 'd', '2026-09-30T16:00:00.000Z'), st('step5_status', 'd', '2026-09-30T17:00:00.000Z')]), '2026/09', '日本の暦で 10 月 1 日の取り込み: 9 月はまだ途中');
+  assert.equal(cut([st('step2_status', 's', '2026-09-30T16:00:00Z'), st('step5_status', 's', '2026-09-30T17:00:00Z')]), '2026/09', '文字の ISO 時刻も日本の暦で 10 月 1 日');
+  assert.equal(cut([st('step2_status', 's', '2026-10-01T00:30:00+0900'), st('step5_status', 's', '2026-10-01T01:00:00+0900')]), '2026/09', '時差つき（+0900）の 10 月 1 日');
+  assert.equal(cut([st('step2_status', 's', '2026-09-30T14:59:00Z'), st('step5_status', 's', '2026-09-30T17:00:00Z')]), '2026/09', '日本の暦で 9 月 30 日 23:59（8 月までが締まった月）');
+  assert.equal(cut([st('step2_status', 's', '2026-10-04T14:59:00Z'), st('step5_status', 's', '2026-10-04T17:00:00Z')]), '2026/09', '日本の暦で 10 月 4 日 23:59: 9 月はまだ途中');
+  assert.equal(cut([st('step2_status', 's', '2026-10-04T15:00:00Z'), st('step5_status', 's', '2026-10-04T17:00:00Z')]), '2026/10', '日本の暦で 10 月 5 日 0:00: 9 月は締まる');
+  assert.equal(cut([st('step2_status', 's', '2026-10-05T00:30:00+0900'), st('step5_status', 's', '2026-10-05T01:00:00+0900')]), '2026/10', '時差つき（+0900）の 10 月 5 日');
   assert.deepEqual(['2026-03-31T15:00:00.000Z', '2026-03-31T14:59:00Z', '2026/04', '2026-04-15', '2026年4月'].map((x) => pure.run(`appCellYm_('s', '${x}')`)),
     ['2026/04', '2026/03', '2026/04', '2026/04', '2026/04'], '月の文字（時刻つきの ISO は日本の暦で）');
   assert.equal(cut([]), '');
+  // 締まった月の決まり（D5）: 月末 + 5 日 <= 取り込んだ日（日本の暦）。月末の日数・年の変わり目・うるう年
+  assert.equal(pure.run('APP_ACTUAL_CLOSE_LAG_DAYS'), 5);
+  const closed = (ym, day) => pure.run(`appActualClosed_('${ym}', '${day}')`);
+  assert.deepEqual([closed('2026/09', '2026-10-03'), closed('2026/09', '2026-10-04'), closed('2026/09', '2026-10-05'), closed('2026/09', '2026-10-06')],
+    [false, false, true, true], '9 月は 10/05 から');
+  assert.deepEqual([closed('2026/08', '2026-09-04'), closed('2026/08', '2026-09-05'), closed('2026/08', '2026-10-03')], [false, true, true], '31 日の月');
+  assert.deepEqual([closed('2028/02', '2028-03-04'), closed('2028/02', '2028-03-05'), closed('2027/02', '2027-03-04'), closed('2027/02', '2027-03-05')],
+    [false, true, false, true], '2 月も翌月の 5 日から（うるう年でも同じ）');
+  assert.deepEqual([closed('2026/12', '2027-01-04'), closed('2026/12', '2027-01-05'), closed('2026/10', '2026-10-31'), closed('', '2026-10-06'), closed('2026/09', '')],
+    [false, true, false, false, false], '年の変わり目・取り込んだ月そのもの・読めない値');
+  const cy = (day) => pure.run(`appCloseCutoffYm_('${day}')`);
+  assert.deepEqual(['2026-10-03', '2026-10-06', '2026-10-31', '2027-01-04', '2027-01-05', '2028-03-04', '2028-03-05', 'x'].map(cy),
+    ['2026/09', '2026/10', '2026/10', '2026/12', '2027/01', '2028/02', '2028/03', ''], '境目 = 締まった月の次の月');
+  // 境目は、締まった月（appActualClosed_ が真）とそうでない月のちょうど間（1 日ずつ 1 年分）
+  for (let d = Date.UTC(2026, 0, 1); d < Date.UTC(2027, 0, 1); d += 864e5) {
+    const day = new Date(d).toISOString().slice(0, 10);
+    const c = cy(day);
+    const prev = pure.run(`appInsightPrevYm_('${c}', 1)`);
+    assert.ok(closed(prev, day) && !closed(c, day), `${day}: 境目 ${c} の前の月は締まり、境目の月は締まっていない`);
+  }
+  // B-1 を月末から 3 日目に動かすと前の月は途中、6 日目なら締まる（B-2 はその後）
+  const at = (b1, b2) => cut([st('step2_status', 's', b1), st('step5_status', 's', b2)]);
+  assert.equal(at('2026/10/03 10:00', '2026/10/03 11:00'), '2026/09', 'B-1 が 10/03: 9 月は締まっていない（8 月まで）');
+  assert.equal(at('2026/10/06 10:00', '2026/10/06 11:00'), '2026/10', 'B-1 が 10/06: 9 月は締まった');
+  assert.equal(at('2026/10/03 10:00', '2026/10/06 11:00'), '2026/09', 'B-2 を後で動かしても、決めるのは B-1 の日');
+  assert.equal(at('2026/10/06 10:00', '2026/10/03 11:00'), '', 'B-2 が B-1 より古い決まりはそのまま');
+  // 読み戻した行（日時は日時の型。_types は無い）でも同じ
+  const dated = (b1, b2) => pure.run(`appLandingCutoff_([{ step_key: 'step2_status', status: 'success', last_run_date: new Date('${b1}') },
+    { step_key: 'step5_status', status: 'Success', last_run_date: new Date('${b2}') }])`);
+  assert.deepEqual([dated('2026-10-03T01:00:00Z', '2026-10-03T02:00:00Z'), dated('2026-10-06T01:00:00Z', '2026-10-06T02:00:00Z'), dated('2026-10-06T01:00:00Z', '2026-10-03T02:00:00Z')],
+    ['2026/09', '2026/10', ''], '日時の型の行');
+  assert.equal(pure.run(`appMonthStartMs_('2026/10')`), Date.parse('2026-09-30T15:00:00Z'), '月の初めは日本の暦の 1 日 0 時');
+  assert.equal(pure.run(`appMonthStartMs_('2026-10')`), null);
+  // 旧来の側（Forecast_Agent.js）の同じ決まりの数とそろう（D5: 1 つの決まりを両方で使う）。旧来の側に定数がまだ無いときは知らせて飛ばす
+  const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
+  const legacyLag = [...legacySrc.matchAll(/\b([A-Z][A-Z0-9_]*CLOSE[A-Z0-9_]*DAYS?)\b\s*[:=]\s*(\d+)/g)];
+  if (legacyLag.length) for (const m of legacyLag) assert.equal(Number(m[2]), pure.run('APP_ACTUAL_CLOSE_LAG_DAYS'), `旧来の ${m[1]} と同じ日数`);
+  else console.log('app-landing: 旧来の側（Forecast_Agent.js）に締まりの日数の定数（…CLOSE…DAYS）がまだ無いので、照合を飛ばしました');
   assert.equal(pure.run(`appLandingAgeDays_('2026-10-03T12:00:00+0900', '2026-10-06')`), 3);
   assert.equal(pure.run(`appLandingAgeDays_('2026-10-05T15:30:00Z', '2026-10-06')`), 0, '日本の暦で同じ日');
   assert.equal(pure.run(`appLandingAgeDays_('', '2026-10-06')`), null);
@@ -231,6 +276,9 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   const plan = (id) => env.call('apiPortfolio()').plans.filter((p) => p.planId === id)[0];
   const a = plan(idA);
   assert.deepEqual([a.k, a.actualYtd, a.actualMonths, a.forecastYtd, a.rangeN, a.rangeOut], [6, 480, 6, 600, 6, 0], '締まった 6 か月だけ（途中の月・前の年度は数えない）');
+  // 外れ幅も締まった月だけ（2026-10-07 D4。前は取り込んだ 10 月の途中の実績 5（外れ幅 19）も平均に入れていた）
+  assert.equal(a.mapeMonths, 6);
+  near(a.mape, 0.25, 1e-12, '外れ幅');
   assert.deepEqual([a.sky, a.skyReason, a.skyDir, a.budget, a.budgetUsed, a.budgetSource], ['kumori', 'ratio', '', 1200, 1200, 'draft']);
   near(a.landing, 985.244, 1e-3, '着地（τ・w は学べないので 0.15・1）');
   near(a.ratio, 0.8210, 1e-4, '着地 / 予算');
@@ -375,6 +423,51 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.deepEqual([ht.plans, ht.budget, ht.budgetPlans, ht.actualYtd, ht.landingPlans, ht.ratioPlans], [3, 1200, 1, 360, 2, 1], JSON.stringify(ht));
   near(ht.landing, port.甲.landing + port.丁.landing, 1e-9, 'ホームの着地の合計に丙を入れない');
   near(ht.ratio, port.甲.landing / 1200, 1e-9, 'ホームの着地 / 予算は甲だけ');
+}
+
+// ==== 7. 締まった月は B-1 の日で決まる（2026-10-07 D5）: 月末から 3 日目の取り込みでは前の月は途中、6 日目なら締まる。外れ幅も締まった月だけ（D4） ====
+{
+  const env = makeEnv();
+  env.run(`appToday_ = function () { return '2026-10-06'; }`);
+  env.as(OWNER);
+  env.call('apiSetup()');
+  const HC = J(env.run('APP_ENGINE_SHEETS.EVAL_COMPARE_MONTHLY.header'));
+  const HS = J(env.run('APP_ENGINE_SHEETS.PROCESS_STATUS.header'));
+  const output = [['FY2026 売上予測']];
+  for (let r = 2; r <= 25; r++) output.push([]);
+  output.push(['年度合計（予測）', 1000, 1200, 1400]);
+  output.push([], ['月', 'P10', 'P50', 'P90', '', '', '', '採用予測', '上乗せ']);
+  yms.forEach((ym) => output.push([ym, 80, 100, 120, '', '', '', 100, '']));
+  const cmpRow = (ym, act) => { const o = { target_month: ym, actual_total: act, forecast_total_p10: 80, forecast_total_p50: 100, forecast_total_p90: 120,
+    ape_p50: Math.abs(100 - act) / act, range_outside_flag: act < 80 || act > 120 ? 1 : 0 }; return HC.map((h) => (o[h] === undefined ? '' : o[h])); };
+  // 4〜8 月は 80。9 月は sep（10/03 の取り込みでは途中の 30、10/06 なら 80）。10 月は途中の 5
+  const book = (client, sep, b1) => env.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    OUTPUT: { values: output },
+    EVAL_COMPARE_MONTHLY: { values: [HC, ...yms.slice(0, 5).map((ym) => cmpRow(ym, 80)), cmpRow('2026/09', sep), cmpRow('2026/10', 5)] },
+    PROCESS_STATUS: { values: [HS, ['step2_status', b1, 'owner', 'success', client, 10, ''], ['step5_status', new Date(b1.getTime() + 3600e3), 'owner', 'success', '', 6, '']] },
+  });
+  const d3 = env.seedPlan(book('三日製薬', 30, new Date(2026, 9, 3, 10)));
+  const d6 = env.seedPlan(book('六日製薬', 80, new Date(2026, 9, 6, 10)));
+  const port = () => Object.fromEntries(env.call('apiPortfolio()').plans.map((p) => [p.planId, p]));
+  const p = port();
+  assert.deepEqual([p[d3].k, p[d3].actualMonths, p[d3].actualYtd, p[d3].forecastYtd, p[d3].rangeN, p[d3].mapeMonths], [5, 5, 400, 500, 5, 5], '10/03 の取り込み: 9 月は途中（数えない）');
+  assert.deepEqual([p[d6].k, p[d6].actualMonths, p[d6].actualYtd, p[d6].forecastYtd, p[d6].rangeN, p[d6].mapeMonths], [6, 6, 480, 600, 6, 6], '10/06 の取り込み: 9 月は締まった');
+  near(p[d3].mape, 0.25, 1e-12, '外れ幅は締まった月だけ（9 月の途中の 30・10 月の途中の 5 は入れない）');
+  near(p[d6].mape, 0.25, 1e-12, '外れ幅は締まった月だけ（10 月の途中の 5 は入れない）');
+  // 着地は、同じ締まった月を渡した計算だけの関数と同じ（τ・w は 2 計画では学ばない）
+  near(p[d3].landing, sky({ actual: acts([80, 80, 80, 80, 80]), cutoffYm: '2026/09', todayYm: '2026/10' }).landing, 1e-9, '三日製薬の着地');
+  near(p[d6].landing, sky({ actual: acts([80, 80, 80, 80, 80, 80]), cutoffYm: '2026/10', todayYm: '2026/10' }).landing, 1e-9, '六日製薬の着地');
+  assert.deepEqual([p[d3].sky, p[d6].sky], ['kumori', 'kumori']);
+  const ht = env.call('apiHome()').totals;
+  assert.deepEqual([ht.actualYtd, ht.landingPlans], [880, 2]);
+  near(ht.landing, p[d3].landing + p[d6].landing, 1e-9, 'ホームの着地の合計');
+  // 霧（実績の遅れ）も同じ決まりで数える: 今日までに締まっているはずの月は、月末から 5 日たった月まで
+  // （12/03 は 4〜10 月の 7 か月。10/03 の取り込みで締まった 5 か月との差は 2 → 霧にしない。12/05 なら 11 月も入り差が 3 → 霧）
+  env.run(`appToday_ = function () { return '2026-12-03'; }`);
+  assert.equal(port()[d3].skyReason, 'ratio', '12/03: 遅れは 2 か月');
+  env.run(`appToday_ = function () { return '2026-12-05'; }`);
+  assert.equal(port()[d3].skyReason, 'stale_actuals', '12/05: 遅れは 3 か月');
 }
 
 console.log('app-landing: all tests passed');
