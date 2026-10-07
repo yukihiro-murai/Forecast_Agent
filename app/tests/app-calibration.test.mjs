@@ -21,10 +21,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
-import { setUpEnv, extractFunction, repoRoot, uiHtml, OWNER, MEMBER } from './gas-mock.mjs';
+import { setUpEnv, extractFunction, repoRoot, uiHtml, OWNER, MEMBER, J } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const CLIENT = 'テスト製薬';
+/** 係数が 1 以外か月ごとの補正があるときの注意（旧来の A-9 は月の P10/P50/P90 にだけ掛け、年度の P10/P50/P90 には掛けない） */
+const ANNUAL_WARNING = '係数が 1 以外か、月ごとの補正があると、年度の P10/P50/P90（ホームの中心・公式版の中心）には掛からず、月の合計とずれます。';
 const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
 
 // ---- 道具 ----
@@ -298,6 +300,12 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   const run = () => { const st = env.runJob('FORECAST.RUN', { planId, confirms: ['extreme'] }); assert.equal(st.status, 'DONE', st.error); return st.result; };
 
   const r1 = run();
+  // 予測の注記（OUTPUT!A6 の写し）: 旧来の A-9 は「なし（全項目既定値）」と C-1 への案内を書く。C-1 を止めている間は、画面に案内を出さない
+  const a6 = () => String(env.call(`appEngLoadPlanSheets_(__p, ['OUTPUT'], true).OUTPUT.values`, { __p: planId })[5][0]);
+  const notes = () => { const o = env.call('apiPlanView(__in)', { __in: { planId } }).boot.output; return o.policyLines.join('\n') + '\n' + o.engineNote; };
+  assert.match(a6(), /適用中の四半期チューニング: なし（全項目既定値） \/ 3か月以上の実績確定後に C-1 を実行してください。/, '前提: 旧来の A-9 の注記');
+  assert.match(notes(), /適用中の四半期チューニング: なし（全項目既定値）/, '補正が自動の学びの値なら、そのまま');
+  assert.doesNotMatch(notes(), /C-1 を実行してください/, '止めている C-1 は案内しない');
   const inf1 = influence();
   const imp1 = impacts();
   assert.equal(imp1.length, 12);
@@ -307,10 +315,24 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   const st = setCal(env, { planId, set: { ai_weight_override: 0 }, reason: 'D8 AI の効きを止める' });
   assert.equal(st.status, 'DONE', st.error);
   assert.deepEqual(st.result.result.changed, [{ field: 'ai_weight_override', old: '', new: 0 }]);
+  assert.deepEqual(st.result.result.warnings, [ANNUAL_WARNING], '書いた後も係数 0.8・月ごとの補正が残る（年度の P10/P50/P90 には掛からない）');
   assert.equal(engRows(env, 'CALIBRATION_STATE', planId)[0].ai_weight_override, '0', '0 は空にしない（0 を未設定として扱わない）');
   assert.equal(engRows(env, 'CALIBRATION_STATE', planId)[0].bias_correction_factor, '0.8', 'ほかの項目はそのまま');
 
   const r2 = run();
+  // 所有者が承認した値を書いた後の注記: 「なし（全項目既定値）」ではなく「所有者が承認した値」（行のほかの文はそのまま）
+  assert.match(a6(), /適用中の四半期チューニング: なし（全項目既定値）/, '旧来の A-9 の注記はそのまま（データは変えない）');
+  const n2 = notes();
+  assert.match(n2, /適用中の四半期チューニング: 所有者が承認した値/);
+  assert.doesNotMatch(n2, /全項目既定値|C-1 を実行してください/);
+  assert.match(n2, /AI取込警告サマリー/, 'ほかの文は残す');
+  // C-1 を止めていなければ、案内はそのまま出す（止めを外して、画面の中身を組み立て直す）
+  env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = ''");
+  for (const k of Object.keys(env.cache)) delete env.cache[k];
+  assert.match(notes(), /所有者が承認した値 \/ 3か月以上の実績確定後に C-1 を実行してください。/);
+  env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = APP_REVIEW_GENERATE_PAUSED");
+  for (const k of Object.keys(env.cache)) delete env.cache[k];
+  assert.doesNotMatch(notes(), /C-1 を実行してください/);
   const inf2 = influence();
   const imp2 = impacts().slice(12);
   assert.equal(imp2.length, 12);
@@ -338,6 +360,7 @@ let readmeTask;
   assert.deepEqual(pv.sheets, { state: true, history: true, reviewLog: true });
   assert.equal(pv.pending, null, 'この計画には承認待ちの見直し案が無い');
   assert.equal(pv.frozen, false);
+  assert.deepEqual(pv.warnings, [ANNUAL_WARNING], '今の係数 0.8 と月ごとの補正は、年度の P10/P50/P90 には掛からない（止めない）');
   assert.match(pv.inputHash, /^[a-f0-9]{64}$/);
   assert.equal(env.props.OWNER_TASK, JSON.stringify({ action: 'calibrationPreview', planId }), '読むだけなので頼みは残る');
   delete env.props.OWNER_TASK;
@@ -365,6 +388,7 @@ let readmeTask;
     { field: 'auto_update_enabled', old: 1, new: 0 }]);
   assert.deepEqual(res.unchanged, [{ field: 'ai_weight_override', value: 0 }], 'もう 0 の項目は書かない');
   assert.equal(res.withdrawn, null, '取り下げる見直し案が無ければ何もしない');
+  assert.deepEqual(res.warnings, [], '係数 1・月ごとの補正なしなら注意は無い');
   assert.deepEqual(st.result.changed.sort(), ['CALIBRATION_HISTORY', 'CALIBRATION_STATE']);
 
   // CALIBRATION_STATE: 承認した値・書いた人と日時・理由。ほかの列はそのまま
@@ -453,6 +477,24 @@ let readmeTask;
   assert.deepEqual(histBefore().slice(-1).map((r) => [r.factor_name, r.old_value, r.new_value]), [['ai_weight_override', '0', '']]);
   const again = setCal(env, { planId, set: { ai_weight_override: 0 }, reason: 'D8 にもう一度' });
   assert.deepEqual(again.result.result.changed, [{ field: 'ai_weight_override', old: '', new: 0 }]);
+  assert.deepEqual(again.result.result.warnings, []);
+  // 注意: 月ごとの補正だけでも出す（書くのは止めない）。値を書かない頼み（取り下げだけ）でも、書いた後の値で決める。戻せば消える
+  const pv0 = task(env, { action: 'calibrationPreview', planId }).result;
+  delete env.props.OWNER_TASK;
+  assert.deepEqual(pv0.warnings, [], '係数 1・月ごとの補正なし');
+  const mb = setCal(env, { planId, set: { residual_month_bias_json: '{"4":0.05}' }, reason: '注意の確かめ' });
+  assert.equal(mb.status, 'DONE', mb.error);
+  assert.deepEqual([mb.result.result.changed.map((x) => x.field), mb.result.result.warnings], [['residual_month_bias_json'], [ANNUAL_WARNING]], '書いて、注意を返す');
+  const only = setCal(env, { planId, withdrawPendingReview: true, reason: '取り下げだけ' });
+  assert.deepEqual([only.status, only.result.result.withdrawn, only.result.result.warnings], ['DONE', null, [ANNUAL_WARNING]], '値を書かなくても、今の値の注意');
+  const pv1 = task(env, { action: 'calibrationPreview', planId }).result;
+  delete env.props.OWNER_TASK;
+  assert.deepEqual(pv1.warnings, [ANNUAL_WARNING]);
+  const f = setCal(env, { planId, set: { residual_month_bias_json: '{}', bias_correction_factor: 1.1 }, reason: '係数だけ' });
+  assert.deepEqual(f.result.result.warnings, [ANNUAL_WARNING], '係数だけでも出す');
+  const off = setCal(env, { planId, set: { bias_correction_factor: 1 }, reason: '戻す' });
+  assert.deepEqual(off.result.result.warnings, [], '戻せば消える');
+  assert.deepEqual(J(env.run(`appCalibrationWarnings_(null)`)), [], '値が読めなければ出さない');
 }
 
 // ==== 6. 見直し案を作る（C-1）は止めている。判断の保存と反映（C-3）はそのまま ====
@@ -484,6 +526,12 @@ let readmeTask;
   ui.__v2 = Object.assign({}, view, { actions: view.actions.map((x) => Object.assign({}, x, { paused: '' })) });
   vm.runInContext('S.fc.view = __v2', ui);
   assert.equal(chip(), 'この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります');
+  // 予測の注記: 四半期レビューを反映した後の案内（次回の C-1）も、止めている間は出さない。ほかの文・「なし」以外のチューニングはそのまま
+  const out = { output: { policyLines: ['適用中の四半期チューニング: FY2026-Q1 / ・ai_weight_override: 既定 / 次回の四半期レビューは3か月後に C-1 を実行してください。 / 補正の警告'],
+    engineNote: '経過月は実績…\n適用中の四半期チューニング: なし（全項目既定値） / 3か月以上の実績確定後に C-1 を実行してください。' } };
+  env.run('appPlanViewNotes_(__o, { getSheetByName: () => null })', { __o: out });
+  assert.deepEqual(out.output, { policyLines: ['適用中の四半期チューニング: FY2026-Q1 / ・ai_weight_override: 既定 / 補正の警告'],
+    engineNote: '経過月は実績…\n適用中の四半期チューニング: なし（全項目既定値）' }, '所有者が承認した値でなければ「なし」はそのまま');
 }
 
 // ==== 7. 締めた年度の計画には書かない ====

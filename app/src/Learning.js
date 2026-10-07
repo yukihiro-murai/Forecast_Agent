@@ -13,7 +13,9 @@
  *   人の判断で入れるもの
  *     - 情報源の信頼度の事前分布（ベータ二項の経験ベイズ）: 全計画の RELIABILITY_EVIDENCE（当たった数 / 数）から作り、
  *       各計画の POOL_PRIOR に入れる。旧来の C-1（四半期レビューの提案）が事前分布として使う（予測に効くのは、提案を人が承認してから）。
- *       締まった月で数えた行だけを使う（D4。appEvidenceClosed_。締まっていない月で数えた行は消さずに読み飛ばす）
+ *       締まった月で数えた行だけを使う（D4。appEvidenceClosed_。締まっていない月で数えた行は消さずに読み飛ばす）。
+ *       今の検証の版の B-2 がその計画で初めて動いた後に数えた行だけを使う（D6。appEvidencePolicyFrom_。それより前の C-1 は、
+ *       月が始まった後の予測で測った前の版の行で数えた。消さずに読み飛ばす）
  */
 const APP_SOURCE_TYPES = ['factor_product', 'factor_client', 'opinion', 'ai_topic', 'vertex_forecast'];
 const APP_POOL_MIN_PLANS = 2;      // 旧来の POOL_MIN_CLIENTS と同じ
@@ -194,22 +196,53 @@ function appLearningViewData_(planId) {
 
 // ---- 情報源の信頼度の事前分布（ベータ二項の経験ベイズ） ----
 
+/** セルの日時をミリ秒に（日時の型・ISO の文字・'yyyy/MM/dd HH:mm' の文字。読めなければ null） */
+function appEvidenceMs_(v) {
+  const ms = appIsDate_(v) ? v.getTime() : appLandingTime_('', v);
+  return ms === null || !isFinite(ms) ? null : ms;
+}
+
 /**
  * RELIABILITY_EVIDENCE の行（旧来の C-1 が四半期ごとに書く当たりの数）が、締まった月だけで数えたものでありうるか（D4）:
  * 四半期の最後の月（quarter_end_month）が、数えた日（computed_at。日本の暦）に締まっていたか（appActualClosed_）。
  * 実績はその日までに取り込んだものなので、その日に締まっていない月は、取り込んだ日にも締まっていない（途中の実績で数えた）。
- * 月か日時が読めない行も使わない。どの回の予測で数えたか（D6）は記録に無いので、ここでは確かめられない
+ * 月か日時が読めない行も使わない。どの回の予測で数えたか（D6）は行に無いので、appEvidencePolicyFrom_ の時刻と比べる
  */
 function appEvidenceClosed_(r) {
-  const v = r.computed_at;
-  const ms = appIsDate_(v) ? v.getTime() : appLandingTime_('', v);
-  if (ms === null || !isFinite(ms)) return false;
+  const ms = appEvidenceMs_(r.computed_at);
+  if (ms === null) return false;
   return appActualClosed_(appYm_(r.quarter_end_month), Utilities.formatDate(new Date(ms), APP_TZ, 'yyyy-MM-dd'));
 }
 
 /**
+ * 計画ごとに、今の検証の版（APP_EVAL_POLICY_VERSION）の B-2 が初めて動いた時刻（ミリ秒。動いていなければ null）。
+ * その後に数えた RELIABILITY_EVIDENCE の行は、今の版の旧来の C-1（今の版の EVAL_LOG の行だけを使い、その月が始まる前の予測で測る。D6）が数えたもの。
+ * 前の版の C-1 が数えた行（月が始まった後の予測で測った）は、行に版の印が無いので、数えた時刻（computed_at）で見分ける。
+ * 時刻は、今の版の EVAL_LOG の行の evaluated_at と、RUN_LOG の B-2 の記録（今の版の B-2 だけが error_summary に「版: scored_months=…」と書く）の
+ * 一番古いもの。B-2 は動くたびに測った月の EVAL_LOG の行を書き直す（evaluated_at が新しくなる）ので、EVAL_LOG だけでは時刻が後ろへずれ、
+ * 前の B-2 の後に今の版の C-1 が数えた行まで落としてしまうため。EVAL_LOG と RUN_LOG は全計画の分を 1 回ずつ読む（appEngAll_）
+ */
+function appEvidencePolicyFrom_(ids) {
+  const out = {};
+  ids.forEach(id => { out[id] = null; });
+  if (!ids.length) return out;
+  const take = (id, t) => { if (t !== null && (out[id] === null || t < out[id])) out[id] = t; };
+  const ev = appEngAll_('EVAL_LOG', ids);
+  const log = appEngAll_('RUN_LOG', ids);
+  ids.forEach(id => {
+    (ev[id] || []).forEach(r => { if (String(r.evaluation_policy_version || '').trim() === APP_EVAL_POLICY_VERSION) take(id, appEvidenceMs_(r.evaluated_at)); });
+    (log[id] || []).forEach(r => {
+      if (String(r.function_name || '').trim() !== 'updatePhase1EvaluationReport' || String(r.status || '').trim().toLowerCase() !== 'success') return;
+      if (String(r.error_summary || '').trim().indexOf(APP_EVAL_POLICY_VERSION + ':') === 0) take(id, appEvidenceMs_(r.run_at));
+    });
+  });
+  return out;
+}
+
+/**
  * 全計画の当たった数から、情報源ごとの事前分布を作る（書かない。画面で見比べる）。
- * 締まった月で数えた行だけを使う（appEvidenceClosed_。使わなかった行の数は skippedEvidence。行は消さない）
+ * 締まった月で数えた行（appEvidenceClosed_）で、その計画で今の版の B-2 が初めて動いた後に数えた行（appEvidencePolicyFrom_）だけを使う。
+ * 今の版の B-2 がまだ動いていない計画の行は使わない。使わなかった行の数は skippedEvidence（行は消さない）
  */
 function appPoolPreview_() {
   const plans = appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED');
@@ -217,14 +250,19 @@ function appPoolPreview_() {
   const per = {};   // type → [{ planId, n, hit }]
   const current = {};
   let skipped = 0;
+  let from = {};
+  try { from = appEvidencePolicyFrom_(plans.map(p => p.plan_id)); } catch (e) { Logger.log('今の版の B-2 の時刻を読めません（どの行も使いません）: ' + (e && e.message ? e.message : e)); }
   plans.forEach(p => {
     let t;
     try { t = appEngTableObjects_(p.plan_id, ['RELIABILITY_EVIDENCE', 'POOL_PRIOR']); } catch (e) { return; }
     const sum = {};
+    const since = from[p.plan_id] === undefined ? null : from[p.plan_id];
     t.RELIABILITY_EVIDENCE.forEach(r => {
       const k = String(r.source_type || ''); const n = appNum_(r.n), h = appNum_(r.hit);
       if (!k || n === null || h === null) return;
       if (!appEvidenceClosed_(r)) { skipped++; return; }   // 締まっていない月で数えた行は読み飛ばす（D4）
+      const at = appEvidenceMs_(r.computed_at);
+      if (since === null || at < since) { skipped++; return; }   // 今の版の B-2 の前に、前の版の C-1 が数えた行は読み飛ばす（D6）
       const o = sum[k] = sum[k] || { n: 0, hit: 0 }; o.n += n; o.hit += h;
     });
     Object.keys(sum).forEach(k => { (per[k] = per[k] || []).push({ planId: p.plan_id, client: names[p.client_id] || p.client_label, fy: p.fy, n: sum[k].n, hit: sum[k].hit }); });

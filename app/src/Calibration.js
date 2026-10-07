@@ -14,6 +14,8 @@
  *   画面の行（QUARTERLY_REVIEW）の判断も「取り下げ」にし、C-3 が適用する review_id の欄（8 行目の 10 列目）に「取り下げ:」を付ける
  *   （C-3 はその review_id の記録を見つけられず、何も適用しない。後から判断を保存し直しても同じ）。
  * - 同じ頼みをもう一度動かしても、変わる値が無ければ何も書かない（履歴も足さない）。全部の案をもう取り下げていれば、取り下げも何もしない。
+ * - 旧来の A-9 は、係数と月ごとの補正を月の P10/P50/P90 にだけ掛け、年度の P10/P50/P90 には掛けない。書いた後（見る: 今）の値で係数が 1 以外か、
+ *   月ごとの補正があれば、結果の warnings にそのことを書く（止めない。appCalibrationWarnings_）。
  */
 
 /** 書ける項目（旧来の CALIBRATION_STATE の列の名前） */
@@ -29,6 +31,8 @@ const APP_CALIBRATION_ROLLBACK = 'apiOwnerTask の setCalibration で旧値（ol
 /** 取り下げた見直し案の判断（QUARTERLY_REVIEW_LOG の approval_status と、画面の行の判断） */
 const APP_CALIBRATION_WITHDRAWN = '取り下げ';
 const APP_CALIBRATION_REASON_MAX = 200;
+/** 年度の P10/P50/P90 に補正が掛からないことの注意（旧来の A-9 は月の P10/P50/P90 にだけ掛ける） */
+const APP_CALIBRATION_ANNUAL_WARNING = '係数が 1 以外か、月ごとの補正があると、年度の P10/P50/P90（ホームの中心・公式版の中心）には掛からず、月の合計とずれます。';
 
 // ---- 頼みの確かめ ----
 
@@ -163,6 +167,32 @@ function appCalibrationLatestReview_(values) {
     withdrawable: !applied && !statuses.every(x => x === APP_CALIBRATION_WITHDRAWN) };
 }
 
+/**
+ * CALIBRATION_STATE の値（見出しつきの行）から、計画のメーカーの行の値（appCalibrationNorm_ で比べる形）。
+ * メーカーの行が無く、行が 1 つだけならその行。無ければ null
+ */
+function appCalibrationStateValues_(values, client) {
+  if (!values || values.length < 2) return null;
+  const head = values[0].map(h => String(h || '').trim());
+  const rows = values.slice(1).filter(r => r.some(v => v !== '' && v !== null));
+  const row = rows.filter(r => String(r[head.indexOf('client')] || '').trim() === client)[0] || (rows.length === 1 ? rows[0] : null);
+  if (!row) return null;
+  const out = {};
+  APP_CALIBRATION_FIELDS.forEach(f => { out[f] = appCalibrationNorm_(f, head.indexOf(f) < 0 ? '' : row[head.indexOf(f)]); });
+  return out;
+}
+
+/**
+ * 補正の値（appCalibrationStateValues_ の形）の注意。係数が 1 以外か、月ごとの補正があれば、年度の P10/P50/P90 と月の合計がずれることを書く。
+ * 書くのは止めない（所有者は 0.75〜1.25・±20% を書ける）。どちらも無ければ空
+ */
+function appCalibrationWarnings_(values) {
+  if (!values) return [];
+  const f = values.bias_correction_factor;
+  const month = values.residual_month_bias_json;
+  return (typeof f === 'number' && Math.abs(f - 1) > 1e-12) || (month && month !== '{}') ? [APP_CALIBRATION_ANNUAL_WARNING] : [];
+}
+
 function appCalibrationIso_(v) {
   return appIsDate_(v) ? Utilities.formatDate(v, APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") : String(v === null || v === undefined ? '' : v);
 }
@@ -172,7 +202,8 @@ function appCalibrationIso_(v) {
 /**
  * 組み立てた計算用ブック book の上で、旧来の関数で補正の値を書き、見直し案を取り下げる（データ本体には書かない。保存は appPlanEdit_ が行う）。
  * opts: { asOfMs, seed, actor }（「今」・種・頼んだ人。旧来の関数の updated_at・changed_at・updated_by・changed_by になる）。
- * 返り値は appLegacyCall_ と同じ形（value = { client, changed: [{ field, old, new }], unchanged: [{ field, value }], withdrawn }）
+ * 返り値は appLegacyCall_ と同じ形（value = { client, changed: [{ field, old, new }], unchanged: [{ field, value }], withdrawn, warnings }。
+ * warnings = 書いた後の値の注意（appCalibrationWarnings_）
  */
 function appCalibrationSet_(book, input, opts) {
   const c = appCalibrationCheck_(input);
@@ -209,6 +240,8 @@ function appCalibrationSet_(book, input, opts) {
       }
     }
     if (c.withdraw) out.withdrawn = appCalibrationWithdraw_(book, opts);
+    const st = book.getSheetByName('CALIBRATION_STATE');
+    out.warnings = appCalibrationWarnings_(st && st.getLastRow() >= 2 ? appCalibrationStateValues_(st.getDataRange().getValues(), client) : null);
     return out;
   });
 }
@@ -257,23 +290,14 @@ function appCalibrationWithdraw_(book, opts) {
 
 /**
  * 計画の今の補正の値と、取り下げられる見直し案（pending: 一番新しい案のどれもまだ反映していないとき。判断が保留・却下・承認でも出す）。
- * 書かない。inputHash は setCalibration にそのまま渡せる
+ * warnings = 今の値の注意（appCalibrationWarnings_）。書かない。inputHash は setCalibration にそのまま渡せる
  */
 function appCalibrationPreview_(planId) {
   const plan = appPlanOf_(planId);
   const s = appEngLoadPlanSheets_(plan.plan_id, ['CONFIG', 'CALIBRATION_STATE', 'CALIBRATION_HISTORY', 'QUARTERLY_REVIEW_LOG'], true);
   const client = s.CONFIG && s.CONFIG.values[1] ? String(s.CONFIG.values[1][1] || '').trim() : '';
-  let values = null;
   const st = s.CALIBRATION_STATE;
-  if (st && st.values.length > 1) {
-    const head = st.values[0].map(h => String(h || '').trim());
-    const rows = st.values.slice(1).filter(r => r.some(v => v !== '' && v !== null));
-    const row = rows.filter(r => String(r[head.indexOf('client')] || '').trim() === client)[0] || (rows.length === 1 ? rows[0] : null);
-    if (row) {
-      values = {};
-      APP_CALIBRATION_FIELDS.forEach(f => { values[f] = appCalibrationNorm_(f, head.indexOf(f) < 0 ? '' : row[head.indexOf(f)]); });
-    }
-  }
+  const values = st ? appCalibrationStateValues_(st.values, client) : null;
   const lv = s.QUARTERLY_REVIEW_LOG ? s.QUARTERLY_REVIEW_LOG.values : [];
   const latest = appCalibrationLatestReview_(lv);
   let pending = null;
@@ -286,5 +310,5 @@ function appCalibrationPreview_(planId) {
   }
   return { planId: plan.plan_id, fy: Number(plan.fy), frozen: appYearIsFrozen_(plan.fy), client: client,
     values: values, sheets: { state: !!st, history: !!s.CALIBRATION_HISTORY, reviewLog: !!s.QUARTERLY_REVIEW_LOG },
-    pending: pending, inputHash: appPlanInputHash_(plan.plan_id) };
+    pending: pending, warnings: appCalibrationWarnings_(values), inputHash: appPlanInputHash_(plan.plan_id) };
 }

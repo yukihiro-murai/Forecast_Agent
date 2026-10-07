@@ -5,7 +5,7 @@
  *   node app/tests/app-home.test.mjs
  */
 import assert from 'node:assert/strict';
-import { OWNER, MEMBER, setUpEnv, STATS, makeEnv, J } from './gas-mock.mjs';
+import { OWNER, MEMBER, setUpEnv, STATS, makeEnv, J, sources } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const env = setUpEnv();
@@ -61,6 +61,44 @@ const planId = env.seedPlan(book);
   const r2 = STATS.reads;
   env.call('apiListPlans()');
   assert.ok(STATS.reads > r2, '印が無ければ読み直す');
+}
+
+// ==== 2b. 公開し直した後（アプリの版が変わった）は、データ本体が同じでも前の版の控えを使わない ====
+{
+  /** 同じデータ本体・同じ控え（CacheService）・同じプロパティのまま、コードだけを差し替えた環境（公開し直しを真似る） */
+  const redeploy = (version) => {
+    const orig = sources['Config.js'];
+    if (version) sources['Config.js'] = orig.replace(/const APP_VERSION = '[^']*';/, `const APP_VERSION = '${version}';`);
+    try {
+      const next = makeEnv();
+      Object.assign(next.props, env.props); Object.assign(next.cache, env.cache);
+      Object.assign(next.sheetsById, env.sheetsById); Object.assign(next.files, env.files);
+      next.as(OWNER);
+      return next;
+    } finally { sources['Config.js'] = orig; }
+  };
+  const ver = env.run('APP_VERSION');
+  env.call('apiPortfolio()');
+  env.call('apiHome()');
+  const same = redeploy('');
+  assert.equal(same.run('APP_VERSION'), ver);
+  same.call('apiPortfolio()');   // 権限の表は、同じ版なら控えから
+  let r0 = STATS.reads;
+  same.call('apiPortfolio()');
+  same.call('apiHome()');
+  assert.equal(STATS.reads - r0, 0, '同じ版なら、別の実行でも控えから返す');
+  const next = redeploy(ver + '-next');
+  assert.equal(next.run('APP_VERSION'), ver + '-next');
+  r0 = STATS.reads;
+  next.call('apiPortfolio()');
+  assert.ok(STATS.reads > r0, '版が変われば、データ本体が同じでも読み直す（前の版の結果を返さない）');
+  r0 = STATS.reads;
+  next.call('apiHome()');
+  assert.ok(STATS.reads > r0, 'ホームも読み直す');
+  r0 = STATS.reads;
+  next.call('apiPortfolio()');
+  next.call('apiHome()');
+  assert.equal(STATS.reads - r0, 0, '新しい版で作った控えは使う');
 }
 
 // ==== 3. 短い保存は、トリガーを待たずに頼んだ通信の中で動かす（最近かかった時間から見て収まるとき） ====

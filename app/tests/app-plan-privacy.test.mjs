@@ -34,6 +34,8 @@ assert.equal(relText(new Map([['opinion:鷹野', 1.1], ['factor_product:佐藤',
 const NOTE_A6 = ['経過月は実績（ActualClosed列）で表示していますが、年度合計(P10/P50/P90)は12ヶ月すべてを予測として算出した通年予測です（経過実績で固定した着地値ではありません）。',
   '予測エンジン: 既存Ops（トレンド+季節）', '主観入力は月次上限（cap）内でそのまま反映されます（3c-1でオーバーレイ率の自動調整を撤去）。', REL_FULL,
   'AI取込警告サマリー: なし', '適用中の四半期チューニング: なし（全項目既定値） / 3か月以上の実績確定後に C-1 を実行してください。'].join('\n');
+/** 画面に出す注記: 見直し案を作る操作（C-1）を止めている間は、C-1 への案内を除く（appPlanViewNotes_。2026-10-07 決定 D3） */
+const NOTE_SHOWN = NOTE_A6.replace(' / 3か月以上の実績確定後に C-1 を実行してください。', '');
 
 /** 計画 1 つ（入力・検証の記入・四半期レビューの提案）と、旧来の予測の代わりで 1 回分の根拠の記録。役割も付けておく（付けると控えが古くなるので先に） */
 function build() {
@@ -157,7 +159,7 @@ const redactedBasis = (full) => {
   const pb1 = full.boot.quarterly.proposals.find((p) => p.pid === 'P-B-1');
   assert.deepEqual([pb1.target, pb1.rationale, pb1.impact], ['reliability:opinion:鷹野', '的中率=67% / n=3', IMPACT_B1]);
   assert.equal(full.boot.eval.insights.find((r) => r.month === '2026/04').owner, '鷹野');
-  assert.deepEqual([full.boot.output.policyLines, full.boot.output.engineNote], [[NOTE_A6.replace(/\n+/g, ' ')], NOTE_A6], '予測の注記には、信頼度を効かせている人の名前がある');
+  assert.deepEqual([full.boot.output.policyLines, full.boot.output.engineNote], [[NOTE_SHOWN.replace(/\n+/g, ' ')], NOTE_SHOWN], '予測の注記には、信頼度を効かせている人の名前がある');
   for (const email of FULL_ROLES) assert.deepEqual(t.view(email).boot, full.boot, email + ' には前と同じ中身');
   assert.deepEqual([t.view('planner.here@bigm2y.com').can.plan, t.view(PLANNER_ELSEWHERE).can.plan], [true, false], '保存できるかは前と同じ（見せ方とは別）');
 
@@ -169,7 +171,7 @@ const redactedBasis = (full) => {
     ['P-B-2', 'reliability:factor_product', '', '', '', ''],
     ['P-A-1', 'ai_weight_override', '0.5', '0.4', 'AI方向一致率=40.0% / mean|kAI-1|=1.00%', '次期AI寄与を80%へ調整']]);
   assert.deepEqual(sum.boot.eval.insights.map((r) => [r.month, r.owner, r.hypothesis]), [['2026/04', '', '受注の遅れ'], ['2026/05', '', '']]);
-  assert.deepEqual([sum.boot.output.policyLines, sum.boot.output.engineNote], [[NOTE_A6.replace(REL_FULL, REL_VIEWER).replace(/\n+/g, ' ')], NOTE_A6.replace(REL_FULL, REL_VIEWER)],
+  assert.deepEqual([sum.boot.output.policyLines, sum.boot.output.engineNote], [[NOTE_SHOWN.replace(REL_FULL, REL_VIEWER).replace(/\n+/g, ' ')], NOTE_SHOWN.replace(REL_FULL, REL_VIEWER)],
     '予測の注記: 信頼度の行は ON/OFF と数だけ（人や話題ごとの一覧を除く）。ほかの行はそのまま');
   assert.ok(!JSON.stringify(sum.boot.output).includes('適用中='), '予測の注記に人や話題ごとの信頼度を出さない');
   // 人の名前と的中率は、入力の画面に出すもの（入力の行・担当者の一覧）のほかには、どこにも無い

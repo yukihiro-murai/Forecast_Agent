@@ -109,7 +109,11 @@ function appListPlans_() {
 
 /**
  * 全部の計画の要点（最新の予測・前回からの変化・予算・精度・手順の進み・着地見込みと空模様）。
- * 着地見込みと空模様は Landing.js（締まった月の実績から今年の水準を学ぶ）。今日の日付で変わる（霧の判定・前提の変化の日数）ので、控えは日ごと
+ * 着地見込みと空模様は Landing.js（締まった月の実績から今年の水準を学ぶ）。今日の日付で変わる（霧の判定・前提の変化の日数）ので、控えは日ごと。
+ * 検証の表（EVAL_COMPARE_MONTHLY）の予測（P10/P50/P90）・外れ・幅の外の印は、今の決まり（D4〜D6）で B-2 が書き直した計画だけで使う
+ * （appPortfolioScored_）。表には版の印が無く、旧来の B-2 が丸ごと書き直すまでは、前の決まり（月が始まった後の予測）の値のままのため。
+ * 書き直していない計画（締めた年度の計画はずっと）は、外れ幅・予実の差・幅の外を出さず、着地の τ・w の学びにも入れない。実績はそのまま使う
+ * （暫定実績・着地見込み。実績は B-1 の取り込みのままで、どの回の予測で測るかに関係しない）
  */
 function appPortfolio_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
@@ -122,30 +126,37 @@ function appPortfolio_() {
     const n = Number(s.row_no);
     if (n === 1 || n === 26 || (n >= 29 && n <= 40)) { (outRows[s.plan_id] = outRows[s.plan_id] || {})[n] = JSON.parse(s.cells_json); }
   });
-  const ape = {};   // 計画ごとの [{ ym, v }]（外れ幅は、締まった月の分だけを後で平均する）
+  const steps = {};
+  appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
+  const plans = appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED');
+  // 締まった月の境目（B-1 → B-2 の順に動いた取り込み）と、今の決まりで測った月（EVAL_LOG を全計画の分 1 回で読む）
+  const cut = {};
+  plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || []); });
+  const scored = appPortfolioScored_(plans.map(p => p.plan_id), cut);
+  const ape = {};   // 計画ごとの [{ ym, v }]（外れ幅は、締まった月で今の決まりで測った月の分だけを後で平均する）
   const cmp = {};   // 月ごとの実績と P10/P50/P90（検証の表）。暫定実績・着地見込み・予実の差・全計画の学びに使う（読むだけ。計算は変えない）
   const fnum = x => { const n = x === '' || x === null || x === undefined ? null : Number(x); return n !== null && isFinite(n) ? n : null; };
   appReadTable_('ENG_EVAL_COMPARE_MONTHLY').forEach(r => {
+    const now = !!(scored[r.plan_id] && scored[r.plan_id].any);   // 今の決まりで B-2 が書き直した計画か
     const v = Number(r.ape_p50);
     const ym = appCellYm_(String(r._types || '').charAt(0), r.target_month);
-    if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push({ ym: ym, v: v });
     // 実績が空でも P50 のある行は残す（actual: null。ZAC に記録の無い月 = 売上 0。締まった月なら 0 円として数える）
     const blank = r.actual_total === '' || r.actual_total === null || r.actual_total === undefined;
     const act = blank ? null : Number(r.actual_total);
     const p50 = fnum(r.forecast_total_p50);
+    // 外れは、今の決まりで測った月だけ（精度と同じ月。締まった後の予測 = 予測と実績がまったく同じ月も、精度と同じく除く）
+    if (now && scored[r.plan_id].months[ym] && !blank && isFinite(act) && isFinite(v) && r.ape_p50 !== '' && !(p50 !== null && Math.abs(p50 - act) < 1e-6)) {
+      (ape[r.plan_id] = ape[r.plan_id] || []).push({ ym: ym, v: v });
+    }
     if (ym && (blank ? p50 !== null : isFinite(act))) {
-      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = { actual: act, p10: fnum(r.forecast_total_p10), p50: p50, p90: fnum(r.forecast_total_p90),
-        out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null };
+      // 書き直していない計画は、予測と幅の外の印を使わない（実績だけ）
+      (cmp[r.plan_id] = cmp[r.plan_id] || {})[ym] = now ? { actual: act, p10: fnum(r.forecast_total_p10), p50: p50, p90: fnum(r.forecast_total_p90),
+        out: String(r.range_outside_flag) === '1' ? 1 : String(r.range_outside_flag) === '0' ? 0 : null } : { actual: act, p10: null, p50: null, p90: null, out: null };
     }
   });
-  const steps = {};
-  appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
   const ver = appVersionSummary_();
   const num = x => { if (!x) return null; const t = x.charAt(0); if (t !== 'n') return null; const v = Number(x.slice(1)); return isFinite(v) ? v : null; };
-  const plans = appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED');
-  // 締まった月の境目（B-1 → B-2 の順に動いた取り込み）と、全計画の締まった月から学ぶ τ・w（1 回だけ）
-  const cut = {};
-  plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || []); });
+  // 全計画の締まった月から学ぶ τ・w（1 回だけ。書き直していない計画は予測が無いので入らない）
   const prior = appLandingPrior_(plans.map(p => {
     const c = cmp[p.plan_id] || {};
     return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort()
@@ -173,7 +184,7 @@ function appPortfolio_() {
       tau: prior.tau, w: prior.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
-    // 外れ幅は締まった月だけ（D4。締まっていない月の検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
+    // 外れ幅は締まった月で、今の決まりで測った月だけ（D4〜D6。精度 appAccuracyOf_ と同じ月。ほかの検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
     const a = (ape[p.plan_id] || []).filter(x => cut[p.plan_id] && x.ym && x.ym < cut[p.plan_id]).map(x => x.v);
     return {
       planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy,
@@ -196,6 +207,26 @@ function appPortfolio_() {
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
 }
 
+/**
+ * 計画ごとの、今の決まりで測った月（D4〜D6）: { 計画の ID: { any, months: { 'yyyy/MM': true } } }。
+ * 月 = EVAL_LOG の neutral の行が appEvalRowCurrent_ の月（締まった月で、今の検証の版で B-2 が書いた行。精度・振り返りと同じ）。
+ * any = その月が 1 つでもある = 今の決まりで B-2 が検証の表を書き直した計画。EVAL_LOG は全計画の分を 1 回で読む（appEngAll_）。
+ * cut = 計画ごとの締まった月の境目（appLandingCutoff_）
+ */
+function appPortfolioScored_(ids, cut) {
+  const rows = appEngAll_('EVAL_LOG', ids);
+  const out = {};
+  ids.forEach(id => {
+    const o = out[id] = { any: false, months: {} };
+    (rows[id] || []).forEach(r => {
+      if (String(r.scenario) !== 'neutral' || !appEvalRowCurrent_(r, cut[id])) return;
+      o.months[appYm_(r.target_month)] = true;
+      o.any = true;
+    });
+  });
+  return out;
+}
+
 /** セルの型と中身から 'yyyy/MM'（日時は日本の暦で。時刻つきの ISO の文字も時差を見て日本の暦で。読めなければ ''） */
 function appCellYm_(t, text) {
   if (text === '' || text === null || text === undefined) return '';
@@ -210,6 +241,7 @@ function appCellYm_(t, text) {
  * appLandingCutoff_）は数えない。
  * 実績の行が無い・実績が空の締まった月は 0 円として数える（ZAC に記録が無い月）。actualMonths は締まった月の数。
  * forecastYtd は締まった月の予測（検証の表の P50）の合計（予実の差を見る）。予測の無い締まった月があれば出さない（比べられない）。
+ * 今の決まりで B-2 が検証の表を書き直していない計画は、どの月も予測が無い（appPortfolio_ が渡さない）ので、予実の差も幅の外も出ない。
  * 実績が空でも予測のある月は、0 円と予測で比べる。actual は締まった月ごとの実績（着地見込みの計算に渡す）
  */
 function appPlanYtd_(fy, cmpByYm, cutoffYm) {

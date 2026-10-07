@@ -194,8 +194,11 @@ env.run('appPlanReadMinRows_ = () => 3000');
 {
   const e4 = setUpEnv();
   const ev = (client, key, qEnd, at, n, hit) => [client, 'opinion', key, 'FY2026-Q', qEnd, n, hit, hit / n, at, 'R', ''];
+  // 今の版の B-2 は 7/01 に動いた（その後に数えた行だけを使う。8 で確かめる）
   const plan = (client, rows) => e4.seedPlan(e4.makeBook(client, {
     CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    EVAL_LOG: { values: [H.EVAL_LOG, H.EVAL_LOG.map((h) => ({ eval_id: 'E1', evaluated_at: new Date('2026-07-01T00:00:00Z'), client, target_month: '2026/05', scenario: 'neutral',
+      pred: 1100, actual: 1000, evaluation_policy_version: POLICY, constraint_relevant_flag: 1 })[h] ?? '')], formats: { D: '@' } },
     RELIABILITY_EVIDENCE: { values: [H.RELIABILITY_EVIDENCE].concat(rows.map((r) => ev(client, ...r))) },
     POOL_PRIOR: { values: [H.POOL_PRIOR] },
   }));
@@ -222,5 +225,47 @@ env.run('appPlanReadMinRows_ = () => 3000');
   const closedAt = (qEnd, at) => e4.run(`appEvidenceClosed_({ quarter_end_month: '${qEnd}', computed_at: new Date('${at}') })`);
   assert.deepEqual([closedAt('2026/09', '2026-10-04T14:59:59Z'), closedAt('2026/09', '2026-10-04T15:00:00Z'), closedAt('', '2026-10-06T00:00:00Z'), closedAt('2026/12', '2027-01-05T00:00:00Z')],
     [false, true, false, true]);
+}
+// ==== 8. 全計画の事前分布は、その計画で今の検証の版の B-2 が初めて動いた後に数えた当たりだけから作る（D6。前の版の C-1 が数えた行は読み飛ばす。消さない） ====
+// 初めて動いた時刻は、今の版の EVAL_LOG の行（B-2 が動くたびに書き直す）と、RUN_LOG の今の版の B-2 の記録の、一番古いもの
+{
+  const e5 = setUpEnv();
+  const at = (s) => new Date(s);
+  const evRow = (client, key, qEnd, when, n, hit) => [client, 'opinion', key, 'FY2026-Q', qEnd, n, hit, hit / n, when, 'R', ''];
+  const evalRow = (client, when, ver) => H.EVAL_LOG.map((h) => ({ eval_id: 'E-' + ver, evaluated_at: when, client, target_month: '2026/09', scenario: 'neutral', pred: 1100, actual: 1000,
+    evaluation_policy_version: ver, constraint_relevant_flag: 1 })[h] ?? '');
+  const runRow = (client, when, status, summary) => H.RUN_LOG.map((h) => ({ run_id: 'L' + when.getTime(), run_at: when, run_by: 'owner', function_name: 'updatePhase1EvaluationReport',
+    client, status, count: 3, model_version: '2.4.0-dev', error_summary: summary })[h] ?? '');
+  const v3sum = POLICY + ': scored_months=3; open_months=1; no_pre_month_forecast=0';
+  const plan = (client, { evals = [], runs = [], evidence = [] }) => e5.seedPlan(e5.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    EVAL_LOG: { values: [H.EVAL_LOG].concat(evals.map(([w, v]) => evalRow(client, w, v))), formats: { D: '@' } },
+    RUN_LOG: { values: [H.RUN_LOG].concat(runs.map(([w, st, sm]) => runRow(client, w, st, sm))) },
+    RELIABILITY_EVIDENCE: { values: [H.RELIABILITY_EVIDENCE].concat(evidence.map((r) => evRow(client, ...r))) },
+    POOL_PRIOR: { values: [H.POOL_PRIOR] },
+  }));
+  // 丙: 今の版の B-2 は 10/06 9:00（EVAL_LOG）。7/10 に前の版の C-1 が数えた行は使わず、10/06 10:00 の行（今の版の C-1）だけ
+  const hei = plan('丙製薬', { evals: [[at('2026-10-06T00:00:00Z'), POLICY], [at('2026-10-02T00:00:00Z'), 'policy-2026H1-v2']],
+    evidence: [['a', '2026/06', at('2026-07-10T01:00:00Z'), 10, 0], ['b', '2026/09', at('2026-10-06T01:00:00Z'), 10, 6]] });
+  // 丁: 今の版の B-2 がまだ動いていない（前の版の行だけ）。締まった月で数えた行でも使わない
+  const tei = plan('丁製薬', { evals: [[at('2026-10-02T00:00:00Z'), 'policy-2026H1-v2']], runs: [[at('2026-10-02T00:00:00Z'), 'success', '']],
+    evidence: [['a', '2026/09', at('2026-10-06T01:00:00Z'), 10, 0]] });
+  // 戊: 今の版の B-2 は 10/06 に初めて動き（RUN_LOG）、11/06 の B-2 が EVAL_LOG を書き直した。10/08 の今の版の C-1 が数えた行は使う
+  const bo = plan('戊製薬', { evals: [[at('2026-11-06T00:00:00Z'), POLICY]],
+    runs: [[at('2026-09-01T00:00:00Z'), 'success', ''], [at('2026-10-05T00:00:00Z'), 'error', v3sum], [at('2026-10-06T00:00:00Z'), 'success', v3sum], [at('2026-11-06T00:00:00Z'), 'success', v3sum]],
+    evidence: [['a', '2026/09', at('2026-10-08T01:00:00Z'), 10, 6]] });
+  // 己: 戊と同じだが RUN_LOG の記録が無い（EVAL_LOG の 11/06 だけでは、10/08 の行は前の版と見分けられないので使わない）
+  const ki = plan('己製薬', { evals: [[at('2026-11-06T00:00:00Z'), POLICY]], evidence: [['a', '2026/09', at('2026-10-08T01:00:00Z'), 10, 6]] });
+  const from = J(e5.run('appEvidencePolicyFrom_(__ids)', { __ids: [hei, tei, bo, ki] }));
+  assert.deepEqual([from[hei], from[tei], from[bo], from[ki]], [Date.parse('2026-10-06T00:00:00Z'), null, Date.parse('2026-10-06T00:00:00Z'), Date.parse('2026-11-06T00:00:00Z')],
+    '初めて動いた時刻（RUN_LOG の失敗した回・前の版の回は数えない）');
+  const pv = e5.call('apiPoolPreview()');
+  const op = pv.types.find((t) => t.type === 'opinion');
+  assert.deepEqual([op.ok, op.plans, op.n, op.hit, pv.skippedEvidence], [true, 2, 20, 12, 3], '丙の b と戊だけ（丙の a・丁・己は読み飛ばす）');
+  assert.deepEqual(op.perPlan.map((x) => x.client).sort(), ['丙製薬', '戊製薬']);
+  const st = e5.runJob('LEARN.POOL', {});
+  assert.equal(st.status, 'DONE', st.error);
+  for (const id of [hei, tei, bo, ki]) assert.equal(e5.table('ENG_POOL_PRIOR').find((r) => r.plan_id === id && r.pool_scope === 'reliability:opinion').pooled_value, '1.2', '書く値も同じ決まりで作る（2 × 12 / 20）');
+  assert.deepEqual([hei, tei, bo, ki].map((id) => e5.table('ENG_RELIABILITY_EVIDENCE').filter((r) => r.plan_id === id).length), [2, 1, 1, 1], '読み飛ばした行も残る');
 }
 console.log('app-learning: all tests passed');
