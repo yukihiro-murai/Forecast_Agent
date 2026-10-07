@@ -308,6 +308,12 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
   assert.deepEqual([side.annual_actual_total[0], side.annual_p50_total[0]], [3000, 3300], '横の要約は 7〜9 月だけ（10 月〜の途中の売上は入れない）');
   assert.deepEqual(side['FY2026-Q2'].slice(0, 2), [3000, 3300], 'Q2 は 7〜9 月');
   assert.deepEqual(side['FY2026-H2'].slice(0, 2), ['', ''], '下期は締まった月が無い');
+  // 計画の一覧の外れ幅（ホーム・分析）も、今の版で測った 7〜9 月だけ（6/19 の回）。検証の画面の精度と同じ数
+  const pf = P.env.call('apiPortfolio()').plans.find((p) => p.planId === P.planId);
+  const acc = P.env.call('apiLearningView(__in)', { __in: { planId: P.planId } }).accuracy;
+  assert.deepEqual([pf.mapeMonths, acc.n], [3, 3], '外れ幅の月 = 精度の月');
+  near(pf.mape, 0.1, '外れ幅（6/19 の回: 1100 / 1000）');
+  near(pf.mape, acc.mape, '計画の一覧の外れ幅 = 精度');
 
   // 4. B-2 の後の自動の B-5: 締まった 7〜9 月を、6/19 の予測（補正なし・10% 多い）で学ぶ。期待値は設計の式から（エンジンとは別に計算）
   const w = [0, 1, 2].map((i) => Math.pow(0.5, i / 4));   // 新しい月（9 月）から

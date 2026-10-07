@@ -17,6 +17,15 @@ const acts = (v) => Object.fromEntries(v.map((x, i) => [yms[i], x]));
 const base = { fy: 2026, months: flat(80, 100, 120), budget: 1200 };
 const pure = makeEnv();
 const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({}, base, over) }));
+/**
+ * 今の検証の版（D4〜D6）で B-2 が測った月の EVAL_LOG（neutral の行。[[月, 予測, 実績]]）。計画の一覧は、この行のある計画だけ
+ * 検証の表の予測・外れ・幅の外を使う（appPortfolioScored_。前の版の表は、月が始まった後の予測のままのことがあるため）
+ */
+const evalLogSheet = (env, rows) => {
+  const HE = J(env.run('APP_ENGINE_SHEETS.EVAL_LOG.header'));
+  return { values: [HE, ...rows.map(([ym, pred, act]) => { const o = { eval_id: 'E-' + ym, evaluated_at: new Date(2026, 9, 6, 12), client: 'x', target_month: ym, scenario: 'neutral',
+    pred, actual: act, evaluation_policy_version: 'policy-2026H1-v3', constraint_relevant_flag: 1 }; return HE.map((h) => (o[h] === undefined ? '' : o[h])); })], formats: { D: '@' } };
+};
 
 // ==== 1. 着地見込みと空模様（見本の表: 月の予測 80/100/120・年間予算 1,200） ====
 {
@@ -269,6 +278,7 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
     OUTPUT: { values: output },
     // 前の年度の月（予測なし）・締まった 6 か月（予測の 80%）・取り込んだ月の途中の実績
     EVAL_COMPARE_MONTHLY: { values: [HC, cmpRow('2026/03', 999, ''), ...yms.slice(0, 6).map((ym) => cmpRow(ym, 80, 100)), cmpRow('2026/10', 5, 100)] },
+    EVAL_LOG: evalLogSheet(env, yms.slice(0, 6).map((ym) => [ym, 100, 80])),
     PROCESS_STATUS: { values: [HS, ['step2_status', new Date(2026, 9, 5, 10), 'owner', 'success', client, 10, ''], ['step5_status', b2, 'owner', 'success', '', 6, '']] },
   });
   const idA = env.seedPlan(book('甲製薬', new Date(2026, 9, 5, 11)));
@@ -347,6 +357,7 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
     OUTPUT: { values: output },
     // 締まった 6 か月と、取り込んだ月の途中の実績（学びにも使わない）
     EVAL_COMPARE_MONTHLY: { values: [HC, ...as.map((x, i) => cmpRow(yms[i], x, 100)), cmpRow('2026/10', 5, 100)] },
+    EVAL_LOG: evalLogSheet(env, as.map((x, i) => [yms[i], 100, x === '' ? 0 : x])),
     PROCESS_STATUS: { values: [HS, ['step2_status', new Date(2026, 9, 5, 10), 'owner', 'success', client, 10, ''], ['step5_status', new Date(2026, 9, 5, 11), 'owner', 'success', '', 6, '']] },
   });
   // 水準 0.8・1.2・1.0 で、月ごとに ±30 ぶれる（P10〜P90 の幅より大きい → w > 1）。丙の 8 月は売上 0（実績が空）
@@ -405,6 +416,7 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
     CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
     OUTPUT: { values: output(adopted) },
     EVAL_COMPARE_MONTHLY: { values: [HC, ...yms.slice(0, 6).map((ym) => cmpRow(ym, 30))] },
+    EVAL_LOG: evalLogSheet(env, yms.slice(0, 6).map((ym) => [ym, 100, 30])),
     PROCESS_STATUS: { values: [HS, ['step2_status', new Date(2026, 9, 5, 10), 'owner', 'success', client, 10, ''], ['step5_status', b2, 'owner', 'success', '', 6, '']] },
   });
   const fresh = new Date(2026, 9, 5, 11), old = new Date(2026, 8, 5, 11);
@@ -445,6 +457,8 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
     CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
     OUTPUT: { values: output },
     EVAL_COMPARE_MONTHLY: { values: [HC, ...yms.slice(0, 5).map((ym) => cmpRow(ym, 80)), cmpRow('2026/09', sep), cmpRow('2026/10', 5)] },
+    // 今の版の B-2 は締まった月だけを測る（10/03 の取り込みなら 4〜8 月、10/06 なら 4〜9 月）
+    EVAL_LOG: evalLogSheet(env, yms.slice(0, b1.getDate() >= 5 ? 6 : 5).map((ym) => [ym, 100, 80])),
     PROCESS_STATUS: { values: [HS, ['step2_status', b1, 'owner', 'success', client, 10, ''], ['step5_status', new Date(b1.getTime() + 3600e3), 'owner', 'success', '', 6, '']] },
   });
   const d3 = env.seedPlan(book('三日製薬', 30, new Date(2026, 9, 3, 10)));
@@ -468,6 +482,84 @@ const sky = (over) => J(pure.run('appLandingSky_(__in)', { __in: Object.assign({
   assert.equal(port()[d3].skyReason, 'ratio', '12/03: 遅れは 2 か月');
   env.run(`appToday_ = function () { return '2026-12-05'; }`);
   assert.equal(port()[d3].skyReason, 'stale_actuals', '12/05: 遅れは 3 か月');
+}
+
+// ==== 8. 検証の表の予測は、今の決まり（D4〜D6）で B-2 が書き直した計画だけで使う（外れ幅・予実の差・幅の外・着地の τ・w の学び）。実績はそのまま ====
+// 旧: 前の版の EVAL_LOG だけ（検証の表は月が始まった後の予測のまま）。新: 7〜9 月だけ今の版。甲・乙・丙: 6 か月とも今の版
+{
+  const env = makeEnv();
+  env.run(`appToday_ = function () { return '2026-10-06'; }`);
+  env.as(OWNER);
+  env.call('apiSetup()');
+  const HC = J(env.run('APP_ENGINE_SHEETS.EVAL_COMPARE_MONTHLY.header'));
+  const HS = J(env.run('APP_ENGINE_SHEETS.PROCESS_STATUS.header'));
+  const HE = J(env.run('APP_ENGINE_SHEETS.EVAL_LOG.header'));
+  const output = [['FY2026 売上予測']];
+  for (let r = 2; r <= 25; r++) output.push([]);
+  output.push(['年度合計（予測）', 1000, 1200, 1400]);
+  output.push([], ['月', 'P10', 'P50', 'P90', '', '', '', '採用予測', '上乗せ']);
+  yms.forEach((ym) => output.push([ym, 80, 100, 120, '', '', '', 100, '']));
+  const cmpRow = (ym, act) => { const o = { target_month: ym, actual_total: act, forecast_total_p10: 80, forecast_total_p50: 100, forecast_total_p90: 120,
+    ape_p50: Math.abs(100 - act) / act, range_outside_flag: act < 80 || act > 120 ? 1 : 0 }; return HC.map((h) => (o[h] === undefined ? '' : o[h])); };
+  const evalRow = (ym, act, policy) => { const o = { eval_id: 'E-' + ym, evaluated_at: new Date(2026, 9, 5, 11), client: 'x', target_month: ym, scenario: 'neutral', pred: 100, actual: act,
+    evaluation_policy_version: policy, constraint_relevant_flag: 1 }; return HE.map((h) => (o[h] === undefined ? '' : o[h])); };
+  // as: 締まった 4〜9 月の実績。v3: 今の版で測った月（ほかの月は前の版の行）
+  const book = (client, as, v3) => env.makeBook(client, {
+    CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', client], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
+    OUTPUT: { values: output },
+    EVAL_COMPARE_MONTHLY: { values: [HC, ...as.map((x, i) => cmpRow(yms[i], x)), cmpRow('2026/10', 5)] },
+    EVAL_LOG: { values: [HE, ...as.map((x, i) => evalRow(yms[i], x, v3.includes(yms[i]) ? 'policy-2026H1-v3' : 'policy-2026H1-v2'))], formats: { D: '@' } },
+    PROCESS_STATUS: { values: [HS, ['step2_status', new Date(2026, 9, 5, 10), 'owner', 'success', client, 10, ''], ['step5_status', new Date(2026, 9, 5, 11), 'owner', 'success', '', 6, '']] },
+  });
+  const all6 = yms.slice(0, 6);
+  const lv = { 甲: [50, 110, 50, 110, 50, 110], 乙: [90, 150, 90, 150, 90, 150], 丙: [70, 130, 70, 130, 70, 130] };
+  const ids = Object.fromEntries(Object.entries(lv).map(([k, as]) => [k, env.seedPlan(book(k + '製薬', as, all6))]));
+  const oldAs = [300, 300, 300, 300, 300, 300];   // 前の版の表では水準 3 倍（学びに入れると τ が上限に張りつく）
+  ids.旧 = env.seedPlan(book('旧製薬', oldAs, []));
+  const newAs = [50, 50, 50, 80, 80, 80];        // 4〜6 月（前の版の行）の外れは 100%、7〜9 月（今の版）は 25%
+  ids.新 = env.seedPlan(book('新製薬', newAs, ['2026/07', '2026/08', '2026/09']));
+  const port = Object.fromEntries(env.call('apiPortfolio()').plans.map((p) => [p.planId, p]));
+  const acc = (id) => env.call('apiLearningView(__in)', { __in: { planId: id } }).accuracy;
+  const cross = Object.fromEntries(env.call('apiCrossMaker(__in)', { __in: { fy: 2026 } }).plans.map((p) => [p.planId, p]));
+  const home = Object.fromEntries(env.call('apiHome()').plans.map((p) => [p.planId, p]));
+
+  // (a) 前の版だけの計画: 外れ幅・予実の差・幅の外は出さない。暫定実績と着地（実績から）はそのまま
+  const o = port[ids.旧];
+  assert.deepEqual([o.mape, o.mapeMonths, o.forecastYtd, o.rangeN, o.rangeOut], [null, 0, null, 0, 0], '前の版の検証の表の予測は使わない');
+  assert.deepEqual([o.actualYtd, o.actualMonths, o.k], [1800, 6, 6], '暫定実績は締まった 6 か月の実績のまま');
+  assert.ok(typeof o.landing === 'number' && o.landing > 1800, '着地は実績から出す: ' + o.landing);
+  const ao = acc(ids.旧);
+  assert.deepEqual([ao.n, ao.mape], [0, null], '検証の画面の精度も無い');
+  assert.deepEqual([home[ids.旧].mape, home[ids.旧].mapeMonths, home[ids.旧].forecastYtd, home[ids.旧].rangeN], [null, 0, null, 0], 'ホームも同じ');
+  assert.deepEqual([cross[ids.旧].mape, cross[ids.旧].mapeMonths, cross[ids.旧].accuracy.n, cross[ids.旧].accuracy.mape], [null, 0, 0, null], '分析も同じ');
+
+  // (b) 7〜9 月だけ今の版の計画: 外れ幅は 7〜9 月だけの平均（= 精度）。予測と幅の外の印は計画ごと（書き直した表）なので 6 か月とも使う
+  const n = port[ids.新];
+  const an = acc(ids.新);
+  assert.equal(n.mapeMonths, 3, '今の版で測った 3 か月');
+  near(n.mape, 0.25, 1e-12, '外れ幅は 7〜9 月の平均（4〜6 月の 100% は入れない）');
+  assert.deepEqual([an.n, an.months.map((m) => m.month)], [3, ['2026/07', '2026/08', '2026/09']]);
+  near(n.mape, an.mape, 1e-12, '計画の一覧の外れ幅 = 検証の画面の精度');
+  near(home[ids.新].mape, an.mape, 1e-12, 'ホームの外れ幅も同じ');
+  near(cross[ids.新].mape, cross[ids.新].accuracy.mape, 1e-12, '分析の外れ幅と精度も同じ');
+  assert.deepEqual([n.forecastYtd, n.rangeN, n.actualYtd], [600, 6, 390]);
+  for (const k of ['甲', '乙', '丙']) {
+    const p = port[ids[k]];
+    near(p.mape, acc(ids[k]).mape, 1e-12, k + ': 全部の月が今の版なら、外れ幅 = 精度');
+    assert.equal(p.mapeMonths, 6);
+  }
+
+  // (c) 着地の τ・w は、今の版の計画（甲・乙・丙・新）だけから学ぶ（旧を入れると τ が変わる）
+  const toPrior = (as) => as.map((x) => ({ f: 100, a: x, p10: 80, p90: 120 }));
+  const prior = J(pure.run('appLandingPrior_(__in)', { __in: [lv.甲, lv.乙, lv.丙, newAs].map(toPrior) }));
+  const withOld = J(pure.run('appLandingPrior_(__in)', { __in: [lv.甲, lv.乙, lv.丙, newAs, oldAs].map(toPrior) }));
+  assert.equal(prior.learned, true);
+  assert.ok(Math.abs(prior.tau - withOld.tau) > 0.01, `旧を入れると τ が変わる（${prior.tau} / ${withOld.tau}）`);
+  for (const [k, as] of Object.entries(Object.assign({}, lv, { 新: newAs, 旧: oldAs }))) {
+    const want = sky({ actual: acts(as), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1200, tau: prior.tau, w: prior.w });
+    near(port[ids[k]].landing, want.landing, 1e-9, k + ': 旧を除いて学んだ τ・w の着地');
+    near(port[ids[k]].landingSd, want.landingSd, 1e-9, k + ': ばらつき');
+  }
 }
 
 console.log('app-landing: all tests passed');
