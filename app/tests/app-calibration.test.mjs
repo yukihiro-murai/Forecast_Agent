@@ -320,16 +320,17 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   assert.equal(engRows(env, 'CALIBRATION_STATE', planId)[0].bias_correction_factor, '0.8', 'ほかの項目はそのまま');
 
   const r2 = run();
-  // 所有者が承認した値を書いた後の注記: 「なし（全項目既定値）」ではなく「所有者が承認した値」（行のほかの文はそのまま）
+  // 所有者が承認した値を書いた後の注記: 「適用中の四半期チューニング: なし（全項目既定値）」ではなく、所有者が承認した値とその値（行のほかの文はそのまま）
+  const OWNER_NOTE = '適用中の補正: 所有者が承認した値（偏りの補正 0.80・月ごとの補正 4 月 5.0% 上げ、9 月 10.0% 下げ・AI の効き 0%）';
   assert.match(a6(), /適用中の四半期チューニング: なし（全項目既定値）/, '旧来の A-9 の注記はそのまま（データは変えない）');
   const n2 = notes();
-  assert.match(n2, /適用中の四半期チューニング: 所有者が承認した値/);
-  assert.doesNotMatch(n2, /全項目既定値|C-1 を実行してください/);
+  assert.ok(n2.endsWith(OWNER_NOTE), n2);
+  assert.doesNotMatch(n2, /四半期チューニング|全項目既定値|C-1 を実行してください/);
   assert.match(n2, /AI取込警告サマリー/, 'ほかの文は残す');
   // C-1 を止めていなければ、案内はそのまま出す（止めを外して、画面の中身を組み立て直す）
   env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = ''");
   for (const k of Object.keys(env.cache)) delete env.cache[k];
-  assert.match(notes(), /所有者が承認した値 \/ 3か月以上の実績確定後に C-1 を実行してください。/);
+  assert.ok(notes().endsWith(OWNER_NOTE + ' / 3か月以上の実績確定後に C-1 を実行してください。'), notes());
   env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = APP_REVIEW_GENERATE_PAUSED");
   for (const k of Object.keys(env.cache)) delete env.cache[k];
   assert.doesNotMatch(notes(), /C-1 を実行してください/);
@@ -349,6 +350,27 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   }
   assert.equal(r2.headline.objective.p50, r1.headline.objective.p50, '客観（統計だけ）の年間は同じ');
   assert.ok(r2.headline.annual.p50 < r1.headline.annual.p50);
+
+  // 前の C-3 の四半期が CALIBRATION_STATE に残っている（last_applied_quarter）と、旧来の A-9 は四半期と「・」の行を書き、AI の効き 0 を「既定」と書く。
+  // 所有者が承認した値の後は、その区切りをまるごと、所有者が承認した値とその値に書き換える（前の四半期の値とは書かない）
+  const setQuarter = (q, rid) => editLegacy(env, planId, ['CALIBRATION_STATE'], `function (b) {
+    const sh = b.getSheetByName('CALIBRATION_STATE'); const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    sh.getRange(2, head.indexOf('last_applied_quarter') + 1).setValue(__q); sh.getRange(2, head.indexOf('last_applied_review_id') + 1).setValue(__rid); }`, { __q: q, __rid: rid });
+  setQuarter('FY2026-Q1', 'R-OLD');
+  assert.match(engRows(env, 'CALIBRATION_STATE', planId)[0].note, /^owner-approved /, '前提: 所有者が承認した値のまま');
+  run();
+  assert.ok(a6().endsWith('適用中の四半期チューニング: FY2026-Q1 / ・ai_weight_override: 既定 / ・ai_topic_disable: [] / ・bias_correction_factor: 0.8 / 次回の四半期レビューは3か月後に C-1 を実行してください。'),
+    '前提: 旧来の A-9 の四半期の書き方: ' + a6());
+  const n3 = notes();
+  assert.ok(n3.endsWith(OWNER_NOTE), n3);
+  assert.doesNotMatch(n3, /四半期チューニング|FY2026-Q1|ai_weight_override|ai_topic_disable|bias_correction_factor|C-1 を実行してください/, '四半期・「・」の行・C-1 への案内は出さない');
+  assert.match(n3, /AI取込警告サマリー: なし/, 'ほかの文は残す');
+  env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = ''");
+  for (const k of Object.keys(env.cache)) delete env.cache[k];
+  assert.ok(notes().endsWith(OWNER_NOTE + ' / 次回の四半期レビューは3か月後に C-1 を実行してください。'), 'C-1 を止めていなければ案内は残す: ' + notes());
+  env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = APP_REVIEW_GENERATE_PAUSED");
+  for (const k of Object.keys(env.cache)) delete env.cache[k];
+  setQuarter('', '');   // 後の確かめのために戻す（ほかの列はそのまま）
 }
 
 // ==== 4. D2 + D7 + D8 + 取り下げを 1 回で頼む（README の例） ====
@@ -535,6 +557,22 @@ let readmeTask;
   env.run('appPlanViewNotes_(__o, { getSheetByName: () => null })', { __o: out });
   assert.deepEqual(out.output, { policyLines: ['適用中の四半期チューニング: FY2026-Q1 / ・ai_weight_override: 既定 / 補正の警告'],
     engineNote: '経過月は実績…\n適用中の四半期チューニング: なし（全項目既定値）' }, '所有者が承認した値でなければ「なし」はそのまま');
+  // 所有者が承認した値（CALIBRATION_STATE の note が owner-approved）なら、四半期チューニングの区切り（四半期と「・」の行）だけを書き換える。
+  // 後ろの警告（旧来の calibrationWarning）・前の行はそのまま。AI の効きが空なら既定（業務の設定の値）、小さい値は 2 けた
+  const HS = env.run('APP_ENGINE_SHEETS.CALIBRATION_STATE.header');
+  const stateBook = (o) => { const rows = [HS, HS.map((h) => (o[h] === undefined ? '' : o[h]))];
+    return { getSheetByName: (n) => (n === 'CALIBRATION_STATE' ? { getLastRow: () => rows.length, getDataRange: () => ({ getValues: () => rows }) } : null) }; };
+  const owned = (state, text) => { const o = { output: { policyLines: [text], engineNote: 'AI取込警告サマリー: なし\n' + text } }; env.run('appPlanViewNotes_(__o, __b)', { __o: o, __b: stateBook(state) }); return o.output; };
+  const quarterText = '経過月は実績… 適用中の四半期チューニング: FY2026-Q1 / ・ai_weight_override: 0.002 / ・ai_topic_disable: ["DX"] / ・bias_correction_factor: 1.1 / '
+    + '次回の四半期レビューは3か月後に C-1 を実行してください。 / ⚠ calibration読み込み失敗 / fallbackで実行';
+  const o1 = owned({ client: CLIENT, bias_correction_factor: 1, residual_month_bias_json: '', ai_weight_override: '', note: 'owner-approved 2026-10-07 10:00: x' }, quarterText);
+  const want1 = '経過月は実績… 適用中の補正: 所有者が承認した値（偏りの補正 1.00・月ごとの補正 なし・AI の効き 既定） / ⚠ calibration読み込み失敗 / fallbackで実行';
+  assert.deepEqual(o1, { policyLines: [want1], engineNote: 'AI取込警告サマリー: なし\n' + want1 });
+  const o2 = owned({ bias_correction_factor: '0.9', residual_month_bias_json: '{"12":0.02}', ai_weight_override: '0.0008', note: 'owner-approved 2026-10-07 10:00: x' },
+    'AI取込警告サマリー: なし 適用中の四半期チューニング: なし（全項目既定値） / 3か月以上の実績確定後に C-1 を実行してください。');
+  assert.deepEqual(o2.policyLines, ['AI取込警告サマリー: なし 適用中の補正: 所有者が承認した値（偏りの補正 0.90・月ごとの補正 12 月 2.0% 上げ・AI の効き 0.08%）']);
+  assert.deepEqual(owned({ bias_correction_factor: 0.9, note: 'auto-learned' }, quarterText).policyLines,
+    [quarterText.replace(' / 次回の四半期レビューは3か月後に C-1 を実行してください。', '')], '自動の学びの値なら四半期の書き方はそのまま');
 }
 
 // ==== 7. 締めた年度の計画には書かない ====
