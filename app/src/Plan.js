@@ -4,7 +4,7 @@
  * - 見る: データ本体から読むだけのブック（appStoreBook_）を組み立て、旧来の webGetBootstrap_ をそのまま動かす。
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
  *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
- *         検証の記入は、その月を今の検証の版で B-2 が測る前に B-4 が書いた行を出さない（appPlanViewDropStale_。学びの振り返りと同じ決まり）。
+ *         検証の記入は、予測と実績が今の検証の版の B-2 が測った数字と違う行を出さない（appPlanViewDropStale_。学びの振り返りと同じ決まり）。
  *         予測の注記は、止めている C-1 への案内を除き、所有者が承認した補正の値をそう書く（appPlanViewNotes_）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
@@ -20,8 +20,13 @@
 const APP_REVIEW_GENERATE_PAUSED = '見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。';
 /** 予測の注記（OUTPUT!A6。旧来の A-9 の buildOutputCalibrationSummary_ が「 / 」でつなぐ）の、C-1 を動かすよう案内する文 */
 const APP_PLAN_NOTE_C1_HINT = / \/ (?:3か月以上の実績確定後に|次回の四半期レビューは3か月後に) C-1 を実行してください。/g;
-/** 同じ注記の「四半期チューニングが無い」の書き方と、所有者が承認した値を書いた（setCalibration）ときの書き方 */
-const APP_PLAN_NOTE_DEFAULT = 'なし（全項目既定値）';
+/**
+ * 同じ注記の四半期チューニングの区切り（旧来の buildOutputCalibrationSummary_ が「 / 」でつなぐ）: 「適用中の四半期チューニング: 」と、
+ * 四半期（無ければ「なし（全項目既定値）」）。四半期のときは「・ai_weight_override: …」「・ai_topic_disable: …」「・bias_correction_factor: …」も。
+ * 後ろの C-1 への案内と警告（・で始まらない）は含めない
+ */
+const APP_PLAN_NOTE_TUNING = /適用中の四半期チューニング: (?:(?! \/ |\n).)*(?: \/ ・(?:(?! \/ |\n).)*)*/g;
+/** 所有者が承認した値を書いた（setCalibration）ときの、その区切りの書き方（値は appPlanOwnerNote_） */
 const APP_PLAN_NOTE_OWNER = '所有者が承認した値';
 
 /** 計画への保存・実行（名前は旧来の Web アプリの操作の記録と同じ） */
@@ -246,8 +251,9 @@ function appPlanView_(ctx, planId) {
 }
 
 /**
- * 計画の画面の検証の記入（boot.eval.insights。旧来の webParseEval_ が、今の決まりで測った月の行を出す）から、その月を今の検証の版で
- * B-2 が測る前に B-4 が書いた行を除く（前の版の予測の数字のまま。学びの振り返り appInsightLessons_ と同じ決まり。次の B-4 が書き直すと出る。行は消さない）。
+ * 計画の画面の検証の記入（boot.eval.insights。旧来の webParseEval_ が、今の決まりで測った月の行を出す）から、予測と実績が、その月の
+ * 今の版の EVAL_LOG の neutral の行と違う行を除く（前の版の予測の数字のまま・実績を取り込み直して測り直す前の数字のまま。学びの振り返り
+ * appInsightLessons_ と同じ決まり（appInsightRowScored_）。次の B-4 が書き直すと出る。行は消さない）。
  * 行の番号（row）は旧来の画面と同じ読むだけのブック（appStoreBook_）のシートの行なので、同じブックの EVAL_INSIGHTS からそのまま引く
  * （旧来の画面が読んだシートなので、データ本体を読み直さない）
  */
@@ -260,21 +266,19 @@ function appPlanViewDropStale_(boot, book) {
   const lv = log.getDataRange().getValues();
   const idx = {};
   lv[0].forEach((h, i) => { const k = String(h || '').trim(); if (k && idx[k] === undefined) idx[k] = i; });
-  if (['evaluated_at', 'target_month', 'scenario', 'evaluation_policy_version'].some(k => idx[k] === undefined)) return;
-  const at = {};   // 月 → 今の版で B-2 が書いた時刻（neutral の行）
+  if (['target_month', 'scenario', 'pred', 'actual', 'evaluation_policy_version'].some(k => idx[k] === undefined)) return;
+  const scored = {};   // 月 → 今の版の B-2 が測った予測と実績（neutral の行。同じ月が 2 行あれば後の行）
   lv.slice(1).forEach(r => {
     if (String(r[idx.scenario] || '').trim() !== 'neutral' || String(r[idx.evaluation_policy_version] || '').trim() !== APP_EVAL_POLICY_VERSION) return;
-    const ym = appYm_(r[idx.target_month]);
-    const t = appTimeKey_(r[idx.evaluated_at]);
-    at[ym] = Math.max(at[ym] || 0, isFinite(t) ? t : 0);
+    scored[appYm_(r[idx.target_month])] = { pred: r[idx.pred], actual: r[idx.actual] };
   });
-  const iv = sh.getDataRange().getValues();   // 1 列目 evaluated_at・3 列目 target_month（旧来の webParseEval_ と同じ並び）
+  const iv = sh.getDataRange().getValues();   // 3 列目 target_month・4 列目 actual_total・5 列目 pred_p50（旧来の webParseEval_ と同じ並び）
   boot.eval.insights = ins.filter(x => {
     const r = iv[Number(x.row) - 1];
     if (!r) return true;
     const ym = appYm_(r[2]);
-    if (!Object.prototype.hasOwnProperty.call(at, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
-    return appTimeKey_(r[0]) >= at[ym];
+    if (!Object.prototype.hasOwnProperty.call(scored, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
+    return appInsightRowScored_(scored, ym, r[4], r[3]);
   });
 }
 
@@ -282,37 +286,53 @@ function appPlanViewDropStale_(boot, book) {
  * 予測の注記（OUTPUT!A6 の写し: boot.output.policyLines・engineNote。旧来の A-9 が書く）を、今の決まりに合わせる（見る人によらない。行のほかの文はそのまま）:
  *   - 見直し案を作る操作（REVIEW.GENERATE・C-1）を止めている間は、C-1 を動かすよう案内する文を除く
  *   - 計画の CALIBRATION_STATE の note が 'owner-approved'（setCalibration が書く。Calibration.js）で始まれば、
- *     「適用中の四半期チューニング: なし（全項目既定値）」の「なし（全項目既定値）」を「所有者が承認した値」にする（既定値ではないため）
+ *     「適用中の四半期チューニング: …」の区切り（四半期と・の行。APP_PLAN_NOTE_TUNING）を、所有者が承認した値とその値に書き換える
+ *     （「なし（全項目既定値）」は既定値ではないため。前の C-3 の四半期が残っていても、その四半期の値ではないため。旧来は AI の効き 0 を「既定」と書く）
  */
 function appPlanViewNotes_(boot, book) {
   const o = boot && boot.output;
   if (!o) return;
   const paused = !!appPlanActionPaused_('REVIEW.GENERATE');
-  const owner = appPlanOwnerApproved_(book);
+  const owner = appPlanOwnerCalibration_(book);
   if (!paused && !owner) return;
+  const note = owner ? appPlanOwnerNote_(owner) : '';
   const fix = t => {
     let x = String(t || '');
     if (paused) x = x.replace(APP_PLAN_NOTE_C1_HINT, '');
-    if (owner) x = x.split('適用中の四半期チューニング: ' + APP_PLAN_NOTE_DEFAULT).join('適用中の四半期チューニング: ' + APP_PLAN_NOTE_OWNER);
+    if (owner) x = x.replace(APP_PLAN_NOTE_TUNING, () => note);
     return x;
   };
   if (Array.isArray(o.policyLines)) o.policyLines = o.policyLines.map(fix);
   if (o.engineNote) o.engineNote = fix(o.engineNote);
 }
 
-/** 計画の補正の値が、所有者が承認した値か（CALIBRATION_STATE のメーカーの行（無ければ 1 つだけの行）の note が 'owner-approved' で始まる） */
-function appPlanOwnerApproved_(book) {
+/**
+ * 計画の補正の値が所有者が承認した値なら、その値（{ bias_correction_factor, residual_month_bias_json, ai_weight_override }。旧来と同じ読み方:
+ * appCalibrationNorm_）。CALIBRATION_STATE のメーカーの行（無ければ 1 つだけの行）の note が 'owner-approved' で始まらなければ null
+ */
+function appPlanOwnerCalibration_(book) {
   const sh = book.getSheetByName('CALIBRATION_STATE');
-  if (!sh || sh.getLastRow() < 2) return false;
+  if (!sh || sh.getLastRow() < 2) return null;
   const cfg = book.getSheetByName('CONFIG');
   const client = cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '';
   const v = sh.getDataRange().getValues();
   const head = v[0].map(h => String(h || '').trim());
   const ci = head.indexOf('client'), ni = head.indexOf('note');
-  if (ni < 0) return false;
+  if (ni < 0) return null;
   const rows = v.slice(1).filter(r => r.some(x => x !== '' && x !== null));
   const row = rows.filter(r => ci >= 0 && String(r[ci] || '').trim() === client)[0] || (rows.length === 1 ? rows[0] : null);
-  return !!row && String(row[ni] || '').trim().indexOf('owner-approved') === 0;
+  if (!row || String(row[ni] || '').trim().indexOf('owner-approved') !== 0) return null;
+  const out = {};
+  ['bias_correction_factor', 'residual_month_bias_json', 'ai_weight_override'].forEach(k => { const i = head.indexOf(k); out[k] = appCalibrationNorm_(k, i < 0 ? '' : row[i]); });
+  return out;
+}
+
+/** 所有者が承認した値の書き方（「適用中の補正: 所有者が承認した値（偏りの補正 1.00・月ごとの補正 なし・AI の効き 0%）」。AI の効きが空なら既定 = CONFIG の値） */
+function appPlanOwnerNote_(c) {
+  const mb = JSON.parse(c.residual_month_bias_json);
+  const months = Object.keys(mb).map(k => k + ' 月 ' + Math.abs(mb[k] * 100).toFixed(1) + '% ' + (mb[k] < 0 ? '下げ' : '上げ')).join('、');
+  const ai = c.ai_weight_override === '' ? '既定' : (c.ai_weight_override === 0 ? '0' : String(Number((c.ai_weight_override * 100).toPrecision(2)))) + '%';
+  return '適用中の補正: ' + APP_PLAN_NOTE_OWNER + '（偏りの補正 ' + c.bias_correction_factor.toFixed(2) + '・月ごとの補正 ' + (months || 'なし') + '・AI の効き ' + ai + '）';
 }
 
 /**
