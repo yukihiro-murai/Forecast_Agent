@@ -517,7 +517,10 @@ let readmeTask;
   const html = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ui);
   assert.doesNotMatch(html, /fcRun\('REVIEW\.GENERATE'\)/);
   assert.match(html, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
-  assert.match(html, /fcRun\('LEARN\.MONTHLY'\)/);
+  assert.match(html, /fcRun\('EVAL\.REPORT'\)/);
+  // 補正を学び直す（B-5）も、旗を 0 にした（D2）ので押せないボタンにする（動かしても補正は変わらない）
+  assert.doesNotMatch(html, /fcRun\('LEARN\.MONTHLY'\)/);
+  assert.match(html, /data-tip="実績から補正を学び直す（次の予測に効く）\n自動の学びを止めています（\d{4}-\d{2}-\d{2} 所有者の決定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button>/);
   // 反映済みの見直し案の札: 止めている間は「見直し案を作る」を案内せず、止めている理由を出す（止めていなければ、今までどおり案内する）
   ui.__q = { title: '', period: '', reviewId: 'R-1', applied: true, logRecent: [],
     proposals: [{ row: 8, pid: 'P1', target: 'ai_weight_override', current: '0.002', proposed: '0.001', conf: '中', rationale: '', impact: '', decision: '承認', rollback: '' }] };
