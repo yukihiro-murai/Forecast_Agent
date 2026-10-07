@@ -33,7 +33,7 @@ function extractFunction(name) {
 }
 
 // AUTOLEARN_*/VERTEX_ASSIST_* の const 宣言をそのまま取り込む（値の二重管理を防ぐ）
-const constLines = src.match(/^const (AUTOLEARN_[A-Z_]+|VERTEX_ASSIST_[A-Z_]+) *= *.+;.*$/gm) || [];
+const constLines = src.match(/^const (AUTOLEARN_[A-Z_]+|VERTEX_ASSIST_[A-Z_]+|EVAL_CALENDAR_TZ) *= *.+;.*$/gm) || [];
 assert.ok(constLines.length >= 8, 'AUTOLEARN constants should be extracted');
 
 // 2026-10-07 より前の autoLearnComputeState_（補正の掛かった予測をそのまま学んでいた）。「今まで」と比べるための写し（名前だけ変えた）
@@ -106,6 +106,10 @@ const harness = [
   extractFunction('normalizeClientName_'),
   extractFunction('isSameClient_'),
   extractFunction('headerIndexMap_'),
+  // 検証に使う回は、その月が始まる前の回（2026-10-07 D6）
+  extractFunction('evalTimeMs_'),
+  extractFunction('evalJstDay_'),
+  extractFunction('isRunBeforeMonth_'),
   extractFunction('selectEvalSnapshotRows_'),
   extractFunction('autoLearnComputeState_'),
   extractFunction('attachAppliedCalibration_'),
@@ -114,9 +118,11 @@ const harness = [
   OLD_COMPUTE_SRC,
 ].join('\n');
 
-// fmtYM_ は Utilities.formatDate(d,TZ,'yyyy/MM') を使う — Node 側で最小実装を注入
+// fmtYM_ は Utilities.formatDate(d,TZ,'yyyy/MM') を使う — Node 側で最小実装を注入。
+// 'yyyy-MM-dd' は検証の決まり（日本の暦の日）で使う
 const sandbox = { Math, JSON, Number, String, isFinite, console, TZ: 'Asia/Tokyo',
   Utilities: { formatDate: (d, _tz, fmt) => {
+    if (fmt === 'yyyy-MM-dd') { const t = new Date(d.getTime() + 9 * 3600e3); return t.toISOString().slice(0, 10); }
     if (fmt !== 'yyyy/MM') throw new Error('unexpected fmt ' + fmt);
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
   } } };

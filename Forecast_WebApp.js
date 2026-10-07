@@ -368,8 +368,13 @@ function webParseEval_(ss) {
 
   const ins = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
   if (ins && ins.getLastRow() >= 2) {
+    // 今の決まりで測った月（締まった月を、月が始まる前の予測で。2026-10-07 D4〜D6）の行だけを出す。
+    // 前の版の B-4 が書いた行（締まっていない月など）は消さずに残るが、画面には出さない（行の番号は変えないので、記入の保存はそのまま）
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    const evalMonths = readCurrentEvalMonths_(ss, cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '');
     ins.getRange(2, 1, ins.getLastRow() - 1, 24).getValues().forEach((r, i) => {
       if (!String(r[0] || '').trim() && !String(r[2] || '').trim()) return;
+      if (!evalMonths.has(ymKey_(r[2]))) return;
       const d = toDate_(r[2]);
       res.insights.push({
         row: i + 2,

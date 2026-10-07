@@ -57,6 +57,12 @@ function build() {
     OPINIONS: { values: [['Person', 'Month(yyyy/mm/dd)', 'Step(増減率%)', 'Confidence(0..1)', 'Note'], ['佐藤', D(2026, 5), 5, 0.7, '採用が広がる']] },
     DEV_SPOT: { values: [['Person', 'Month(yyyy/mm/dd)', 'Project', 'Amount(JPY)', 'Confidence(0..1)']] },
     EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS, ins('2026/04', { cause_hypothesis: '受注の遅れ', owner: '鷹野', status: 'in_progress' }), ins('2026/05', {})], formats: { C: '@' } },
+    // 検証の記入を画面に出すのは、今の検証の版で測った締まった月だけ（2026-10-07）。4・5 月は 9/01 に取り込んで締まり、B-2 が測った
+    ACTUAL_EVAL_MONTHLY: { values: [H.ACTUAL_EVAL_MONTHLY, ['テスト製薬', 'BASE', '製品A', '2026/04', 100, 'closed', D(2026, 9, 1)],
+      ['テスト製薬', 'BASE', '製品A', '2026/05', 100, 'closed', D(2026, 9, 1)]], formats: { D: '@' } },
+    EVAL_LOG: { values: [H.EVAL_LOG].concat(['2026/04', '2026/05'].map((ym) => H.EVAL_LOG.map((h) => ({ eval_id: 'E' + ym, evaluated_at: D(2026, 9, 1),
+      client: 'テスト製薬', target_month: ym, scenario: 'neutral', pred: 120, actual: 100, evaluation_policy_version: 'policy-2026H1-v3', constraint_relevant_flag: 1 }[h] ?? '')))),
+    formats: { D: '@' } },
     QUARTERLY_REVIEW: {
       values: [['【四半期レビュー: FY2026-Q1】'], ['検証期間: 2026/04 〜 2026/06（実績確定済み）'], [], [], [], [], ['提案ID', '対象', '現在値', '提案値', '自信度', '根拠', '影響見積もり', '承認列', 'ロールバック'],
         ['P-B-1', 'reliability:opinion:鷹野', 1, 1.1, 0.7, '的中率=67% / n=3', IMPACT_B1, '', 'C-2で却下、またはSOURCE_RELIABILITYを手動で旧値へ戻す', 'R-1'],
