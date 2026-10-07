@@ -114,7 +114,7 @@ function appListPlans_() {
 function appPortfolio_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   const today = appToday_();
-  const todayYm = today.slice(0, 7).replace('-', '/');
+  const todayYm = appCloseCutoffYm_(today);   // 今日までに締まっているはずの月の境目（月末から 5 日たった月まで。霧の判定）
   const runs = {};
   appReadTable_('FORECAST_RUNS').filter(r => r.status === 'DONE').forEach(r => { (runs[r.plan_id] = runs[r.plan_id] || []).push(r); });
   const outRows = {};
@@ -122,13 +122,13 @@ function appPortfolio_() {
     const n = Number(s.row_no);
     if (n === 1 || n === 26 || (n >= 29 && n <= 40)) { (outRows[s.plan_id] = outRows[s.plan_id] || {})[n] = JSON.parse(s.cells_json); }
   });
-  const ape = {};
+  const ape = {};   // 計画ごとの [{ ym, v }]（外れ幅は、締まった月の分だけを後で平均する）
   const cmp = {};   // 月ごとの実績と P10/P50/P90（検証の表）。暫定実績・着地見込み・予実の差・全計画の学びに使う（読むだけ。計算は変えない）
   const fnum = x => { const n = x === '' || x === null || x === undefined ? null : Number(x); return n !== null && isFinite(n) ? n : null; };
   appReadTable_('ENG_EVAL_COMPARE_MONTHLY').forEach(r => {
     const v = Number(r.ape_p50);
-    if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push(v);
     const ym = appCellYm_(String(r._types || '').charAt(0), r.target_month);
+    if (r.actual_total !== '' && r.actual_total !== null && isFinite(v) && r.ape_p50 !== '') (ape[r.plan_id] = ape[r.plan_id] || []).push({ ym: ym, v: v });
     // 実績が空でも P50 のある行は残す（actual: null。ZAC に記録の無い月 = 売上 0。締まった月なら 0 円として数える）
     const blank = r.actual_total === '' || r.actual_total === null || r.actual_total === undefined;
     const act = blank ? null : Number(r.actual_total);
@@ -173,7 +173,8 @@ function appPortfolio_() {
       tau: prior.tau, w: prior.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
-    const a = ape[p.plan_id] || [];
+    // 外れ幅は締まった月だけ（D4。締まっていない月の検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
+    const a = (ape[p.plan_id] || []).filter(x => cut[p.plan_id] && x.ym && x.ym < cut[p.plan_id]).map(x => x.v);
     return {
       planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy,
       p10: latest ? latest.annual_p10 : stored.p10 === undefined ? null : stored.p10,
@@ -205,7 +206,8 @@ function appCellYm_(t, text) {
 }
 
 /**
- * 年度の締まった月（cutoffYm より前）の暫定実績（2026-10-06）。取り込んだ月とその後の月（締まっていない・途中の月）は数えない。
+ * 年度の締まった月（cutoffYm より前）の暫定実績（2026-10-06）。締まっていない・途中の月（月末から 5 日たたずに取り込んだ月とその後の月。
+ * appLandingCutoff_）は数えない。
  * 実績の行が無い・実績が空の締まった月は 0 円として数える（ZAC に記録が無い月）。actualMonths は締まった月の数。
  * forecastYtd は締まった月の予測（検証の表の P50）の合計（予実の差を見る）。予測の無い締まった月があれば出さない（比べられない）。
  * 実績が空でも予測のある月は、0 円と予測で比べる。actual は締まった月ごとの実績（着地見込みの計算に渡す）

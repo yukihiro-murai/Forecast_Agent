@@ -10,7 +10,13 @@
  *   ばらつき sd² = 残りの P50 の合計² / 精度（水準のぶれ。残りの月に共通）+ 残りの月の σ² の合計（月ごとのぶれ）
  * τ と w は、全計画の検証の表（EVAL_COMPARE_MONTHLY）から学ぶ（appLandingPrior_。雪の計画は使わない。学べなければ 0.15 と 1）。
  * 空模様は着地 ÷ 年間予算で分ける。急な変化（天変地異）は、ひと月の大きな外れ・2 か月続いた同じ向きの外れ・予測の前提の大きな変化で拾う。
+ *
+ * 締まった月（2026-10-07 村井さん承認 D5）: 月末から APP_ACTUAL_CLOSE_LAG_DAYS 日たってから実績を取り込んだ（B-1）月だけ。
+ * 月末 + 5 日 <= 取り込んだ日（日本の暦）。例: 10/03 の取り込みでは 9 月は途中の月、10/06 の取り込みなら 9 月は締まった月。
+ * 旧来の計算と同じ決まり（数は旧来の側の定数と同じにする。旧来の側に定数があれば app/tests が照合する）。精度・学び・振り返り（Learning.js・Portfolio.js・Insights.js）も、
+ * この境目（appLandingCutoff_）より前の月だけを使う（D4。締まっていない月の検証の行は消さずに読み飛ばす）
  */
+const APP_ACTUAL_CLOSE_LAG_DAYS = 5;   // 締まった月: 月末からこの日数がたってから取り込んだ月だけ（D5）
 const APP_LANDING = {
   TAU0: 0.15,              // 今年の水準 θ の事前分布の標準偏差（全計画から学べるまで）
   TAU_MIN: 0.05, TAU_MAX: 0.35,
@@ -54,7 +60,8 @@ function appLandingPost_(obs, tau2) {
 /**
  * 着地見込みと空模様（計画 1 つ。シートは読まない）。
  * inp: { fy, months: [{ ym, p10, p50, p90 }]（OUTPUT の 29〜40 行）, actual: { 'yyyy/MM': 実績 }（検証の表の actual_total）,
- *        cutoffYm（締まった月の境目。この月より前が締まった月。分からなければ ''）, todayYm, budget,
+ *        cutoffYm（締まった月の境目。この月より前が締まった月。分からなければ ''）,
+ *        todayYm（今日取り込んだとしたときの境目 = appCloseCutoffYm_(今日)。この月より前は、今日までに締まっているはずの月）, budget,
  *        tau・w（全計画から学んだ値。省けば 0.15 と 1）, runs: [{ p50, ageDays }]（直近の予測 2 回。新しい順） }
  * 返り値: { k（締まった月の数）, actualYtd, budget, landing, landingSd, landingP10, landingP90, pAbove（予算以上で着地する確率）, ratio（着地 ÷ 予算）,
  *          theta, credibility（実績の重み 0〜1）, sky, skyReason, skyDir, zLast, dRatio1, dRatio2 }
@@ -81,7 +88,7 @@ function appLandingSky_(inp) {
   const aOf = ym => { const v = Number(act[ym]); return act[ym] === null || act[ym] === '' || !isFinite(v) ? 0 : v; };   // 実績の行が無い締まった月は 0 円
   const A = obsYm.reduce((s, ym) => s + aOf(ym), 0);
   const closedByToday = inp.todayYm ? yms.filter(ym => ym < inp.todayYm).length : k;
-  const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月のうち、3 か月以上の実績が取り込まれていない
+  const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月（月末から 5 日たった月）のうち、3 か月以上の実績が取り込まれていない
   const bn = inp.budget === null || inp.budget === undefined || inp.budget === '' ? NaN : Number(inp.budget);
   const B = isFinite(bn) ? bn : null;
   const out = { k: k, actualYtd: A, budget: B, landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null,
@@ -213,18 +220,55 @@ function appLandingTime_(t, text) {
 }
 
 /**
+ * 月（'yyyy/MM'）が、importDay（実績を取り込んだ日。日本の暦の 'yyyy-MM-dd'）の取り込みで締まっているか（D5）:
+ * 月末 + APP_ACTUAL_CLOSE_LAG_DAYS 日 <= 取り込んだ日。9 月なら 10/05 以降の取り込みで締まる（10/04 までは途中の月）。読めなければ false
+ */
+function appActualClosed_(ym, importDay) {
+  const m = /^(\d{4})\/(\d{2})$/.exec(String(ym || ''));
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(importDay || ''));
+  if (!m || !d) return false;
+  return Date.UTC(Number(m[1]), Number(m[2]), 0) + APP_ACTUAL_CLOSE_LAG_DAYS * 864e5 <= Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]));
+}
+
+/**
+ * 取り込んだ日（日本の暦の 'yyyy-MM-dd'）の締まった月の境目（'yyyy/MM'。この月より前が締まった月 = appActualClosed_ が真の月）。
+ * 取り込んだ日の月は締まっていない（月末がまだ来ていない）ので、そこから前の月へたどる。読めなければ ''
+ */
+function appCloseCutoffYm_(importDay) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(importDay || ''));
+  if (!d) return '';
+  let y = Number(d[1]), mo = Number(d[2]);
+  for (;;) {
+    const py = mo === 1 ? y - 1 : y, pm = mo === 1 ? 12 : mo - 1;
+    if (appActualClosed_(py + '/' + ('0' + pm).slice(-2), importDay)) return y + '/' + ('0' + mo).slice(-2);
+    y = py; mo = pm;
+  }
+}
+
+/** 'yyyy/MM' の月の初め（日本の暦の 1 日 0 時）のミリ秒。読めなければ null */
+function appMonthStartMs_(ym) {
+  const m = /^(\d{4})\/(\d{2})$/.exec(String(ym || ''));
+  return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, 1) - 9 * 3600e3 : null;
+}
+
+/**
  * 締まった月の境目（'yyyy/MM'。この月より前が締まった月）。ENG_PROCESS_STATUS の B-1（実績の取り込み = step2）の後に
- * B-2（検証 = step5）が成功していれば、検証の表はちょうどその取り込みを映している（B-1 は実績を丸ごと入れ替え、取り込んだ月より前が締まった月）。
- * どちらかが成功していない・B-2 の方が古いときは ''（締まった月は数えない。空模様は霧になる）
+ * B-2（検証 = step5）が成功していれば、検証の表はちょうどその取り込みを映している（B-1 は実績を丸ごと入れ替える）。
+ * 締まった月は、B-1 を動かした日（日本の暦）から appCloseCutoffYm_ で決める（月末から 5 日たってから取り込んだ月だけ。D5）。
+ * どちらかが成功していない・B-2 の方が古いときは ''（締まった月は数えない。空模様は霧になる）。
+ * stRows は、データ本体の行（値は文字のまま・型の並び _types つき）でも、読み戻した行（日時は日時の型）でもよい
  */
 function appLandingCutoff_(stRows) {
   const ok = key => (stRows || []).filter(s => s.step_key === key && String(s.status).toLowerCase() === 'success')[0] || null;
   const b1 = ok('step2_status'), b2 = ok('step5_status');
   if (!b1 || !b2) return '';
-  const typeOf = s => String(s._types || '').charAt(1);   // last_run_date は見出しの 2 列目
-  const t1 = appLandingTime_(typeOf(b1), b1.last_run_date), t2 = appLandingTime_(typeOf(b2), b2.last_run_date);
+  const timeOf = s => {
+    if (appIsDate_(s.last_run_date)) { const t = s.last_run_date.getTime(); return isFinite(t) ? t : null; }
+    return appLandingTime_(String(s._types || '').charAt(1), s.last_run_date);   // last_run_date は見出しの 2 列目
+  };
+  const t1 = timeOf(b1), t2 = timeOf(b2);
   if (t1 === null || t2 === null || t2 < t1) return '';
-  return Utilities.formatDate(new Date(t1), APP_TZ, 'yyyy/MM');   // 取り込んだ時刻の、日本の暦の月（文字の ISO 時刻も時差を見る）
+  return appCloseCutoffYm_(Utilities.formatDate(new Date(t1), APP_TZ, 'yyyy-MM-dd'));   // 取り込んだ時刻の、日本の暦の日（文字の ISO 時刻も時差を見る）
 }
 
 /** 予測を実行した日から今日まで、日本の暦で何日か（today = 'yyyy-MM-dd'。読めなければ null） */
