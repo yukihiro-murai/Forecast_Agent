@@ -7,9 +7,12 @@
  *   3. AI の効きを 0 にすると、A-9 の AI の倍率（k_ai）だけが 1 になり、ほかの層は変わらない（同じ乱数で前と後の予測を比べる）
  *   4. D2 + D7 + D8 + 取り下げを 1 回で頼む（README の例）: CALIBRATION_STATE・履歴（前の行は残す）・前と後の値・記録・画面の中身が新しい値になる
  *   5. 同じ頼みをもう一度: 何も書かない（履歴も足さない）。月次の自動学習（B-5）は旗を 0 にしたので動かない
- *   6. 見直し案を作る（C-1）は止めている（始める前に断る。画面のボタンは押せない）
+ *   6. 見直し案を作る（C-1）は止めている（始める前に断る。画面のボタンは押せない。反映済みの札も、そのボタンを案内しない）
  *   7. 締めた年度の計画には書かない
  *   8. 承認待ちの見直し案の取り下げ: 承認待ちに出ない・C-3 は何も適用しない（判断を保存し直しても）・行は消さない・もう一度でも何もしない
+ *   9. C-3 を保留のまま動かした見直し案（本物のデータと同じ形: 保留・判断の日時あり・未反映）も取り下げる。取り下げなければ、承認し直した C-3 が反映してしまう
+ *      （比べる計画）。反映した見直し案は取り下げない
+ *  10. 取り下げられる見直し案の決まり（どの案も反映していない・まだ全部は取り下げていない。判断と判断の日時では決めない）
  * モックの上の確かめで、本物の Apps Script の上では動かしていない。
  *
  *   node app/tests/app-calibration.test.mjs
@@ -473,6 +476,14 @@ let readmeTask;
   assert.doesNotMatch(html, /fcRun\('REVIEW\.GENERATE'\)/);
   assert.match(html, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
   assert.match(html, /fcRun\('LEARN\.MONTHLY'\)/);
+  // 反映済みの見直し案の札: 止めている間は「見直し案を作る」を案内せず、止めている理由を出す（止めていなければ、今までどおり案内する）
+  ui.__q = { title: '', period: '', reviewId: 'R-1', applied: true, logRecent: [],
+    proposals: [{ row: 8, pid: 'P1', target: 'ai_weight_override', current: '0.002', proposed: '0.001', conf: '中', rationale: '', impact: '', decision: '承認', rollback: '' }] };
+  const chip = () => /<span class="chip ok" data-tip="([^"]*)">反映済み<\/span>/.exec(vm.runInContext('fcRvProposals(__q)', ui))[1];
+  assert.equal(chip(), 'この見直し案は反映済みです。見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。');
+  ui.__v2 = Object.assign({}, view, { actions: view.actions.map((x) => Object.assign({}, x, { paused: '' })) });
+  vm.runInContext('S.fc.view = __v2', ui);
+  assert.equal(chip(), 'この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります');
 }
 
 // ==== 7. 締めた年度の計画には書かない ====
@@ -511,10 +522,12 @@ let readmeTask;
   assert.match(st.error, /締め済み/);
 }
 
-// ==== 8. 承認待ちの見直し案の取り下げ（本物の C-1 で作った案。C-3 は何も適用しない） ====
-{
-  const envB = setUpEnv();
-  const H = envB.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
+/**
+ * 見直し案を作れる計画（3 か月の実績と評価・人の押し・AI の倍率の記録）。本物の C-1 で 2 件の案ができる。
+ * withHistory: CALIBRATION_HISTORY の表も置く（C-3 が反映したときの履歴を数えるため）
+ */
+function seedReviewPlan(e, name, withHistory) {
+  const H = e.run('(() => { const o = {}; Object.keys(APP_ENGINE_SHEETS).forEach(k => { o[k] = APP_ENGINE_SHEETS[k].header || null; }); return o; })()');
   const row = (sheet, o) => H[sheet].map((h) => (o[h] === undefined ? '' : o[h]));
   const MONTHS = [['2026/04', 1200, 1000], ['2026/05', 800, 1000], ['2026/06', 1050, 1000]];
   const evalLog = [H.EVAL_LOG].concat(...MONTHS.map(([ym, act, p50], i) => [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]
@@ -524,7 +537,7 @@ let readmeTask;
   const impact = (m) => row('AI_IMPACT_HISTORY', { run_id: 'R1', run_at: run1, client: CLIENT, target_month: D(2026, m), k_ai: 1, ai_direction: 'flat', pred_p50: 1000, pred_p50_quant_only: 1000, forecast_source: 'forecast_open' });
   const push = (m, type, key, dir) => row('SUBJECTIVE_IMPACT_HISTORY', { run_id: 'R1', run_at: run1, client: CLIENT, target_month: D(2026, m), source_type: type,
     source_key: key, push_step: dir * 0.05, push_direction: dir, applied_reliability_r: 1, forecast_source: 'forecast_open' });
-  const planB = envB.seedPlan(envB.makeBook('予測B', {
+  const sheets = {
     CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', CLIENT], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野,佐藤']] },
     PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step4_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 12, ''], ['step5_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 9, '']] },
     RUN_LOG: { values: [H.RUN_LOG] },
@@ -539,7 +552,15 @@ let readmeTask;
     QUARTERLY_REVIEW: { values: [['']] },
     QUARTERLY_REVIEW_LOG: { values: [H.QUARTERLY_REVIEW_LOG] },
     RELIABILITY_EVIDENCE: { values: [H.RELIABILITY_EVIDENCE] },
-  }));
+  };
+  if (withHistory) sheets.CALIBRATION_HISTORY = { values: [H.CALIBRATION_HISTORY] };
+  return e.seedPlan(e.makeBook(name, sheets));
+}
+
+// ==== 8. 承認待ちの見直し案の取り下げ（本物の C-1 で作った案。C-3 は何も適用しない） ====
+{
+  const envB = setUpEnv();
+  const planB = seedReviewPlan(envB, '予測B', false);
   // 本物の C-1 で見直し案を作る（止めているので、待ち行列に直接入れる）
   assert.throws(() => envB.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId: planB, action: 'REVIEW.GENERATE' } } }), /止めています/);
   const gen = runQueued(envB, 'PLAN.RUN', { planId: planB, action: 'REVIEW.GENERATE' });
@@ -558,6 +579,7 @@ let readmeTask;
   delete envB.props.OWNER_TASK;
   assert.deepEqual([pv.pending.reviewId, pv.pending.proposals, pv.pending.quarter], [rid, 2, 'FY2026-Q1']);
   assert.deepEqual(pv.pending.targets, log0.map((r) => r.target_field));
+  assert.deepEqual([pv.pending.decisions, pv.pending.decidedAt], [['保留', '保留'], ['', '']], 'C-1 の直後: 保留で、判断の日時は空');
   assert.deepEqual(pv.sheets, { state: true, history: false, reviewLog: true });
 
   // 履歴の表が無い計画には値を書かない（旧来の履歴の書き込みは失敗しても黙って続けるので、先に止める）。取り下げも書かない
@@ -571,6 +593,7 @@ let readmeTask;
   assert.equal(st.status, 'DONE', st.error);
   const w = st.result.result.withdrawn;
   assert.deepEqual([w.reviewId, w.proposals, w.quarter, w.screen], [rid, 2, 'FY2026-Q1', true]);
+  assert.deepEqual(w.before, log0.map((r) => ({ proposalId: r.proposal_id, status: '保留', decidedAt: '' })), '取り下げる前の判断を結果に残す');
   assert.deepEqual(st.result.result.changed, []);
   assert.deepEqual(st.result.changed.sort(), ['QUARTERLY_REVIEW', 'QUARTERLY_REVIEW_LOG']);
   const log1 = engRows(envB, 'QUARTERLY_REVIEW_LOG', planB);
@@ -633,6 +656,155 @@ let readmeTask;
   assert.equal(JSON.stringify(engRows(envB, 'QUARTERLY_REVIEW_LOG', planB)), log2);
   assert.equal(task(envB, { action: 'calibrationPreview', planId: planB }).result.pending, null);
   delete envB.props.OWNER_TASK;
+}
+
+// ==== 9. C-3 を保留のまま動かした見直し案（本物のデータと同じ形）も取り下げる。反映した見直し案は取り下げない ====
+{
+  // 取り下げる計画（wc）と、比べる計画（wd。取り下げない）。どちらも本物の C-1 で案を作り、C-3 を判断なし（保留）のまま動かす
+  const setUp = (name) => {
+    const e = setUpEnv();
+    const p = seedReviewPlan(e, name, true);
+    const gen = runQueued(e, 'PLAN.RUN', { planId: p, action: 'REVIEW.GENERATE' });
+    assert.equal(gen.status, 'DONE', gen.error);
+    const held = e.runJob('PLAN.RUN', { planId: p, action: 'REVIEW.APPLY' });
+    assert.equal(held.status, 'DONE', held.error);
+    const log = engRows(e, 'QUARTERLY_REVIEW_LOG', p);
+    assert.equal(log.length, 2);
+    assert.ok(log.every((r) => r.approval_status === '保留' && r.approval_decided_at !== '' && r.approval_decided_by === OWNER && r.applied === '0' && r.applied_at === ''),
+      '前提: 本物のデータと同じ形（保留・判断の日時あり・未反映）: ' + JSON.stringify(log.map((r) => [r.approval_status, r.approval_decided_at, r.applied])));
+    assert.equal(engRows(e, 'CALIBRATION_STATE', p)[0].auto_update_enabled, '1', '前提: 自動の学びの旗は 1（承認した案は C-3 が反映する）');
+    assert.equal(engRows(e, 'CALIBRATION_HISTORY', p).length, 0);
+    return { e, p, rid: log[0].review_id, log };
+  };
+  const wc = setUp('予測C');
+  const wd = setUp('予測D');
+  const ui = loadUi();
+  vm.runInContext(`S.fc.view={ can: { plan: true, approve: true, admin: true }, actions: [] };`, ui);
+  const screen = (w) => { ui.__q = w.e.call('apiPlanView(__in)', { __in: { planId: w.p } }).boot.quarterly; return { q: ui.__q, html: vm.runInContext('fcRvProposals(__q)', ui) }; };
+
+  // 前提: 学びの承認待ちには出ない（判断の日時があるため）が、計画の画面では未反映のままで、承認して反映できる
+  let sc = screen(wc);
+  assert.equal(sc.q.reviewId, wc.rid);
+  assert.equal(sc.q.applied, false);
+  assert.match(sc.html, /<span class="chip warn"[^>]*>未反映<\/span>/);
+  assert.match(sc.html, /fcRvGo\(/);
+  assert.equal(wc.e.call('apiAiLearning()').pending.filter((x) => x.planId === wc.p).length, 0);
+
+  // 書く前に確かめる: 取り下げられる見直し案として出る（今の判断は保留・判断の日時あり）
+  const pv = task(wc.e, { action: 'calibrationPreview', planId: wc.p }).result;
+  delete wc.e.props.OWNER_TASK;
+  assert.ok(pv.pending, 'C-3 で保留にした案も取り下げられる');
+  assert.deepEqual([pv.pending.reviewId, pv.pending.proposals, pv.pending.decisions], [wc.rid, 2, ['保留', '保留']]);
+  assert.ok(pv.pending.decidedAt.every((x) => x !== ''), 'C-3 が入れた判断の日時: ' + pv.pending.decidedAt.join(','));
+
+  // 取り下げる
+  const st = setCal(wc.e, { planId: wc.p, withdrawPendingReview: true, reason: 'C-3 で保留にした、締まっていない月から作られた案（2026-10-07 決定 D3）' });
+  assert.equal(st.status, 'DONE', st.error);
+  const w = st.result.result.withdrawn;
+  assert.ok(w, '取り下げた（null ではない）');
+  assert.deepEqual([w.reviewId, w.proposals, w.screen], [wc.rid, 2, true]);
+  assert.deepEqual(w.before.map((x) => [x.proposalId, x.status]), wc.log.map((r) => [r.proposal_id, '保留']), '前の判断（保留）を結果に残す');
+  assert.deepEqual(w.before.map((x) => x.decidedAt), pv.pending.decidedAt, '前の判断の日時も結果に残す');
+  assert.deepEqual(st.result.changed.sort(), ['QUARTERLY_REVIEW', 'QUARTERLY_REVIEW_LOG']);
+  const log1 = engRows(wc.e, 'QUARTERLY_REVIEW_LOG', wc.p);
+  assert.equal(log1.length, wc.log.length, '行は消さない・増やさない');
+  log1.forEach((r, i) => {
+    assert.deepEqual([r.approval_status, r.approval_decided_by, r.applied, r.applied_at], ['取り下げ', OWNER, '0', '']);
+    for (const k of Object.keys(r)) {
+      if (['approval_status', 'approval_decided_at', 'approval_decided_by', '_types', '_row'].includes(k)) continue;
+      assert.equal(r[k], wc.log[i][k], 'ほかの列はそのまま: ' + k);
+    }
+  });
+  const end = audits(wc.e, 'PLAN.CALIBRATION.SET', 'END').slice(-1)[0];
+  assert.deepEqual(JSON.parse(end.after_json).result.withdrawn.before.map((x) => x.status), ['保留', '保留'], '前の判断は記録にも残る');
+
+  // 計画の画面: 取り下げた案として出し、判断と反映の操作は出さない
+  sc = screen(wc);
+  assert.equal(sc.q.reviewId, '取り下げ:' + wc.rid, 'C-3 が適用する review_id に「取り下げ:」が付く');
+  assert.deepEqual(sc.q.proposals.map((x) => x.decision), ['取り下げ', '取り下げ']);
+  assert.match(sc.html, /<span class="chip off" [^>]*>取り下げ<\/span>/);
+  assert.doesNotMatch(sc.html, /fcDec\(|fcRvGo\(|未反映/);
+
+  // 承認し直して C-3 を動かす（旗は 1）: 比べる計画（取り下げない）は反映する。取り下げた計画は何も反映しない
+  const approveAndApply = (x) => {
+    const q = x.e.call('apiPlanView(__in)', { __in: { planId: x.p } }).boot.quarterly;
+    const dec = x.e.runJob('PLAN.EDIT', { planId: x.p, action: 'REVIEW.DECIDE', args: { rows: q.proposals.map((y) => ({ row: y.row, decision: '承認' })) } });
+    assert.equal(dec.status, 'DONE', dec.error);
+    return x.e.runJob('PLAN.RUN', { planId: x.p, action: 'REVIEW.APPLY' });
+  };
+  const snap = (x) => JSON.stringify(['CALIBRATION_STATE', 'SOURCE_RELIABILITY', 'CALIBRATION_HISTORY'].map((n) => engRows(x.e, n, x.p)));
+  const d0 = snap(wd);
+  const ad = approveAndApply(wd);
+  assert.equal(ad.status, 'DONE', ad.error);
+  assert.deepEqual(engRows(wd.e, 'QUARTERLY_REVIEW_LOG', wd.p).map((r) => [r.approval_status, r.applied]), [['承認', '1'], ['承認', '1']], '比べる計画: 取り下げなければ反映してしまう');
+  assert.equal(engRows(wd.e, 'CALIBRATION_HISTORY', wd.p).filter((r) => r.review_id === wd.rid).length, 2);
+  assert.notEqual(snap(wd), d0);
+  const c0 = snap(wc);
+  const ac = approveAndApply(wc);
+  assert.equal(ac.status, 'FAILED', '取り下げた計画: 適用するレビューが無い');
+  assert.match(ac.error, /対象レビューが見つかりません/);
+  assert.equal(snap(wc), c0, '補正・信頼度・履歴は変えない');
+  assert.deepEqual(engRows(wc.e, 'QUARTERLY_REVIEW_LOG', wc.p).map((r) => [r.approval_status, r.applied]), [['取り下げ', '0'], ['取り下げ', '0']]);
+
+  // もう一度頼んでも何もしない（全部を取り下げ済み）
+  const log2 = JSON.stringify(engRows(wc.e, 'QUARTERLY_REVIEW_LOG', wc.p));
+  const again = setCal(wc.e, { planId: wc.p, withdrawPendingReview: true, reason: 'もう一度' });
+  assert.equal(again.status, 'DONE', again.error);
+  assert.equal(again.result.result.withdrawn, null);
+  assert.deepEqual(again.result.changed, []);
+  assert.equal(JSON.stringify(engRows(wc.e, 'QUARTERLY_REVIEW_LOG', wc.p)), log2);
+  assert.equal(task(wc.e, { action: 'calibrationPreview', planId: wc.p }).result.pending, null);
+  delete wc.e.props.OWNER_TASK;
+
+  // 反映した見直し案（比べる計画）は取り下げない（取り下げられる案として出さず、頼んでも何も書かない）
+  assert.equal(task(wd.e, { action: 'calibrationPreview', planId: wd.p }).result.pending, null);
+  delete wd.e.props.OWNER_TASK;
+  const logD = JSON.stringify(engRows(wd.e, 'QUARTERLY_REVIEW_LOG', wd.p));
+  const nd = setCal(wd.e, { planId: wd.p, withdrawPendingReview: true, reason: '反映した案' });
+  assert.equal(nd.status, 'DONE', nd.error);
+  assert.equal(nd.result.result.withdrawn, null);
+  assert.deepEqual(nd.result.changed, []);
+  assert.equal(JSON.stringify(engRows(wd.e, 'QUARTERLY_REVIEW_LOG', wd.p)), logD);
+}
+
+// ==== 10. 取り下げられる見直し案の決まり（どの案も反映していない・まだ全部は取り下げていない。判断と判断の日時では決めない） ====
+{
+  const H = env.run('APP_ENGINE_SHEETS.QUARTERLY_REVIEW_LOG.header');
+  const mk = (rows) => [H].concat(rows.map(([rid, at, status, decidedAt, applied], i) => H.map((h) => ({ review_id: rid, proposal_id: 'P' + i, reviewed_at: at, client: CLIENT,
+    quarter_label: 'FY2026-Q2', approval_status: status, approval_decided_at: decidedAt, approval_decided_by: decidedAt ? 'someone' : '', applied })[h] ?? '')));
+  const t1 = D(2026, 7, 1), t2 = D(2026, 10, 3), dec = D(2026, 10, 4);
+  const latest = (rows) => env.run('(() => { const x = appCalibrationLatestReview_(__v); return x && { rid: x.rid, statuses: x.statuses, withdrawable: x.withdrawable }; })()', { __v: mk(rows) });
+  const cases = [
+    ['C-1 の直後（保留・判断の日時なし）', [['R2', t2, '保留', '', 0], ['R2', t2, '保留', '', 0]], true],
+    ['C-3 で保留（判断の日時あり・未反映）', [['R2', t2, '保留', dec, 0], ['R2', t2, '保留', dec, 0]], true],
+    ['C-3 で却下', [['R2', t2, '却下', dec, 0]], true],
+    ['C-3 で承認したが、旗が 0 で未反映', [['R2', t2, '承認', dec, 0], ['R2', t2, '保留', dec, 0]], true],
+    ['1 つでも反映した', [['R2', t2, '承認', dec, 1], ['R2', t2, '却下', dec, 0]], false],
+    ['全部を取り下げた', [['R2', t2, '取り下げ', dec, 0], ['R2', t2, '取り下げ', dec, 0]], false],
+    ['一部だけ取り下げた', [['R2', t2, '取り下げ', dec, 0], ['R2', t2, '保留', dec, 0]], true],
+    ['前の未反映の案より、新しい反映済みの案を見る', [['R1', t1, '保留', '', 0], ['R2', t2, '承認', dec, 1]], false],
+    ['前の反映済みの案より、新しい未反映の案を見る', [['R1', t1, '承認', dec, 1], ['R2', t2, '保留', dec, 0]], true]
+  ];
+  for (const [name, rows, want] of cases) {
+    const x = latest(rows);
+    assert.equal(x.rid, 'R2', name);
+    assert.equal(x.withdrawable, want, name);
+  }
+  assert.equal(env.run('appCalibrationLatestReview_(__v)', { __v: [H] }), null, '見直し案が無い');
+  // 一部だけ取り下げた案: 残りだけを取り下げ、もう取り下げた行の日時と人はそのまま
+  const book = env.makeBook('取り下げの途中', { QUARTERLY_REVIEW_LOG: { values: mk([['R2', t2, '取り下げ', dec, 0], ['R2', t2, '保留', dec, 0]]) } });
+  const now = Date.now();
+  const w = JSON.parse(JSON.stringify(env.run('appCalibrationWithdraw_(__b, { asOfMs: __t, actor: __a })', { __b: book, __t: now, __a: OWNER })));
+  assert.deepEqual([w.reviewId, w.proposals, w.screen], ['R2', 1, false]);
+  assert.deepEqual(w.before.map((x) => [x.proposalId, x.status]), [['P1', '保留']]);
+  const v = book.getSheetByName('QUARTERLY_REVIEW_LOG').getDataRange().getValues();
+  const col = (k) => H.indexOf(k);
+  assert.deepEqual(v.slice(1).map((r) => r[col('approval_status')]), ['取り下げ', '取り下げ']);
+  assert.equal(new Date(v[1][col('approval_decided_at')]).getTime(), dec.getTime(), 'もう取り下げた行の日時はそのまま');
+  assert.equal(v[1][col('approval_decided_by')], 'someone');
+  assert.equal(new Date(v[2][col('approval_decided_at')]).getTime(), now);
+  assert.equal(v[2][col('approval_decided_by')], OWNER);
+  assert.deepEqual(v.slice(1).map((r) => Number(r[col('applied')])), [0, 0], '適用はしていない');
 }
 
 console.log('app-calibration: all tests passed');

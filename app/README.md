@@ -243,8 +243,8 @@ Trends2Targets_System/
 | `yearClose` | 確かめた指紋で年度を締める（裏の処理。元に戻せません） | `{"action":"yearClose","fy":2025,"inputHash":"（yearPreview の inputHash）"}` |
 | `poolPreview` | 全計画の情報源の信頼度の事前分布を見比べる（書かない） | `{"action":"poolPreview"}` |
 | `poolApply` | 事前分布を各計画に書く（裏の処理） | `{"action":"poolApply"}` |
-| `calibrationPreview` | 計画の今の補正の値（係数・暦月の補正・自動の学びの旗・AI の効き）と、取り下げられる承認待ちの見直し案を見る（書かない） | `{"action":"calibrationPreview","planId":"PL-…"}` |
-| `setCalibration` | 承認した補正の値を計画に書く・承認待ちの見直し案を取り下げる（裏の処理。下の「計画の補正の値」） | `{"action":"setCalibration","planId":"PL-…","set":{"bias_correction_factor":1},"reason":"（理由）"}` |
+| `calibrationPreview` | 計画の今の補正の値（係数・暦月の補正・自動の学びの旗・AI の効き）と、取り下げられる見直し案（まだ反映していない一番新しい案）を見る（書かない） | `{"action":"calibrationPreview","planId":"PL-…"}` |
+| `setCalibration` | 承認した補正の値を計画に書く・まだ反映していない見直し案を取り下げる（裏の処理。下の「計画の補正の値」） | `{"action":"setCalibration","planId":"PL-…","set":{"bias_correction_factor":1},"reason":"（理由）"}` |
 | `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る、`limit` は既定 200・最大 2000） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
 | `jobStatus` | 裏の処理の結果を見る（裏の処理を始めると、`OWNER_TASK` は自動でこの形になる。`jobId` を省くと、最後に始めた処理） | `{"action":"jobStatus","jobId":"JOB-…"}` |
 
@@ -259,8 +259,8 @@ Trends2Targets_System/
   - `ai_weight_override`: AI の効き。0〜0.01。0 にすると、予測の AI の倍率（k_ai）はどの月も 1 になり、ほかの層（統計・入力・スポット・補正）は変わりません。`""` で業務の設定（CONFIG の `AI_WEIGHT`）の値に戻します
 - `reason`（理由）は必ず入れます（200 字まで。`CALIBRATION_STATE` の `note` と操作の記録に残ります）。
 - 変わった項目ごとに `CALIBRATION_HISTORY` へ 1 行を足します（月次の自動学習・見直し案の反映と同じ形。`review_id` は `OWNER-APPROVED`、`changed_by` は所有者）。前の履歴は消しません。戻すときは、履歴の `old_value` をもう一度 `setCalibration` で書きます。
-- `withdrawPendingReview` を `true` にすると、一番新しい四半期の見直し案がまだ処理されていなければ取り下げます。`QUARTERLY_REVIEW_LOG` の行の判断を「取り下げ」にし（判断した日時と人を入れます。`applied` は 0 のまま。行は消しません）、承認待ちに出さず、承認した見直し案の反映（C-3）でも適用されなくなります（後から判断を保存し直しても同じです）。取り下げるものが無ければ何もしません。
-- 先に `calibrationPreview` で今の値と取り下げる見直し案（`pending`）を確かめ、出た `inputHash` を渡すと、確かめた後に計画が変わっていれば書かずに止まります（省くと確かめずに書きます）。
+- `withdrawPendingReview` を `true` にすると、一番新しい四半期の見直し案のどの案もまだ反映していなければ取り下げます。判断が保留・却下・承認でも（反映の操作 C-3 を保留のまま動かした後でも）、反映していなければ取り下げます（判断し直して C-3 をもう一度動かせば反映できてしまうためです）。`QUARTERLY_REVIEW_LOG` の行の判断を「取り下げ」にし（判断した日時と人を入れます。`applied` は 0 のまま。行は消しません）、計画の画面でも取り下げた案として出し、承認した見直し案の反映（C-3）でも適用されなくなります（後から判断を保存し直しても同じです）。前の判断と日時は結果の `withdrawn.before` に残ります。案を 1 つでも反映した見直し案と、もう取り下げた見直し案には何もしません（`withdrawn` が `null`）。
+- 先に `calibrationPreview` で今の値と取り下げる見直し案（`pending`。今の判断 `decisions` と判断の日時 `decidedAt` も出ます。取り下げるものが無ければ `null`）を確かめ、出た `inputHash` を渡すと、確かめた後に計画が変わっていれば書かずに止まります（省くと確かめずに書きます）。
 - 変わる値が無ければ何も書きません（同じ頼みを 2 度動かしても、履歴は増えません）。締めた年度の計画には書けません。所有者だけの操作です（管理者の役割があっても、ほかの人は画面からも始められません）。
 - 結果（`jobStatus` の `result.result`）に、前と後の値（`changed`）・変えなかった項目（`unchanged`）・取り下げた見直し案（`withdrawn`）が出ます。
 

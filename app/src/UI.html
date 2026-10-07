@@ -2322,9 +2322,12 @@ function fcRvProposals(q){
     return '<tr><td class="wrap" data-tip="' + esc(t) + '">' + esc(t) + '</td><td class="num"' + (raw ? ' data-tip="' + esc(raw) + '"' : '') + '>' + esc(qrValue(p.target, p.current)) + '</td><td class="num"' + (raw ? ' data-tip="' + esc(raw) + '"' : '') + '>' + esc(qrValue(p.target, p.proposed)) + '</td>'
       + '<td class="num">' + esc(p.conf || '-') + '</td>' + clamp(why) + clamp(p.impact) + '<td>' + cell + '</td></tr>'; }).join('');
   var busyNow = fcBusy();
+  // 反映済みの札: 見直し案を作る操作を止めている間（2026-10-07 所有者の決定）は、そのボタンを案内せず、止めている理由を出す
+  var genPaused = fcPaused('REVIEW.GENERATE');
+  var appliedTip = 'この見直し案は反映済みです。' + (genPaused ? genPaused : '新しい案は「見直し案を作る」で作ります');
   return '<div class="card"><div class="card-head"><h2>AI の見直し案' + tip('AI が前の四半期の結果から作った、設定の見直し案です。承認して反映した案だけが、次の予測から効きます' + (hist ? '\nこれまでの見直し:\n' + hist : '')) + '</h2>'
     + (quarter ? '<span class="meta"' + (q.period ? ' data-tip="' + esc(q.period) + '"' : '') + '>' + esc(quarter) + '</span>' : '')
-    + (applied ? '<span class="chip ok" data-tip="この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります">反映済み</span>'
+    + (applied ? '<span class="chip ok" data-tip="' + esc(appliedTip) + '">反映済み</span>'
       : withdrawn ? '<span class="chip off" data-tip="締まっていない月から作られた案なので、所有者が取り下げました（2026-10-07 の決定）。反映しません">取り下げ</span>'
       : '<span class="chip warn" data-tip="承認者が判断して反映すると、次の予測から効きます">未反映</span>') + '</div>'
     + '<div class="tblwrap"><table class="tbl scroll fc-props' + (edit ? ' edit' : '') + '"><colgroup><col style="width:176px"><col style="width:96px"><col style="width:96px"><col style="width:72px"><col><col style="width:184px"><col style="width:152px"></colgroup>'

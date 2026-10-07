@@ -7,11 +7,13 @@
  *   使うシートだけを計算用ブックに組み立て、旧来の関数（readCalibrationState_・writeCalibrationState_・appendCalibrationHistory_）を
  *   そのまま動かし、変わったシートを控え（Journal.js）を置いてからデータ本体へ戻す。年度の締め・入力のハッシュ・記録は、ほかの保存と同じ。
  * - 変えた項目ごとに CALIBRATION_HISTORY へ 1 行を足す（B-5・C-3 と同じ形。review_id は OWNER-APPROVED）。履歴は消さない。
- * - 取り下げ: 一番新しい四半期レビュー（選び方は Insights.js の appInsightPending_ と同じ）がまだ処理されていなければ、
+ * - 取り下げ: 一番新しい四半期レビュー（選び方は Insights.js の appInsightPending_ と同じ）のどの案もまだ反映していなければ、
  *   QUARTERLY_REVIEW_LOG のその行を「取り下げ」にする（判断の日時と判断した人を入れる。applied は 0 のまま。行は消さない）。
+ *   判断が保留・却下・承認でも、反映していなければ取り下げる（C-3 は保留・却下の案にも判断の日時を入れ、旗が 0 なら承認した案も反映しない。
+ *   どれも、判断し直して C-3 をもう一度動かせば反映できてしまうため）。前の判断と日時は結果（withdrawn.before）に残す。
  *   画面の行（QUARTERLY_REVIEW）の判断も「取り下げ」にし、C-3 が適用する review_id の欄（8 行目の 10 列目）に「取り下げ:」を付ける
  *   （C-3 はその review_id の記録を見つけられず、何も適用しない。後から判断を保存し直しても同じ）。
- * - 同じ頼みをもう一度動かしても、変わる値が無ければ何も書かない（履歴も足さない）。取り下げる見直し案が無ければ何もしない。
+ * - 同じ頼みをもう一度動かしても、変わる値が無ければ何も書かない（履歴も足さない）。全部の案をもう取り下げていれば、取り下げも何もしない。
  */
 
 /** 書ける項目（旧来の CALIBRATION_STATE の列の名前） */
@@ -134,8 +136,9 @@ function appCalibrationStoredMonthJson_(raw) {
 
 /**
  * QUARTERLY_REVIEW_LOG の一番新しい四半期レビュー（選び方は appInsightPending_ と同じ: reviewed_at が一番新しい review_id、同じ時刻なら下の行）。
- * values は見出しつきの行。返り値 { rid, rows: [行の番号（0 始まり・見出しが 0）], unprocessed, idx: { 列名: 番号 } } か null。
- * unprocessed = どの行も適用していない（applied が 1 でない）・判断の日時が空（C-3 も取り下げもまだ）
+ * values は見出しつきの行。返り値 { rid, rows: [行の番号（0 始まり・見出しが 0）], statuses: [行ごとの判断], withdrawable, idx: { 列名: 番号 } } か null。
+ * withdrawable = どの案も反映していない（applied が 1 の行が無い）・まだ全部は取り下げていない。
+ * 判断（保留・却下・承認）と判断の日時では決めない: C-3 は保留・却下の案にも判断の日時を入れるが、反映していない案は判断し直せば反映できるため
  */
 function appCalibrationLatestReview_(values) {
   if (!values || values.length < 2) return null;
@@ -154,9 +157,10 @@ function appCalibrationLatestReview_(values) {
   const latest = Object.keys(by).map(k => by[k]).sort((a, b) => b.t - a.t || b.i - a.i)[0];
   if (!latest) return null;
   const cell = (r, k) => (idx[k] === undefined ? '' : values[r][idx[k]]);
-  const blank = v => v === '' || v === null || v === undefined;
-  return { rid: latest.rid, rows: latest.rows, idx: idx,
-    unprocessed: latest.rows.every(r => Number(cell(r, 'applied') || 0) !== 1 && blank(cell(r, 'approval_decided_at'))) };
+  const statuses = latest.rows.map(r => String(cell(r, 'approval_status') || '').trim());
+  const applied = latest.rows.some(r => Number(cell(r, 'applied') || 0) === 1);
+  return { rid: latest.rid, rows: latest.rows, statuses: statuses, idx: idx,
+    withdrawable: !applied && !statuses.every(x => x === APP_CALIBRATION_WITHDRAWN) };
 }
 
 function appCalibrationIso_(v) {
@@ -210,20 +214,24 @@ function appCalibrationSet_(book, input, opts) {
 }
 
 /**
- * 一番新しい四半期レビューがまだ処理されていなければ取り下げる（行は消さない・applied は 0 のまま）。
- * 返り値 { reviewId, quarter, reviewedAt, proposals, screen（画面の行も直したか） }。取り下げるものが無ければ null
+ * 一番新しい四半期レビューのどの案もまだ反映していなければ取り下げる（行は消さない・applied は 0 のまま。もう取り下げた行は、その日時と人のまま）。
+ * 返り値 { reviewId, quarter, reviewedAt, proposals（今回取り下げた案の数）, before: [{ proposalId, status, decidedAt }]（取り下げる前の判断）,
+ * screen（画面の行も直したか） }。取り下げるものが無ければ null
  */
 function appCalibrationWithdraw_(book, opts) {
   const log = book.getSheetByName('QUARTERLY_REVIEW_LOG');
   if (!log || log.getLastRow() < 2) return null;
   const values = log.getDataRange().getValues();
   const latest = appCalibrationLatestReview_(values);
-  if (!latest || !latest.unprocessed) return null;
+  if (!latest || !latest.withdrawable) return null;
   const idx = latest.idx;
   const missing = ['proposal_id', 'approval_status', 'approval_decided_at', 'approval_decided_by'].filter(k => idx[k] === undefined);
   if (missing.length) throw new Error('QUARTERLY_REVIEW_LOG に列がありません（' + missing.join(', ') + '）。取り下げられません。');
   const at = new Date(opts.asOfMs);
-  latest.rows.forEach(r => {
+  const rows = latest.rows.filter((r, i) => latest.statuses[i] !== APP_CALIBRATION_WITHDRAWN);
+  const before = rows.map(r => ({ proposalId: String(values[r][idx.proposal_id] || ''), status: String(values[r][idx.approval_status] || '').trim(),
+    decidedAt: appCalibrationIso_(values[r][idx.approval_decided_at]) }));
+  rows.forEach(r => {
     log.getRange(r + 1, idx.approval_status + 1).setValue(APP_CALIBRATION_WITHDRAWN);
     log.getRange(r + 1, idx.approval_decided_at + 1).setValue(at);
     log.getRange(r + 1, idx.approval_decided_by + 1).setValue(String(opts.actor || ''));
@@ -242,12 +250,15 @@ function appCalibrationWithdraw_(book, opts) {
   }
   const r0 = values[latest.rows[0]];
   return { reviewId: latest.rid, quarter: String(idx.quarter_label === undefined ? '' : r0[idx.quarter_label] || ''),
-    reviewedAt: appCalibrationIso_(idx.reviewed_at === undefined ? '' : r0[idx.reviewed_at]), proposals: latest.rows.length, screen: screen };
+    reviewedAt: appCalibrationIso_(idx.reviewed_at === undefined ? '' : r0[idx.reviewed_at]), proposals: rows.length, before: before, screen: screen };
 }
 
 // ---- 見る（書く前に確かめる。apiOwnerTask の calibrationPreview） ----
 
-/** 計画の今の補正の値と、取り下げられる見直し案（承認待ち）。書かない。inputHash は setCalibration にそのまま渡せる */
+/**
+ * 計画の今の補正の値と、取り下げられる見直し案（pending: 一番新しい案のどれもまだ反映していないとき。判断が保留・却下・承認でも出す）。
+ * 書かない。inputHash は setCalibration にそのまま渡せる
+ */
 function appCalibrationPreview_(planId) {
   const plan = appPlanOf_(planId);
   const s = appEngLoadPlanSheets_(plan.plan_id, ['CONFIG', 'CALIBRATION_STATE', 'CALIBRATION_HISTORY', 'QUARTERLY_REVIEW_LOG'], true);
@@ -266,10 +277,12 @@ function appCalibrationPreview_(planId) {
   const lv = s.QUARTERLY_REVIEW_LOG ? s.QUARTERLY_REVIEW_LOG.values : [];
   const latest = appCalibrationLatestReview_(lv);
   let pending = null;
-  if (latest && latest.unprocessed) {
+  if (latest && latest.withdrawable) {
     const at = (r, k) => (latest.idx[k] === undefined ? '' : lv[r][latest.idx[k]]);
+    // decisions・decidedAt: 今の判断と判断の日時（C-3 を動かした後なら保留・却下・承認と日時が入っている。C-1 の直後は保留で日時は空）
     pending = { reviewId: latest.rid, quarter: String(at(latest.rows[0], 'quarter_label') || ''), reviewedAt: appCalibrationIso_(at(latest.rows[0], 'reviewed_at')),
-      proposals: latest.rows.length, targets: latest.rows.map(r => String(at(r, 'target_field') || '')) };
+      proposals: latest.rows.length, targets: latest.rows.map(r => String(at(r, 'target_field') || '')),
+      decisions: latest.statuses, decidedAt: latest.rows.map(r => appCalibrationIso_(at(r, 'approval_decided_at'))) };
   }
   return { planId: plan.plan_id, fy: Number(plan.fy), frozen: appYearIsFrozen_(plan.fy), client: client,
     values: values, sheets: { state: !!st, history: !!s.CALIBRATION_HISTORY, reviewLog: !!s.QUARTERLY_REVIEW_LOG },
