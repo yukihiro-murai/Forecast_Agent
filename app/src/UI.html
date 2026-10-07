@@ -1953,7 +1953,8 @@ function fcActions(items){
   if (!shown.length) return '';
   return '<div class="btngrid">' + shown.map(function(it){
     var full = actName(it[0]), paused = fcPaused(it[0]);
-    if (paused) return actBtn('<button class="btn btn-ghost" disabled aria-disabled="true">' + esc(actShort(it[0])) + '</button>', full + '\n' + paused);
+    // 止めている間は、名前の後ろの効き目（「（次の予測に効く）」など）を外す（止めている理由と食い違わないように）
+    if (paused) return actBtn('<button class="btn btn-ghost" disabled aria-disabled="true">' + esc(actShort(it[0])) + '</button>', full.replace(/（[^（）]*）$/, '') + '\n' + paused);
     return actBtn('<button class="btn btn-ghost" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="fcRun(\'' + it[0] + '\')">' + esc(actShort(it[0])) + '</button>',
       full + '\n' + it[1] + (it[3] ? '\n' + it[3] : ''));
   }).join('') + '</div>';

@@ -87,12 +87,12 @@ const OWNER_NOTE = 'owner-approved 2026-10-07 09:30: 自動の学びを止める
 {
   const off = review(planView({ learning: { autoUpdate: false, biasFactor: 1, note: OWNER_NOTE } }));
   assert.doesNotMatch(off, /fcRun\('LEARN\.MONTHLY'\)/);
-  assert.match(off, /<span class="act" data-tip="実績から補正を学び直す（次の予測に効く）\n自動の学びを止めています（2026-10-07 所有者の決定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button><\/span>/);
+  assert.match(off, /<span class="act" data-tip="実績から補正を学び直す\n自動の学びを止めています（2026-10-07 所有者の決定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button><\/span>/);
   assert.match(off, /<span class="act" data-tip="AI の見直し案を作る\n[^"]*"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button><\/span>/, '見直し案を作ると同じ形');
   assert.match(off, /fcRun\('EVAL\.REPORT'\)/, 'ほかの実行は押せる');
   // 所有者が書いたのでなければ、日付と「所有者の決定」は言わない
   const off2 = review(planView({ learning: { autoUpdate: false, biasFactor: 1, note: 'auto-learned' } }));
-  assert.match(off2, /data-tip="実績から補正を学び直す（次の予測に効く）\n自動の学びを止めています。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled/);
+  assert.match(off2, /data-tip="実績から補正を学び直す\n自動の学びを止めています。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled/);
   // 旗が 1・学びの中身が無い（古い控え）なら、今までどおり押せる
   for (const learning of [{ autoUpdate: true, biasFactor: 0.9, note: OWNER_NOTE }, undefined]) {
     const on = review(planView({ learning }));
