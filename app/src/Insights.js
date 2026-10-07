@@ -24,6 +24,7 @@
  * 当たりは、その月が始まる前の最後の予測の回で測る（D6。appSourceEvidence_）。
  * 精度・当たりの実績・振り返りは、今の検証の版で B-2 が測った月だけ（appEvalRowCurrent_。旧来の B-3〜C-1 と同じ）。
  * 前の版の EVAL_LOG の行と、その月の EVAL_INSIGHTS の行は、締まった月でも消さずに読み飛ばす（月が始まった後の予測で測ったもの）。
+ * 今の版で測った月でも、その B-2 より前に B-4 が書いた EVAL_INSIGHTS の行（前の版の予測の数字）は、次の B-4 が書き直すまで読み飛ばす（消さない）。
  */
 const APP_INSIGHT_REVISIONS = 12;          // 予測の改訂の道すじ（最近の回数）
 const APP_INSIGHT_MISS = 0.1;              // 外れた月: 誤差が 10% 以上か P10〜P90 の外（旧来の B-4 の振り分けと同じ）
@@ -365,7 +366,8 @@ function appInsightPriors_(poolByPlan) {
  * 回は AI_IMPACT_HISTORY（予測のたびに 12 か月を書く）で選び、人や話題の押した向きは同じ回（run_id。無ければ run_at）の行だけを使う
  * （その回で押していなければ、その月は数えない）。締まった月で実績の行（版は問わない）があるのに、その月が始まる前の予測が無い月は数えず、
  * noPre（渡したときだけ。{ 計画の ID: [月] }）に入れる（その月が始まる前の予測が無い月）。
- * current（渡したときだけ）には、今の決まりで測った月（neutral の行が appEvalRowCurrent_ の月。旧来の readCurrentEvalMonths_ と同じ）を入れる。
+ * current（渡したときだけ）には、今の決まりで測った月（neutral の行が appEvalRowCurrent_ の月。旧来の readCurrentEvalMonths_ と同じ）と、
+ * その行を B-2 が書いた時刻（evaluated_at のミリ秒。読めなければ 0）を [[月, 時刻]] で入れる（振り返りが、その後に B-4 が書いた行だけを使う）。
  * 返り値: [{ planId, ym, quarter, type, key, hit(0/1) }]
  */
 function appSourceEvidence_(ids, tab, noPre, current) {
@@ -378,12 +380,12 @@ function appSourceEvidence_(ids, tab, noPre, current) {
   ids.forEach(id => {
     const actual = {};   // 今の決まりで測った月の実績（当たりを測る）
     const seen = {};     // 締まった月で、実績の行がある月（版は問わない。その月が始まる前の予測が無い月を数える）
-    const cur = {};      // 今の決まりで測った月（振り返りに出す月）
+    const cur = {};      // 今の決まりで測った月 → B-2 が書いた時刻（振り返りに出す月と、それより前に書かれた振り返りの行を除く境目）
     (evals[id] || []).forEach(r => {
       if (String(r.scenario) !== 'neutral') return;
       const ym = appYm_(r.target_month);
       const now = appEvalRowCurrent_(r, cut[id]);
-      if (now) cur[ym] = true;
+      if (now) { const t = appTimeKey_(r.evaluated_at); cur[ym] = Math.max(cur[ym] || 0, isFinite(t) ? t : 0); }
       if (String(r.constraint_relevant_flag) !== '1' || !cut[id] || !/^\d{4}\/\d{2}$/.test(ym) || ym >= cut[id]) return;   // 締まっていない月は読み飛ばす
       seen[ym] = true;
       if (now) actual[ym] = Number(r.actual || 0);   // 前の版の行は消さずに読み飛ばす
@@ -418,7 +420,7 @@ function appSourceEvidence_(ids, tab, noPre, current) {
       out.push({ planId: id, ym: x.ym, quarter: appInsightQuarter_(x.ym), type: x.type, key: x.key, hit: x.dir === surprise ? 1 : 0 });
     });
     if (noPre) noPre[id] = Object.keys(seen).filter(ym => !pre[ym]).sort();
-    if (current) current[id] = Object.keys(cur).sort();
+    if (current) current[id] = Object.keys(cur).sort().map(ym => [ym, cur[ym]]);
   });
   return out.sort(appInsightEvidenceOrder_);
 }
@@ -437,8 +439,8 @@ function appInsightEvidenceKey_(planId) {
  * 全計画の当たり（appSourceEvidence_ と同じ行・同じ並び）。計画ごとに、入力のハッシュが同じあいだ控える（6 時間。精度の控え ACC_ と同じ）。
  * どこかで保存すると画面の控え（appCachedRead_）は全部外れるが、この控えは保存した計画の分だけが外れる。
  * 控えの無い計画だけ 4 つの表（SUBJECTIVE_IMPACT_HISTORY・AI_IMPACT_HISTORY・EVAL_LOG・PROCESS_STATUS）を読む（少なければ、その計画の行だけ）。
- * 控えは { rows: [[月, 種類, 人や話題, 当たり]], noPre: [その月が始まる前の予測が無い月], cur: [今の決まりで測った月] } で持つ
- * （小さくするため。前の形の控えは使わずに数え直す）。
+ * 控えは { rows: [[月, 種類, 人や話題, 当たり]], noPre: [その月が始まる前の予測が無い月], cur: [[今の決まりで測った月, B-2 が書いた時刻]] } で持つ
+ * （小さくするため。前の形の控え（cur が無い・月だけの並び）は使わずに数え直す）。
  * noPre・current（渡したときだけ）に、計画ごとの「その月が始まる前の予測が無い月」「今の決まりで測った月」を入れる（appSourceEvidence_）
  */
 function appInsightEvidence_(ids, tab, noPre, current) {
@@ -451,7 +453,7 @@ function appInsightEvidence_(ids, tab, noPre, current) {
   ids.forEach(id => {
     const c = keys[id] ? hits[keys[id]] : null;
     const v = c && c.found ? c.value : null;
-    if (!v || !Array.isArray(v.rows) || !Array.isArray(v.noPre) || !Array.isArray(v.cur)) { missing.push(id); return; }
+    if (!v || !Array.isArray(v.rows) || !Array.isArray(v.noPre) || !Array.isArray(v.cur) || !v.cur.every(Array.isArray)) { missing.push(id); return; }
     v.rows.forEach(x => out.push({ planId: id, ym: x[0], quarter: appInsightQuarter_(x[0]), type: x[1], key: x[2], hit: x[3] }));
     if (noPre) noPre[id] = v.noPre;
     if (current) current[id] = v.cur;
@@ -614,9 +616,10 @@ function appInsightHasHuman_(r) {
 /**
  * 外れた月の振り返り。B-4 を動かし直すと同じ月の行が増える（月が日付に変わり、旧来の上書きの鍵が合わない）ので、計画 × 月で 1 つにする:
  * 数字（実績・予測・幅の外か）は一番新しい行から、人が書いた欄（原因・対応・次回への反映・担当・状態）は人が書いた一番新しい行から取る。
- * 今の決まりで測った月（months = { 計画の ID: [月] }。締まった月で、今の検証の版の EVAL_LOG の neutral の行がある月。appSourceEvidence_）の
- * 行だけを使う（D4〜D6。旧来の画面（webParseEval_）が検証の記入を出す月と同じ決まり。途中の実績や、月が始まった後の予測で書かれた行は
- * 消さずに読み飛ばす）。
+ * 今の決まりで測った月（months = { 計画の ID: [[月, B-2 が書いた時刻]] }。締まった月で、今の検証の版の EVAL_LOG の neutral の行がある月。
+ * appSourceEvidence_）の行だけを使う（D4〜D6。旧来の画面（webParseEval_）が検証の記入を出す月と同じ決まり。途中の実績や、月が始まった後の
+ * 予測で書かれた行は消さずに読み飛ばす）。その月でも、B-2 が書いた時刻より前に B-4 が書いた行（evaluated_at が古い行。前の版の予測の数字で、
+ * 向きが逆のこともある）は、次の B-4 が書き直すまで読み飛ばす（消さない。計画の画面の appPlanViewDropStale_ と同じ決まり）。
  * hideNames = true なら担当（人の名前）を出さない
  */
 function appInsightLessons_(plans, insights, hideNames, months) {
@@ -625,12 +628,14 @@ function appInsightLessons_(plans, insights, hideNames, months) {
   const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
   plans.forEach(p => {
     const byYm = {};
-    const ok = appInsightSet_((months || {})[p.planId] || []);
+    const scoredAt = {};   // 月 → B-2 が今の版で測った時刻
+    ((months || {})[p.planId] || []).forEach(x => { scoredAt[x[0]] = Number(x[1]) || 0; });
     (insights[p.planId] || []).forEach((r, i) => {
       const ym = appYm_(r.target_month);
-      if (!ok[ym]) return;
-      const o = byYm[ym] = byYm[ym] || { latest: null, human: null, rows: 0 };
+      if (!Object.prototype.hasOwnProperty.call(scoredAt, ym)) return;
       const t = appTimeKey_(r.evaluated_at);
+      if (!(t >= scoredAt[ym])) return;   // その月を今の版の B-2 が測る前に、B-4 が書いた行
+      const o = byYm[ym] = byYm[ym] || { latest: null, human: null, rows: 0 };
       o.rows++;
       if (newer(o.latest, t, i)) o.latest = { r: r, t: t, i: i };
       if (appInsightHasHuman_(r) && newer(o.human, t, i)) o.human = { r: r, t: t, i: i };

@@ -4,6 +4,7 @@
  * - 見る: データ本体から読むだけのブック（appStoreBook_）を組み立て、旧来の webGetBootstrap_ をそのまま動かす。
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
  *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
+ *         検証の記入は、その月を今の検証の版で B-2 が測る前に B-4 が書いた行を出さない（appPlanViewDropStale_。学びの振り返りと同じ決まり）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
  * - 実行（A-3・B-2〜B-5・C-1・C-3）: 予測の実行と同じく、全部のシートを組み立てて旧来の webRun* を動かし、
@@ -212,6 +213,7 @@ function appPlanView_(ctx, planId) {
     const call = appLegacyCall_(book, { asOfMs: t0, seed: 'view:' + plan.plan_id, actor: ctx.actor }, 'webGetBootstrap_', []);
     const boot = appSerialize_(call.value);
     delete boot.user; delete boot.bookUrl; delete boot.access;   // 計算用ブックの URL・旧来の管理者の判定は出さない
+    appPlanViewDropStale_(boot, book);   // 見る人によらない直しは、覚えておく前に（覚えておいた中身はほかの人にも返す）
     view = { boot: boot, engine: { version: call.version, sourceSha256: call.sourceSha256, webSha256: call.webSha256 },
       builtMs: new Date().getTime() - t0 };
     // 覚えておけなくても画面は出す（次の表示がまた組み立てになるだけ）
@@ -234,6 +236,39 @@ function appPlanView_(ctx, planId) {
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
         changed: appParseJsonList_(r.changed_sheets_json) }))
   }, appPlanViewFor_(ctx, view));
+}
+
+/**
+ * 計画の画面の検証の記入（boot.eval.insights。旧来の webParseEval_ が、今の決まりで測った月の行を出す）から、その月を今の検証の版で
+ * B-2 が測る前に B-4 が書いた行を除く（前の版の予測の数字のまま。学びの振り返り appInsightLessons_ と同じ決まり。次の B-4 が書き直すと出る。行は消さない）。
+ * 行の番号（row）は旧来の画面と同じ読むだけのブック（appStoreBook_）のシートの行なので、同じブックの EVAL_INSIGHTS からそのまま引く
+ * （旧来の画面が読んだシートなので、データ本体を読み直さない）
+ */
+function appPlanViewDropStale_(boot, book) {
+  const ins = boot && boot.eval && boot.eval.insights;
+  if (!Array.isArray(ins) || !ins.length) return;
+  const log = book.getSheetByName('EVAL_LOG');
+  const sh = book.getSheetByName('EVAL_INSIGHTS');
+  if (!log || !sh || log.getLastRow() < 2) return;
+  const lv = log.getDataRange().getValues();
+  const idx = {};
+  lv[0].forEach((h, i) => { const k = String(h || '').trim(); if (k && idx[k] === undefined) idx[k] = i; });
+  if (['evaluated_at', 'target_month', 'scenario', 'evaluation_policy_version'].some(k => idx[k] === undefined)) return;
+  const at = {};   // 月 → 今の版で B-2 が書いた時刻（neutral の行）
+  lv.slice(1).forEach(r => {
+    if (String(r[idx.scenario] || '').trim() !== 'neutral' || String(r[idx.evaluation_policy_version] || '').trim() !== APP_EVAL_POLICY_VERSION) return;
+    const ym = appYm_(r[idx.target_month]);
+    const t = appTimeKey_(r[idx.evaluated_at]);
+    at[ym] = Math.max(at[ym] || 0, isFinite(t) ? t : 0);
+  });
+  const iv = sh.getDataRange().getValues();   // 1 列目 evaluated_at・3 列目 target_month（旧来の webParseEval_ と同じ並び）
+  boot.eval.insights = ins.filter(x => {
+    const r = iv[Number(x.row) - 1];
+    if (!r) return true;
+    const ym = appYm_(r[2]);
+    if (!Object.prototype.hasOwnProperty.call(at, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
+    return appTimeKey_(r[0]) >= at[ym];
+  });
 }
 
 /**

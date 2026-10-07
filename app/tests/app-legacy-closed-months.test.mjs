@@ -118,7 +118,7 @@ const LATE = 900;   // 10/02 の回（R2）の P50: 後から作った予測（7
 const R1_AT = jst(2026, 6, 19, 10), R2_AT = jst(2026, 10, 2, 10);
 const QUANT = 1050; // 統計だけの予測（7〜9 月の実績 1000 は下 = 驚きは下向き）
 
-function planBook(env, importedAt) {
+function planBook(env, importedAt, extraInsights = []) {
   const snap = [H.FORECAST_SNAPSHOT];
   const run = (sid, at, p50, factor) => FY_MONTHS.forEach((ym) => ['nega', 'neutral', 'posi'].forEach((sc, i) => {
     const v = p50 * [0.9, 1, 1.1][i];
@@ -163,8 +163,8 @@ function planBook(env, importedAt) {
     EVAL_COMPARE_MONTHLY: { values: cmp, cols: 40 },
     // 前の版の B-4 が書いた、締まっていない 11 月の行（消さない・書き換えない）
     EVAL_INSIGHTS: { values: [H.EVAL_INSIGHTS, row('EVAL_INSIGHTS', { evaluated_at: jst(2026, 10, 2, 12), client: CLIENT, target_month: '2026/11', actual_total: 50, pred_p50: LATE,
-      diff: 50 - LATE, error_rate: (50 - LATE) / 50, diagnostic_type: 'range_breach', cause_bucket: 'range_outside', action_type: 'update', status: 'open', review_cycle: 'monthly_light' })],
-    formats: { C: '@' } },
+      diff: 50 - LATE, error_rate: (50 - LATE) / 50, diagnostic_type: 'range_breach', cause_bucket: 'range_outside', action_type: 'update', status: 'open', review_cycle: 'monthly_light' })]
+      .concat(extraInsights), formats: { C: '@' } },
     DASHBOARD: { values: [H.DASHBOARD] },
     AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY].concat(Q2.map((ym) => impact('R1', R1_AT, ym, 'down', 0.997)), Q2.map((ym) => impact('R2', R2_AT, ym, 'up', 1.05))) },
     SUBJECTIVE_IMPACT_HISTORY: { values: [H.SUBJECTIVE_IMPACT_HISTORY].concat(Q2.map((ym) => push('R1', R1_AT, ym, -1)), Q2.map((ym) => push('R2', R2_AT, ym, 1))) },
@@ -179,11 +179,11 @@ function planBook(env, importedAt) {
   });
 }
 
-function setUpPlan(importedAt) {
+function setUpPlan(importedAt, extraInsights) {
   const env = setUpEnv();
   // 見直し案を作る（C-1）はアプリで止めている（2026-10-07 決定 3）。ここでは旧来の計算の C-1 の数え方を確かめるので、止めを外して動かす
   env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = ''");
-  const planId = env.seedPlan(planBook(env, importedAt));
+  const planId = env.seedPlan(planBook(env, importedAt, extraInsights));
   const rows = (sheet) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
   const runAction = (action) => env.runJob('PLAN.RUN', { planId, action });
   const ok = (action) => { const st = runAction(action); assert.equal(st.status, 'DONE', action + ': ' + st.error); return st; };
@@ -348,6 +348,27 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
   assert.deepEqual(P.rows('EVAL_INSIGHTS').map((r) => ymOf(r.target_month, r._types.charAt(2))), ['2026/11', '2026/07', '2026/08', '2026/09']);
   P.rows('EVAL_INSIGHTS').slice(1).forEach((r) => assert.deepEqual([r.annual_constraint_breach, r.half_constraint_breach].map(Number), [0, 0],
     'B-4 の年間・半期の印は 7〜9 月だけで判定（予測 3300 / 実績 3000）'));
+}
+
+// ---- 7. 前の版の B-4 が書いた振り返りの行は、今の版の B-2 が測った後は出さない（次の B-4 が書き直すまで。行は消さない） ----
+// 10/02 の前の版の B-4 は、7 月を後から作った回（900）で書いた（実績 1000 より低い = 向きも逆）。今の版の B-2 は 7 月を 6/19 の回（1100）で測る
+{
+  const old07 = row('EVAL_INSIGHTS', { evaluated_at: jst(2026, 10, 2, 12), client: CLIENT, target_month: '2026/07', actual_total: 1000, pred_p50: LATE, diff: 1000 - LATE,
+    error_rate: (1000 - LATE) / 1000, diagnostic_type: 'range_breach', range_breach: 1, cause_bucket: 'range_outside', action_type: 'update', status: 'open', review_cycle: 'monthly_light' });
+  const P = setUpPlan(jst(2026, 10, 6, 9), [old07]);
+  const lessons = () => P.env.call('apiPeopleLearning()').lessons.filter((l) => l.planId === P.planId).map((l) => [l.ym, l.pred, l.actual, l.direction, l.directionLabel]);
+  const shown = () => P.env.call('apiPlanView(__in)', { __in: { planId: P.planId } }).boot.eval.insights.map((r) => [r.month, r.row, r.pred]);
+  P.ok('EVAL.REPORT');
+  const n07 = P.rows('EVAL_LOG').find((r) => ymOf(r.target_month, r._types.charAt(3)) === '2026/07' && r.scenario === 'neutral');
+  assert.deepEqual([n07.evaluation_policy_version, Number(n07.pred), Number(n07.actual)], [POLICY, PRE, 1000], '今の版の B-2 は 7 月を 6/19 の回で測った');
+  assert.deepEqual(lessons(), [], '学びの振り返りに、前の版の B-4 の行（予測 900・予測が低すぎた）を出さない');
+  assert.deepEqual(shown(), [], '計画の画面の記入にも出さない（旧来の画面は 7 月を今の版で測った月として出す）');
+  assert.equal(P.rows('EVAL_INSIGHTS').length, 2, '行は消さない');
+  P.ok('EVAL.INSIGHTS');
+  assert.equal(P.rows('EVAL_INSIGHTS').length, 4, 'B-4 は 7 月の行を書き直し、8・9 月を足す');
+  assert.deepEqual(lessons().find((l) => l[0] === '2026/07'), ['2026/07', PRE, 1000, 'over', '予測が高すぎた'], 'B-4 の後は今の版の数字で出す');
+  assert.deepEqual(lessons().map((l) => l[0]).sort(), ['2026/07', '2026/08', '2026/09']);
+  assert.deepEqual(shown(), [['2026/07', 3, PRE], ['2026/08', 4, PRE], ['2026/09', 5, PRE]], '計画の画面も同じ行（行の番号はシートのまま）');
 }
 
 console.log('app-legacy-closed-months: all tests passed');
