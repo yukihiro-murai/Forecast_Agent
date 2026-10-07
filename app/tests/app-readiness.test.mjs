@@ -238,7 +238,7 @@ const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|fcRvGo\(|v
   assert.match(q, /fcRun\('EVAL.INSIGHTS'\)/, '策定の実行も出る（承認者は策定担当の役割を含む）');
   // 見直し案を作る（C-1）は止めている（2026-10-07 所有者の決定）: 押せないボタンにして、理由はカーソルで出す
   assert.doesNotMatch(q, /fcRun\('REVIEW.GENERATE'\)/, '見直し案を作る操作は押せない');
-  assert.match(q, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
+  assert.match(q, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026\/10\/07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
   assert.match(q, /fcDec\(/, '承認の選択は出す');
   const ev = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ua);
   assert.match(ev, /fcRun\('EVAL.REPORT'\)/, '策定の実行は出る');

@@ -62,6 +62,41 @@ function appEvalMonths_(planId, rows, cutoffYm) {
   return Object.keys(by).sort().map(k => by[k]).filter(m => m.p50 !== null && m.p50 !== undefined && m.actual !== null && m.actual !== undefined && m.actual !== 0);
 }
 
+/**
+ * 今の決まりで B-2 が測った月（締まった月で、今の検証の版の neutral の EVAL_LOG の行がある月。appEvalRowCurrent_）と、その行の数字を
+ * 旧来の B-4 が EVAL_INSIGHTS に写す形にしたもの（appInsightB4View_）: [[月, 予測, 実績]]（月の順。同じ月の行が 2 つあれば後の行）。
+ * 実績 0 円の月も入れる（精度の月 appEvalMonths_ は実績 0 円の月を除く）。学びの scoredMonths・振り返りに出す行の数字と、
+ * 検証の画面の scoredMonths（appAccuracyOf_）は、どちらもこの月で数える
+ */
+function appEvalScoredMonths_(rows, cutoffYm) {
+  const by = {};
+  (rows || []).forEach(r => {
+    if (String(r.scenario) !== 'neutral' || !appEvalRowCurrent_(r, String(cutoffYm || ''))) return;
+    const v = appInsightB4View_(r.pred, r.actual);
+    by[appYm_(r.target_month)] = [v.pred, v.actual];
+  });
+  return Object.keys(by).sort().map(ym => [ym, by[ym][0], by[ym][1]]);
+}
+
+/**
+ * 計画の、今の検証の版（APP_EVAL_POLICY_VERSION）の B-2 が初めて動いた時刻（ミリ秒。動いていなければ null）。
+ * evalRows = その計画の EVAL_LOG の行、runRows = RUN_LOG の行（どちらも見出し → 値）。今の版の EVAL_LOG の行の evaluated_at と、
+ * RUN_LOG の B-2 の記録（function_name = updatePhase1EvaluationReport・成功・今の版の B-2 だけが error_summary に「版: scored_months=…」と書く）の
+ * run_at の一番古いもの。B-2 は動くたびに測った月の EVAL_LOG の行を書き直す（evaluated_at が新しくなる）が、RUN_LOG は足すだけ
+ * （旧来の logRun_ は appendRow）なので、初めの回の時刻が残る。全計画の事前分布（appEvidencePolicyFrom_）・学びの振り返り
+ * （appSourceEvidence_）・計画の画面の記入（appPlanViewDropStale_）は、どれもこの時刻を使う
+ */
+function appEvalPolicySince_(evalRows, runRows) {
+  let out = null;
+  const take = t => { if (t !== null && (out === null || t < out)) out = t; };
+  (evalRows || []).forEach(r => { if (String(r.evaluation_policy_version || '').trim() === APP_EVAL_POLICY_VERSION) take(appEvidenceMs_(r.evaluated_at)); });
+  (runRows || []).forEach(r => {
+    if (String(r.function_name || '').trim() !== 'updatePhase1EvaluationReport' || String(r.status || '').trim().toLowerCase() !== 'success') return;
+    if (String(r.error_summary || '').trim().indexOf(APP_EVAL_POLICY_VERSION + ':') === 0) take(appEvidenceMs_(r.run_at));
+  });
+  return out;
+}
+
 /** 重み付きの平均 */
 function appWMean_(xs, ws) { const sw = ws.reduce((a, b) => a + b, 0); return sw ? xs.reduce((a, x, i) => a + x * ws[i], 0) / sw : null; }
 
@@ -116,12 +151,14 @@ function appAccuracyAll_(planIds) {
 /**
  * 計画の精度（影）。leak = 予測が実績とまったく同じ月（締まった後に予測し直した月。旧来の検証が拾ってしまう）。evalRows は appEvalMonths_ と同じ。
  * 締まった月の、今の検証の版の行だけで測る（D4〜D6。appEvalRowCurrent_）。cutoffYm（締まった月の境目。appLandingCutoff_）を省くと、
- * その計画の PROCESS_STATUS を読んで決める
+ * その計画の PROCESS_STATUS を読んで決める。scoredMonths = 今の決まりで B-2 が測った月の数（appEvalScoredMonths_。実績 0 円の月も数える。
+ * months・n は実績 0 円の月を除くので、「まだ比べていない」と「比べた月がどれも売上 0 円」を見分けるのに使う）
  */
 function appAccuracyOf_(planId, evalRows, cutoffYm) {
   const need = (evalRows ? [] : ['EVAL_LOG']).concat(typeof cutoffYm === 'string' ? [] : ['PROCESS_STATUS']);
   const t = need.length ? appEngTableObjects_(planId, need) : {};
   const cutoff = typeof cutoffYm === 'string' ? cutoffYm : appLandingCutoff_(t.PROCESS_STATUS);
+  const scoredMonths = appEvalScoredMonths_(evalRows || t.EVAL_LOG, cutoff).length;
   const ms = appEvalMonths_(planId, evalRows || t.EVAL_LOG, cutoff).map(m => {
     const err = (m.p50 - m.actual) / Math.abs(m.actual);
     const hasRange = m.p10 !== null && m.p10 !== undefined && m.p90 !== null && m.p90 !== undefined && m.p90 > m.p10;
@@ -137,7 +174,7 @@ function appAccuracyOf_(planId, evalRows, cutoffYm) {
   const w = use.map((m, i) => Math.pow(0.5, (use.length - 1 - i) / APP_BIAS_HALF_LIFE));
   const half = Math.floor(use.length / 2);
   return {
-    months: ms, n: use.length, leaks: ms.length - use.length, cutoffYm: cutoff,
+    months: ms, n: use.length, leaks: ms.length - use.length, cutoffYm: cutoff, scoredMonths: scoredMonths,
     mape: mean(use.map(m => m.ape)), bias: appWMean_(use.map(m => m.err), w), biasW: w.reduce((a, b) => a + b, 0),
     errVar: use.length > 1 ? mean(use.map(m => Math.pow(m.err - mean(use.map(x => x.err)), 2))) : null,
     coverage: inside.length ? inside.filter(m => m.inside).length / inside.length : null, coverageN: inside.length,
@@ -177,7 +214,11 @@ function appBiasShadow_(accs) {
   return { mu: mu, tau2: tau2, pooled: ids.length >= 2, plans: plans };
 }
 
-/** 計画の精度と学習の影（予測の画面の「検証」タブ）。データ本体が変わらない間は控えから返す（appCachedRead_） */
+/**
+ * 計画の精度と学習の影（予測の画面の「検証」タブ）。データ本体が変わらない間は控えから返す（appCachedRead_）。
+ * scoredMonths = 今の決まりで B-2 が測った月の数（実績 0 円の月も数える。appAccuracyOf_）。accuracy.months・n は実績 0 円の月を除くので、
+ * 画面は scoredMonths で「まだ比べていない」と「比べた月がどれも売上 0 円」を見分ける
+ */
 function appLearningView_(planId) {
   return appCachedRead_('LEARN\u0001' + APP_VERSION + '\u0001' + String(planId || ''), () => appLearningViewData_(planId));
 }
@@ -185,10 +226,15 @@ function appLearningView_(planId) {
 function appLearningViewData_(planId) {
   const plan = appPlanOf_(planId);
   const accs = appAccuracyAll_(appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED').map(p => p.plan_id));
-  const mine = accs[plan.plan_id] || appAccuracyOf_(plan.plan_id);
+  let mine = accs[plan.plan_id] || appAccuracyOf_(plan.plan_id);
+  if (typeof mine.scoredMonths !== 'number') {
+    // 前の形の控え（scoredMonths が無い）は、その計画の分だけ数え直す
+    mine = appAccuracyOf_(plan.plan_id);
+    try { appJobPutResult_(appAccuracyKey_(plan.plan_id), mine); } catch (e) { /* 控えられなくても返す */ }
+  }
   const shadow = appBiasShadow_(accs);
   const cal = appEngTableObjects_(plan.plan_id, ['CALIBRATION_STATE']).CALIBRATION_STATE.slice(-1)[0] || null;
-  return { planId: plan.plan_id, accuracy: Object.assign({}, mine, { months: mine.months.map(m => ({ month: m.month, p10: m.p10, p50: m.p50, p90: m.p90, actual: m.actual,
+  return { planId: plan.plan_id, scoredMonths: mine.scoredMonths, accuracy: Object.assign({}, mine, { months: mine.months.map(m => ({ month: m.month, p10: m.p10, p50: m.p50, p90: m.p90, actual: m.actual,
     err: m.err, inside: m.inside, leak: m.leak })) }),
     shadow: shadow.plans[plan.plan_id] || null, pooledPlans: Object.keys(shadow.plans).length, pooled: shadow.pooled, mu: shadow.mu, tau2: shadow.tau2,
     factorNow: cal ? appNum_(cal.bias_correction_factor) : null };
@@ -218,24 +264,17 @@ function appEvidenceClosed_(r) {
  * 計画ごとに、今の検証の版（APP_EVAL_POLICY_VERSION）の B-2 が初めて動いた時刻（ミリ秒。動いていなければ null）。
  * その後に数えた RELIABILITY_EVIDENCE の行は、今の版の旧来の C-1（今の版の EVAL_LOG の行だけを使い、その月が始まる前の予測で測る。D6）が数えたもの。
  * 前の版の C-1 が数えた行（月が始まった後の予測で測った）は、行に版の印が無いので、数えた時刻（computed_at）で見分ける。
- * 時刻は、今の版の EVAL_LOG の行の evaluated_at と、RUN_LOG の B-2 の記録（今の版の B-2 だけが error_summary に「版: scored_months=…」と書く）の
- * 一番古いもの。B-2 は動くたびに測った月の EVAL_LOG の行を書き直す（evaluated_at が新しくなる）ので、EVAL_LOG だけでは時刻が後ろへずれ、
- * 前の B-2 の後に今の版の C-1 が数えた行まで落としてしまうため。EVAL_LOG と RUN_LOG は全計画の分を 1 回ずつ読む（appEngAll_）
+ * 時刻の決め方は appEvalPolicySince_（今の版の EVAL_LOG の行の evaluated_at と、RUN_LOG の今の版の B-2 の記録の一番古いもの。
+ * B-2 は動くたびに EVAL_LOG の時刻を書き直すので、EVAL_LOG だけでは時刻が後ろへずれ、前の B-2 の後に今の版の C-1 が数えた行まで落としてしまう）。
+ * EVAL_LOG と RUN_LOG は全計画の分を 1 回ずつ読む（appEngAll_）
  */
 function appEvidencePolicyFrom_(ids) {
   const out = {};
   ids.forEach(id => { out[id] = null; });
   if (!ids.length) return out;
-  const take = (id, t) => { if (t !== null && (out[id] === null || t < out[id])) out[id] = t; };
   const ev = appEngAll_('EVAL_LOG', ids);
   const log = appEngAll_('RUN_LOG', ids);
-  ids.forEach(id => {
-    (ev[id] || []).forEach(r => { if (String(r.evaluation_policy_version || '').trim() === APP_EVAL_POLICY_VERSION) take(id, appEvidenceMs_(r.evaluated_at)); });
-    (log[id] || []).forEach(r => {
-      if (String(r.function_name || '').trim() !== 'updatePhase1EvaluationReport' || String(r.status || '').trim().toLowerCase() !== 'success') return;
-      if (String(r.error_summary || '').trim().indexOf(APP_EVAL_POLICY_VERSION + ':') === 0) take(id, appEvidenceMs_(r.run_at));
-    });
-  });
+  ids.forEach(id => { out[id] = appEvalPolicySince_(ev[id], log[id]); });
   return out;
 }
 

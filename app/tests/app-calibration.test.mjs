@@ -523,7 +523,7 @@ let readmeTask;
 {
   const jobs0 = jobProps(env);
   assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action: 'REVIEW.GENERATE' } } }),
-    /見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。/);
+    /見直し案を作る操作は、学びの仕組みを直すまで止めています（2026\/10\/07 所有者の決定）。/);
   assert.equal(jobProps(env), jobs0, '処理を入れない');
   assert.ok(env.errors().some((e) => /学びの仕組みを直すまで止めています/.test(e.message)), 'エラーのログに残る');
   const view = env.call('apiPlanView(__in)', { __in: { planId } });
@@ -538,7 +538,7 @@ let readmeTask;
   vm.runInContext(`S.view='forecast'; S.fc.plans=[{planId:'${planId}'}]; S.fc.planId='${planId}'; S.fc.view=__v; S.fc.data={plan:__v.plan,latest:null,runs:[],stored:null};`, ui);
   const html = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ui);
   assert.doesNotMatch(html, /fcRun\('REVIEW\.GENERATE'\)/);
-  assert.match(html, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
+  assert.match(html, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026\/10\/07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
   assert.match(html, /fcRun\('EVAL\.REPORT'\)/);
   // 補正を学び直す（B-5）も、旗を 0 にした（D2）ので押せないボタンにする（動かしても補正は変わらない）
   assert.doesNotMatch(html, /fcRun\('LEARN\.MONTHLY'\)/);
@@ -547,7 +547,7 @@ let readmeTask;
   ui.__q = { title: '', period: '', reviewId: 'R-1', applied: true, logRecent: [],
     proposals: [{ row: 8, pid: 'P1', target: 'ai_weight_override', current: '0.002', proposed: '0.001', conf: '中', rationale: '', impact: '', decision: '承認', rollback: '' }] };
   const chip = () => /<span class="chip ok" data-tip="([^"]*)">反映済み<\/span>/.exec(vm.runInContext('fcRvProposals(__q)', ui))[1];
-  assert.equal(chip(), 'この見直し案は反映済みです。見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。');
+  assert.equal(chip(), 'この見直し案は反映済みです。見直し案を作る操作は、学びの仕組みを直すまで止めています（2026/10/07 所有者の決定）。');
   ui.__v2 = Object.assign({}, view, { actions: view.actions.map((x) => Object.assign({}, x, { paused: '' })) });
   vm.runInContext('S.fc.view = __v2', ui);
   assert.equal(chip(), 'この見直し案は反映済みです。新しい案は「見直し案を作る」で作ります');
