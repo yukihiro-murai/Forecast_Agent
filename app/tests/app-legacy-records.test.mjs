@@ -62,6 +62,23 @@ const planId = env.seedPlan(book);
 const engRows = (sheet) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
 const ym = (iso) => { const d = new Date(iso); return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0'); };
 const runAction = (action) => { const st = env.runJob('PLAN.RUN', { planId, action }); assert.equal(st.status, 'DONE', action + ': ' + st.error); };
+/**
+ * C-1（見直し案を作る）は、画面・所有者の操作からは始められない（学びの仕組みを直すまで止めている。2026-10-07 村井さん決定）。
+ * 旧来の C-1 の記録の直しを確かめるため、ここでは待ち行列に直接入れて動かす（始める前の断りだけを飛ばす。中身は画面から始めたときと同じ）
+ */
+const runPausedAction = (action) => {
+  assert.throws(() => env.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId, action } } }), /学びの仕組みを直すまで止めています/);
+  let id = env.run(`appWithLock_(() => appEnqueueJob_('PLAN.RUN', { planId: __p, action: __a }, __by, '').id)`, { __p: planId, __a: action, __by: OWNER });
+  for (let i = 0; i < 60; i++) {
+    env.fireTriggers('triggerRunJob');
+    const st = env.call('apiJobStatus(__in)', { __in: { jobId: id } });
+    if (st.status === 'CONTINUED') { id = st.nextJobId; continue; }
+    if (st.status === 'QUEUED' || st.status === 'RUNNING') { id = st.jobId; continue; }
+    assert.equal(st.status, 'DONE', action + ': ' + st.error);
+    return st;
+  }
+  throw new Error('続きの処理が終わらない');
+};
 
 // ==== 2・3. B-4（学習インサイトの更新） ====
 runAction('EVAL.INSIGHTS');
@@ -92,7 +109,7 @@ view = env.call('apiPlanView(__in)', { __in: { planId } });
 assert.deepEqual(view.boot.eval.insights.map((r) => [r.month, r.hypothesis]), [['2026/04', '大型案件の前倒し'], ['2026/05', ''], ['2026/06', '']], '画面にも 1 か月 1 行');
 
 // ==== 1. C-1（四半期レビューの提案）: 当たりの記録が残る（直す前は空で、信頼度の案も出なかった） ====
-runAction('REVIEW.GENERATE');
+runPausedAction('REVIEW.GENERATE');
 const ev = engRows('RELIABILITY_EVIDENCE');
 assert.deepEqual(ev.map((r) => [r.source_type, r.source_key, r.quarter_label, r.n, r.hit]),
   [['opinion', '鷹野', 'FY2026-Q1', '3', '3'], ['factor_product', '佐藤', 'FY2026-Q1', '3', '2']], '月が日付でも人ごとの当たりを数える');

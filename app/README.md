@@ -97,7 +97,7 @@ Trends2Targets_System/
 | 分析 | 年度のメーカーを横に並べた俯瞰（着地÷予算と不確かさ・予算を超える確率・外れ幅・予測の変化）と市場（話題 × メーカーの向き）。読むだけ（`apiCrossMaker`） |
 | 学び | 人の学び（外れた月の振り返り・人と情報源の当たり・判断の記録）と AI の学び（情報源の信頼度・全計画で縮めた偏り・精度の推移・承認待ちの見直し案）。読むだけ（`apiPeopleLearning`・`apiAiLearning`） |
 
-管理のメニューはありません。業務の設定・メンバーと役割・メーカーの登録と表示名・状態と操作の記録・バックアップ・年度の締め・計画の作成・全計画での学習（事前分布）は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（下の「所有者の操作（エディタから）」）。
+管理のメニューはありません。業務の設定・メンバーと役割・メーカーの登録と表示名・状態と操作の記録・バックアップ・年度の締め・計画の作成・全計画での学習（事前分布）・計画の補正の値（承認した値の書き込み・見直し案の取り下げ）は、所有者が Apps Script のエディタから `apiOwnerTask` で行います（下の「所有者の操作（エディタから）」）。
 
 ## 暫定実績・着地見込み・見通しの空模様（2026-10-06 村井さん決定・v0.27.0・@61 公開）
 
@@ -203,9 +203,9 @@ Trends2Targets_System/
 4. 左の「エディタ」で `Api.gs` を開き、上の関数の一覧から `apiOwnerTask` を選んで「実行」を押します。
 5. 下の「実行ログ」に結果が出ます。同じ結果（大きいときは要約）がスクリプト プロパティ `OWNER_TASK_RESULT` に入ります（「プロジェクトの設定」を開き直すと見えます）。`"ok": true` ならうまくいっています。`hint` に、すぐに終わったのか、裏の処理を始めたのか（まだ終わっていないのか）が書いてあります。
 6. うまくいった後の `OWNER_TASK` は、操作の種類で変わります。
-   - 読むだけの操作（`listDirectory`・`listSettings`・`listPlans`・`planCandidates`・`health`・`listAudit`・`yearPreview`・`poolPreview`・`jobStatus`）: そのまま残ります。もう一度実行すると読み直します。
+   - 読むだけの操作（`listDirectory`・`listSettings`・`listPlans`・`planCandidates`・`health`・`listAudit`・`yearPreview`・`poolPreview`・`calibrationPreview`・`jobStatus`）: そのまま残ります。もう一度実行すると読み直します。
    - 書く操作（`saveMember`・`grantRole`・`revokeRole`・`saveClientName`・`saveClient`・`saveSetting`・`enableBackup`・`runBackup`・`runHousekeeping`・`verifyAudit`）: すぐに終わり、`OWNER_TASK` は消えます（同じ操作を 2 度動かさないため）。
-   - 裏の処理を始める操作（`createPlan`・`setPeople`・`yearClose`・`poolApply`）: `OWNER_TASK` が `{"action":"jobStatus","jobId":"JOB-…"}` に置き換わります。1〜2 分おいて、プロパティは触らずに `apiOwnerTask` をもう一度実行すると、処理の結果（`status` が `DONE` か `FAILED`。`FAILED` なら `error` に理由）が分かります。短い処理は、始めたその場で終わることもあります（`hint` に「すぐに終わりました」と出ます）。
+   - 裏の処理を始める操作（`createPlan`・`setPeople`・`yearClose`・`poolApply`・`setCalibration`）: `OWNER_TASK` が `{"action":"jobStatus","jobId":"JOB-…"}` に置き換わります。1〜2 分おいて、プロパティは触らずに `apiOwnerTask` をもう一度実行すると、処理の結果（`status` が `DONE` か `FAILED`。`FAILED` なら `error` に理由）が分かります。短い処理は、始めたその場で終わることもあります（`hint` に「すぐに終わりました」と出ます）。
    - 実行している間に `OWNER_TASK` が書き換えられていたときは、消しも置き換えもしません。
 7. 失敗したときは `"ok": false` と理由（`error`）が入り、`OWNER_TASK` は残るので、直してもう一度実行します。
 
@@ -246,8 +246,32 @@ Trends2Targets_System/
 | `yearClose` | 確かめた指紋で年度を締める（裏の処理。元に戻せません） | `{"action":"yearClose","fy":2025,"inputHash":"（yearPreview の inputHash）"}` |
 | `poolPreview` | 全計画の情報源の信頼度の事前分布を見比べる（書かない） | `{"action":"poolPreview"}` |
 | `poolApply` | 事前分布を各計画に書く（裏の処理）。四半期の最後の月が締まった後に数えた当たりだけを使う（`poolPreview` の `skippedEvidence` = 使わなかった行の数） | `{"action":"poolApply"}` |
+| `calibrationPreview` | 計画の今の補正の値（係数・暦月の補正・自動の学びの旗・AI の効き）と、取り下げられる見直し案（まだ反映していない一番新しい案）を見る（書かない） | `{"action":"calibrationPreview","planId":"PL-…"}` |
+| `setCalibration` | 承認した補正の値を計画に書く・まだ反映していない見直し案を取り下げる（裏の処理。下の「計画の補正の値」） | `{"action":"setCalibration","planId":"PL-…","set":{"bias_correction_factor":1},"reason":"（理由）"}` |
 | `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る、`limit` は既定 200・最大 2000） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
 | `jobStatus` | 裏の処理の結果を見る（裏の処理を始めると、`OWNER_TASK` は自動でこの形になる。`jobId` を省くと、最後に始めた処理） | `{"action":"jobStatus","jobId":"JOB-…"}` |
+
+### 計画の補正の値（2026-10-07 村井さん決定）
+
+予測に掛かる補正（旧来の `CALIBRATION_STATE`）は、所有者が承認した値だけを `setCalibration` で書きます（`Calibration.js`）。月次の自動学習（B-5）が学ぶ値は、締まっていない月の実績に引っ張られていたためです。
+
+- 書ける項目（`set` の中。ほかの項目・範囲の外・`""` で囲んだ数は、何もせずに止まります）
+  - `bias_correction_factor`: 補正の係数。0.75〜1.25（1 = 補正なし）
+  - `residual_month_bias_json`: 暦月ごとの補正。`"{}"`（補正なし）か `"{\"4\":0.05}"` の形（月は 1〜12、値は ±0.2 まで）
+  - `auto_update_enabled`: 自動の学び。0 で止める・1 で動かす。0 にすると、B-5 の自動の学びと、承認した見直し案の反映（C-3）の両方が止まります
+  - `ai_weight_override`: AI の効き。0〜0.01。0 にすると、予測の AI の倍率（k_ai）はどの月も 1 になり、ほかの層（統計・入力・スポット・補正）は変わりません。`""` で業務の設定（CONFIG の `AI_WEIGHT`）の値に戻します
+- `reason`（理由）は必ず入れます（200 字まで。`CALIBRATION_STATE` の `note` と操作の記録に残ります）。
+- 変わった項目ごとに `CALIBRATION_HISTORY` へ 1 行を足します（月次の自動学習・見直し案の反映と同じ形。`review_id` は `OWNER-APPROVED`、`changed_by` は所有者）。前の履歴は消しません。戻すときは、履歴の `old_value` をもう一度 `setCalibration` で書きます。
+- `withdrawPendingReview` を `true` にすると、一番新しい四半期の見直し案のどの案もまだ反映していなければ取り下げます。判断が保留・却下・承認でも（反映の操作 C-3 を保留のまま動かした後でも）、反映していなければ取り下げます（判断し直して C-3 をもう一度動かせば反映できてしまうためです）。`QUARTERLY_REVIEW_LOG` の行の判断を「取り下げ」にし（判断した日時と人を入れます。`applied` は 0 のまま。行は消しません）、計画の画面でも取り下げた案として出し、承認した見直し案の反映（C-3）でも適用されなくなります（後から判断を保存し直しても同じです）。前の判断と日時は結果の `withdrawn.before` に残ります。案を 1 つでも反映した見直し案と、もう取り下げた見直し案には何もしません（`withdrawn` が `null`）。
+- 先に `calibrationPreview` で今の値と取り下げる見直し案（`pending`。今の判断 `decisions` と判断の日時 `decidedAt` も出ます。取り下げるものが無ければ `null`）を確かめ、出た `inputHash` を渡すと、確かめた後に計画が変わっていれば書かずに止まります（省くと確かめずに書きます）。
+- 変わる値が無ければ何も書きません（同じ頼みを 2 度動かしても、履歴は増えません）。締めた年度の計画には書けません。所有者だけの操作です（管理者の役割があっても、ほかの人は画面からも始められません）。
+- 結果（`jobStatus` の `result.result`）に、前と後の値（`changed`）・変えなかった項目（`unchanged`）・取り下げた見直し案（`withdrawn`）が出ます。
+
+2026-10-07 の決定（自動の学びを止める・補正を無しに戻す・AI の効きを止める・締まっていない月から作られた見直し案を取り下げる）を 1 回で頼む例です。`planId` は `listPlans` の値に、`inputHash` は `calibrationPreview` の値に置き換えます（`inputHash` は省けます）。
+
+`{"action":"setCalibration","planId":"PL-…","set":{"auto_update_enabled":0,"bias_correction_factor":1,"residual_month_bias_json":"{}","ai_weight_override":0},"withdrawPendingReview":true,"reason":"2026-10-07 決定 D2・D7・D8・D3: 締まっていない月で学んだ補正を外し、自動の学びと AI の効きを止め、締まっていない月から作られた見直し案を取り下げる"}`
+
+**見直し案を作る（C-1）は止めています**（2026-10-07 村井さん決定）。学びの仕組みを直すまで、画面の「見直し案を作る」は押せず、サーバーも始める前に断ります。すでにある見直し案の判断（承認・却下・保留）と反映の操作はそのままです。
 
 ## 利用者・管理者の運用手順
 
@@ -266,7 +290,7 @@ Trends2Targets_System/
 2. 管理者が「進み」で売上取込（A-2）、策定担当が売上加工（A-3）・AI調査（A-4）を実行します。実績の取得元は、所有者が `saveSetting` で決めた業務の設定（ZAC の実績のスプレッドシート）を使います。
 3. 策定担当が入力・予測・予算を整え、「公式版」で提出します。承認者が数字を確認して承認・却下します（自分の提出を承認する扱いは既存ルールに従います）。
 4. 実績が締まったら（月末から 5 日たち、前の月の ZAC の計上が終わってから。「暫定実績・着地見込み・見通しの空模様」の注意）管理者が「検証」で実績取込（B-1）、策定担当が検証更新・指標更新・見立て更新・月次学習（B-2〜B-5）を順に行います。インサイトの記入も保存します。
-5. 四半期ごとに提案を作り（C-1）、承認者が判断し、承認した提案を適用します（C-3）。
+5. 四半期ごとに提案を作り（C-1）、承認者が判断し、承認した提案を適用します（C-3）。C-1 は学びの仕組みを直すまで止めています（2026-10-07 村井さん決定）。補正の値は、所有者が `apiOwnerTask` の `setCalibration` で承認した値を書きます。
 6. 次年度は新しい計画として作ります。終わった年度を締める場合だけ、所有者が `apiOwnerTask` の `yearPreview` で内容を確認し、`yearClose` で年度を締めます。現在・未来の年度は締めません。行の移動・凍結解除は行いません。
 
 ### 管理者の点検と障害対応
@@ -325,6 +349,7 @@ node app/tests/app-readiness.test.mjs
 node app/tests/app-year-snapshot.test.mjs
 node app/tests/app-year-close.test.mjs
 node app/tests/app-owner-task.test.mjs
+node app/tests/app-calibration.test.mjs
 ```
 
 GAS のモック（`app/tests/gas-mock.mjs`）の上での契約テストです（GAS 上での動作確認の代わりではありません）。反映は `app/` の中で行います（ルートの `.clasp.json` を拾わないよう `-P .` を付ける）。

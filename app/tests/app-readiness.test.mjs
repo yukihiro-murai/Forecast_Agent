@@ -53,7 +53,8 @@ const jobProps = (env) => env.run(`appProps_().getKeys().filter(k => k.indexOf('
 // 仕様の静的な表（実装から推測しない。変更するときはこの表を先に合わせる）
 const JOB_KINDS_PUBLIC = ['FORECAST.RUN', 'PLAN.EDIT', 'PLAN.RUN', 'PLAN.CREATE', 'LEARN.POOL', 'YEAR.CLOSE', 'SYSTEM.RECOVER'];
 const JOB_KINDS_INTERNAL = ['FORECAST.RUN_CALC', 'FORECAST.RUN_SAVE', 'PLAN.RUN_CALC', 'PLAN.RUN_SAVE', 'PLAN.CREATE_SAVE'];
-const EDIT_ACTIONS = ['INPUT.SAVE', 'BUDGET.SAVE', 'INSIGHT.SAVE', 'REVIEW.DECIDE', 'SETUP.PEOPLE'];
+// CALIBRATION.SET（補正の値）は所有者だけ（管理者の役割があっても断る。app-calibration.test.mjs）
+const EDIT_ACTIONS = ['INPUT.SAVE', 'BUDGET.SAVE', 'INSIGHT.SAVE', 'REVIEW.DECIDE', 'SETUP.PEOPLE', 'CALIBRATION.SET'];
 const RUN_ACTIONS = ['IMPORT.SALES', 'IMPORT.ACTUALS', 'SALES.AGGREGATE', 'AI.RESEARCH',
   'EVAL.REPORT', 'EVAL.DASHBOARD', 'EVAL.INSIGHTS', 'LEARN.MONTHLY', 'REVIEW.GENERATE', 'REVIEW.APPLY'];
 
@@ -234,7 +235,10 @@ const WRITE_MARKS = /fcRun\(|fcEdit\(|fcSaveInput|fcSaveIns|fcSaveDec|fcRvGo\(|v
   vm.runInContext(`S.fc.plans=[{planId:'${planId}'}]; S.fc.planId='${planId}'; S.fc.view=__v; S.fc.data={plan:__v.plan,latest:null,runs:[],stored:null};`, ua);
   const q = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ua);
   assert.match(q, /fcRvGo\(/, '承認者には「承認して反映」（判断の保存 → 見直しを反映）を出す');
-  assert.match(q, /fcRun\('REVIEW.GENERATE'\)/, '策定の実行も出る（承認者は策定担当の役割を含む）');
+  assert.match(q, /fcRun\('EVAL.INSIGHTS'\)/, '策定の実行も出る（承認者は策定担当の役割を含む）');
+  // 見直し案を作る（C-1）は止めている（2026-10-07 所有者の決定）: 押せないボタンにして、理由はカーソルで出す
+  assert.doesNotMatch(q, /fcRun\('REVIEW.GENERATE'\)/, '見直し案を作る操作は押せない');
+  assert.match(q, /data-tip="AI の見直し案を作る\n見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button>/);
   assert.match(q, /fcDec\(/, '承認の選択は出す');
   const ev = vm.runInContext(`S.fc.tab='review'; viewForecast()`, ua);
   assert.match(ev, /fcRun\('EVAL.REPORT'\)/, '策定の実行は出る');

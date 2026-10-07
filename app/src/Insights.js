@@ -44,7 +44,7 @@ const APP_INSIGHT_FEW_PLANS = 3;           // 控えの無い計画がこれだ�
 const APP_INSIGHT_DETAIL_ROLE = 'PLANNER'; // 人ごとの当たり・判断した人の名前を見せる役割（これ以上。クライアント単位の役割でもよい）
 const APP_INSIGHT_DIRECTION = { over: '予測が高すぎた', under: '予測が低すぎた', exact: '予測どおり' };
 const APP_INSIGHT_FIELD_LABELS = { ai_weight_override: 'AI の重み', ai_max_abs_effect_override: 'AI の効きの上限', ai_topic_disable_json: '使わない AI の話題',
-  bias_correction_factor: '偏りの補正', residual_month_bias_json: '月ごとの偏りの補正', qual_scale_override: '入力の効きの倍率' };
+  bias_correction_factor: '偏りの補正', residual_month_bias_json: '月ごとの偏りの補正', qual_scale_override: '入力の効きの倍率', auto_update_enabled: '自動の学び' };
 const APP_INSIGHT_PHASES = { A: 'AI の重み', B: '情報源の信頼度' };
 const APP_INSIGHT_HEALTH = {
   shadow_worse: '全計画で縮めた補正を試すと、今より誤差が大きくなる',
@@ -856,7 +856,10 @@ function appInsightTimeline_(accs) {
   });
 }
 
-/** 補正の変化（CALIBRATION_HISTORY。月次の自動学習 AUTO-MONTHLY と、四半期レビューの適用）。hideKeys = true なら信頼度の対象は種類まで */
+/**
+ * 補正の変化（CALIBRATION_HISTORY。月次の自動学習 AUTO-MONTHLY・四半期レビューの適用・所有者が承認した値 OWNER-APPROVED（Calibration.js））。
+ * hideKeys = true なら信頼度の対象は種類まで
+ */
 function appInsightCalibration_(plans, hist, factorNow, hideKeys) {
   return plans.map(p => {
     const rows = (hist[p.planId] || []).map((r, i) => ({ t: appTimeKey_(r.changed_at), i: i, r: r })).sort((a, b) => a.t - b.t || a.i - b.i);
@@ -867,7 +870,8 @@ function appInsightCalibration_(plans, hist, factorNow, hideKeys) {
         const auto = rid === 'AUTO-MONTHLY';
         const f = appInsightTarget_(r.factor_name, hideKeys);
         return { at: appInsightIso_(r.changed_at), factor: f.target, factorLabel: f.label,
-          old: appInsightRelVal_(r.factor_name, r.old_value, hideKeys), new: appInsightRelVal_(r.factor_name, r.new_value, hideKeys), source: rid, sourceLabel: auto ? '月次の自動学習' : '四半期レビュー',
+          old: appInsightRelVal_(r.factor_name, r.old_value, hideKeys), new: appInsightRelVal_(r.factor_name, r.new_value, hideKeys), source: rid,
+          sourceLabel: auto ? '月次の自動学習' : rid === APP_CALIBRATION_REVIEW_ID ? '所有者が承認した値' : '四半期レビュー',
           quarter: String(r.quarter_label || '') };
       }) };
   }).filter(x => x.path.length || x.factorNow !== null);

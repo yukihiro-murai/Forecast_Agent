@@ -10,7 +10,12 @@
  *         計算 → 保存の 2 つの裏の処理で戻す（計算の間にデータ本体が変わっていないことを確かめる）。
  * 記録は PLAN_ACTIONS（1 回 1 行）と監査ログ。旧来の webAudited_（旧来のログ）は使わない（LegacyEngine.js で差し替え）。
  * 外部とつなぐもの（A-2・B-1 の取り込み、A-4 の AI 調査、Vertex のアシスト）と A-1 の設定は、まだここに入れていない。
+ * 補正の値の書き込み（CALIBRATION.SET）は所有者だけ（apiOwnerTask の setCalibration。中身は Calibration.js）。
+ * 四半期の見直し案を作る（REVIEW.GENERATE・C-1）は、学びの仕組みを直すまで止めている（2026-10-07 村井さん決定 D3。始める前に断る）。
  */
+
+/** 止めている操作の理由（始める前に断る文・画面のボタンの説明） */
+const APP_REVIEW_GENERATE_PAUSED = '見直し案を作る操作は、学びの仕組みを直すまで止めています（2026-10-07 所有者の決定）。';
 
 /** 計画への保存・実行（名前は旧来の Web アプリの操作の記録と同じ） */
 const APP_PLAN_ACTIONS = {
@@ -22,6 +27,10 @@ const APP_PLAN_ACTIONS = {
     sheets: ['QUARTERLY_REVIEW'], args: a => [a.rows] },
   // A-1 の担当者（クライアントと年度は計画で決まるので変えない）。旧来の saveInitialSetupSettings と同じく CONFIG!B4 に書く
   'SETUP.PEOPLE': { kind: 'edit', minRole: 'ADMIN', local: 'appPlanSetPeople_', label: '担当者の保存', sheets: ['CONFIG'], args: a => [a.peopleCsv] },
+  // 所有者が承認した補正の値を CALIBRATION_STATE に書き、履歴を CALIBRATION_HISTORY に足す。承認待ちの見直し案の取り下げも（Calibration.js）。
+  // 所有者だけ（ownerOnly: 管理者の役割があっても、ほかの人は断る）
+  'CALIBRATION.SET': { kind: 'edit', minRole: 'ADMIN', ownerOnly: true, local: 'appCalibrationSet_', label: '補正の値の書き込み（所有者）',
+    sheets: ['CONFIG', 'CALIBRATION_STATE', 'CALIBRATION_HISTORY', 'QUARTERLY_REVIEW', 'QUARTERLY_REVIEW_LOG'], args: a => [a] },
   // A-2・B-1: 設定の「ZAC の実績のスプレッドシート」から読む（旧来と同じ関数）。取り込みは管理者（設計 6 章）
   // 使うシートだけを組み立てる（全部を組み立てると、外部の読み込みと合わせて 1 回の上限 6 分を超えた。2026-10-03）。
   // シートは旧来の関数から呼ぶ関数をたどって洗い出した（画面の読み取り webGetBootstrap_ と、表示/非表示だけの hideNonUserSheets_ は除く）
@@ -38,7 +47,7 @@ const APP_PLAN_ACTIONS = {
   'EVAL.DASHBOARD': { kind: 'run', minRole: 'PLANNER', fn: 'webRunDashboard', label: 'B-3 ダッシュボードの更新' },
   'EVAL.INSIGHTS': { kind: 'run', minRole: 'PLANNER', fn: 'webRunInsights', label: 'B-4 学習インサイトの更新' },
   'LEARN.MONTHLY': { kind: 'run', minRole: 'PLANNER', fn: 'webRunMonthlyLearn', label: 'B-5 月次の自動学習' },
-  'REVIEW.GENERATE': { kind: 'run', minRole: 'PLANNER', fn: 'webRunQuarterly', label: 'C-1 四半期レビューの提案' },
+  'REVIEW.GENERATE': { kind: 'run', minRole: 'PLANNER', fn: 'webRunQuarterly', label: 'C-1 四半期レビューの提案', paused: APP_REVIEW_GENERATE_PAUSED },
   'REVIEW.APPLY': { kind: 'run', minRole: 'APPROVER', fn: 'webApplyQuarterly', label: 'C-3 承認した提案の適用' }
 };
 
@@ -46,6 +55,12 @@ function appPlanAction_(name, kind) {
   const a = APP_PLAN_ACTIONS[String(name || '')];
   if (!a || (kind && a.kind !== kind)) throw new Error('未定義の操作です: ' + name);
   return a;
+}
+
+/** 止めている操作なら、その理由（止めていなければ空）。始める前に断る（Jobs.js の appStartJob_） */
+function appPlanActionPaused_(name) {
+  const a = APP_PLAN_ACTIONS[String(name || '')];
+  return a && a.paused ? a.paused : '';
 }
 
 // ---- 読むだけのブック ----
@@ -213,7 +228,7 @@ function appPlanView_(ctx, planId) {
     },
     sourceReady: !!appSettingValue_('source.zac_spreadsheet'),
     actions: Object.keys(APP_PLAN_ACTIONS).map(k => ({ action: k, kind: APP_PLAN_ACTIONS[k].kind, label: APP_PLAN_ACTIONS[k].label,
-      minRole: APP_PLAN_ACTIONS[k].minRole })),
+      minRole: APP_PLAN_ACTIONS[k].minRole, paused: APP_PLAN_ACTIONS[k].paused || '' })),
     recent: appReadTable_('PLAN_ACTIONS').filter(r => r.plan_id === plan.plan_id).map(appStripRow_)
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
@@ -260,8 +275,12 @@ function appParseJsonList_(v) {
 
 // ---- 保存・実行（裏の処理） ----
 
-/** 新アプリの側で行う保存（旧来に同じ関数が無いもの）。返り値の形は appLegacyCall_ と同じ */
-function appPlanLocalCall_(book, name, args) {
+/**
+ * 新アプリの側で行う保存（旧来に同じ関数が無いもの）。返り値の形は appLegacyCall_ と同じ。
+ * 補正の値（appCalibrationSet_）は中で旧来の関数を使うので、その版と指紋を返す。opts: { asOfMs, seed, actor }
+ */
+function appPlanLocalCall_(book, name, args, opts) {
+  if (name === 'appCalibrationSet_') return appCalibrationSet_(book, args[0], opts);
   const fns = { appPlanSetPeople_: appPlanSetPeople_ };
   return { value: fns[name].apply(null, [book].concat(args)), version: 'app-' + APP_VERSION, sourceSha256: '', webSha256: '' };
 }
@@ -319,7 +338,7 @@ function appPlanEdit_(ctx, p) {
     const reused = appScratchTryReuse_(scratch, plan.plan_id, act.sheets || null, token);
     const build = reused ? [] : appScratchFromStore_(scratch, plan.plan_id, act.sheets, token);
     const t1 = new Date().getTime();
-    const call = act.local ? appPlanLocalCall_(scratch, act.local, act.args(args || {}))
+    const call = act.local ? appPlanLocalCall_(scratch, act.local, act.args(args || {}), { asOfMs: t0, seed: actionId, actor: ctx.actor })
       : appLegacyCall_(scratch, { asOfMs: t0, seed: actionId, actor: ctx.actor }, act.fn, act.args(args || {}));
     const t2 = new Date().getTime();
     const cap = appCaptureChanged_(scratch, plan.plan_id, stored, act.sheets);

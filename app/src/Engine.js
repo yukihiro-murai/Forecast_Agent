@@ -344,6 +344,20 @@ function appLegacyCall_(book, opts, fnName, args) {
   });
 }
 
+/**
+ * 旧来の関数をいくつか、1 つの差し替えのもとで続けて呼ぶ（種と「今」を固定する）。fn(eng) の返り値を value にする。
+ * appLegacyCall_ を何回かに分けて呼ぶと、そのたびに種から決まる ID が最初からになり、同じ ID が 2 度できるため。
+ * opts: { asOfMs, seed, actor }。返り値は appLegacyCall_ と同じ形
+ */
+function appLegacyWith_(book, opts, fn) {
+  const svc = appLegacyServices_(book, opts);
+  return appWithSeededRandom_(opts.seed, () => {
+    const eng = appLegacyEngine_(svc);
+    const value = fn(eng);
+    return { value: value, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256, webSha256: eng.WEB_SOURCE_SHA256 };
+  });
+}
+
 // ---- 計算用ブックの準備と、計算後の中身の控え ----
 
 /** 計算用ブック（計画の地域・時差に合わせる）。予測・実行・計画の作成で使う */
