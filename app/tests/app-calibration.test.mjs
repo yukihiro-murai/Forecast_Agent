@@ -532,7 +532,8 @@ function seedReviewPlan(e, name, withHistory) {
   const MONTHS = [['2026/04', 1200, 1000], ['2026/05', 800, 1000], ['2026/06', 1050, 1000]];
   const evalLog = [H.EVAL_LOG].concat(...MONTHS.map(([ym, act, p50], i) => [['nega', p50 * 0.95], ['neutral', p50], ['posi', p50 * 1.05]]
     .map(([sc, p]) => row('EVAL_LOG', { eval_id: 'E' + i + sc, evaluated_at: D(2026, 9, 1), client: CLIENT, target_month: ym, scenario: sc, pred: p, actual: act,
-      signed_error: p - act, abs_error: Math.abs(p - act), bias_direction: p > act ? 'over' : 'under', constraint_relevant_flag: sc === 'neutral' ? 1 : 0 }))));
+      signed_error: p - act, abs_error: Math.abs(p - act), bias_direction: p > act ? 'over' : 'under', constraint_relevant_flag: sc === 'neutral' ? 1 : 0,
+      evaluation_policy_version: 'policy-2026H1-v3' }))));   // 今の検証の版で測った行（締まった月だけ・月が始まる前の予測。2026-10-07 決定 4〜6）
   const run1 = D(2026, 3, 20);
   const impact = (m) => row('AI_IMPACT_HISTORY', { run_id: 'R1', run_at: run1, client: CLIENT, target_month: D(2026, m), k_ai: 1, ai_direction: 'flat', pred_p50: 1000, pred_p50_quant_only: 1000, forecast_source: 'forecast_open' });
   const push = (m, type, key, dir) => row('SUBJECTIVE_IMPACT_HISTORY', { run_id: 'R1', run_at: run1, client: CLIENT, target_month: D(2026, m), source_type: type,
@@ -542,6 +543,8 @@ function seedReviewPlan(e, name, withHistory) {
     PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step4_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 12, ''], ['step5_status', D(2026, 9, 1), 'owner', 'success', CLIENT, 9, '']] },
     RUN_LOG: { values: [H.RUN_LOG] },
     EVAL_LOG: { values: evalLog, formats: { D: '@' } },
+    // 実績は月末から 5 日より後（7/10）に取り込んだので、4〜6 月は締まった月
+    ACTUAL_EVAL_MONTHLY: { values: [H.ACTUAL_EVAL_MONTHLY].concat(MONTHS.map(([ym, act]) => [CLIENT, 'BASE', '製品A', ym, act, 'closed', D(2026, 7, 10)])), formats: { D: '@' } },
     AI_IMPACT_HISTORY: { values: [H.AI_IMPACT_HISTORY, impact(4), impact(5), impact(6)] },
     SUBJECTIVE_IMPACT_HISTORY: { values: [H.SUBJECTIVE_IMPACT_HISTORY, push(4, 'opinion', '鷹野', 1), push(5, 'opinion', '鷹野', -1), push(6, 'opinion', '鷹野', 1),
       push(4, 'factor_product', '佐藤', 1), push(5, 'factor_product', '佐藤', 1), push(6, 'factor_product', '佐藤', 1)] },

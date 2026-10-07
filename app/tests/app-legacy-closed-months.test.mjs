@@ -181,6 +181,8 @@ function planBook(env, importedAt) {
 
 function setUpPlan(importedAt) {
   const env = setUpEnv();
+  // 見直し案を作る（C-1）はアプリで止めている（2026-10-07 決定 3）。ここでは旧来の計算の C-1 の数え方を確かめるので、止めを外して動かす
+  env.run("APP_PLAN_ACTIONS['REVIEW.GENERATE'].paused = ''");
   const planId = env.seedPlan(planBook(env, importedAt));
   const rows = (sheet) => env.table('ENG_' + sheet).filter((r) => r.plan_id === planId);
   const runAction = (action) => env.runJob('PLAN.RUN', { planId, action });
