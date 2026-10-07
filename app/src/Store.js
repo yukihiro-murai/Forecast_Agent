@@ -203,11 +203,12 @@ function appCacheChunks_(cache, k) {
 
 /**
  * 読むだけの結果を、版の印が同じ間だけ控えから返す。key は結果を決めるもの（人ごとに違う結果なら人も入れる）。
+ * 鍵にはアプリの版（APP_VERSION）も入れる（公開し直した後に、前の版のコードで作った結果を返さない。データ本体が変わらなくても）。
  * 控えが読めない・大きすぎるときは、そのまま fn() を返す（控えは速くするためだけのもの）
  */
 function appCachedRead_(key, fn) {
   const cache = CacheService.getScriptCache();
-  const k = 'RC_' + appSha256Hex_(appDataGen_() + '\u0001' + key).slice(0, 32);
+  const k = 'RC_' + appSha256Hex_(appDataGen_() + '\u0001' + APP_VERSION + '\u0001' + key).slice(0, 32);
   try {
     const text = appCacheChunks_(cache, k);
     if (text !== null) return JSON.parse(text);
