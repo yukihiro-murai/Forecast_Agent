@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /*
  * app-legacy-closed-months.test.mjs — 検証の決まり（2026-10-07 村井さん承認 D4〜D6）を、本物の旧来の計算をモックの上で動かして確かめる。
- *   0. 締まりの日数（月末から 5 日）は旧来の計算と新アプリで同じ数（新アプリに *_CLOSE_LAG_DAYS の数があれば、同じ値であること）
+ *   0. 締まりの日数（月末から 5 日）は旧来の計算と新アプリで同じ数（新アプリに締まりの日数らしい名前が出てくれば、定数でもオブジェクトの中でも
+ *      読める定義がちょうど 1 つあり、同じ値であること）
  *   1. B-1（実績の取り込み）: 月末から 3 日後の取り込みでは 9 月は open、6 日後なら closed（取り込んだ日時を source_updated_at に残す）
  *   2. B-2（検証）: 締まった月だけを、その月が始まる前の最後の予測（6/19 の回）で測る。後から作った回（10/02）は使わない。
- *      月が始まる前の予測が無い月（4〜6 月）は測らずに数える。前の版で書いた EVAL_LOG の行は消さない
- *   3. B-3・B-4・B-5・C-1 は、前の版で書いた行（締まっていない月の途中の売上・後から作った予測で測った行）を使わない
+ *      月が始まる前の予測が無い月（4〜6 月）は測らずに数える。前の版で書いた EVAL_LOG の行は消さない。
+ *      検証の表の横の要約（年間・半期・四半期・幅の外）も、締まって測った月だけ
+ *   3. B-3・B-4・B-5・C-1 は、前の版で書いた行（締まっていない月の途中の売上・後から作った予測で測った行）を使わない。
+ *      B-4 の年間・半期の印も、検証の表の締まって測った月だけで判定する
  *   4. B-5 は締まった月だけで学ぶ（3 日後の取り込みでは 2 か月で足りず学ばない。6 日後なら 7〜9 月の 3 か月で、6/19 の予測から学ぶ）
  *   5. C-1 は締まった 3 か月（7〜9 月）を、6/19 の回の AI と人の押しで数える
  *   6. 計画の画面の「人の記入」（旧来の webParseEval_）も、今の決まりで測った月の行だけ（前からある行は消さず、出さない）
@@ -28,16 +31,48 @@ const ymOf = (v, t) => {
   return String(v);
 };
 
-// ==== 0. 締まりの日数は 1 つの数（旧来の計算）。新アプリに同じ意味の数があれば同じ値 ====
+// ==== 0. 締まりの日数は 1 つの数（旧来の計算）。新アプリが締まりの日数を持つなら、読める定義がちょうど 1 つで、同じ値 ====
 {
   const legacySrc = await readFile(path.join(repoRoot, 'Forecast_Agent.js'), 'utf8');
   const lagOf = (text) => [...text.matchAll(/^\s*const ([A-Z_]*CLOSE_LAG_DAYS)\s*=\s*(\d+)\s*;/gm)].map((m) => [m[1], Number(m[2])]);
   assert.deepEqual(lagOf(legacySrc), [['ACTUAL_CLOSE_LAG_DAYS', 5]], '旧来の計算: 月末から 5 日（1 か所だけ）');
   assert.deepEqual(lagOf(sources['LegacyEngine.js']), [['ACTUAL_CLOSE_LAG_DAYS', 5]], '新アプリに取り込んだ旧来の計算も同じ');
-  const appSide = Object.keys(sources).filter((n) => n !== 'LegacyEngine.js').flatMap((n) => lagOf(sources[n]).map(([k, v]) => [n, k, v]));
-  appSide.forEach(([n, k, v]) => assert.equal(v, 5, `${n} の ${k} は旧来の計算の ACTUAL_CLOSE_LAG_DAYS と同じ日数`));
+  // 新アプリ側（LegacyEngine.js 以外）は、締まりの日数らしい名前（close lag・closing days など。大文字・小文字・_ の有無を問わない）を全部拾い、
+  // 定数（const X = n）でも、オブジェクトの中の値（closeLagDays: n）でも定義を読む。名前の決まりに合わない書き方の数を見落とさないよう、
+  // 名前が 1 つでも出てくるなら、読める定義がちょうど 1 つで 5、出てくる名前はその定義か旧来の ACTUAL_CLOSE_LAG_DAYS だけ
+  const appSide = closeLagAppSide(Object.fromEntries(Object.entries(sources).filter(([n]) => n !== 'LegacyEngine.js')));
+  assert.deepEqual(appSide.problems, [], '新アプリの締まりの日数');
+  appSide.defs.forEach(([n, k, v]) => assert.equal(v, 5, `${n} の ${k} は旧来の計算の ACTUAL_CLOSE_LAG_DAYS と同じ日数`));
+  // 見つけ方そのものの確かめ（作りもののソース）: 名前の違い・オブジェクトの中・2 つ目の定義・数の違いを見落とさない
+  assert.deepEqual(closeLagAppSide({ 'A.js': '// 締まりの話はまだ無い\nconst APP_TZ = 1;' }), { defs: [], problems: [] }, 'まだ持っていなければ比べるものが無い');
+  assert.deepEqual(closeLagAppSide({ 'A.js': 'const APP_ACTUAL_CLOSE_LAG_DAYS = 5;   // 月末から\nfunction f_() { return APP_ACTUAL_CLOSE_LAG_DAYS; }' }),
+    { defs: [['A.js', 'APP_ACTUAL_CLOSE_LAG_DAYS', 5]], problems: [] }, '定数');
+  assert.deepEqual(closeLagAppSide({ 'A.js': 'const APP_LANDING = {\n  STALE_MONTHS: 3,\n  closeLagDays: 6\n};\nconst x = APP_LANDING.closeLagDays;' }).defs,
+    [['A.js', 'closeLagDays', 6]], 'オブジェクトの中の値も読む（6 なら上の比べで落ちる）');
+  assert.deepEqual(closeLagAppSide({ 'A.js': 'const APP_LANDING = { STALE_MONTHS: 3, CLOSING_DAYS: 5 };' }).defs, [['A.js', 'CLOSING_DAYS', 5]], '1 行のオブジェクト・closing days の名前');
+  assert.ok(closeLagAppSide({ 'A.js': 'function f_() { return APP_CLOSE_LAG; }' }).problems.length, '名前はあるのに数が読めない');
+  assert.ok(closeLagAppSide({ 'A.js': 'const APP_CLOSE_LAG_DAYS = 5;', 'B.js': 'const LANDING_CLOSE_LAG_DAYS = 5;' }).problems.length, '定義が 2 つ');
+  assert.ok(closeLagAppSide({ 'A.js': 'const ACTUAL_CLOSE_LAG_DAYS = 5;' }).problems.length, '旧来の数と同じ名前の定義（Apps Script では二重の定義になる）');
+  assert.deepEqual(closeLagAppSide({ 'A.js': 'function f_() { return ACTUAL_CLOSE_LAG_DAYS; }' }), { defs: [], problems: [] }, '旧来の数をそのまま使うなら同じ数になる');
   assert.match(legacySrc, /^const EVAL_CALENDAR_TZ = 'Asia\/Tokyo';/m, '日本の暦で数える');
   assert.match(sources['Config.js'], /const APP_TZ = 'Asia\/Tokyo';/, '新アプリの暦も日本');
+}
+
+/**
+ * 新アプリのソース（{ ファイル名: 本文 }）の、締まりの日数の定義と問題: { defs: [[ファイル, 名前, 数]], problems: [文] }。
+ * 名前は close lag / closing days らしいもの（closeLag・CLOSE_LAG_DAYS・closingDays など）。定義は const・let・var と、オブジェクトの中の「名前: 数」
+ */
+function closeLagAppSide(files) {
+  const isLagName = (s) => /clos(?:e|ing)_?(?:lag|days?)/i.test(s);
+  const defRe = /(?:\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=|(?:^|[{,])\s*['"]?([A-Za-z_$][\w$]*)['"]?\s*:)\s*(\d+(?:\.\d+)?)\b/gm;
+  const defs = Object.keys(files).flatMap((n) => [...files[n].matchAll(defRe)].map((m) => [n, m[1] || m[2], Number(m[3])]).filter(([, k]) => isLagName(k)));
+  const names = [...new Set(Object.values(files).flatMap((t) => (t.match(/[A-Za-z_$][\w$]*/g) || []).filter(isLagName)))].sort();
+  const own = names.filter((k) => k !== 'ACTUAL_CLOSE_LAG_DAYS');   // 旧来の数をそのまま使う名前は、同じ数になる
+  const problems = [];
+  if (defs.some(([, k]) => k === 'ACTUAL_CLOSE_LAG_DAYS')) problems.push('旧来の ACTUAL_CLOSE_LAG_DAYS と同じ名前の定義がある');
+  if (own.length && defs.length !== 1) problems.push('締まりの日数の名前（' + own.join(', ') + '）があるのに、読める定義が ' + defs.length + ' 個（ちょうど 1 つにする）');
+  if (defs.length === 1) own.filter((k) => k !== defs[0][1]).forEach((k) => problems.push(k + ' は定義（' + defs[0][1] + '）と別の名前'));
+  return { defs, problems };
 }
 
 const env0 = setUpEnv();
@@ -161,6 +196,13 @@ const evalByYm = (rows) => {
   return o;
 };
 const cmpByYm = (rows) => { const o = {}; rows('EVAL_COMPARE_MONTHLY').forEach((r) => { o[ymOf(r.target_month, r._types.charAt(0))] = r; }); return o; };
+/** 検証の表の横の要約（Y 列から。見出しの外なので ENG_ROWS に持つ）: { 見出し: [値…] } */
+const sideSummary = (P) => {
+  const v = P.env.call('appEngLoadPlanSheets_(__p, ["EVAL_COMPARE_MONTHLY"], true)', { __p: P.planId }).EVAL_COMPARE_MONTHLY.values;
+  const o = {};
+  v.forEach((r) => { if (r[24] !== '' && r[24] !== undefined) o[r[24]] = r.slice(25, 32); });
+  return o;
+};
 const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: ${a} / ${b}`);
 
 // ---- 3 日後に取り込んだ計画（9 月は締まっていない。締まった月は 4〜8 月で、月が始まる前の予測があるのは 7・8 月だけ） ----
@@ -207,6 +249,17 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
     assert.equal(cmp[ym].note_for_investigation, '月が始まる前の予測が無い月（検証しない）', ym);
   });
   near(cmp['2026/11'].forecast_total_p50, LATE, '11 月の予測は 10/02 の回（11 月が始まる前）');
+  // 横の要約（年間・半期・四半期・幅の外）も、締まって測った 7・8 月だけ。締まっていない 9〜3 月の途中の売上を入れると、
+  // 年間は実績 3420 / 予測 7100 になる。4〜6 月は月が始まる前の予測が無いので入らない
+  const side = sideSummary(P);
+  assert.deepEqual([side.annual_actual_total[0], side.annual_p50_total[0]], [2000, 2200], '年間の実績と予測は 7・8 月だけ（6/19 の回）');
+  near(side.annual_abs_error_rate[0], 0.1, '年間の外れ');
+  assert.equal(side.annual_constraint_pass[0], 'PASS', '年間の外れ 10% 以下');
+  assert.deepEqual(side['FY2026-H1'].slice(0, 2), [2000, 2200], '上期は 7・8 月');
+  assert.deepEqual(side['FY2026-H2'].slice(0, 2).concat(side['FY2026-H2'][6]), ['', '', 'N/A'], '下期は締まった月が無い');
+  assert.deepEqual(side['FY2026-Q2'].slice(0, 2), [2000, 2200], 'Q2 は 7・8 月（9 月は締まっていない）');
+  ['FY2026-Q1', 'FY2026-Q3', 'FY2026-Q4'].forEach((q) => assert.deepEqual(side[q].slice(0, 3), ['', '', ''], q + ': 測った月が無い'));
+  assert.deepEqual([side.range_outside_count[0], side.months_outside_range[0]], [0, ''], '幅の外の月も締まった月だけ');
   const log = P.rows('RUN_LOG').filter((r) => r.function_name === 'updatePhase1EvaluationReport');
   assert.equal(log.length, 1);
   assert.equal(log[0].error_summary, POLICY + ': scored_months=2; open_months=5; no_pre_month_forecast=3', '測った月・締まっていない月・前の予測が無い月の数');
@@ -228,6 +281,12 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
   assert.deepEqual(ins.map((r) => ymOf(r.target_month, r._types.charAt(2))), ['2026/11', '2026/07', '2026/08'], 'B-4: 7・8 月の行を足す。前からある 11 月の行はそのまま');
   assert.equal(JSON.stringify(ins[0]), JSON.stringify(JSON.parse(insightsBefore)[0]), '11 月の行は書き換えない');
   ins.slice(1).forEach((r) => { near(r.pred_p50, PRE, 'B-4 の予測は 6/19 の回'); near(r.actual_total, 1000, 'B-4 の実績'); });
+  // 年間・半期の印も、検証の表の 7・8 月だけで判定する（予測 2200 / 実績 2000: 外れ 10% は年間 10% 以下・上期 12% 以下、多すぎは 5% を超える）。
+  // 検証の表の締まっていない 9〜3 月（途中の売上）を混ぜると、年間の印が付いてしまう
+  ins.slice(1).forEach((r) => {
+    const ym = ymOf(r.target_month, r._types.charAt(2));
+    assert.deepEqual([r.annual_constraint_breach, r.half_constraint_breach, r.overforecast_breach].map(Number), [0, 0, 1], ym + ': B-4 の年間・半期・多すぎの印');
+  });
   assert.deepEqual(P.shownInsights(), [['2026/07', 3], ['2026/08', 4]], '画面には測った 7・8 月だけ（行の番号はシートのまま）');
   st = P.runAction('REVIEW.GENERATE');
   assert.equal(st.status, 'FAILED');
@@ -243,6 +302,10 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
   assert.equal(P.rows('EVAL_LOG').length, 30, '行は消さない');
   assert.equal(P.rows('RUN_LOG').find((r) => r.function_name === 'updatePhase1EvaluationReport').error_summary,
     POLICY + ': scored_months=3; open_months=4; no_pre_month_forecast=3');
+  const side = sideSummary(P);
+  assert.deepEqual([side.annual_actual_total[0], side.annual_p50_total[0]], [3000, 3300], '横の要約は 7〜9 月だけ（10 月〜の途中の売上は入れない）');
+  assert.deepEqual(side['FY2026-Q2'].slice(0, 2), [3000, 3300], 'Q2 は 7〜9 月');
+  assert.deepEqual(side['FY2026-H2'].slice(0, 2), ['', ''], '下期は締まった月が無い');
 
   // 4. B-2 の後の自動の B-5: 締まった 7〜9 月を、6/19 の予測（補正なし・10% 多い）で学ぶ。期待値は設計の式から（エンジンとは別に計算）
   const w = [0, 1, 2].map((i) => Math.pow(0.5, i / 4));   // 新しい月（9 月）から
@@ -275,6 +338,8 @@ const near = (a, b, msg) => assert.ok(Math.abs(Number(a) - b) < 1e-9, `${msg}: $
   near(P.metric('annual_abs_error_rate_latest'), 0.1, 'B-3: 7〜9 月（予測 3300 / 実績 3000）');
   P.ok('EVAL.INSIGHTS');
   assert.deepEqual(P.rows('EVAL_INSIGHTS').map((r) => ymOf(r.target_month, r._types.charAt(2))), ['2026/11', '2026/07', '2026/08', '2026/09']);
+  P.rows('EVAL_INSIGHTS').slice(1).forEach((r) => assert.deepEqual([r.annual_constraint_breach, r.half_constraint_breach].map(Number), [0, 0],
+    'B-4 の年間・半期の印は 7〜9 月だけで判定（予測 3300 / 実績 3000）'));
 }
 
 console.log('app-legacy-closed-months: all tests passed');
