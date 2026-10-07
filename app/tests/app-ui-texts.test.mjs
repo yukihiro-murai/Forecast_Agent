@@ -17,6 +17,14 @@
  *  12. 振り返り: 人の記入・見直し案があって比べた月が無いときは、精度の天気の場所に 1 行
  *  13. 承認して反映: 自動の学びを止めている間は、判断を記録するだけで補正の値は変わらないと言う（ボタンは押せる）
  *  14. AI の効きの端の値・人の学びの「のべ」・分析の案内の空白・スマホの説明が欄の focusout で消えない
+ *  15. 振り返り: 実績と比べた月（apiLearningView の scoredMonths）があるのに外れ幅の月が無い = どの月も売上が 0 円（動かし方は言わない）。
+ *      scoredMonths が 0・無いサーバーでは今までどおり
+ *  16. 当たり具合を計算した後・外れの原因を整理の前: 振り返りの人の記入の場所に 1 行、人の学びのまとめに残りの月の数（動かせない人には「整理されると」）
+ *  17. 承認して反映（自動の学びを止めている間）: 説明の 1 行目は記録だけ、確かめる文は「判断を記録します（3〜6 分ほど）」の後に設定が変わらないこと
+ *  18. 締め済みの年度: 分析・振り返りで「まだ」と言わない
+ *  19. 所有者が設定した日は 2026/10/07 の形で「所有者が設定」
+ *  20. 根拠の補正: 出している予測の補正と今の補正が違えば、月ごとの補正も出している予測が使った分を言う。今の補正が空なら補正なし
+ *  21. AI の学び: 比べた月が無いときの荒れの文は、印の短い言い方と出し方だけ（荒れの説明はカーソル）
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
  *   node app/tests/app-ui-texts.test.mjs
@@ -87,10 +95,11 @@ const OWNER_NOTE = 'owner-approved 2026-10-07 09:30: 自動の学びを止める
 {
   const off = review(planView({ learning: { autoUpdate: false, biasFactor: 1, note: OWNER_NOTE } }));
   assert.doesNotMatch(off, /fcRun\('LEARN\.MONTHLY'\)/);
-  assert.match(off, /<span class="act" data-tip="実績から補正を学び直す\n自動の学びを止めています（2026-10-07 所有者の決定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button><\/span>/);
+  assert.match(off, /<span class="act" data-tip="実績から補正を学び直す\n自動の学びを止めています（2026\/10\/07 所有者が設定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button><\/span>/);
+  assert.doesNotMatch(off, /所有者の決定）。今は動かしても/, '日付の後ろは「所有者が設定」（setCalibration が動いた日）');
   assert.match(off, /<span class="act" data-tip="AI の見直し案を作る\n[^"]*"><button class="btn btn-ghost" disabled aria-disabled="true">見直し案を作る<\/button><\/span>/, '見直し案を作ると同じ形');
   assert.match(off, /fcRun\('EVAL\.REPORT'\)/, 'ほかの実行は押せる');
-  // 所有者が書いたのでなければ、日付と「所有者の決定」は言わない
+  // 所有者が書いたのでなければ、日付と「所有者が設定」は言わない
   const off2 = review(planView({ learning: { autoUpdate: false, biasFactor: 1, note: 'auto-learned' } }));
   assert.match(off2, /data-tip="実績から補正を学び直す\n自動の学びを止めています。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled/);
   // 旗が 1・学びの中身が無い（古い控え）なら、今までどおり押せる
@@ -144,8 +153,8 @@ const OWNER_NOTE = 'owner-approved 2026-10-07 09:30: 自動の学びを止める
   };
   const cal = { factor: 1, aiWeight: 0, aiMax: null, monthBias: {}, updatedAt: '2026-10-07T09:30:00+09:00', quarter: '' };
   const OFF = '\n自動の学びを止めているので、「補正を学び直す」と「見直しを反映」では変わりません';
-  assert.equal(basis({ autoUpdate: false, biasFactor: 1, note: OWNER_NOTE }, cal), '所有者が承認した値（2026-10-07）で決めた、予測の直し方です' + OFF);
-  assert.equal(basis({ autoUpdate: true, biasFactor: 1, note: OWNER_NOTE }, cal), '所有者が承認した値（2026-10-07）で決めた、予測の直し方です');
+  assert.equal(basis({ autoUpdate: false, biasFactor: 1, note: OWNER_NOTE }, cal), '所有者が承認した値（2026/10/07）で決めた、予測の直し方です' + OFF);
+  assert.equal(basis({ autoUpdate: true, biasFactor: 1, note: OWNER_NOTE }, cal), '所有者が承認した値（2026/10/07）で決めた、予測の直し方です');
   assert.equal(basis({ autoUpdate: true, biasFactor: 0.9, note: 'auto-learned' }, cal), '「補正を学び直す」と「見直しを反映」で決まる、予測の直し方です');
   assert.equal(basis(undefined, cal), '「補正を学び直す」と「見直しを反映」で決まる、予測の直し方です', '学びの中身が無くても描ける');
   // 旗が 0 なら、所有者の書いた跡が無くても「補正を学び直す」と「見直しを反映」で決まるとは言わない（どちらでも値は変わらない）
@@ -283,8 +292,8 @@ const NONE_SAY = 'まだ実績と比べた月がありません。各計画の�
   assert.equal(pose(n1), 'explain');
   assert.doesNotMatch(n1, /大きく外れた月はありません|予報どおり/);
   [n0, n1].forEach((x) => assert.doesNotMatch(heroSay(x), /今の決まり/, '中の言葉（今の決まり）は見える文に出さない'));
-  // 振り返りの記録があれば、scoredMonths があっても無くても今までどおり（外れなし・外れあり）
-  for (const scoredMonths of [6, undefined]) {
+  // 振り返りの記録があれば、scoredMonths が同じ数でも無くても今までどおり（外れなし・外れあり。多いときは 16 で確かめる）
+  for (const scoredMonths of [4, undefined]) {
     const calm = h({ months: 4, misses: 0, withNotes: 0, scoredMonths });
     assert.equal(heroSay(calm), '大きく外れた月はありません。予報どおりの空模様が続いています。');
     assert.equal(pose(calm), 'done');
@@ -329,12 +338,12 @@ const anGuide = (plans, fy = '2026') => (/<div class="guide">[\s\S]*?<div class=
   // 締め済みの年度（計画の一覧の frozen）: 当たり具合は計算し直さないと言い、動かし方は言わない
   const fy25 = Object.assign({}, AN_PLAN, { fy: '2025' });
   run(`S.an.plans = [{ planId: 'P1', fy: 2025, frozen: true }, { planId: 'P9', fy: 2026, frozen: false }]`);
-  assert.equal(anGuide([fy25], '2025'), 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。FY2025 は締め済みのため、当たり具合は計算し直しません。');
+  assert.equal(anGuide([fy25], '2025'), '外れ幅・読みのクセはありません（FY2025 は締め済みのため、当たり具合は計算し直しません）。', '締め済みの年度は「まだ」と言わない');
   assert.equal(anGuide([AN_PLAN]), 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。各計画の振り返りで「当たり具合を計算」を動かすと、ここに出てきます。', '締めていない年度はそのまま');
   // 分析の中身に frozen があれば、それを使う（グラフが何も描けないときは、予測を動かすようにも言わない）
   run('S.an.plans = null');
   const empty = { planId: 'P2', clientName: '別の製薬', fy: '2025', sky: 'mikakunin', skyReason: 'no_forecast', accuracy: null, revisions: [], frozen: true };
-  assert.equal(anGuide([empty], '2025'), 'まだ着地の推定や、予測と実績の比べがないため、グラフは出していません。FY2025 は締め済みのため、予測や当たり具合は計算し直しません。');
+  assert.equal(anGuide([empty], '2025'), '着地の推定や、予測と実績の比べはありません（FY2025 は締め済みのため、予測や当たり具合は計算し直しません）。');
   assert.equal(anGuide([fy25], '2025'), 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。各計画の振り返りで「当たり具合を計算」を動かすと、ここに出てきます。', '分からなければ締めていないとみなす');
   // 計画の一覧は、前の年度を開いたときだけ 1 回読む（今の年度・frozen のある中身では読まない）
   const keepHome = run('B.home');
@@ -349,17 +358,26 @@ const anGuide = (plans, fy = '2026') => (/<div class="guide">[\s\S]*?<div class=
   const clamp = { planId: 'P1', clientName: 'テスト製薬', fy, key: 'factor_clamp', label: '', value: 0.75 };
   const cov = { planId: 'P2', clientName: '別の製薬', fy, key: 'coverage_low', label: '', value: { coverage: 0.5, n: 6 } };
   const old = Object.assign({}, cov, { planId: 'P3', fy: String(Number(fy) - 1) });
-  const say = (health, timeline) => (/<div class="bubble">([^<]*)/.exec(run('lrAiHero(__d)', { __d: { health, timeline: timeline || [], pending: [] } })) || [])[1];
+  const heroAi = (health, timeline) => run('lrAiHero(__d)', { __d: { health, timeline: timeline || [], pending: [] } });
+  const say = (health, timeline) => (/<div class="bubble">(?:<span data-tip="[^"]*">)?([^<]*)/.exec(heroAi(health, timeline)) || [])[1];
+  const sayTip = (health, timeline) => (/<div class="bubble"><span data-tip="([^"]*)">/.exec(heroAi(health, timeline)) || [])[1];
   const NOT_YET = 'まだ実績と比べた月がありません。各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。';
-  // 補正が限度に張りついただけ（比べた月は無い）: 見通しの幅の外れは言わず、出し方を言う
-  assert.equal(say([clamp]), '予測の当たり方が荒れています（1 メーカー）。補正が限度に張りついていて、外れを補正で追いきれていない状態です。' + NOT_YET);
-  assert.doesNotMatch(say([clamp]), /見通しの幅/);
-  assert.equal(say([cov, old]), '予測の当たり方が荒れています（1 メーカー）。実績が見通しの幅から外れることが多く、幅が狭すぎる状態です。' + NOT_YET, '前の年度の印は数えない');
-  assert.equal(say([clamp, cov]), '予測の当たり方が荒れています（2 メーカー）。補正が限度に張りついたり、実績が見通しの幅から外れたりしていて、予測がぶれやすい状態です。' + NOT_YET);
-  // 比べた月があれば、出し方は言わない
+  // 補正が限度に張りついただけ（比べた月は無い）: 見える文は印の短い言い方と出し方だけ（見通しの幅の外れも、荒れの説明も言わない）。説明はカーソルで
+  assert.equal(say([clamp]), '補正が限度に張りついています（1 メーカー）。' + NOT_YET);
+  assert.doesNotMatch(say([clamp]), /見通しの幅|荒れています|状態です/);
+  assert.equal(sayTip([clamp]), '補正が限度に張りついていて、外れを補正で追いきれていない状態です。');
+  assert.equal(say([cov, old]), '見通しの幅が狭すぎます（1 メーカー）。' + NOT_YET, '前の年度の印は数えない');
+  assert.equal(sayTip([cov, old]), '実績が見通しの幅から外れることが多く、幅が狭すぎる状態です。');
+  assert.equal(say([clamp, cov]), '補正が限度に張りついたり、幅が狭すぎたりしています（2 メーカー）。' + NOT_YET);
+  assert.equal(sayTip([clamp, cov]), '補正が限度に張りついたり、実績が見通しの幅から外れたりしていて、予測がぶれやすい状態です。');
+  // 比べた月があれば、今までどおりの荒れの文（出し方は言わない・カーソルの説明は付けない）
   const tl = [{ ym: '2026/05', n: 2, mape: 0.12, rolling3: 0.12 }];
   assert.equal(say([clamp], tl), '予測の当たり方が荒れています（1 メーカー）。補正が限度に張りついていて、外れを補正で追いきれていない状態です。');
-  asRoles(VIEWER_ROLES, () => assert.match(say([clamp]), /状態です。まだ実績と比べた月がありません。当たり具合が計算されると、外れ幅がここに出ます。$/));
+  assert.equal(sayTip([clamp], tl), undefined);
+  // 荒れの印が無ければ、今までどおり出し方だけ
+  assert.equal(say([]), NOT_YET);
+  assert.equal(sayTip([]), undefined);
+  asRoles(VIEWER_ROLES, () => assert.equal(say([clamp]), '補正が限度に張りついています（1 メーカー）。まだ実績と比べた月がありません。当たり具合が計算されると、外れ幅がここに出ます。'));
   // ホームの学びの進み: 印が 1 種類ならその名前、比べた月が無ければ説明で出し方を言う
   const home = { fy, plans: [{ planId: 'P1', clientName: 'テスト製薬', fy, mape: null }] };
   const card = (health) => run('S.lr.ai = { health: __hl, pending: [] }; homeLearnCard(__h, __h.plans)', { __hl: health, __h: home });
@@ -401,36 +419,48 @@ const anGuide = (plans, fy = '2026') => (/<div class="guide">[\s\S]*?<div class=
   assert.ok(a.indexOf(NOTE('')) < 0 && a.indexOf('<h2>精度の天気</h2>') < a.indexOf('<h2>人の記入'), '人の記入より先（精度の天気の場所）');
   assert.doesNotMatch(a, /まだ振り返りの記録がありません/, '案内 1 枚とは重ねない');
   assert.ok(review(planView({ proposals: props, can: false })).includes(NOTE('当たり具合が計算されると出ます。')), '動かせない人');
-  assert.ok(review(planView({ insights, can: false, frozen: true })).includes(NOTE('締め済みの年度は、当たり具合を計算し直しません。')), '締め済みの年度');
+  const fz = review(planView({ insights, can: false, frozen: true }));
+  assert.ok(fz.includes('<p class="note">実績と比べた月はありません（締め済みの年度は、当たり具合を計算し直しません）。</p>'), '締め済みの年度は「まだ」と言わない');
+  assert.doesNotMatch(fz, /まだ実績と比べた月/);
   // 何も無いときは案内 1 枚だけ（1 行は出さない）。締め済みなら案内も「計算されると」とは言わない
   assert.doesNotMatch(review(planView()), /<h2>精度の天気<\/h2>/);
   const f = review(planView({ can: false, frozen: true }));
-  assert.match(f, /まだ振り返りの記録がありません。締め済みの年度は、当たり具合を計算し直しません。/);
-  assert.doesNotMatch(f, /計算されると/);
+  assert.match(f, /<div class="bubble">振り返りの記録はありません（締め済みの年度は、当たり具合を計算し直しません）。<\/div>/);
+  assert.doesNotMatch(f, /計算されると|まだ振り返りの記録/);
   // 比べた月があれば 1 行は出さない（精度の天気のカード）
   const withAcc = run(`S.fc.learn = { planId: 'P1', accuracy: { months: [{ month: '2026/04', p10: 1, p50: 2, p90: 3, actual: 2, err: 0, inside: true }], mape: 0.05, n: 1, coverage: 1, coverageN: 1 } }; fcReviewTab(S.fc.data, S.fc.view)`);
   assert.doesNotMatch(withAcc, /まだ実績と比べた月がありません/);
   assert.match(withAcc, /精度の天気[\s\S]*精度の推移/);
 }
 
-// ==== 13. 承認して反映: 自動の学びを止めている間は、判断を記録するだけ（ボタンは押せる） ====
+// ==== 13・17. 承認して反映: 自動の学びを止めている間は、判断を記録するだけ（ボタンは押せる・名前はそのまま） ====
 {
   const props = [{ row: 8, pid: 'P1', target: 'ai_weight_override', current: '0.0008', proposed: '0.0004', conf: '中', rationale: '', impact: '', decision: '', rollback: '' }];
-  const OFFN = '自動の学びを止めている間は、判断を記録するだけで、補正の値は変わりません';
+  const KEEP = '設定（補正・信頼度・AI の効き）は変わりません';
+  const OFFN = '自動の学びを止めている間は、判断を記録するだけで、' + KEEP;
   const BTN = '判断を保存してから、承認した案を設定に反映します（3〜6 分ほど）。判断を選んでいない案は承認になります';
+  const BTN_OFF = '判断を記録します（3〜6 分ほど）。判断を選んでいない案は承認になります\n自動の学びを止めている間は、' + KEEP;
   for (const note of ['', OWNER_NOTE]) {
     const off = review(planView({ proposals: props, learning: { autoUpdate: false, biasFactor: 1, note } }));
-    assert.ok(off.includes('data-tip="' + BTN + '\n' + OFFN + '"><button class="btn" onclick="fcRvGo()">承認して反映</button>'), '押せるまま、説明で言う');
+    assert.ok(off.includes('data-tip="' + BTN_OFF + '"><button class="btn" onclick="fcRvGo()">承認して反映</button>'), '押せるまま、説明の 1 行目から記録だけと言う');
+    assert.doesNotMatch(off, /承認した案を設定に反映します/, '旗が 0 の間は、設定に反映するとは言わない');
     assert.ok(off.includes('<span class="chip warn" data-tip="' + OFFN + '">未反映</span>'));
   }
   const on = review(planView({ proposals: props }));
   assert.ok(on.includes('data-tip="' + BTN + '"><button class="btn" onclick="fcRvGo()">承認して反映</button>'));
   assert.ok(on.includes('<span class="chip warn" data-tip="承認者が判断して反映すると、次の予測から効きます">未反映</span>'));
-  // 確かめる文
-  const asked = (v, dec) => run(`var __m = null, __ask = ask; ask = function(m){ __m = m; }; S.fc.view = __v; S.fc.dec = __dec; fcRvGo(); ask = __ask; S.fc.dec = {}; __m`, { __v: v, __dec: dec || {} });
-  assert.equal(asked(planView({ proposals: props, learning: { autoUpdate: false, note: OWNER_NOTE } })), '1 件を承認します。\n' + OFFN + '（3〜6 分ほど）。');
-  assert.equal(asked(planView({ proposals: props, learning: { autoUpdate: false, note: '' } }), { 8: '保留' }), '承認する案はありません。判断だけを記録します。保留 1 件は反映しません。\n' + OFFN + '（3〜6 分ほど）。');
-  assert.equal(asked(planView({ proposals: props })), '1 件を承認して反映します。\n判断を保存してから反映します（3〜6 分ほど）。反映した補正は、次の予測から効きます。');
+  // 確かめる文: 何を記録するか → かかる時間 → 設定が変わらないこと（「…は反映しません」は言わない）。確かめのボタンの名前は、押したボタンと同じ
+  const asked = (v, dec) => Array.from(run(`var __m = null, __ask = ask; ask = function(m, ok){ __m = [m, ok]; }; S.fc.view = __v; S.fc.dec = __dec; fcRvGo(); ask = __ask; S.fc.dec = {}; __m`, { __v: v, __dec: dec || {} }));
+  const OFF_END = '\n自動の学びを止めている間は、' + KEEP + '。';
+  const offV = (more) => planView({ proposals: more || props, learning: { autoUpdate: false, note: OWNER_NOTE } });
+  assert.deepEqual(asked(offV()), ['承認 1 件の判断を記録します（3〜6 分ほど）。' + OFF_END, '承認して反映']);
+  assert.deepEqual(asked(planView({ proposals: props, learning: { autoUpdate: false, note: '' } }), { 8: '保留' }), ['保留 1 件の判断を記録します（3〜6 分ほど）。' + OFF_END, '承認して反映']);
+  const two = props.concat([Object.assign({}, props[0], { row: 9 })]);
+  const t2 = asked(offV(two), { 9: '却下' });
+  assert.equal(t2[0], '承認 1 件・却下 1 件の判断を記録します（3〜6 分ほど）。' + OFF_END);
+  assert.doesNotMatch(t2[0], /反映しません|反映します/);
+  assert.deepEqual(asked(planView({ proposals: props })), ['1 件を承認して反映します。\n判断を保存してから反映します（3〜6 分ほど）。反映した補正は、次の予測から効きます。', '承認して反映']);
+  assert.equal(asked(planView({ proposals: two }), { 9: '保留' })[0], '1 件を承認して反映します。保留 1 件は反映しません。\n判断を保存してから反映します（3〜6 分ほど）。反映した補正は、次の予測から効きます。', '旗が 1 なら今までどおり');
 }
 
 // ==== 14. 小さな直し: AI の効きの端の値・分析の案内の空白・スマホの説明 ====
@@ -468,6 +498,119 @@ const anGuide = (plans, fy = '2026') => (/<div class="guide">[\s\S]*?<div class=
   assert.equal(on(), true);
   fire('focusout', { target: icon });
   assert.equal(on(), false);
+}
+
+// ==== 15. 振り返り: 比べた月（scoredMonths）があるのに外れ幅の月が無い = どの月も売上が 0 円 ====
+/** 振り返りのタブ（当たり具合の中身を渡す） */
+const reviewL = (v, learn) => run(`S.fc.planId = 'P1'; S.fc.view = __v; S.fc.data = { plan: __v.plan, latest: null, runs: [], stored: null }; S.fc.learn = __l; S.fc.ins = {};
+  fcReviewTab(S.fc.data, S.fc.view)`, { __v: v, __l: Object.assign({ planId: 'P1', accuracy: { months: [] } }, learn) });
+const ACC1 = { months: [{ month: '2026/04', p10: 1, p50: 2, p90: 3, actual: 2, err: 0, inside: true }], mape: 0.05, n: 1, coverage: 1, coverageN: 1 };
+const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hypothesis: '', actionType: 'update', reflection: '', owner: '', status: 'open' }];
+{
+  const ZERO = '<div class="card"><div class="card-head"><h2>精度の天気</h2></div><p class="note">比べた 2 か月は、どれも売上が 0 円のため、外れ幅を % で出せません。</p></div>';
+  // 人の記入・見直し案が無くても、案内 1 枚（「まだ振り返りの記録がありません」）ではなく、精度の天気の場所に 1 行
+  const z = reviewL(planView(), { scoredMonths: 2 });
+  assert.ok(z.includes(ZERO), z.slice(0, 400));
+  assert.doesNotMatch(z, /まだ振り返りの記録|まだ実績と比べた月/);
+  assert.doesNotMatch(z.slice(0, z.indexOf('<h2>振り返りの更新')), /で出ます|を動かすと|計算されると/, '動かし方は言わない');
+  assert.ok(reviewL(planView({ insights: INS1 }), { scoredMonths: 2 }).includes(ZERO), '人の記入があっても同じ 1 行');
+  for (const o of [{ can: false }, { can: false, frozen: true }]) assert.ok(reviewL(planView(o), { scoredMonths: 2 }).includes(ZERO), '動かせない人・締め済みの年度も同じ: ' + JSON.stringify(o));
+  // scoredMonths = 0・無い: 今までどおり（まだ比べた月が無い）
+  for (const scoredMonths of [0, undefined]) {
+    assert.match(reviewL(planView(), { scoredMonths }), /<div class="bubble">まだ振り返りの記録がありません。月の実績が締まったら、/);
+    assert.ok(reviewL(planView({ insights: INS1 }), { scoredMonths }).includes('<p class="note">まだ実績と比べた月がありません。「当たり具合を計算」で出ます。</p>'));
+    assert.ok(reviewL(planView({ insights: INS1, can: false }), { scoredMonths }).includes('<p class="note">まだ実績と比べた月がありません。当たり具合が計算されると出ます。</p>'));
+    assert.ok(reviewL(planView({ insights: INS1, can: false, frozen: true }), { scoredMonths }).includes('<p class="note">実績と比べた月はありません（締め済みの年度は、当たり具合を計算し直しません）。</p>'));
+  }
+  // 外れ幅の月があれば、scoredMonths があっても精度の天気のカード
+  const w = reviewL(planView({ insights: INS1 }), { accuracy: ACC1, scoredMonths: 3 });
+  assert.match(w, /精度の天気<span[\s\S]*精度の推移/);
+  assert.doesNotMatch(w, /売上が 0 円/);
+}
+
+// ==== 16. 当たり具合を計算した後・外れの原因を整理の前 ====
+{
+  // (a) 振り返り: 当たり具合は出ていて人の記入が無い → 人の記入の場所に 1 行（精度の推移の後）
+  const LINE = (t) => '<div class="card"><div class="card-head"><h2>人の記入</h2></div><p class="note">' + t + '</p></div>';
+  const a = reviewL(planView(), { accuracy: ACC1, scoredMonths: 1 });
+  assert.ok(a.includes(LINE('外れた月の記入は「外れの原因を整理」で出ます。')), a.slice(0, 300));
+  assert.ok(a.indexOf('<h2>精度の推移') < a.indexOf('<h2>人の記入</h2>') && a.indexOf('<h2>人の記入</h2>') < a.indexOf('<h2>振り返りの更新'), '精度の推移と更新の間');
+  assert.ok(reviewL(planView({ can: false }), { accuracy: ACC1 }).includes(LINE('外れた月の記入は、外れの原因が整理されると出ます。')), '動かせない人');
+  assert.doesNotMatch(reviewL(planView({ can: false, frozen: true }), { accuracy: ACC1 }), /<h2>人の記入/, '締め済みの年度は言わない');
+  const ins = reviewL(planView({ insights: INS1 }), { accuracy: ACC1 });
+  assert.doesNotMatch(ins, /外れた月の記入は/, '人の記入があれば、その表');
+  assert.match(ins, /<h2>人の記入<span/);
+  assert.doesNotMatch(reviewL(planView(), {}), /外れた月の記入は/, '当たり具合が無ければ言わない');
+  const pv = planView();
+  pv.actions.filter((x) => x.action === 'EVAL.INSIGHTS')[0].paused = '止めています。';
+  assert.doesNotMatch(reviewL(pv, { accuracy: ACC1 }), /外れた月の記入は/, '外れの原因を整理を止めている間は言わない');
+  // (b) 人の学びのまとめ: 振り返りの記録より比べた月が多い → 残りの月の数と出し方を添える
+  const h = (summary, more) => hero(Object.assign({ openActions: [], repeats: [], noPreMonth: 0, summary }, more || {}));
+  const REST = 'ほかに のべ 3 か月は、各計画の振り返りで「外れの原因を整理」を動かすと出ます。';
+  assert.equal(heroSay(h({ months: 4, misses: 2, withNotes: 1, scoredMonths: 7 }, { openActions: [{}] })), '大きく外れた月を 2 件観測しました。人の振り返りは 1 件、残っている対応は 1 件です。' + REST);
+  assert.equal(heroSay(h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7 })), '大きく外れた月はありません。予報どおりの空模様が続いています。' + REST);
+  asRoles(VIEWER_ROLES, () => assert.equal(heroSay(h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7 })), '大きく外れた月はありません。予報どおりの空模様が続いています。ほかに のべ 3 か月は、外れの原因が整理されると出ます。'));
+  for (const scoredMonths of [4, 2, undefined]) assert.doesNotMatch(heroSay(h({ months: 4, misses: 0, withNotes: 0, scoredMonths })), /ほかに/, '多くなければ添えない: ' + scoredMonths);
+  assert.doesNotMatch(heroSay(h({ months: 0, misses: 0, withNotes: 0, scoredMonths: 5 })), /ほかに/, '振り返りの記録が無いときは 8 の文だけ');
+}
+
+// ==== 19. 所有者が設定した日 ====
+{
+  assert.equal(run('fcOwnerSet(__l)', { __l: { note: OWNER_NOTE } }), '2026/10/07');
+  assert.equal(run('fcOwnerSet(__l)', { __l: { note: 'auto-learned' } }), '');
+  assert.equal(run('fcOwnerSet(null)'), '');
+  assert.equal(run(`S.fc.view = __v; fcPaused('LEARN.MONTHLY')`, { __v: planView({ learning: { autoUpdate: false, note: OWNER_NOTE } }) }), '自動の学びを止めています（2026/10/07 所有者が設定）。今は動かしても補正は変わりません。');
+}
+
+// ==== 20. 根拠の補正: 出している予測が使った月ごとの補正・今の補正が空 ====
+{
+  const cal = (applied, factor, monthBias) => {
+    const html = run(`S.fc.view = __v; S.fc.basis = __b; fcBasisTab(S.fc.data, __v)`, { __v: planView(), __b: { planId: 'P1', annual: {}, monthly: [], research: [], applied,
+      calibration: { factor, aiWeight: null, aiMax: null, monthBias: monthBias || {}, updatedAt: '', quarter: '' } } });
+    const m = /<h2>補正<span[\s\S]*?<p class="fc-say" data-tip="([^"]*)">([^<]*)<\/p>/.exec(html);
+    return { tip: m[1].split('\n'), say: m[2] };
+  };
+  // 所有者が戻した直後: 出している予測は 3.0% 下げ・3 月と 4 月も直した。今は補正なし・月ごとの補正なし
+  const r = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{"4":0.05,"3":-0.2}' }, 1, {});
+  assert.equal(r.say, '最新の予測は 3.0% 下げています（次の予測から補正なし）');
+  assert.deepEqual(r.tip.slice(0, 5), ['最新の予測は 3.0% 下げて計算しました', '最新の予測は月ごとにも直しています: 3 月 20.0% 下げ・4 月 5.0% 上げ', '今の補正: 補正なし（次の予測から効きます）',
+    '今の月ごとの補正: なし（次の予測から効きます）', '補正は、実績がまだの月だけに効きます']);
+  assert.ok(!r.tip.some((x) => /^月ごとにも直しています/.test(x)), '今の月ごとの補正を、出している予測のことのように言わない');
+  // 月ごとの補正が同じなら、今の分は添えない
+  const same = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{"3":-0.2}' }, 1, { 3: -0.2 });
+  assert.ok(same.tip.includes('最新の予測は月ごとにも直しています: 3 月 20.0% 下げ'));
+  assert.ok(!same.tip.some((x) => /^今の月ごとの補正/.test(x)));
+  // 出している予測は月ごとの補正なし・今はある: 今の分だけ（次の予測から）
+  const now = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '' }, 1, { 5: 0.1 });
+  assert.ok(!now.tip.some((x) => /^最新の予測は月ごとにも/.test(x)));
+  assert.ok(now.tip.includes('今の月ごとの補正: 5 月 10.0% 上げ（次の予測から効きます）'));
+  // 控えの JSON が壊れていても描ける（月ごとの補正なしとみなす）
+  assert.ok(!cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{x' }, 1, {}).tip.some((x) => /月ごと/.test(x)));
+  // 今の補正が空（CALIBRATION_STATE の値が空 = 補正なし）: 「100% 下げ」などにせず、補正なしとして比べる
+  const empty = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '' }, null, {});
+  assert.equal(empty.say, '最新の予測は 3.0% 下げています（次の予測から補正なし）');
+  assert.ok(empty.tip.includes('今の補正: 補正なし（次の予測から効きます）'));
+  assert.ok(!empty.tip.some((x) => /今の補正: -/.test(x)));
+  assert.equal(cal(null, null, {}).say, 'これまでの外れ方による補正は、かけていません');
+  assert.equal(cal({ bias_correction_factor: 1 }, null, {}).say, 'これまでの外れ方による補正は、かけていません', '空と 1 は同じ（違うとは言わない）');
+  // 同じ補正なら、今までどおり今の月ごとの補正
+  const keep = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{"3":-0.1}' }, 0.97, { 3: -0.2 });
+  assert.equal(keep.say, 'これまでの外れ方から 3.0% 下げています');
+  assert.equal(keep.tip[0], '月ごとにも直しています: 3 月 20.0% 下げ');
+}
+
+// ==== 21. AI の学び（比べた月が無いときの荒れの文）とホームの学びの進み ====
+{
+  const fy = run('lrFy()');
+  const clamp = { planId: 'P1', clientName: 'テスト製薬', fy, key: 'factor_clamp', label: '', value: 0.75 };
+  const html = run('lrAiHero(__d)', { __d: { health: [clamp], timeline: [], pending: [{ proposals: [{}] }] } });
+  const bubble = /<div class="bubble">([\s\S]*?)<div class="lr-tags/.exec(html)[1];
+  assert.equal(bubble, '<span data-tip="補正が限度に張りついていて、外れを補正で追いきれていない状態です。">補正が限度に張りついています（1 メーカー）。'
+    + 'まだ実績と比べた月がありません。各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。承認を待っている見直し案が 1 件あります。</span>');
+  // ホームの学びの進み: 見える文はもとから短い印の名前だけ（長い説明はカーソル）
+  const home = { fy, plans: [{ planId: 'P1', clientName: 'テスト製薬', fy, mape: null }] };
+  const card = run('S.lr.ai = { health: __hl, pending: [] }; homeLearnCard(__h, __h.plans)', { __hl: [clamp], __h: home });
+  assert.doesNotMatch(card.replace(/data-tip="[^"]*"/g, ''), /追いきれて|状態です/);
 }
 
 console.log('app-ui-texts: all tests passed');

@@ -542,7 +542,7 @@ let readmeTask;
   assert.match(html, /fcRun\('EVAL\.REPORT'\)/);
   // 補正を学び直す（B-5）も、旗を 0 にした（D2）ので押せないボタンにする（動かしても補正は変わらない）
   assert.doesNotMatch(html, /fcRun\('LEARN\.MONTHLY'\)/);
-  assert.match(html, /data-tip="実績から補正を学び直す\n自動の学びを止めています（\d{4}-\d{2}-\d{2} 所有者の決定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button>/);
+  assert.match(html, /data-tip="実績から補正を学び直す\n自動の学びを止めています（\d{4}\/\d{2}\/\d{2} 所有者が設定）。今は動かしても補正は変わりません。"><button class="btn btn-ghost" disabled aria-disabled="true">補正を学び直す<\/button>/);
   // 反映済みの見直し案の札: 止めている間は「見直し案を作る」を案内せず、止めている理由を出す（止めていなければ、今までどおり案内する）
   ui.__q = { title: '', period: '', reviewId: 'R-1', applied: true, logRecent: [],
     proposals: [{ row: 8, pid: 'P1', target: 'ai_weight_override', current: '0.002', proposed: '0.001', conf: '中', rationale: '', impact: '', decision: '承認', rollback: '' }] };
