@@ -1,7 +1,7 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 59d3609519b48c906506ef783ab936424ec4688b7af4596035840231f7a4244b）
- *               Forecast_WebApp.js（SHA-256 469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 7721c3ca50e943ba80fb70e084e3624d866516308d970c16b7ab2fdc81931f3a）
+ *               Forecast_WebApp.js（SHA-256 8c0bb94d87f4ab3b7601ad0cb81b1ceca2cb1cce2a939554d5af26437b860de4）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
 function appLegacyEngine_(__appSvc) {
@@ -32,7 +32,15 @@ function appLegacyEngine_(__appSvc) {
 const VERSION = '2.4.0-dev';
 const BUILD_STAGE = 'bayesian-autolearn-vertex-hybrid';
 const MENU_NAME = 'Forecast Agent';
-const EVALUATION_POLICY_VERSION = 'policy-2026H1-v2';   // v2（2026-10-04）: 実績の締まった月の記録（予測 = 実績）は検証に使わない。P10/P90 はクライアントごとに引く
+// v2（2026-10-04）: 実績の締まった月の記録（予測 = 実績）は検証に使わない。P10/P90 はクライアントごとに引く
+// v3（2026-10-07 村井さん承認 D4〜D6）: 締まった月だけを、その月が始まる前の最後の予測で測る。
+//   B-3・B-4・B-5・C-1 は、この版で書いた EVAL_LOG の行だけを使う（前の版の行は消さずに残るが、締まっていない月や後から作った予測で測っているので使わない）
+const EVALUATION_POLICY_VERSION = 'policy-2026H1-v3';
+// 実績の締まり（D5）: 月末から ACTUAL_CLOSE_LAG_DAYS 日たってから取り込んだ（B-1）月だけが締まった月（月末 + 5 日 <= 取り込んだ日）。
+// 新アプリも同じ数を使う（app/tests の検証の決まりのテストで、両方の数がそろっているかを確かめる）
+const ACTUAL_CLOSE_LAG_DAYS = 5;
+// 締まりと「月が始まる前の予測か」（D6）は日本の暦で数える（新アプリの APP_TZ と同じ）
+const EVAL_CALENDAR_TZ = 'Asia/Tokyo';
 const PLAN_POINT_ESTIMATE_ROLE = 'P50';
 const RANGE_EXPLANATION_ROLE = 'P10-P90';
 const ANNUAL_ABS_ERROR_CONSTRAINT = 0.10;
@@ -5955,8 +5963,10 @@ function importMonthlyFromExternal_(targetSheetName, withStatus) {
     const ym = record.monthStart;
     const client = normalizeClientName_(record.client);
     if (withStatus) {
-      const status = ym >= currMonth ? 'open' : 'closed';
-      rows.push([client, record.serviceType, record.product, fmtYM_(ym), record.amount, status, new Date()]);
+      // 締まり（D5・2026-10-07）: 月末から ACTUAL_CLOSE_LAG_DAYS 日たってから取り込んだ月だけ closed（前は取り込んだ日の月より前を全部 closed にしていた）。
+      // 印を決めた取り込みの日時を source_updated_at に残す。読む側（B-2〜C-1）はこの日時から締まりを数え直す
+      const status = isActualMonthClosed_(ym, now) ? 'closed' : 'open';
+      rows.push([client, record.serviceType, record.product, fmtYM_(ym), record.amount, status, now]);
     } else {
       const closed = ym < currMonth ? 1 : 0;
       rows.push([client, record.serviceType, record.product, fmtYM_(ym), record.amount, closed, new Date()]);
@@ -6990,25 +7000,163 @@ function writeForecastArtifacts_(result, client) {
   snap.getRange(r0,1,rows.length,rows[0].length).setValues(rows);
 }
 
+// ===== 検証の決まり（2026-10-07 村井さん承認 D4〜D6） =====
+// D5 締まり: 月末 + ACTUAL_CLOSE_LAG_DAYS 日 <= 実績を取り込んだ日（日本の暦）の月だけが締まった月。
+// D6 測る予測: その月が始まる前（予測した日 < 月の 1 日。日本の暦）の最後の予測。その回が無い月は測らない。
+// D4 締まった月だけ: 検証（B-2）・ダッシュボード（B-3）・インサイト（B-4）・月次の学び（B-5）・四半期の提案（C-1）。
+//    B-3〜C-1 は、今の検証の版（EVALUATION_POLICY_VERSION）で B-2 が書いた EVAL_LOG の行のうち、今も締まった月の行だけを使う。
+
+/**
+ * セルの日時をミリ秒に（読めなければ NaN）。日付の型・ISO の文字（T つき。時差が無ければその場の時刻）はそのまま。
+ * 'yyyy/MM/dd'・'yyyy-MM-dd'（あとに 'HH:mm(:ss)' があってもよい）の文字は日本の時刻として読む
+ */
+function evalTimeMs_(v) {
+  if (v === '' || v === null || v === undefined) return NaN;
+  const isDateLike = (v instanceof Date) || Object.prototype.toString.call(v) === '[object Date]' || (typeof v === 'object' && typeof v.getTime === 'function');
+  if (isDateLike) { const t = v.getTime(); return isFinite(t) ? t : NaN; }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}/.test(s)) {
+    const t = new Date(s.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime();
+    return isFinite(t) ? t : NaN;
+  }
+  const m = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
+  if (!m) return NaN;
+  // 日本の時刻（UTC より 9 時間進んでいる。夏時間は無い）
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0) - 9, Number(m[5] || 0), Number(m[6] || 0));
+}
+
+/** セルの日時の、日本の暦の日（'yyyy-MM-dd'。読めなければ ''） */
+function evalJstDay_(v) {
+  const t = evalTimeMs_(v);
+  return isFinite(t) ? Utilities.formatDate(new Date(t), EVAL_CALENDAR_TZ, 'yyyy-MM-dd') : '';
+}
+
+/**
+ * その月の実績が締まっているか（D5）: 月末 + ACTUAL_CLOSE_LAG_DAYS 日 <= 取り込んだ日（日本の暦）。
+ * 例: 9 月の実績は 10/05 以降に取り込めば締まった月、10/04 までなら締まっていない月。月か取り込んだ日が読めなければ締まっていない
+ */
+function isActualMonthClosed_(month, importDate) {
+  const m = /^(\d{4})\/(\d{2})$/.exec(ymKey_(month));
+  const day = evalJstDay_(importDate);
+  if (!m || !day) return false;
+  // 月末 + N 日 = 翌月の N 日（Date.UTC の月は 0 始まりなので、m[2] がそのまま翌月になる。暦の数え方だけで時差は関係しない）
+  const due = new Date(Date.UTC(Number(m[1]), Number(m[2]), ACTUAL_CLOSE_LAG_DAYS)).toISOString().slice(0, 10);
+  return due <= day;
+}
+
+/** 予測した回が、その月が始まる前か（D6）: 予測した日 < 月の 1 日（日本の暦）。予測した日時が読めなければ前とは言えない */
+function isRunBeforeMonth_(runDate, month) {
+  const ym = ymKey_(month);
+  const day = evalJstDay_(runDate);
+  if (!/^\d{4}\/\d{2}$/.test(ym) || !day) return false;
+  return day < ym.replace('/', '-') + '-01';
+}
+
+/**
+ * ACTUAL_EVAL_MONTHLY の行（見出しを除く。B-1 の列の順: client, service_type, product, target_month, eval_actual_amount,
+ * actual_closed_flag, source_updated_at）から、実績の締まった月（D5）を返す: { keys: 'client|yyyy/MM' の Set, months: 'yyyy/MM' の Set }。
+ * 締まりは各行の取り込んだ日時（source_updated_at）で数え直す。日時は実績と同じ書き込みで B-1 が残すので、実績の値とずれない
+ * （PROCESS_STATUS の B-1 の日時は別の書き込みで、取り込みの後に失敗や別の操作があると実績とずれうる）。
+ * 印（actual_closed_flag）は取り込んだときの決まりで付いたもの（2026-10-07 より前は取り込んだ日の暦だけで closed にしていた）なので、
+ * 印が closed でも数え直して締まっていなければ締まっていない。印が open・0 の行も締まっていない。
+ * 月の行が 1 つでも締まっていなければ、その月は締まっていない
+ */
+function closedActualMonthsOf_(rows) {
+  const byKey = new Map();
+  const byYm = new Map();
+  (rows || []).forEach(r => {
+    const ym = ymKey_(r[3]);
+    if (!/^\d{4}\/\d{2}$/.test(ym)) return;
+    const flag = String(r[5] === null || r[5] === undefined ? '' : r[5]).trim().toLowerCase();
+    const ok = flag !== 'open' && flag !== '0' && isActualMonthClosed_(ym, r[6]);
+    const key = [normalizeClientName_(r[0]), ym].join('|');
+    byKey.set(key, (byKey.has(key) ? byKey.get(key) : true) && ok);
+    byYm.set(ym, (byYm.has(ym) ? byYm.get(ym) : true) && ok);
+  });
+  const pick = m => new Set(Array.from(m.keys()).filter(k => m.get(k)));
+  return { keys: pick(byKey), months: pick(byYm) };
+}
+
+/** ブックの実績の締まった月（'client|yyyy/MM' の Set）。ACTUAL_EVAL_MONTHLY が無いブックは null（読む側は検証の版だけで判断する） */
+function readClosedActualMonths_(ss) {
+  const sh = ss.getSheetByName(SHEETS.ACTUAL_EVAL_MONTHLY);
+  if (!sh) return null;
+  return closedActualMonthsOf_(sh.getLastRow() >= 2 ? sh.getDataRange().getValues().slice(1) : []).keys;
+}
+
+/**
+ * EVAL_LOG の行が、今の決まりで測った行か（D4〜D6）: 今の検証の版で B-2 が書いた行で、今も実績の締まった月（closedKeys が null なら版だけで判断）。
+ * 前の版の行（締まっていない月の途中の売上や、月が始まった後の予測で測った行）は消さずに残っているので、ここで外す
+ */
+function isEvalLogRowCurrent_(row, idx, closedKeys) {
+  if (!row || !idx || idx.evaluation_policy_version === undefined || idx.client === undefined || idx.target_month === undefined) return false;
+  if (String(row[idx.evaluation_policy_version] || '').trim() !== EVALUATION_POLICY_VERSION) return false;
+  return !closedKeys || closedKeys.has([normalizeClientName_(row[idx.client]), ymKey_(row[idx.target_month])].join('|'));
+}
+
+/** クライアントの、今の決まりで測った月（EVAL_LOG の中立の行が isEvalLogRowCurrent_ の月。'yyyy/MM' の Set）。B-3・B-4 が検証の表を読むときに使う */
+function readCurrentEvalMonths_(ss, client) {
+  const out = new Set();
+  const sh = ss.getSheetByName(SHEETS.EVAL_LOG);
+  if (!sh || sh.getLastRow() < 2) return out;
+  const vals = sh.getDataRange().getValues();
+  const idx = headerIndexMap_(vals[0] || []);
+  if (idx.scenario === undefined) return out;
+  const closed = readClosedActualMonths_(ss);
+  for (let i = 1; i < vals.length; i++) {
+    const r = vals[i];
+    if (!isSameClient_(r[idx.client], client) || String(r[idx.scenario] || '') !== 'neutral') continue;
+    if (isEvalLogRowCurrent_(r, idx, closed)) out.add(ymKey_(r[idx.target_month]));
+  }
+  return out;
+}
+
+/**
+ * 予測の記録（AI_IMPACT_HISTORY・SUBJECTIVE_IMPACT_HISTORY）の行のうち、月ごとに、その月が始まる前の最後の回（D6）の行だけを返す（C-1 の当たり）。
+ * 回は run_id で分ける（無ければ run_at）。予測した日時（run_at）が読めない回・月が始まった後の回は使わない
+ */
+function keepPreMonthRunRows_(rows, idx) {
+  if (!idx || idx.run_at === undefined || idx.target_month === undefined) return [];
+  const runKey = r => (idx.run_id !== undefined && String(r[idx.run_id] || '').trim()) ? 'id:' + String(r[idx.run_id]).trim() : 'at:' + evalTimeMs_(r[idx.run_at]);
+  const best = new Map();   // ym → { ms, seq, run }
+  (rows || []).forEach((r, seq) => {
+    const ym = ymKey_(r[idx.target_month]);
+    if (!ym || !isRunBeforeMonth_(r[idx.run_at], ym)) return;
+    const ms = evalTimeMs_(r[idx.run_at]);
+    const prev = best.get(ym);
+    if (!prev || ms > prev.ms || (ms === prev.ms && seq > prev.seq)) best.set(ym, { ms: ms, seq: seq, run: runKey(r) });
+  });
+  return (rows || []).filter(r => {
+    const ym = ymKey_(r[idx.target_month]);
+    const b = best.get(ym);
+    return !!b && isRunBeforeMonth_(r[idx.run_at], ym) && runKey(r) === b.run;
+  });
+}
+
 /**
  * 検証に使う FORECAST_SNAPSHOT の行を選ぶ（クライアント × 月ごとに、1 回の予測 = snapshot_id の行をまとめて）。
- * 実績の締まった月の記録は使わない:
+ * その月が始まる前（予測した日 run_date < 月の 1 日。日本の暦）の回だけを使う（D6・2026-10-07）。月が始まった後の回は、
+ * その月の途中の売上や実績を見た後の予測なので測らない。
+ * 実績の締まった月の記録も使わない（月が始まる前の回には無いはずだが、念のため残す）:
  *   - key_factors_json の forecast_source が actual_closed の行（2026-10-04 から記録）
  *   - それより前の行で forecast_source が無いものは、P50 が実績とまったく同じ回（締まった後に予測し直して、実績に置き換わった回）
- * 使える回のうち、一番新しい回（シートの下の行）の行だけを返す。使える回が無い月は検証しない。
- * snapRows: FORECAST_SNAPSHOT の行（見出しを除く）、actualMap: client|ym → 実績の合計
+ * 使える回のうち、一番新しい回（予測した日時が同じならシートの下の行）の行だけを返す。使える回が無い月は検証しない。
+ * snapRows: FORECAST_SNAPSHOT の行（見出しを除く）、actualMap: client|ym → 実績の合計、
+ * stats（省略可）: noPreMonth に、予測の回はあるのに月が始まる前の使える回が無い client|ym を入れる
  */
-function selectEvalSnapshotRows_(snapRows, actualMap) {
-  const groups = new Map();   // client|ym → [{ sid, rows, closed }]（シートの順）
+function selectEvalSnapshotRows_(snapRows, actualMap, stats) {
+  const groups = new Map();   // client|ym → [{ sid, rows, closed, ms, seq }]（シートの順）
+  const late = new Set();     // 月が始まった後の回がある client|ym
   snapRows.forEach(r => {
     const ym = ymKey_(r[3]);
     if (!ym) return;
     const key = [normalizeClientName_(r[2]), ym].join('|');
+    if (!isRunBeforeMonth_(r[1], ym)) { late.add(key); return; }
     const sid = String(r[0] || '');
     if (!groups.has(key)) groups.set(key, []);
     const list = groups.get(key);
     let g = list.length && list[list.length - 1].sid === sid ? list[list.length - 1] : null;
-    if (!g) { g = { sid: sid, rows: [], closed: false }; list.push(g); }
+    if (!g) { g = { sid: sid, rows: [], closed: false, ms: evalTimeMs_(r[1]), seq: list.length }; list.push(g); }
     g.rows.push(r);
     let source = '';
     try { source = String((JSON.parse(String(r[12] || '{}')) || {}).forecast_source || ''); } catch (e) { source = ''; }
@@ -7020,10 +7168,15 @@ function selectEvalSnapshotRows_(snapRows, actualMap) {
     }
   });
   const out = [];
-  groups.forEach(list => {
-    const use = list.filter(g => !g.closed);
-    if (use.length) use[use.length - 1].rows.forEach(r => out.push(r));
+  const used = new Set();
+  groups.forEach((list, key) => {
+    let best = null;
+    list.forEach(g => { if (!g.closed && (!best || g.ms > best.ms || (g.ms === best.ms && g.seq > best.seq))) best = g; });
+    if (!best) return;
+    used.add(key);
+    best.rows.forEach(r => out.push(r));
   });
+  if (stats) stats.noPreMonth = Array.from(late).filter(k => !used.has(k));
   return out;
 }
 
@@ -7031,6 +7184,8 @@ function selectEvalSnapshotRows_(snapRows, actualMap) {
  * 実績確定後の検証ステップ。
  * - B-1の後に実行することで EVAL_LOG が更新される
  * - Phase移行判断に使うKPI（sMAPE等）の元データを蓄積する
+ * - 測るのは実績の締まった月（D5）だけで、その月が始まる前の最後の予測で測る（D6）。締まっていない月・月が始まる前の予測が無い月は
+ *   EVAL_LOG に書かない（前の版で書いた行は消さずに残る。読む側は検証の版で外す）。数は RUN_LOG に残す（2026-10-07）
  */
 function updatePhase1EvaluationReport() {
   requireStepSuccess_('step2_status', '先にB-1 検証用に実績データを取り込み を実行してください。');
@@ -7043,8 +7198,11 @@ function updatePhase1EvaluationReport() {
     const k = [normalizeClientName_(r[0]), ymKey_(r[3])].join('|');
     mapA.set(k, (mapA.get(k) || 0) + Number(r[4] || 0));
   });
-  // 月ごとに、実績が締まる前の最後の予測だけを使う（締まった月の記録は予測 = 実績なので、検証と学習に入れると誤差 0 になる）
-  const snap = selectEvalSnapshotRows_(snapAll, mapA);
+  // 実績の締まった月（D5）。締まっていない月の実績は途中の売上なので測らない（D4）
+  const closed = closedActualMonthsOf_(actual).keys;
+  // 月ごとに、その月が始まる前の最後の予測だけを使う（D6。締まった月の記録は予測 = 実績なので、検証と学習に入れると誤差 0 になる）
+  const selStats = {};
+  const snap = selectEvalSnapshotRows_(snapAll, mapA, selStats);
   const p10Map = new Map();
   const p50Map = new Map();
   const p90Map = new Map();
@@ -7060,11 +7218,13 @@ function updatePhase1EvaluationReport() {
   });
 
   const evalRows=[];
+  const openKeys = new Set();
   snap.forEach(r=>{
     const ymCanon = ymKey_(r[3]);
     const key = [normalizeClientName_(r[2]), ymCanon].join('|');
     const act = mapA.get(key);
     if (act == null) return;
+    if (!closed.has(key)) { openKeys.add(key); return; }   // 締まっていない月は測らない
     const pred = Number(r[9]||0);
     const ape = act ? Math.abs(pred-act)/Math.abs(act) : '';
     const signed = pred - act;
@@ -7126,10 +7286,14 @@ function updatePhase1EvaluationReport() {
 
   const compare = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   ensureSheetHeaders_(compare, ['target_month','forecast_base','forecast_spot','forecast_total','actual_base','actual_spot','actual_total','gap_total','forecast_total_p10','forecast_total_p50','forecast_total_p90','signed_error_p50','abs_error_p50','ape_p50','quarter_label','half_label','fy_label','over_flag','under_flag','range_outside_flag','note_for_investigation','planning_point_estimate_label','range_label']);
-  writeEvalCompareMonthly_(compare, actual, snap);
+  // 月が始まる前の予測が無い月（予測の回はあるが、どれも月が始まった後）のうち、締まった実績のある月（D6 で測らない月）
+  const noPreMonth = (selStats.noPreMonth || []).filter(k => closed.has(k) && mapA.has(k));
+  writeEvalCompareMonthly_(compare, actual, snap, { noPreMonthYms: new Set(noPreMonth.map(k => k.split('|')[1])) });
 
+  const scoredMonths = new Set(evalRows.filter(row => row[4] === 'neutral').map(row => [normalizeClientName_(row[2]), row[3]].join('|'))).size;
   updateProcessStatus_('step5_status','success','',evalRows.length,'');
-  logRun_('updatePhase1EvaluationReport','', 'success', evalRows.length, new Date(), '');
+  logRun_('updatePhase1EvaluationReport','', 'success', evalRows.length, new Date(),
+    `${EVALUATION_POLICY_VERSION}: scored_months=${scoredMonths}; open_months=${openKeys.size}; no_pre_month_forecast=${noPreMonth.length}`);
 
   // 評価蓄積→学習の閉ループ：B-2のたびに月次ベイズ補正を自動更新
   const evalClient = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
@@ -7138,8 +7302,16 @@ function updatePhase1EvaluationReport() {
   ss.setActiveSheet(compare || out);
 }
 
-function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
+/**
+ * 検証の表（EVAL_COMPARE_MONTHLY）を書き直す。月ごとに 1 行（実績は取り込んだ値のまま、予測は B-2 が選んだ回）。
+ * 誤差・幅の外の印・横の要約は、実績の締まった月（D5）だけで出す（2026-10-07）。締まっていない月の実績の列は消さない
+ * （新アプリの着地見込みは自分の締まりの境目で読む）が、誤差の列は空にして、読む側が途中の売上を測らないようにする。
+ * opts.noPreMonthYms: 月が始まる前の予測が無いので測らない月（メモの列に書く）
+ */
+function writeEvalCompareMonthly_(sh, actualRows, snapRows, opts) {
   if (!sh) return;
+  const closedYms = closedActualMonthsOf_(actualRows).months;
+  const noPreMonthYms = (opts && opts.noPreMonthYms) || new Set();
 
   const actualMap = new Map();
   actualRows.forEach(r => {
@@ -7173,16 +7345,19 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
     const predSpot = predTotal * ratio.spot;
     const act = actualMap.get(ym);
     const hasActual = !!act;
+    const isClosed = hasActual && closedYms.has(ym);   // 締まった月だけ誤差を出す（D4）
     const actBase = hasActual ? act.BASE : '';
     const actSpot = hasActual ? act.SPOT : '';
     const actTotal = hasActual ? (act.BASE + act.SPOT) : '';
-    const signed = (hasP50 && hasActual) ? (predTotal - actTotal) : '';
+    const signed = (hasP50 && isClosed) ? (predTotal - actTotal) : '';
     const absErr = (signed === '') ? '' : Math.abs(signed);
     const ape = (signed === '' || !hasActual || actTotal === 0) ? '' : (absErr / Math.abs(actTotal));
     const p10 = p10Map.has(ym) ? Number(p10Map.get(ym) || 0) : '';
     const p90 = p90Map.has(ym) ? Number(p90Map.get(ym) || 0) : '';
-    const rangeOutside = (hasActual && p10 !== '' && p90 !== '') ? ((actTotal < p10 || actTotal > p90) ? 1 : 0) : '';
-    const note = rangeOutside === 1 ? '要追加調査（P10-P90レンジ逸脱）' : '';
+    const rangeOutside = (isClosed && p10 !== '' && p90 !== '') ? ((actTotal < p10 || actTotal > p90) ? 1 : 0) : '';
+    const note = rangeOutside === 1 ? '要追加調査（P10-P90レンジ逸脱）'
+      : (hasActual && !isClosed && hasP50) ? '実績が締まっていない月（検証しない）'
+        : (isClosed && !hasP50 && noPreMonthYms.has(ym)) ? '月が始まる前の予測が無い月（検証しない）' : '';
     return [
       ym, predBase, predSpot, predTotal, actBase, actSpot, actTotal, (signed === '' ? '' : -signed),
       p10, hasP50 ? predTotal : '', p90,
@@ -7207,7 +7382,8 @@ function writeEvalCompareMonthly_(sh, actualRows, snapRows) {
   safeSetNote_(sh, 1, 14, 'ape_p50 = abs_error_p50 / ABS(actual_total)。actual=0はblank。');
   safeSetNote_(sh, 1, 20, 'range_outside_flag = 1 if actual<P10 or actual>P90');
   safeSetNote_(sh, 1, 22, 'planning_point_estimate_label = P50');
-  writeEvaluationSummaryBlocks_(sh, rows);
+  // 横の要約は締まった月だけ（締まっていない月は実績を空とみなして渡す。半期・四半期の見出しは今までどおり全部の行から）
+  writeEvaluationSummaryBlocks_(sh, rows.map(r => (closedYms.has(r[0]) ? r : r.map((v, i) => (i === 6 ? '' : v)))));
 }
 
 function getBaseSpotRatioFromSales_() {
@@ -7334,7 +7510,10 @@ function updatePhase1Dashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dash = ss.getSheetByName(SHEETS.DASHBOARD);
   const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY).getDataRange().getValues();
-  const rows = cmp.slice(1).filter(r => r[9] !== '' && r[6] !== '');
+  // 今の決まりで測った月（締まった月を、月が始まる前の予測で。D4〜D6）だけ。前の版の B-2 が書いた表のままなら、測った月は無い
+  const client = String(ss.getSheetByName(SHEETS.CONFIG).getRange('B2').getValue() || '').trim();
+  const evalMonths = readCurrentEvalMonths_(ss, client);
+  const rows = cmp.slice(1).filter(r => r[9] !== '' && r[6] !== '' && evalMonths.has(ymKey_(r[0])));
   const den = rows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
   const sumPred = rows.reduce((a, r) => a + Number(r[9] || 0), 0);
   const sumAct = rows.reduce((a, r) => a + Number(r[6] || 0), 0);
@@ -7398,8 +7577,14 @@ function updatePhase1LearningInsights() {
   const cmp = ss.getSheetByName(SHEETS.EVAL_COMPARE_MONTHLY);
   const out = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
   ensureSheetHeaders_(out, ['evaluated_at','client','target_month','actual_total','pred_p50','diff','error_rate','insight','next_action','diagnostic_type','annual_constraint_breach','half_constraint_breach','overforecast_breach','range_breach','cause_hypothesis','cause_bucket','impacted_assumption','feedback_target_sheet','action_type','next_cycle_reflection','owner','due_date','status','review_cycle']);
-  const vals = evalSh.getDataRange().getValues().slice(1).filter(r => isSameClient_(r[2], client));
-  const cmpRows = cmp.getDataRange().getValues().slice(1).filter(r => r[9] !== '' && r[6] !== '');
+  // 今の決まりで測った行だけ（D4〜D6）: 今の検証の版で B-2 が書いた、締まった月の行。前の版の行（締まっていない月の途中の売上や、
+  // 月が始まった後の予測で測った行）は消さずに残っているが使わない。検証の表も同じ月だけ
+  const evalValues = evalSh.getDataRange().getValues();
+  const evalIdx = headerIndexMap_(evalValues[0] || []);
+  const closed = readClosedActualMonths_(ss);
+  const vals = evalValues.slice(1).filter(r => isSameClient_(r[2], client) && isEvalLogRowCurrent_(r, evalIdx, closed));
+  const evalMonths = new Set(vals.filter(r => String(r[4] || '') === 'neutral').map(r => ymKey_(r[3])));
+  const cmpRows = cmp.getDataRange().getValues().slice(1).filter(r => r[9] !== '' && r[6] !== '' && evalMonths.has(ymKey_(r[0])));
   const den = cmpRows.reduce((a, r) => a + Math.abs(Number(r[6] || 0)), 0);
   const sumPred = cmpRows.reduce((a, r) => a + Number(r[9] || 0), 0);
   const sumAct = cmpRows.reduce((a, r) => a + Number(r[6] || 0), 0);
@@ -8483,17 +8668,24 @@ function canonicalMonthBiasJson_(obj) {
   return JSON.stringify(parts);
 }
 
+/**
+ * 学び（B-5）と Vertex アシストの「最近の外れ」に使う、月ごとの中立の評価の組 { ym, pred, actual }。
+ * 今の決まりで測った行だけ（D4〜D6・2026-10-07）: 今の検証の版で B-2 が書いた、締まった月の行（isEvalLogRowCurrent_）。
+ * 前の版の行（締まっていない月の途中の売上や、月が始まった後の予測で測った行）は消さずに残っているが使わない
+ */
 function collectNeutralEvalPairs_(ss, client) {
   const sh = ss.getSheetByName(SHEETS.EVAL_LOG);
   if (!sh || sh.getLastRow() < 2) return [];
   const vals = sh.getDataRange().getValues();
   const idx = headerIndexMap_(vals[0] || []);
   if (!hasHeaderIndexes_(idx, ['client', 'scenario', 'target_month', 'pred', 'actual'])) return [];
+  const closed = readClosedActualMonths_(ss);
   const latest = new Map();
   for (let i = 1; i < vals.length; i++) {
     const r = vals[i];
     if (!isSameClient_(r[idx.client], client)) continue;
     if (String(r[idx.scenario] || '') !== 'neutral') continue;
+    if (!isEvalLogRowCurrent_(r, idx, closed)) continue;
     if (idx.constraint_relevant_flag !== undefined && String(r[idx.constraint_relevant_flag] || '') !== '1') continue;
     const ym = ymKey_(r[idx.target_month]);
     if (!ym) continue;
@@ -8510,7 +8702,7 @@ function collectNeutralEvalPairs_(ss, client) {
 
 /**
  * B-5 の学習のために、評価の組（collectNeutralEvalPairs_ の結果）へ、その予測に掛かっていた補正を付ける（factorUsed・monthBiasUsed）。
- * EVAL_LOG の pred は、B-2 が selectEvalSnapshotRows_ で選んだ FORECAST_SNAPSHOT の回の final_pred。同じ選び方で回を選び直し、
+ * EVAL_LOG の pred は、B-2 が selectEvalSnapshotRows_ で選んだ FORECAST_SNAPSHOT の回（その月が始まる前の最後の回。D6）の final_pred。同じ選び方で回を選び直し、
  * その回の calibration_applied_json から全体係数と、その暦月のバイアス（A-9 と同じく ±AUTOLEARN_FORECAST_BIAS_CAP で切る）を読む。
  * 選び直しに使う実績は EVAL_LOG の actual（B-2 が選んだときと同じ値）。
  * 回が無い・final_pred が pred と合わない（B-2 の後に予測し直した）・読めないときは補正なし（係数 1・暦月バイアス 0）のまま（今までと同じ扱い）。
@@ -9009,6 +9201,11 @@ function runQuarterlyReview() {
   }
 }
 
+/**
+ * C-1 の材料。月は、今の決まりで測った月（締まった月を、月が始まる前の予測で。D4〜D6・2026-10-07）のうち新しい 3 か月。
+ * 前の版の EVAL_LOG の行（締まっていない月の途中の売上や、月が始まった後の予測で測った行）は消さずに残っているが使わない。
+ * AI と人の押しの当たりも、その月が始まる前の最後の予測の回（AI_IMPACT_HISTORY・SUBJECTIVE_IMPACT_HISTORY）だけで数える（D6）
+ */
 function collectQuarterlyReviewData_(client) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -9025,8 +9222,10 @@ function collectQuarterlyReviewData_(client) {
     const evalScenarioIdx = evalIdx.scenario;
     const evalTargetMonthIdx = evalIdx.target_month;
     const evalConstraintIdx = evalIdx.constraint_relevant_flag;
+    const closed = readClosedActualMonths_(ss);
     const evalRows = evalValues.slice(1)
-      .filter(r => isSameClient_(r[evalClientIdx], client) && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1');
+      .filter(r => isSameClient_(r[evalClientIdx], client) && String(r[evalScenarioIdx] || '') === 'neutral' && String(r[evalConstraintIdx] || '') === '1'
+        && isEvalLogRowCurrent_(r, evalIdx, closed));
     const months = Array.from(new Set(evalRows.map(r => ymKey_(r[evalTargetMonthIdx])))).sort();
     const last3 = months.slice(-3);
     if (last3.length < 3) {
@@ -9041,8 +9240,8 @@ function collectQuarterlyReviewData_(client) {
       if (hasHeaderIndexes_(impactIdx, ['client','target_month','k_ai','ai_direction','pred_p50_quant_only'])) {
         const impactClientIdx = impactIdx.client;
         const impactTargetMonthIdx = impactIdx.target_month;
-        impacts = impactValues.slice(1)
-          .filter(r => isSameClient_(r[impactClientIdx], client) && last3.indexOf(ymKey_(r[impactTargetMonthIdx])) >= 0);
+        impacts = keepPreMonthRunRows_(impactValues.slice(1)
+          .filter(r => isSameClient_(r[impactClientIdx], client) && last3.indexOf(ymKey_(r[impactTargetMonthIdx])) >= 0), impactIdx);
       }
     }
     const subjSh = ss.getSheetByName(SHEETS.SUBJECTIVE_IMPACT_HISTORY);
@@ -9054,8 +9253,8 @@ function collectQuarterlyReviewData_(client) {
       if (hasHeaderIndexes_(subjectiveImpactIdx, ['client','target_month','source_type','source_key','push_direction'])) {
         const subjClientIdx = subjectiveImpactIdx.client;
         const subjTargetMonthIdx = subjectiveImpactIdx.target_month;
-        subjectiveImpacts = subjectiveValues.slice(1)
-          .filter(r => isSameClient_(r[subjClientIdx], client) && last3.indexOf(ymKey_(r[subjTargetMonthIdx])) >= 0);
+        subjectiveImpacts = keepPreMonthRunRows_(subjectiveValues.slice(1)
+          .filter(r => isSameClient_(r[subjClientIdx], client) && last3.indexOf(ymKey_(r[subjTargetMonthIdx])) >= 0), subjectiveImpactIdx);
       }
     }
     const scoreSh = ss.getSheetByName(SHEETS.AI_SCORE_HISTORY);
@@ -9824,8 +10023,13 @@ function webParseEval_(ss) {
 
   const ins = ss.getSheetByName(SHEETS.EVAL_INSIGHTS);
   if (ins && ins.getLastRow() >= 2) {
+    // 今の決まりで測った月（締まった月を、月が始まる前の予測で。2026-10-07 D4〜D6）の行だけを出す。
+    // 前の版の B-4 が書いた行（締まっていない月など）は消さずに残るが、画面には出さない（行の番号は変えないので、記入の保存はそのまま）
+    const cfg = ss.getSheetByName(SHEETS.CONFIG);
+    const evalMonths = readCurrentEvalMonths_(ss, cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '');
     ins.getRange(2, 1, ins.getLastRow() - 1, 24).getValues().forEach((r, i) => {
       if (!String(r[0] || '').trim() && !String(r[2] || '').trim()) return;
+      if (!evalMonths.has(ymKey_(r[2]))) return;
       const d = toDate_(r[2]);
       res.insights.push({
         row: i + 2,
@@ -10451,7 +10655,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: '59d3609519b48c906506ef783ab936424ec4688b7af4596035840231f7a4244b',
-    WEB_SOURCE_SHA256: '469598a7e6a11db187f156bc1588b72bee17505f9e9f07bd345fb9e974ed9784'
+    SOURCE_SHA256: '7721c3ca50e943ba80fb70e084e3624d866516308d970c16b7ab2fdc81931f3a',
+    WEB_SOURCE_SHA256: '8c0bb94d87f4ab3b7601ad0cb81b1ceca2cb1cce2a939554d5af26437b860de4'
   };
 }

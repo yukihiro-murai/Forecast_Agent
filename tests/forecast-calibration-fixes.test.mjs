@@ -24,8 +24,12 @@ function extractFunction(name) {
   }
   throw new Error(name + ' not closed');
 }
-const ctx = vm.createContext({ TZ: 'Asia/Tokyo', Utilities: { formatDate: (d, tz, f) => d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') } });
-vm.runInContext([extractFunction('calibrationNumberOr_'), extractFunction('normalizeClientName_'), extractFunction('toMonthStart_'), extractFunction('fmtYM_'), extractFunction('ymKey_'), extractFunction('selectEvalSnapshotRows_')].join('\n'), ctx);
+// 'yyyy-MM-dd' は検証の決まり（その月が始まる前の回か。2026-10-07 D6）で使う日本の暦の日
+const ctx = vm.createContext({ TZ: 'Asia/Tokyo', Utilities: { formatDate: (d, tz, f) => (f === 'yyyy-MM-dd'
+  ? new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10) : d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0')) } });
+vm.runInContext([...(src.match(/^const EVAL_CALENDAR_TZ = .+;.*$/gm) || []), extractFunction('calibrationNumberOr_'), extractFunction('normalizeClientName_'), extractFunction('toMonthStart_'),
+  extractFunction('fmtYM_'), extractFunction('ymKey_'), extractFunction('evalTimeMs_'), extractFunction('evalJstDay_'), extractFunction('isRunBeforeMonth_'),
+  extractFunction('selectEvalSnapshotRows_')].join('\n'), ctx);
 
 // ==== 1. 0 は 0 のまま。空は既定値 ====
 const num = (v, d) => vm.runInContext(`calibrationNumberOr_(${JSON.stringify(v)}, ${d})`, ctx);
@@ -39,7 +43,8 @@ assert.match(src, /auto_update_enabled: calibrationNumberOr_\(rows\[i\]\[idx\.au
 assert.doesNotMatch(src, /Number\(rows\[i\]\[idx\.(auto_update_enabled|bias_correction_factor)\] \|\| 1\)/, '0 を 1 にする書き方が残っていない');
 
 // ==== 2. 締まった月の記録は使わない ====
-const row = (sid, client, ym, sc, pred, src2) => [sid, '2026-01-01', client, ym, sc, pred, 0, 0, 0, pred, 0, 0, JSON.stringify(src2 === undefined ? { opinion: '' } : { opinion: '', forecast_source: src2 }), null, '{}'];
+// 予測した日はどの月も始まる前（2026-10-07 から、月が始まった後の回は測らない。それは tests/forecast-closed-months.test.mjs で確かめる）
+const row = (sid, client, ym, sc, pred, src2) => [sid, '2025-03-01', client, ym, sc, pred, 0, 0, 0, pred, 0, 0, JSON.stringify(src2 === undefined ? { opinion: '' } : { opinion: '', forecast_source: src2 }), null, '{}'];
 const run = (sid, client, ym, p50, source) => [row(sid, client, ym, 'nega', p50 * 0.9, source), row(sid, client, ym, 'neutral', p50, source), row(sid, client, ym, 'posi', p50 * 1.1, source)];
 const actual = new Map([['甲製薬|2025/04', 100], ['乙製薬|2025/04', 200], ['甲製薬|2025/05', 300]]);
 ctx.__actual = actual;

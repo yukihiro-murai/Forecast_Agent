@@ -4,6 +4,8 @@
  * - 誤差は補正を掛ける前の予測で測る（FORECAST_SNAPSHOT の calibration_applied_json の係数で割り戻す）
  * - LEARN.MONTHLY から動かしても、B-2（EVAL.REPORT）の後の自動の実行でも、同じ学び方になる
  * - 補正の掛かっていない計画では、今までと同じ値
+ * 実績は月末から 6 日後（4/06）に取り込んだので 6 か月とも締まった月、予測 S1 はどの月も始まる前の回（2026-10-07 の検証の決まり。
+ * 締まっていない月・月が始まった後の回は app-legacy-closed-months.test.mjs で確かめる）
  * 数字はテスト用の作りもの。GAS 上での動作確認の代わりではない。
  *
  *   node app/tests/app-monthly-learn.test.mjs
@@ -36,12 +38,12 @@ function book(env, factorUsed, evalLog) {
   });
   const evalRows = [H.EVAL_LOG];
   if (evalLog) MONTHS.forEach((ym, i) => evalRows.push(['E' + i, D(2026, 4, 2), CLIENT, ym, 'neutral', pred, ACTUAL, Math.abs(pred - ACTUAL) / ACTUAL, 0, 'model_limitation',
-    'P50', 1, pred - ACTUAL, Math.abs(pred - ACTUAL), 'over', 1, '', '', '', 'test', 'policy-2026H1-v2', 1]));
+    'P50', 1, pred - ACTUAL, Math.abs(pred - ACTUAL), 'over', 1, '', '', '', 'test', 'policy-2026H1-v3', 1]));
   return env.makeBook('クライアント別売上予測', {
     CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', CLIENT], ['[必須] 予測年度FY（YYYY）', 2025], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
-    PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step2_status', D(2026, 4, 1), 'owner', 'success', CLIENT, 6, ''], ['step4_status', D(2026, 3, 20), 'owner', 'success', CLIENT, 12, '']] },
+    PROCESS_STATUS: { values: [H.PROCESS_STATUS, ['step2_status', D(2026, 4, 6), 'owner', 'success', CLIENT, 6, ''], ['step4_status', D(2026, 3, 20), 'owner', 'success', CLIENT, 12, '']] },
     RUN_LOG: { values: [H.RUN_LOG] },
-    ACTUAL_EVAL_MONTHLY: { values: [H.ACTUAL_EVAL_MONTHLY].concat(MONTHS.map((ym) => [CLIENT, 'BASE', '製品A', ym, ACTUAL, 1, D(2026, 4, 1)])), formats: { D: '@' } },
+    ACTUAL_EVAL_MONTHLY: { values: [H.ACTUAL_EVAL_MONTHLY].concat(MONTHS.map((ym) => [CLIENT, 'BASE', '製品A', ym, ACTUAL, 1, D(2026, 4, 6)])), formats: { D: '@' } },
     FORECAST_SNAPSHOT: { values: snap, formats: { D: '@' } },
     EVAL_LOG: { values: evalRows, formats: { D: '@' } },
     EVAL_COMPARE_MONTHLY: { values: [H.EVAL_COMPARE_MONTHLY], cols: 40 },   // B-2 は 25 列目から横に要約を書く
