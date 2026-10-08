@@ -60,6 +60,8 @@ function appPlanCreateBuild_(ctx, p) {
     appScratchReset_(scratch, token);
     const asOfMs = new Date().getTime();
     const engine = appLegacySetupBook_(scratch, { asOfMs: asOfMs, seed: token, actor: ctx.actor }, APP_SETUP_ORDER, c.clientName, c.fy, c.peopleCsv);
+    // A-1 が作る検証の表は 26 列。旧来の B-2 が書く 36 列まで広げてから保存する（Engine.js の APP_ENGINE_MIN_COLUMNS）
+    appEnsureMinColumns_(scratch);
     const payload = { clientName: c.clientName, fy: c.fy, peopleCsv: c.peopleCsv, token: token, engine: engine, buildMs: new Date().getTime() - t0 };
     return { __next: { kind: 'PLAN.CREATE_SAVE', payload: payload }, audit: { entityId: c.clientName + ' FY' + c.fy } };
   });
@@ -117,8 +119,10 @@ function appListPlans_() {
  * 着地見込みの τ・w は、所有者が承認して業務の設定に書いた値（無ければ 0.15 と 1。appLandingApproved_）。全計画から学んだ値（appLandingPrior_）は
  * prior.learned として返すだけで、着地には使わない（2026-10-08 判断 29）。
  * 計画ごとに足す項目（2026-10-08。どれも影で、保存している数字は変えない）:
- *   aligned      … 年度の見込みの試し（月の P50 の合計を中心に、着地見込みと同じ式の幅。appLandingAligned_。判断 10）
- *   reach        … 予算に届く見込み（今の予算と承認済みの公式版の予算。届く金額 50〜80%。appLandingReach_。判断 24・25）
+ *   aligned      … 年度の見込みの試し（月の P50 の合計を中心に、着地見込みと同じ式の幅。appLandingAligned_。判断 10）。
+ *                  締まった月がある（aligned.k > 0）と幅は出さない（年度の途中の幅は着地見込み）。12 か月締まった・年度を締めた計画は aligned.done
+ *   reach        … 予算に届く見込み（今の予算と承認済みの公式版の予算。届く金額 50〜80%。appLandingReach_。判断 24・25）。
+ *                  12 か月締まった・年度を締めた計画は reach.done と reach.actual（実績の合計。届いた／届かなかった。届く金額は出さない）
  *   scoredMonths … 今の決まりで B-2 が測った締まった月の数（appPortfolioScored_。実績 0 円の月も数える。数）
  * 返り値: { plans: [計画の要点], prior: { learned: appLandingPrior_ の返り値, used: appLandingApproved_ の返り値 } }
  */
@@ -170,6 +174,16 @@ function appPortfolioData_() {
       .map(ym => ({ f: c[ym].p50, a: c[ym].actual === null ? 0 : c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));   // 実績の空の締まった月は 0 円（着地の計算と同じ。全部 0 円の計画 = 雪は appLandingPrior_ が除く）
   }));
   const used = appLandingApproved_();   // 着地に使う τ・w（所有者が承認して書いた値。無ければ 0.15 と 1）
+  // 年度を締めたか。年度ごとに 1 回だけ確かめる（YEAR_CLOSURES を計画の数だけ読まない）。確かめられなければ締めていないとして見せる
+  // （見せ方だけに使う。書き込みの入口の確かめ appRequireOpenYear_ は別で、そちらは止める）
+  const frozenFy = {};
+  const frozenOf = fy => {
+    const k = String(fy);
+    if (!Object.prototype.hasOwnProperty.call(frozenFy, k)) {
+      try { frozenFy[k] = appYearIsFrozen_(fy); } catch (e) { Logger.log('年度の締めを確かめられません: ' + k + ' ' + (e && e.message ? e.message : e)); frozenFy[k] = false; }
+    }
+    return frozenFy[k];
+  };
   const rows = plans.map(p => {
     const rs = (runs[p.plan_id] || []).sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row);
     const o = outRows[p.plan_id] || {};
@@ -189,8 +203,9 @@ function appPortfolioData_() {
     const budgetUsed = official !== null ? official : budget;
     const yt = appPlanYtd_(p.fy, cmp[p.plan_id] || {}, cut[p.plan_id]);
     const months = appLandingMonths_(o);
+    const frozen = frozenOf(p.fy);   // 年度を締めた計画（試しの数は「年度は終わった」として出す）
     const sky = appLandingSky_({ fy: p.fy, months: months, actual: yt.actual, cutoffYm: cut[p.plan_id], todayYm: todayYm, budget: budgetUsed,
-      tau: used.tau, w: used.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
+      pendingCutoffYm: appLandingPendingCutoff_(steps[p.plan_id] || []), tau: used.tau, w: used.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     // 外れ幅は締まった月で、今の決まりで測った月だけ（D4〜D6。精度 appAccuracyOf_ と同じ月。ほかの検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
@@ -212,8 +227,8 @@ function appPortfolioData_() {
       landing: sky.landing, landingSd: sky.landingSd, landingP10: sky.landingP10, landingP90: sky.landingP90, pAbove: sky.pAbove, ratio: sky.ratio,
       sky: sky.sky, skyReason: sky.skyReason, skyDir: sky.skyDir, theta: sky.theta, credibility: sky.credibility, k: sky.k,
       budgetUsed: budgetUsed, budgetSource: official !== null ? 'official' : budget !== null ? 'draft' : '',
-      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed),
-      reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used),
+      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, frozen: frozen }),
+      reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used, { frozen: frozen }),
       scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));

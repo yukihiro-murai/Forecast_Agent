@@ -8,6 +8,8 @@
  *   3. 入力（見解）を変えると種と数字が変わる。実績の取り込み（B-1。A-9 は取り込んだ実績の表を読まない）では種も数字も変わらない
  *   4. 「今」（as_of）は種に入れない: 同じ月の別の日に予測しても同じ数字
  *   5. B-2 は同じ数字の 2 回の予測（3/10・3/20）を回ごとに分けたまま（snapshot_id・run_id が違う）、月が始まる前の最後の回で測る
+ *   6. 根拠の「前回の予測からの変化」のわけ（changeCause）: 何も変えない → none、入力を変えた → inputs、実績の取り込みだけ → none、
+ *      「今」の月が違う → calendar（2026-10-08 F4）
  * 数字はテスト用の作りもの。本物の Apps Script での確認の代わりではない。
  *
  *   node app/tests/app-forecast-seed.test.mjs
@@ -83,6 +85,10 @@ function forecast(asOfMs) {
   throw new Error('続きの処理が終わらない');
 }
 const SEED_SHEETS = [...env.run('APP_FORECAST_SEED_SHEETS')];
+/** 次の秒になるまで待つ（記録の時刻は秒まで。前の予測と同じ秒に終わった操作は「この間の操作」に入らない） */
+const nextSecond = () => { const s = Math.floor(Date.now() / 1000); while (Math.floor(Date.now() / 1000) === s) { /* 待つ */ } };
+/** 予測の根拠（前回の予測からの変化のわけ changeCause） */
+const basis = () => env.call('apiForecastBasis(__in)', { __in: { planId } });
 
 // ==== 1・2. 何も変えずに 2 回: 同じ種・同じ数字。ID は回ごとに違う。A-9 が開く表は、種が見る表か、A-9 が書く表 ====
 let r1, r2;
@@ -106,6 +112,7 @@ let r1, r2;
   assert.equal(numbers(a.run_id).monthly.length, 12);
   assert.ok(numbers(a.run_id).annual.every((x) => Number(x) > 0));
   assert.deepEqual(r2.headline, r1.headline);
+  assert.equal(basis().changeCause, 'none', '根拠の「前回の予測からの変化」: 変わっていない');
   assert.ok(!r2.changed.includes('OUTPUT'), 'OUTPUT（結果）は 1 回目と同じ中身なので書き直さない: ' + r2.changed.join(','));
   // 旧来の計算が作る ID は回ごとに違う（B-2 は snapshot_id・run_id で回を分ける）
   const snap = engRows('FORECAST_SNAPSHOT');
@@ -137,6 +144,7 @@ let r1, r2;
 // ==== 3. 入力を変えると種と数字が変わる。予算の保存（A-9 は読まない）では変わらない ====
 {
   const before = runsOf().slice(-1)[0];
+  nextSecond();   // 記録の時刻は秒まで。操作が前の予測の後だとわかるように（根拠の「この間の操作」）
   const st = env.runJob('PLAN.EDIT', { planId, action: 'INPUT.SAVE', args: { kind: 'opinions', rows: [{ person: '鷹野', ym: FY + '-04', step: '-2', conf: '0.6', note: '' }] },
     inputHash: env.call('apiPlanView(__in)', { __in: { planId } }).inputHash });
   assert.equal(st.status, 'DONE', st.error);
@@ -144,7 +152,9 @@ let r1, r2;
   const r3 = runsOf().slice(-1)[0];
   assert.notEqual(r3.seed, before.seed, '見解を変えると種が変わる');
   assert.notDeepEqual(numbers(r3.run_id).annual, numbers(before.run_id).annual, '数字も変わる');
+  assert.deepEqual([basis().changeCause, basis().inputChanged], ['inputs', true], '変化のわけは入力');
   // 実績の取り込み（B-1。ACTUAL_EVAL_MONTHLY・PROCESS_STATUS・RUN_LOG に書く。A-9 はどれも数字に使わない）の後に予測: 種も数字も同じ
+  nextSecond();
   const b1 = env.runJob('PLAN.RUN', { planId, action: 'IMPORT.ACTUALS' });
   assert.equal(b1.status, 'DONE', 'B-1: ' + b1.error);
   assert.ok(b1.result.changed.includes('ACTUAL_EVAL_MONTHLY'), '前提: 実績を取り込んだ: ' + b1.result.changed.join(','));
@@ -152,6 +162,7 @@ let r1, r2;
   const r4 = runsOf().slice(-1)[0];
   assert.equal(r4.seed, r3.seed, '予測が読まない表が変わっても種は変わらない');
   assert.deepEqual(numbers(r4.run_id), numbers(r3.run_id), '数字も同じ');
+  assert.deepEqual([basis().changeCause, basis().inputChanged], ['none', true], '実績の取り込みはあったが、予測は変わっていない');
 }
 
 // ==== 4・5. 「今」は種に入れない（同じ月の別の日でも同じ数字）。B-2 は同じ数字の 2 回を分けたまま、月が始まる前の最後の回で測る ====
@@ -164,17 +175,16 @@ let r1, r2;
   assert.equal(p2.seed, p1.seed, '「今」が違っても種は同じ');
   assert.notEqual(p1.as_of, p2.as_of);
   assert.deepEqual(numbers(p2.run_id), numbers(p1.run_id), '同じ月の別の日でも同じ数字');
+  assert.equal(basis().changeCause, 'none', '3/10 → 3/20: 変わっていない');
+  // 3/10 の回の前は今日の回: 「今」の月が違う（締まった月が違う）ので数字が変わる → 月の変わり目
+  const b310 = env.call('appBasisChangeCause_(__l, __p, __c, __b, [])', { __l: p1, __p: runsOf()[n0 - 1],
+    __c: Object.fromEntries(env.table('FORECAST_MONTHLY').filter((m) => m.run_id === p1.run_id).map((m) => [m.ym, m])),
+    __b: Object.fromEntries(env.table('FORECAST_MONTHLY').filter((m) => m.run_id === runsOf()[n0 - 1].run_id).map((m) => [m.ym, m])) });
+  assert.notDeepEqual(numbers(p1.run_id).annual, numbers(runsOf()[n0 - 1].run_id).annual, '前提: 締まった月が違えば数字が変わる');
+  assert.equal(b310.changeCause, 'calendar', '今日の回 → 3/10 の回: 月が違う');
 
-  // B-2（上の B-1 は今日の取り込み: 年度の月は締まっている）。旧来の B-2 は検証の表の Y〜AJ 列（25〜36 列）に要約を書くので、表を広げておく
-  // （A-1 が作る表は 26 列で、モックは本物の Sheets と同じく範囲の外に書くと止まる。旧来の B-2 の書き方の問題で、この直しの範囲の外。
-  // ほかのテストの計画も 40 列の表で置いている: app-legacy-closed-months.test.mjs）
-  env.run(`appWithLock_(() => {
-    const plan = appPlanOf_(__p); const scratch = appWorkScratch_(plan); let st = null;
-    do { st = appScratchBuildStep_(scratch, __p, ['EVAL_COMPARE_MONTHLY'], st && st.state, Date.now() + 60000); } while (!st.complete);
-    const sh = scratch.getSheetByName('EVAL_COMPARE_MONTHLY'); sh.insertColumnsAfter(sh.getMaxColumns(), 40 - sh.getMaxColumns());
-    const cap = appCaptureChanged_(scratch, __p, appStoredHashes_(__p), ['EVAL_COMPARE_MONTHLY']);
-    appJournalRun_({ actor: 'test', requestId: 'T' }, 'テストの準備', __p, appChangedOps_({ actor: 'test' }, __p, cap.changed, 'T'));
-  })`, { __p: planId });
+  // B-2（上の B-1 は今日の取り込み: 年度の月は締まっている）。旧来の B-2 は検証の表の Y〜AJ 列（25〜36 列）に要約を書く。
+  // 新アプリが計画を作るときと B-2 の前に表を 36 列まで広げるので、テストの側では広げない（app-eval-columns.test.mjs）
   const st = env.runJob('PLAN.RUN', { planId, action: 'EVAL.REPORT' });
   assert.equal(st.status, 'DONE', 'B-2: ' + st.error);
   const policy = env.run('APP_EVAL_POLICY_VERSION');

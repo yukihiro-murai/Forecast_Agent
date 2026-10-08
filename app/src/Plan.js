@@ -57,7 +57,8 @@ const APP_PLAN_ACTIONS = {
   'AI.RESEARCH': { kind: 'run', minRole: 'PLANNER', fn: 'webRunAiResearch', label: 'A-4 AI 調査', ai: true,
     sheets: ['CONFIG', 'PROCESS_STATUS', 'RUN_LOG', 'SALES_INPUT', 'SALES_MONTHLY', 'PRODUCT', 'CLIENT', 'OPINIONS', 'DEV_SPOT', 'EVAL_LOG',
       'AI_RESEARCH', 'AI_RESEARCH_STRUCTURED', 'AI_SCORE_HISTORY', 'VERTEX_FORECAST_LOG'] },
-  'EVAL.REPORT': { kind: 'run', minRole: 'PLANNER', fn: 'webRunEvalReport', label: 'B-2 検証レポートの更新' },
+  // B-2 は検証の表の 25〜36 列に要約を書く。計算の前に、計算用ブックの表を 36 列まで広げる（widen。Engine.js の APP_ENGINE_MIN_COLUMNS）
+  'EVAL.REPORT': { kind: 'run', minRole: 'PLANNER', fn: 'webRunEvalReport', label: 'B-2 検証レポートの更新', widen: ['EVAL_COMPARE_MONTHLY'] },
   'EVAL.DASHBOARD': { kind: 'run', minRole: 'PLANNER', fn: 'webRunDashboard', label: 'B-3 ダッシュボードの更新' },
   'EVAL.INSIGHTS': { kind: 'run', minRole: 'PLANNER', fn: 'webRunInsights', label: 'B-4 学習インサイトの更新' },
   'LEARN.MONTHLY': { kind: 'run', minRole: 'PLANNER', fn: 'webRunMonthlyLearn', label: 'B-5 月次の自動学習' },
@@ -528,9 +529,12 @@ function appPlanRunCalc_(ctx, p) {
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('計算している間にデータ本体が変わりました。もう一度実行してください。');
     const fetcher = act.ai ? appAiFetcher_(p.actionId, appAiDeadline_(t0)) : null;
+    const scratch = appWorkScratch_(plan);
+    // 旧来の計算が書く列まで、計算用ブックのシートを広げる（B-2 の検証の表。広げた大きさは保存でデータ本体に残る）
+    if (act.widen) appEnsureMinColumns_(scratch, act.widen);
     let call;
     try {
-      call = appLegacyCall_(appWorkScratch_(plan), { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
+      call = appLegacyCall_(scratch, { asOfMs: p.asOfMs, seed: p.seed, actor: ctx.actor, fetch: fetcher && fetcher.fetch }, act.fn, []);
     } catch (e) {
       if (!fetcher || !fetcher.stopped()) {
         const f = fetcher ? fetcher.failures() : [];

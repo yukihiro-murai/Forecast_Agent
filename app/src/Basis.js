@@ -7,7 +7,7 @@
  *   - AI の倍率と点数（AI_IMPACT_HISTORY）・確定しているスポット（FORECAST_SNAPSHOT の deterministic_adj）
  *   - 補正（CALIBRATION_STATE・FORECAST_SNAPSHOT の calibration_applied_json）
  *   - AI 調査の根拠（AI_RESEARCH_STRUCTURED: 話題・向き・点数・確からしさ・根拠の文）・Vertex の説明
- *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作
+ *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作・変化のわけ（changeCause。appBasisChangeCause_）
  * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える。
  * 押したものの、人や話題ごとの内訳（名前と信頼度）は予算策定担当以上の人だけに出す（appBasisFor_。学びと同じ決まり）。
  */
@@ -143,6 +143,53 @@ function appForecastBasis_(ctx, planId) {
     applied: applied, research: research,
     vertex: vertex ? { at: String(vertex.run_at || ''), confidence: appNum_(vertex.confidence), rationale: String(vertex.rationale_ja || '').slice(0, 1200), status: String(vertex.status || '') } : null
   };
+  Object.assign(out, appBasisChangeCause_(latest, prev, cur, before, between));   // 前回の予測からの変化のわけ（changeCause・changeCauses・changeVersion）
   try { appJobPutResult_(key, out); } catch (e) { /* 控えられなくても返す */ }
   return appBasisFor_(ctx, out);
+}
+
+/**
+ * 前回の予測からの変化のわけ（根拠の「前回の予測からの変化」。2026-10-08）。計算だけ（表は読まない）。
+ * latest・prev: FORECAST_RUNS の行（新しい回・その前の回）、cur・before: その回の月ごとの FORECAST_MONTHLY（{ 'yyyy/MM': 行 }）、
+ * between: その間の計画への操作（{ action, changed（変わったシート） }）。
+ * 返り値: { changeCause, changeCauses（当てはまるわけを下の順に全部）, changeVersion: { engine, app } }。前の回が無ければ ''・[]・null。
+ * わけ（この順で、最初に当てはまったものが changeCause）:
+ *   1. none     … 年度の P50 と月ごとの P50 が前回とまったく同じ（このときはほかのわけを挙げない）
+ *   2. inputs   … 間の操作が、予測の読む表（APP_FORECAST_SEED_SHEETS: 入力・売上・AI 調査・補正など）を変えた。
+ *                 予算・記入・実績の取り込みだけの操作は数えない（予測の数字を動かさない）。両方の回の種が中身から作った同じ種なら、
+ *                 予測の読んだ表は同じなので数えない
+ *   3. calendar … 「今」の月（as_of の年月）が違う（月が変わって締まった月が増えると、予測は変わる。決定 13）
+ *   4. version  … 旧来の計算の中身（engine_sha256。無ければ engine_version）が違う
+ *   5. jitter   … どちらかの回の種が、中身から作った 64 桁の種でない（v0.29.0 より前: 同じ入力でも実行ごとに乱数が揺れた）。
+ *                 月と旧来の計算が同じとき（違えば 3・4 が先に当たる）
+ *   6. version  … 1〜5 のどれでもない（両方とも中身から作った種で、月も旧来の計算も同じ）: 種に入るアプリの版が違うとみるしかない。
+ *                 アプリの版は予測の記録に残していないので、changeVersion.app は 'unknown'
+ * changeVersion: engine = 'changed' / 'same' / 'unknown'（どちらかの回に記録が無い）、
+ *                app = 'changed'（片方だけが中身から作った種 = v0.29.0 の前と後）/ 'unknown'（アプリの版は記録していない）
+ */
+function appBasisChangeCause_(latest, prev, cur, before, between) {
+  if (!latest || !prev) return { changeCause: '', changeCauses: [], changeVersion: null };
+  const content = seed => /^[0-9a-f]{64}$/.test(String(seed || ''));
+  const same = (a, b) => appNum_(a) !== null && appNum_(b) !== null && Math.abs(appNum_(a) - appNum_(b)) < 1e-6;
+  const c = cur || {}, b = before || {};
+  const yms = Object.keys(c).concat(Object.keys(b).filter(ym => !Object.prototype.hasOwnProperty.call(c, ym)));
+  const none = same(latest.annual_p50, prev.annual_p50) && yms.every(ym => c[ym] && b[ym] && same(c[ym].p50, b[ym].p50));
+  const sha1 = String(latest.engine_sha256 || ''), sha0 = String(prev.engine_sha256 || '');
+  const v1 = String(latest.engine_version || ''), v0 = String(prev.engine_version || '');
+  const engine = sha1 && sha0 ? (sha1 === sha0 ? 'same' : 'changed') : v1 && v0 && v1 !== v0 ? 'changed' : 'unknown';
+  const app = content(latest.seed) !== content(prev.seed) ? 'changed' : 'unknown';
+  const changeVersion = { engine: engine, app: app };
+  if (none) return { changeCause: 'none', changeCauses: ['none'], changeVersion: changeVersion };
+  const seedSame = content(latest.seed) && content(prev.seed) && latest.seed === prev.seed;
+  const reads = (between || []).some(x => (x.changed || []).some(n => APP_FORECAST_SEED_SHEETS.indexOf(n) >= 0));
+  const m1 = latest.as_of ? appYm_(latest.as_of) : '', m0 = prev.as_of ? appYm_(prev.as_of) : '';
+  const calendar = !!m1 && !!m0 && m1 !== m0;
+  const jitter = (!content(latest.seed) || !content(prev.seed)) && !calendar && engine !== 'changed';
+  const causes = [];
+  if (reads && !seedSame) causes.push('inputs');
+  if (calendar) causes.push('calendar');
+  if (engine === 'changed') causes.push('version');
+  if (jitter) causes.push('jitter');
+  if (causes.indexOf('version') < 0 && (app === 'changed' || !causes.length)) causes.push('version');
+  return { changeCause: causes[0], changeCauses: causes, changeVersion: changeVersion };
 }
