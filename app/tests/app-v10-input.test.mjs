@@ -302,11 +302,11 @@ let planId;
   assert.match(tips.join('\n'), /増減率 0% → \+5%/, '変えた項目の前と後');
   assert.doesNotMatch(html.replace(/(data-tip|aria-label)="[^"]*"/g, ''), /変わった跡/, '跡はカーソルで出す（見える文字にしない）');
   assert.doesNotMatch(html, /INPUT\.SAVE|IMPORT\.SALES|PLAN\.CREATE|BASELINE|undefined|NaN/, '旧来・中の番号を出さない');
-  // 保存: 画面だけの印（_lk）は送らない。自信は送る
+  // 保存: 画面だけの印（_lk・_conf0）は送らない。自信は変えた行だけ送る（変えていない行は送らない = サーバーは今の自信のまま）
   const sent = JSON.parse(vm.runInContext(`var __sent = null; var __e0 = fcEdit; fcEdit = function (a, args) { __sent = { action: a, args: args }; }; fcInput(0, 'selfConf', '高い'); fcSaveInput(); fcEdit = __e0; JSON.stringify(__sent)`, ui));
   assert.equal(sent.action, 'INPUT.SAVE');
-  assert.ok(sent.args.rows.every((r) => !('_lk' in r)), '画面だけの印は送らない');
-  assert.deepEqual(sent.args.rows.map((r) => r.selfConf), ['高い', 'ふつう']);
+  assert.ok(sent.args.rows.every((r) => !('_lk' in r) && !('_conf0' in r)), '画面だけの印は送らない');
+  assert.deepEqual(sent.args.rows.map((r) => ('selfConf' in r ? r.selfConf : '-')), ['高い', '-']);
   // 記録が届かなかった（読めない・移行の前）ときは、自信を送らない（サーバーは今の自信のままにする。空を送って消さない）
   const none = JSON.parse(vm.runInContext(`var __s2 = null; var __e1 = fcEdit; fcEdit = function (a, args) { __s2 = args; }; var __vv = JSON.parse(JSON.stringify(__v)); __vv.inputLog = null; S.fc.view = __vv; S.fc.draft = {}; fcSaveInput(); fcEdit = __e1; JSON.stringify(__s2)`, ui));
   assert.ok(none.rows.every((r) => !('selfConf' in r) && !('_lk' in r)));
