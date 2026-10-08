@@ -486,6 +486,7 @@ function appPlanEdit_(ctx, p) {
     if (act.local === 'appPlanSetPeople_' && names.length) {
       ops.push({ table: 'PLANS', mode: 'patch', key: { plan_id: plan.plan_id }, patch: { people_csv: call.value.peopleCsv }, actor: ctx.actor });
     }
+    ops.push.apply(ops, appLearnEditOps_(ctx, plan, p.action, actionId, call.value, scratch, args));   // 学びの記録（補正の書き込み・四半期の判断。版 10 の 3-5。LearnLog.js）
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
       inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })] });
     const written = appJournalRun_(ctx, act.label + '（' + actionId + '）', plan.plan_id, ops);
@@ -568,6 +569,8 @@ function appPlanRunSave_(ctx, p) {
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId);
+    if (p.action === 'EVAL.REPORT') ops.push.apply(ops, appHitEvalOps_(ctx, plan, appWorkScratch_(plan)));   // 当たりの記録（締まった四半期。版 10 の 3-4。HitRecords.js）
+    ops.push.apply(ops, appLearnRunOps_(ctx, plan, p.action, () => appWorkScratch_(plan)));   // 学びの記録（C-1 の案・C-3 の判断と反映。版 10 の 3-5。LearnLog.js）
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))] });
     const written = appJournalRun_(ctx, act.label + '（' + p.actionId + '）', plan.plan_id, ops);
     appScratchMarkAfterSave_(appWorkScratch_(plan), plan.plan_id, p.build.token, act.sheets || null, !!p.build.reused, p.build.scope, p.build.problems);

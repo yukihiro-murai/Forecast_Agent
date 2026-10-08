@@ -88,6 +88,14 @@ const APP_OWNER_ACTIONS = {
     check: t => { appOwnerCheckPlanId_(t); appCalibrationCheck_(t); appOwnerCheckHash_(t); },
     payload: i => ({ planId: i.planId, action: 'CALIBRATION.SET', args: { set: i.set || {}, withdrawPendingReview: i.withdrawPendingReview === true, reason: i.reason },
       inputHash: i.inputHash }) },
+  // ---- 人のつなぎ（PersonLinks.js。版 10 の 3-6）: 入力の担当者の名前とメンバーのメール。所有者だけ。外しても行は残す（ROLES と同じ） ----
+  listPersonLinks: { name: 'PERSON_LINKS.LIST', opts: () => ({ minRole: 'ADMIN', audit: false }), run: ctx => appListPersonLinks_(ctx) },
+  linkPerson: { name: 'PERSON.LINK', args: ['personName', 'email', 'clientId', 'validFrom', 'validTo', 'note'],
+    opts: i => ({ minRole: 'ADMIN', entityType: 'PERSON_LINK', detail: i, after: res => res.link }),
+    run: (ctx, i) => appLinkPerson_(ctx, i) },
+  unlinkPerson: { name: 'PERSON.UNLINK', args: ['linkId', 'rowVersion'],
+    opts: i => ({ minRole: 'ADMIN', entityType: 'PERSON_LINK', entityId: i.linkId, detail: i, after: res => res.link }),
+    run: (ctx, i) => appUnlinkPerson_(ctx, i) },
   // ---- 裏の処理の状態（jobId を省くと、自分が最後に始めた処理） ----
   jobStatus: { name: 'JOB.STATUS', args: ['jobId'], opts: () => ({ minRole: 'VIEWER', audit: false }),
     run: (ctx, i) => appJobStatus_(ctx, i.jobId || appOwnerLastJobId_(ctx)) }

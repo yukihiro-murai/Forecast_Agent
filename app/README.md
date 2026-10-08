@@ -198,11 +198,11 @@ Trends2Targets_System/
 
 - `LAYER_EFFECTS` 予測 1 回 × 月の、層ごとの効き: （層ごとの効きの担当が足す）
 
-- `HIT_RECORDS` 人・AI 調査 1 回 × 締まった四半期の当たり: （当たりの記録の担当が足す）
+- `HIT_RECORDS` 人・AI 調査 1 回 × 締まった四半期の当たり（`HitRecords.js`）: 当たり具合の計算（B-2）の保存と同じ控えで、3 か月とも締まった四半期（月末から 5 日たって取り込んだ月だけ。1 つでも締まっていない月があれば数えない）の分を足します。人（入力の担当者の名前。製品・メーカー全体・見解の押しを月ごとに足し、押した月の平均）と AI 調査 1 回（その月の予測が使った A-4。押し = AI の倍率 − 1）を、四半期に 1 件ずつ数えます。当たり = 押した向きが、実績が統計だけの予測から外れた向きと同じ（3 か月の合計で比べる）。統計だけの予測と押しは、その月が始まる前の最後の予測の回の記録（`AI_IMPACT_HISTORY`・`SUBJECTIVE_IMPACT_HISTORY`）から読みます。四半期ごとに印（`QUARTER`）を 1 行足し（`n_months` = 実績と予測の回がそろった月。3 のときだけ数える）、`hit_id` は中身から決まるので、何度動かしても増えません。移行のときに今ある記録から 1 回作ります（`calc_version` = `HIT-V1+BACKFILL`）。古さの重み（四半期ごとに 0.8 倍）とメーカーをまたいだ 1 人のまとめは、読むときに計算します。画面は学びの「人の学び」の「人ごとの当たり」（名前の順・件数つき。順位は作らない）と「AI の学び」の「調査ごとの当たり」。予算策定担当以上（そのメーカーの担当を含む）には全部と名前、本人（人のつなぎ）には自分の分、閲覧の人には件数だけを送ります。年度を締める前に、締まった月のある予算の計画すべてに、最後の四半期（1〜3 月）の印が要ります（測る専用の計画は外す）。
 
-- `LEARNING_LOG` 案・判断・反映・振り返り: （学びの記録の担当が足す）
+- `LEARNING_LOG` 案・判断・反映・振り返り（`LearnLog.js`）: 今ある操作の保存と同じ控えで 1 件ずつ足します。所有者の補正の書き込み（`setCalibration`）は変えた項目ごとに反映（APPLY）、見直し案の取り下げは判断（DECIDE「取り下げ」）。四半期の判断の保存は、判断が変わった案ごとに DECIDE。承認した案の適用（C-3）は、記録と違う判断を DECIDE、反映した案を APPLY（自動の学びの旗が 0 のときは判断だけ）。見直し案を作る（C-1。今は止めている）は案ごとに PROPOSE。着地見込みの τ・w の承認（`saveSetting` の `landing.tau`・`landing.w`）は全計画の APPLY（`plan_id` は空。年度の控えに入らない）。同じ案の行は `proposal_id`（四半期の案は「レビューの番号:案の番号」）でつながり、同じ頼みをもう一度動かしても足しません。
 
-- `PERSON_LINKS` 担当者の名前とメンバーのメールのつなぎ: （人のつなぎの担当が足す）
+- `PERSON_LINKS` 担当者の名前とメンバーのメールのつなぎ（`PersonLinks.js`）: 所有者だけが `apiOwnerTask` の `linkPerson`・`unlinkPerson`・`listPersonLinks` で扱います（画面には出さない）。つなげるのはメンバーに登録済みの人だけ。`clientId` を省くと全部のメーカー（決めたメーカーのつなぎが先に効く）、効く期間は省くと限りなし。同じ名前を同じ範囲と期間に 2 人へはつなぎません。外すときは行を消さず無効にします（ROLES と同じ）。`listPersonLinks` は、入力の担当者の名前と表示名が同じメンバーを案に出します（つなぐのは所有者）。
 
 - `BACKTEST` 物差しの結果: （物差しの担当が足す）
 
@@ -304,6 +304,9 @@ Trends2Targets_System/
 | `poolApply` | 事前分布を各計画に書く（裏の処理）。四半期の最後の月が締まった後に、その計画で今の検証の版の B-2 が初めて動いた後に数えた当たりだけを使う（`poolPreview` の `skippedEvidence` = 使わなかった行の数） | `{"action":"poolApply"}` |
 | `calibrationPreview` | 計画の今の補正の値（係数・暦月の補正・自動の学びの旗・AI の効き）と、取り下げられる見直し案（まだ反映していない一番新しい案）を見る（書かない）。`warnings` は今の値の注意 | `{"action":"calibrationPreview","planId":"PL-…"}` |
 | `setCalibration` | 承認した補正の値を計画に書く・まだ反映していない見直し案を取り下げる（裏の処理。下の「計画の補正の値」） | `{"action":"setCalibration","planId":"PL-…","set":{"bias_correction_factor":1},"reason":"（理由）"}` |
+| `listPersonLinks` | 人のつなぎ（無効にした行も）・入力の担当者の名前・表示名が同じメンバーの案を見る（所有者だけ。書かない） | `{"action":"listPersonLinks"}` |
+| `linkPerson` | 入力の担当者の名前をメンバーのメールにつなぐ（所有者だけ。`clientId`・`validFrom`・`validTo` は省ける） | `{"action":"linkPerson","personName":"担当A","email":"name@bigm2y.com"}` |
+| `unlinkPerson` | つなぎを外す（行は残して無効にする） | `{"action":"unlinkPerson","linkId":"PLK-…","rowVersion":1}` |
 | `listAudit` | ログを見る（`kind` は `AUDIT`・`RUN`・`ERROR`、`month` は `yyyy_MM`、`query` で絞る、`limit` は既定 200・最大 2000） | `{"action":"listAudit","kind":"AUDIT","month":"2026_10","query":"ROLE"}` |
 | `jobStatus` | 裏の処理の結果を見る（裏の処理を始めると、`OWNER_TASK` は自動でこの形になる。`jobId` を省くと、最後に始めた処理） | `{"action":"jobStatus","jobId":"JOB-…"}` |
 
@@ -430,6 +433,7 @@ node app/tests/app-eval-columns.test.mjs
 node app/tests/app-v10-base.test.mjs
 node app/tests/app-v10-migrate.test.mjs
 node app/tests/app-v10-append.test.mjs
+node app/tests/app-v10-hits.test.mjs
 ```
 
 GAS のモック（`app/tests/gas-mock.mjs`）の上での契約テストです（GAS 上での動作確認の代わりではありません）。反映は `app/` の中で行います（ルートの `.clasp.json` を拾わないよう `-P .` を付ける）。

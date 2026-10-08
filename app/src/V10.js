@@ -184,10 +184,10 @@ function appYearPlansNeedingVersion_(plans) {
 
 /**
  * 年度を締める前に、年度の最後の四半期（1〜3 月）の当たりを数え終えたか（9 章 10。締めた年度の行は書けないため）。
- * 数え終えていなければ理由の文、済んでいれば ''。当たりの記録（HIT_RECORDS）を作るときに中身を書く（今は止めない）
+ * 数え終えていなければ理由の文、済んでいれば ''。中身は HitRecords.js（appHitYearPending_）
  */
 function appYearHitsPending_(fy, plans) {
-  return '';
+  return appHitYearPending_(fy, plans);
 }
 
 // ---- 一度だけの写し（版 10 の移行の後に 1 回。Setup.js の appRunBackfills_ が呼ぶ）----
@@ -204,7 +204,7 @@ function appV10BackfillAiResearchLog_(ctx) {
   return { skipped: true };
 }
 
-/** 当たりの記録（3-4: 版 10 の時点で締まっている四半期の分。calc_version に BACKFILL を添える）。当たりの記録を作るときに中身を書く */
+/** 当たりの記録（3-4: 版 10 の時点で締まっている四半期の分。calc_version に BACKFILL を添える）。中身は HitRecords.js（appHitBackfill_） */
 function appV10BackfillHitRecords_(ctx) {
-  return { skipped: true };
+  return appHitBackfill_(ctx);
 }

@@ -65,7 +65,9 @@ function planBook(client, fy) {
 {
   const env = setUpEnv();
   assert.deepEqual(env.call('APP_V10_BACKFILLS'), ['appV10BackfillInputLog_', 'appV10BackfillAiResearchLog_', 'appV10BackfillHitRecords_']);
-  for (const n of env.call('APP_V10_BACKFILLS')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は今は仮のもの');
+  // 当たりの記録の写しは中身を書いた（app-v10-hits.test.mjs で確かめる）。ここでは動かし方だけを見るので、仮のものに戻す
+  for (const n of env.call('APP_V10_BACKFILLS').filter((x) => x !== 'appV10BackfillHitRecords_')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は今は仮のもの');
+  env.run('appV10BackfillHitRecords_ = function(ctx) { return { skipped: true }; };');
   env.call('apiListPlans()');
   assert.equal(env.props.APP_BACKFILLS, undefined, '仮のものは記録しない');
   // 何もすることが無い操作ではロックを取らず、表も読まない
