@@ -296,7 +296,10 @@ const port = () => Object.fromEntries(env.call('apiPortfolio()').plans.map((p) =
   const pctText = R(`reachPct(${rc.draft.pct})`);
   assert.match(html, new RegExp('<span class="meta" data-tip="この予算に届く見込み（試し）: ' + pctText + '\\n[^"]*">この予算に届く見込み ' + pctText + '（試し）</span>'), '予算のカードに届く見込み');
   const t = tips(html);
-  assert.match(t, /月の合計でそろえると 中心 [^・]+・80% の幅 [^〜]+〜[^（]+（試し）/);
+  // 締まった月がある年度は、月の合計の中心だけを出し、幅は着地の推定の幅で見る（年度の途中の幅を広げすぎない）
+  assert.match(t, /月の合計でそろえると 中心 [^・（]+（試し）/);
+  assert.doesNotMatch(t, /月の合計でそろえると 中心 [^・（]+・80% の幅/, '締まった月がある年度は、そろえた値の幅を出さない');
+  assert.match(t, /年度の途中の幅は、着地の推定（締まった 6 か月の実績を入れた見込み）の幅で見ます: 80% の幅 /);
   assert.match(t, /年度の売上を何度も試して出した値です/);
   assert.match(t, /採用予測 = 約束、上乗せ = 挑戦/);
   assert.match(t, /届く見込みが 50% の金額 [^・]+・60% の金額 [^・]+・70% の金額 [^・]+・80% の金額 /);
