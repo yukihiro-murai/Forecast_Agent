@@ -127,7 +127,7 @@ function appJobExecute_(ctx, job) {
     case 'PLAN.RUN_SAVE':
       return appAudited_(ctx, 'PLAN.' + p.action + '.SAVE', { entityType: 'PLAN_ACTION', entityId: p.actionId,
         detail: { planId: p.planId, action: p.action, actionId: p.actionId, inputHash: p.inputHash, jobId: job.id },
-        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p));
+        after: res => ({ actionId: res.actionId, changed: res.changed, written: res.written, timing: res.timing }) }, () => appPlanRunSave_(ctx, p, job));
     case 'YEAR.CLOSE':
       return appAudited_(ctx, 'YEAR.CLOSE', { entityType: 'FISCAL_YEAR', entityId: 'FY' + p.fy,
         detail: { fy: p.fy, jobId: job.id },

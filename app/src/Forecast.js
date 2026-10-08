@@ -62,6 +62,14 @@ function appForecastSeed_(plan, forecastInputHash, engine) {
 }
 
 /**
+ * 予測の版（FORECAST_RUNS の版 10 の列。SCHEMA_PLAN_v10-12_JA.md の 3-8）: 新しい回に、アプリの版（app_version = APP_VERSION）・
+ * 種の決め方（seed_rule。INPUT_V1 = 入力の中身と版から決めた種 appForecastSeed_。空 = 実行ごとの種 v0.28.0 まで）・
+ * 本番に入れたアプリ側の直し（fixes_json。決定 10・12 の直しを本番にしたら、その名前を足す。今は無い）を書く。前からある行は空のまま
+ */
+const APP_FORECAST_SEED_RULE = 'INPUT_V1';
+const APP_FORECAST_FIXES = [];
+
+/**
  * 組み立て（FORECAST.RUN）: データ本体から計算用ブックを組み立てる。1 回の上限に収まらなければ、同じ処理を続けて動かす。
  * 「今」（asOfMs）・実行の ID（runId。旧来の計算が作る ID の種）・入力のハッシュは最初の回に決め、続きの処理に渡す。乱数の種は計算で決める
  */
@@ -95,11 +103,12 @@ function appForecastRunCalc_(ctx, p) {
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
     const scratch = appWorkScratch_(plan);
     const forecastInputHash = appForecastInputHash_(plan.plan_id);
+    const layerTail = appLayerTail_(scratch);   // 計算の前の記録のシートの行の数（この回に足された行を、保存の段で層ごとの効きに使う。LayerEffects.js）
     const run = appRunLegacyForecast_(scratch, { asOfMs: p.asOfMs, seed: eng => appForecastSeed_(plan, forecastInputHash, eng), uuidSeed: p.runId,
       confirms: p.confirms || [], actor: ctx.actor });
     if (!run.ok) return { needConfirm: run.needConfirm, planId: plan.plan_id, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
     const payload = Object.assign({}, p, { seed: run.seed, engine: { version: run.version, sourceSha256: run.sourceSha256 }, headline: appForecastHeadline_(scratch),
-      runMs: new Date().getTime() - t0 });
+      runMs: new Date().getTime() - t0, layerTail: layerTail });
     return { __next: { kind: 'FORECAST.RUN_SAVE', payload: payload }, audit: { entityId: plan.plan_id, clientId: plan.client_id } };
   });
 }
@@ -112,7 +121,8 @@ function appForecastRunSave_(ctx, p) {
     appJournalRecover_(ctx);   // 書きかけの控えを先に書き終える（途中の表から控えを作らない）
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
-    const cap = appCaptureChanged_(appWorkScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id));
+    const scratch = appWorkScratch_(plan);
+    const cap = appCaptureChanged_(scratch, plan.plan_id, appStoredHashes_(plan.plan_id));
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const h = p.headline || { annual: {}, objective: {}, monthly: [], objectiveMonthly: [] };
@@ -126,11 +136,12 @@ function appForecastRunSave_(ctx, p) {
         seed: p.seed, as_of: Utilities.formatDate(new Date(p.asOfMs), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ"), input_hash: p.inputHash,
         annual_p10: num(h.annual.p10), annual_p50: num(h.annual.p50), annual_p90: num(h.annual.p90),
         objective_p10: num(h.objective.p10), objective_p50: num(h.objective.p50), objective_p90: num(h.objective.p90),
-        changed_sheets_json: names, confirms_json: p.confirms, started_at: p.startedAt, finished_at: now, actor_email: ctx.actor }] },
+        changed_sheets_json: names, confirms_json: p.confirms, started_at: p.startedAt, finished_at: now, actor_email: ctx.actor,
+        app_version: APP_VERSION, seed_rule: APP_FORECAST_SEED_RULE, fixes_json: APP_FORECAST_FIXES }] },
       { table: 'FORECAST_MONTHLY', mode: 'ensure', rows: (h.monthly || []).map(m => ({
         run_id: p.runId, plan_id: plan.plan_id, ym: m.month, p10: num(m.p10), p50: num(m.p50), p90: num(m.p90),
         obj_p10: obj[m.month] ? num(obj[m.month].p10) : null, obj_p50: obj[m.month] ? num(obj[m.month].p50) : null, obj_p90: obj[m.month] ? num(obj[m.month].p90) : null })) }
-    ]);
+    ], appLayerEffectsOps_(ctx, plan, p, h, scratch));   // 層ごとの効き 12 行（LAYER_EFFECTS。3-3）を同じ控えで足す
     const written = appJournalRun_(ctx, '予測の保存（' + p.runId + '）', plan.plan_id, ops);
     appScratchMarkSynced_(plan.plan_id, p.build.token, null, p.build.problems);   // 次の予測は組み立て直さずに使える
     return { runId: p.runId, planId: plan.plan_id, changed: names, written: written, headline: h, unknown: cap.unknown,

@@ -199,9 +199,9 @@ function appV10BackfillInputLog_(ctx) {
   return { skipped: true };
 }
 
-/** AI 調査の記録の BASELINE（3-2: 今の AI_RESEARCH_STRUCTURED の 1 回分）。AI 調査の記録を作るときに中身を書く */
+/** AI 調査の記録の BASELINE（3-2: 今の AI_RESEARCH_STRUCTURED の 1 回分。中身は AiResearchLog.js） */
 function appV10BackfillAiResearchLog_(ctx) {
-  return { skipped: true };
+  return appAiResearchBackfill_(ctx);
 }
 
 /** 当たりの記録（3-4: 版 10 の時点で締まっている四半期の分。calc_version に BACKFILL を添える）。当たりの記録を作るときに中身を書く */

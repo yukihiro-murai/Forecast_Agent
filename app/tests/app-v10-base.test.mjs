@@ -65,6 +65,7 @@ function planBook(client, fy) {
 {
   const env = setUpEnv();
   assert.deepEqual(env.call('APP_V10_BACKFILLS'), ['appV10BackfillInputLog_', 'appV10BackfillAiResearchLog_', 'appV10BackfillHitRecords_']);
+  env.run('appV10BackfillAiResearchLog_ = function(ctx) { return { skipped: true }; };');   // 中身は app-v10-ai-research-log.test.mjs で確かめる
   for (const n of env.call('APP_V10_BACKFILLS')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は今は仮のもの');
   env.call('apiListPlans()');
   assert.equal(env.props.APP_BACKFILLS, undefined, '仮のものは記録しない');
