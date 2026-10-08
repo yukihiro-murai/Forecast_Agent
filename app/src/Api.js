@@ -155,10 +155,12 @@ function apiPeopleLearning() {
 
 /**
  * 学び: AI の学び（信頼度の学び・全計画で縮めた偏り・精度の推移・補正の変化・承認待ちの提案・気になる点）。閲覧は社内全員。読むだけ。
- * 承認待ちの提案と補正の変化の、人や話題の名前と信頼度の提案の根拠は予算策定担当以上だけ。人の学びと同じく、控えの鍵に見せ方も入れる
+ * 承認待ちの提案と補正の変化の、人や話題の名前と信頼度の提案の根拠は予算策定担当以上だけ。人の学びと同じく、控えの鍵に見せ方も入れる。
+ * landing は着地見込みの τ・w（全計画から学んだ試しの値と、承認して使っている値。appLandingPriorView_。計画の一覧の控えから）
  */
 function apiAiLearning() {
-  return api_('INSIGHT.AI', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('AILEARN\u0001' + appInsightDetail_(ctx) + '\u0001' + appToday_(), () => appAiLearning_(ctx)));
+  return api_('INSIGHT.AI', { minRole: 'VIEWER', audit: false }, ctx => Object.assign(
+    appCachedRead_('AILEARN\u0001' + appInsightDetail_(ctx) + '\u0001' + appToday_(), () => appAiLearning_(ctx)), { landing: appLandingPriorView_() }));
 }
 
 /** 計画の公式版の一覧と、今の数字 */
@@ -190,9 +192,13 @@ function apiHome() {
   return api_('HOME', { minRole: 'VIEWER', audit: false }, ctx => appHome_(ctx));
 }
 
-/** 計画の最新の予測（閲覧は社内全員） */
+/**
+ * 計画の最新の予測（閲覧は社内全員）。shadow は年度の見込みの試しと予算に届く見込み（appPlanShadow_。計画の一覧の控えから。
+ * 今日の日付でも変わるので、予測の控えとは別に足す。読めなければ null）
+ */
 function apiForecastLatest(input) {
-  return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('LATEST\u0001' + (input && input.planId), () => appForecastLatest_(input && input.planId)));
+  return api_('FORECAST.LATEST', { minRole: 'VIEWER', audit: false }, () => Object.assign(
+    appCachedRead_('LATEST\u0001' + (input && input.planId), () => appForecastLatest_(input && input.planId)), { shadow: appPlanShadow_(input && input.planId) }));
 }
 
 /**

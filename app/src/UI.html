@@ -1540,6 +1540,15 @@ function homeRangeTip(r, all){
     + 'メーカーどうしが別々に動くとみなした幅です。いっしょに動くと、実際の幅はもっと広くなります\n'
     + '含めたメーカー: ' + r.n + ' / ' + all + '（着地を推定できないメーカーは除きます）';
 }
+/** 合計の予算に届く見込み（試し。サーバーの totals.reach）。メーカーどうしが独立なら〜全部同じ向きなら（同じ値なら 1 つ）。無ければ空 */
+function homeReachTip(r){
+  if (!r || !r.independent || !r.together) return '';
+  var one = r.independent.pct === r.together.pct;
+  return '\nこの予算に届く見込み（試し）: ' + (one ? reachPct(r.independent.pct) : '独立なら ' + reachPct(r.independent.pct) + '〜全部同じ向きなら ' + reachPct(r.together.pct))
+    + '\n着地と予算の両方がある ' + r.plans + ' メーカーの予算 ' + yenU(r.budget) + ' で見ています'
+    + (one ? '' : '。メーカーどうしが別々に動くとみなすと前の値、全部が同じ向きに動くとみなすと後の値で、本当はその間です')
+    + (isNum(r.tau) ? '（' + reachAssume(r) + '）' : '') + '。保存している数字は変わりません';
+}
 /** 数字の箱。sub: 下の小さな行（文字か、行の並び） */
 function homeKpi(label, v, unit, tipText, main, sub){
   var subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean);
@@ -1551,7 +1560,8 @@ function homeKpis(h, plans){
   var t = homeTotals(h, plans), r = homeRange(plans), m = homeMape(plans);
   var months = plans.reduce(function(a, p){ return Math.max(a, isNum(p.actualMonths) ? p.actualMonths : 0); }, 0);
   var all = t.plans || plans.length;
-  var budgetTip = 'FY' + h.fy + ' の年間予算の合計: ' + yenU(t.budget) + '\n承認済みの公式版の最終予算（無ければ今の予算）を足しています\n含めたメーカー: ' + (t.budgetPlans || 0) + ' / ' + all + '（予算の無いメーカーは除きます）';
+  var budgetTip = 'FY' + h.fy + ' の年間予算の合計: ' + yenU(t.budget) + '\n承認済みの公式版の最終予算（無ければ今の予算）を足しています\n含めたメーカー: ' + (t.budgetPlans || 0) + ' / ' + all + '（予算の無いメーカーは除きます）'
+    + homeReachTip(t.reach);
   // 予算との比は、着地と予算の両方があるメーカーだけで比べる（年間予算の箱の合計とは数が違うことがあるので、比べたメーカーの数と予算を見せる）
   var bothB = homeSum(plans.filter(function(p){ var b = planBudget(p); return isNum(b) && b > 0 && isNum(p.landing); }), planBudget);
   var same = t.ratioPlans === t.budgetPlans && t.ratioPlans === t.landingPlans;
@@ -1982,12 +1992,15 @@ function fcForecastRun(){ var planId = S.fc.planId, go1 = function(){ startJob('
 function fcEdit(action, args){ startJob('PLAN.EDIT', { planId: S.fc.planId, action: action, args: args, inputHash: S.fc.view.inputHash }); }
 function fcNum(v){ return v === null || v === undefined || v === '' ? '' : Number(v); }
 function fcSourceNote(){ return S.fc.view && !S.fc.view.sourceReady ? 'ZAC の実績のスプレッドシートが決まると使えます（所有者が決めます）。' : ''; }
-/** 金額のまとめ: 大きな数は短く（3.2億・3,400万）、正確な金額はカーソルで出す（枠からはみ出さない）。signed: 増減（+ を付ける） */
-function fcKpi(label, n, main, tipText, signed){
-  var has = isNum(n), sg = signed && has && n > 0 ? '+' : '';
-  var t = (tipText || '') + (has ? (tipText ? '\n' : '') + sg + yenU(n) : '');
+/**
+ * 金額のまとめ: 大きな数は短く（3.2億・3,400万）、正確な金額はカーソルで出す（枠からはみ出さない）。signed: 増減（+ を付ける）。
+ * opt（省ける）: { sub: 数字の下の小さな行, after: 説明の金額の後ろに足す行 }（試しの数を添えるとき）
+ */
+function fcKpi(label, n, main, tipText, signed, opt){
+  var has = isNum(n), sg = signed && has && n > 0 ? '+' : '', o = opt || {};
+  var t = (tipText || '') + (has ? (tipText ? '\n' : '') + sg + yenU(n) : '') + (o.after ? '\n' + o.after : '');
   return '<div class="kpi' + (main ? ' main' : '') + '"' + (t ? ' data-tip="' + esc(t) + '"' : '') + '><div class="k">' + esc(label) + '</div><div class="v">'
-    + (has ? sg + yenShort(n) + '<span class="u">円</span>' : '-') + '</div></div>';
+    + (has ? sg + yenShort(n) + '<span class="u">円</span>' : '-') + '</div>' + (o.sub ? kpiSub(o.sub) : '') + '</div>';
 }
 function fcSaveBtn(label, onclick, enabled){ return '<button class="btn" ' + (fcBusy() || !enabled ? 'disabled ' : '') + 'onclick="' + onclick + '">' + label + '</button>'; }
 /** 入力を始めたら、描き直さずに（打っている欄を消さずに）保存のボタンを押せるようにし、「未保存」の札を出す */
@@ -2061,7 +2074,9 @@ function fcForecastTab(d, v){
   var runCard = canPlan ? '<div class="card fc-run"><div class="card-head"><h2>予測の実行</h2>' + meta + '</div><div class="btngrid">'
     + actBtn('<button class="btn" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="fcForecastRun()">予測を実行</button>', 'データ本体の内容で予測を計算し、結果を残します（4〜6 分ほど。続けて実行するときは速くなります）') + '</div></div>' : '';
   if (!ran || !sec) return cfHtml + runCard + guide(canPlan ? 'explain' : 'observe', canPlan ? '予測を実行すると、年度の見通し（下振れ・中心・上振れ）と、月ごとの予算の欄がここに出ます。' : 'まだ予測がありません。予測の実行は予算策定担当ができます。実行すると、月ごとの見通しと予算がここに出ます。');
-  html += '<div class="kpis">' + fcKpi(qName('p10'), annual.p10, false, qTip('p10') + '（年度合計）') + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）')
+  var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, al = sh && sh.aligned;   // 試しの数（年度の見込み・予算に届く見込み。保存している数字は変えない）
+  html += '<div class="kpis">' + fcKpi(qName('p10'), annual.p10, false, qTip('p10') + '（年度合計）')
+    + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）', false, al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al) } : null)
     + fcKpi(qName('p90'), annual.p90, false, qTip('p90') + '（年度合計）') + fcKpi('最終予算', sec.annual.final, false, '採用予測と上乗せの年度合計') + '</div>';
   html += cfHtml + runCard;
   // 予算（採用予測と上乗せを入れる。最終予算 = 採用予測 + 上乗せ は保存すると計算し直す）
@@ -2078,10 +2093,35 @@ function fcForecastTab(d, v){
     + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num">' + yen(sec.annual.final) + '</td></tr>'
     + '</tbody></table>';
   var foot = canPlan && (S.cv.fcMonthly === 'table' || dirty);
-  html += '<div class="card"><div class="card-head"><h2>月ごとの見通しと予算' + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。年度合計の下振れ〜上振れは月の合計ではなく、年度で計算した値です') + '</h2>' + (canPlan ? '' : meta) + '</div>'
+  var rc = sh && sh.reach, reach = rc && rc.draft ? '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + '（試し）</span>' : '';
+  html += '<div class="card"><div class="card-head"><h2>月ごとの見通しと予算' + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。年度合計の下振れ〜上振れは月の合計ではなく、年度で計算した値です') + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
     + chartOrTable('fcMonthly', chart, table)
     + (foot ? '<div class="card-foot">' + actBtn(fcSaveBtn('予算を保存', 'fcSaveBudget()', dirty), '採用予測と上乗せを保存し、最終予算を計算し直します') + (dirty ? '<span class="chip warn">未保存</span>' : '') + '</div>' : '') + '</div>';
   return html;
+}
+/** 試しの確率（サーバーが 5% 刻みに丸めた整数）の言い方: 0 → 5% 未満・100 → 95% 超・ほか → 約 N% */
+function reachPct(pct){ return !isNum(pct) ? '-' : pct <= 0 ? '5% 未満' : pct >= 100 ? '95% 超' : '約 ' + pct + '%'; }
+/** 着地見込みの前提の 2 つの値の言い方（中の記号は出さない）: 年の水準のぶれ 15%・幅の倍率 1 倍 */
+function reachAssume(x){
+  var t = isNum(x && x.tau) ? Math.round(x.tau * 1000) / 10 + '%' : '-', w = isNum(x && x.w) ? Math.round(x.w * 100) / 100 + ' 倍' : '-';
+  return '年の水準のぶれ ' + t + '・幅の倍率 ' + w;
+}
+/** 年度の見込みの試し（月の合計でそろえた中心と幅）の説明。今の年度の数字の出どころも言う */
+function fcAlignedTip(a){
+  return '今の年度の下振れ・中心・上振れは、年度の売上を何度も試して出した値です（月の合計とずれることがあり、幅も狭めに出ます）\n'
+    + '月の合計でそろえると 中心 ' + yenShort(a.center) + '・80% の幅 ' + yenShort(a.p10) + '〜' + yenShort(a.p90) + '（試し）\n'
+    + '月ごとの中心を足し、着地見込みと同じ式（締まった月なし・' + reachAssume(a) + '）で幅をつけた試しの値です。保存している数字は変わりません';
+}
+/** 予算に届く見込み（試し）の説明: 届く金額（50〜80%）・前提・公式版の予算・入力中の予算 */
+function fcReachTip(rc, dirty){
+  var d = rc.draft, o = rc.official;
+  return ['この予算に届く見込み（試し）: ' + reachPct(d.pct),
+    '今の最終予算 ' + yenU(d.budget) + '（採用予測 = 約束、上乗せ = 挑戦）',
+    '届く見込みが ' + (rc.amounts || []).map(function(a){ return a.pct + '% の金額 ' + yenShort(a.amount); }).join('・'),
+    '前提: 中心 ' + yenShort(rc.center) + '・80% の幅 ' + yenShort(rc.p10) + '〜' + yenShort(rc.p90) + '・' + reachAssume(rc) + (rc.k ? '（締まった ' + rc.k + ' か月の実績を入れています）' : '（締まった月はまだありません）'),
+    o ? '承認済みの公式版' + (o.versionNo ? '（v' + o.versionNo + '）' : '') + 'の最終予算 ' + yenU(o.budget) + ' には ' + reachPct(o.pct) : '',
+    dirty ? '入力中の予算は、保存すると計算し直します' : '',
+    '着地見込みと同じ計算の試しです。保存している数字は変わりません'].filter(Boolean).join('\n');
 }
 /** 金額の欄に入れる見せ方（数なら 3 けたごとに区切る。打ちかけの文字はそのまま） */
 function fcYenIn(v){ if (v === null || v === undefined || v === '') return ''; var n = Number(String(v).replace(/[,\s]/g, '')); return String(v).trim() !== '' && isFinite(n) ? Math.round(n).toLocaleString('ja-JP') : String(v); }
@@ -3191,7 +3231,7 @@ function lrAiView(d){
   var sh = d.shrinkage || {}, tl = d.timeline || [], cal = d.calibration || [], pend = d.pending || [];
   if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length)
     return guide('guide', '実績が締まって、' + runWhen() + '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');   // AI の学びは当たり具合の計算から（外れの原因の整理は使わない）
-  return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []);
+  return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []) + lrLandingCard(d.landing);
 }
 /** 今の年度（ホームと同じ: サーバーが決めた B.home.fy。無ければ今日の日付から。4 月始まり） */
 function lrFy(){
@@ -3369,6 +3409,26 @@ function lrCalCard(cal, health){
   var now = isNum(cur.factorNow) ? '<span class="chip" data-tip="' + esc('今の補正（予測に掛けている倍率 ' + cur.factorNow.toFixed(3) + '。1 = 補正なし）') + '">今 ' + esc(fx(cur.factorNow)) + '</span>' : '';
   return lrCard('補正の履歴', 'これまでの外れ方から、予測をどれだけ下げ・上げているかの移り変わりです（0% = 補正なし）。月次の自動学習・承認した見直し案・所有者が承認した値で変わります。表には信頼度の変更も出ます',
     chartOrTable('lrCal', chart, table), now + sel);
+}
+/**
+ * 着地の幅の学び（試し）: 全計画の締まった月から学んだ年の水準のぶれ・幅の倍率（サーバーの landing.learned）と、今使っている値（landing.used）。
+ * 学んだ値は、所有者が承認して設定に書くまで着地見込みには使わない（2026-10-08 判断 29）。学べた値も承認した値も無ければ出さない
+ */
+function lrLandingCard(x){
+  var l = x && x.learned, u = x && x.used;
+  if (!l || !u || !(l.tauLearned || l.wLearned || u.tauSet || u.wSet)) return '';
+  var near = function(a, b){ return isNum(a) && isNum(b) && Math.abs(a - b) < 1e-9; };
+  var same = (!l.tauLearned || (u.tauSet && near(u.tau, l.tau))) && (!l.wLearned || (u.wSet && near(u.w, l.w)));
+  var parts = [], one = reachAssume(l).split('・');
+  if (l.tauLearned) parts.push(one[0]);
+  if (l.wLearned) parts.push(one[1]);
+  var line = '全計画から学んだ値（試し）: ' + (parts.length ? parts.join('・') + (same ? '（承認して使っています）' : '（承認すると使います）') : 'まだありません');
+  var from = [u.tauFrom, u.wFrom].filter(Boolean).sort().pop();
+  var tipText = '着地見込みの幅を決める 2 つの値です。年の水準のぶれ = 1 年の売上の水準が、予測からどれだけずれうるか。幅の倍率 = 月の見通しの幅を何倍に広げるか\n'
+    + '全計画の締まった月から学んだ値です（年の水準のぶれは締まった月が 3 か月以上ある計画が 3 つ以上・幅の倍率は 12 か月以上で学びます。今は ' + (l.planCount || 0) + ' 計画・' + (l.monthCount || 0) + ' か月）。'
+    + '所有者が承認するまで、着地見込み・予算に届く見込みには使いません\n'
+    + '今使っている値: ' + reachAssume(u) + (u.tauSet || u.wSet ? '（所有者が承認' + (from ? ' ' + fcDate(from) + ' から' : '') + '）' : '（決まった値）');
+  return lrCard('着地の幅の学び', tipText, '<p class="note">' + esc(line) + '</p>');
 }
 // ==== END REGION: LEARNING ====
 

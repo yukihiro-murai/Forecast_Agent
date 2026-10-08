@@ -327,7 +327,8 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
     'test.flag': { label: 'フラグ', type: 'bool', def: false, unit: 'する / しない' } })`);
   const cur = () => Object.fromEntries(env.call('apiListSettings()').settings.map((s) => [s.key, s]));
   let s = cur();
-  assert.deepEqual(Object.keys(s).filter((k) => !/^test\./.test(k)), ['source.zac_spreadsheet'], '本番の設定は使うものだけ');
+  // 着地見込みの τ・w（2026-10-08 判断 29・11: 学んだ値は所有者が承認して書くまで使わない）
+  assert.deepEqual(Object.keys(s).filter((k) => !/^test\./.test(k)), ['source.zac_spreadsheet', 'landing.tau', 'landing.w'], '本番の設定は使うものだけ');
   assert.ok(Object.values(s).every((x) => x.isDefault));
   for (const [key, value, re] of [
     ['test.rate', '1.5', /0〜1 の範囲/], ['test.rate', 'abc', /数値で入力/], ['test.rate', '', /数値で入力/],

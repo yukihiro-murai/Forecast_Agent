@@ -6,7 +6,12 @@
 const APP_SETTING_DEFS = {
   // 売上・検証用実績の取り込み（A-2・B-1）の元（ZAC の実績のスプレッドシート）。
   // 2026-10-04: 使っていなかった設定（検証の上限・空模様の判定・操作の記録）を外した。数・整数・する/しないの型は、足すときのために残す
-  'source.zac_spreadsheet': { label: 'ZAC の実績のスプレッドシート', type: 'sheet', def: '', unit: 'スプレッドシートの URL（売上・実績の取り込みの元）' }
+  'source.zac_spreadsheet': { label: 'ZAC の実績のスプレッドシート', type: 'sheet', def: '', unit: 'スプレッドシートの URL（売上・実績の取り込みの元）' },
+  // 着地見込みの年の水準のぶれ（τ）と幅の倍率（w）。2026-10-08 村井さん承認の判断 29・11: 全計画から学んだ値（学びの画面に「試し」で出す）は、
+  // 所有者が承認してここに書くまで使わない（書いていなければ 0.15 と 1）。書けるのは所有者だけ（owner）。
+  // 範囲は Landing.js の APP_LANDING（TAU_MIN〜TAU_MAX・1〜W_MAX）と同じ数を書く（ファイルの読み込みの順に頼らない。app/tests が照合する）
+  'landing.tau': { label: '着地見込みの年の水準のぶれ', type: 'number', min: 0.05, max: 0.35, def: 0.15, unit: '割合（0.15 = 15%）', owner: true },
+  'landing.w': { label: '着地見込みの幅の倍率', type: 'number', min: 1, max: 3, def: 1, unit: '倍（1 = 月の見通しの幅のまま）', owner: true }
 };
 
 /** URL か ID からスプレッドシートの ID を取り出す（取り出せなければ空） */
@@ -70,9 +75,28 @@ function appSettingValue_(key) {
   return s.value;
 }
 
+/**
+ * 着地見込み（と、その分布を使う年度の見込みの試し・予算に届く見込み）に使う τ・w（2026-10-08 村井さん承認の判断 29・11）。
+ * 業務の設定 landing.tau・landing.w（所有者が承認した値を apiOwnerTask の saveSetting で書く）の今の値。
+ * 書いていなければ決まった値 0.15（APP_LANDING.TAU0）と 1。全計画から学んだ値（appLandingPrior_）は、ここでは使わない。
+ * 返り値: { tau, w, tauSet, wSet（設定に書いた値か）, tauFrom, wFrom（その値が効き始めた日。書いていなければ ''） }
+ */
+function appLandingApproved_() {
+  const s = {};
+  appSettingsCurrent_().forEach(x => { s[x.key] = x; });
+  const t = s['landing.tau'], w = s['landing.w'];
+  const ok = (x, lo, hi) => x && !x.isDefault && typeof x.value === 'number' && isFinite(x.value) && x.value >= lo && x.value <= hi;
+  const tauSet = ok(t, APP_LANDING.TAU_MIN, APP_LANDING.TAU_MAX), wSet = ok(w, 1, APP_LANDING.W_MAX);
+  return { tau: tauSet ? t.value : APP_LANDING.TAU0, w: wSet ? w.value : 1, tauSet: tauSet, wSet: wSet,
+    tauFrom: tauSet ? String(t.effectiveFrom || '') : '', wFrom: wSet ? String(w.effectiveFrom || '') : '' };
+}
+
 /** 設定を変える（新しい行を足す）。effectiveFrom 省略時は今日から */
 function appSaveSetting_(ctx, input) {
   const key = String(input && input.key || '');
+  const def = APP_SETTING_DEFS[key];
+  // 所有者だけの設定（着地見込みの τ・w = 学んだ値の承認）。管理者の役割があっても、ほかの人は書けない（setCalibration と同じ）
+  if (def && def.owner && !(ctx && ctx.user && ctx.user.isOwner)) throw new Error(def.label + ' は、所有者だけが変えられます。');
   const value = appParseSettingValue_(key, input && input.value);
   const eff = String(input && input.effectiveFrom || '').trim() || appToday_();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eff)) throw new Error('効き始める日は yyyy-MM-dd で入力してください。');
