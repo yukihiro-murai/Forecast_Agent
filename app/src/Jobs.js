@@ -37,7 +37,11 @@ function appJobSpec_(kind) {
     // 年度を締める（YearClose.js: 控えをアーカイブに置き、検証できた年度だけ読み取り専用にする。元の行は動かさない）: 管理者
     'YEAR.CLOSE': { minRole: 'ADMIN', label: '年度を締める' },
     // 途中で止まった保存の続きを、控え（Journal.js）のとおりに書く。予算策定担当以上（控えは、権限を確かめて始めた保存のもの）
-    'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' }
+    'SYSTEM.RECOVER': { minRole: 'PLANNER', label: '保存の続き' },
+    // 物差し（Backtest.js。表の版 10 の 3-7）: 所有者だけ（apiOwnerTask の runBacktest）。手で始める。
+    // 組み立て（続きは同じ処理を続けて動かす）→ 計算と保存（BACKTEST に 60 行を足す）
+    'MEASURE.BACKTEST': { minRole: 'ADMIN', ownerOnly: true, planScoped: true, label: '物差し' },
+    'MEASURE.BACKTEST_CALC': { minRole: 'ADMIN', ownerOnly: true, planScoped: true, label: '物差し', internal: true }
   };
   const s = specs[String(kind || '')];
   if (!s) throw new Error('未定義の処理です: ' + kind);
@@ -146,6 +150,15 @@ function appJobExecute_(ctx, job) {
     case 'SYSTEM.RECOVER':
       return appAudited_(ctx, 'SYSTEM.RECOVER', { entityType: 'SYSTEM', detail: { jobId: job.id, pending: appJournalPending_() },
         after: res => res }, () => appWithLock_(() => appJournalRecover_(ctx) || { nothing: true }));
+    case 'MEASURE.BACKTEST':
+      return appAudited_(ctx, 'MEASURE.BACKTEST.BUILD', { entityType: 'PLAN', entityId: p.planId,
+        detail: { planId: p.planId, fy: p.fy, btId: p.btId || '', built: p.build ? p.build.done.length : 0, jobId: job.id },
+        after: res => ({ btId: res.__next.payload.btId, next: res.__next.kind, built: res.__next.payload.build.done.length, reused: !!res.__next.payload.build.reused,
+          problems: res.__next.payload.build.problems, buildMs: res.__next.payload.buildMs }) }, () => appBacktestBuild_(ctx, p, job));
+    case 'MEASURE.BACKTEST_CALC':
+      return appAudited_(ctx, 'MEASURE.BACKTEST.CALC', { entityType: 'BACKTEST', entityId: p.btId, detail: { planId: p.planId, fy: p.fy, btId: p.btId, jobId: job.id },
+        after: res => ({ btId: res.btId, cutoffYm: res.cutoffYm, rows: res.rows, written: res.written, skipped: res.skipped, realMonths: res.realMonths,
+          counted: res.counted, timing: res.timing }) }, () => appBacktestCalc_(ctx, p));
     default:
       throw new Error('未定義の処理です: ' + job.kind);
   }

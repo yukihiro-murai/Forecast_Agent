@@ -602,7 +602,8 @@ function appCrossMaker_(fy) {
   return {
     fy: pick, fys: fys, plans: rows, totals: totals,
     market: Object.keys(market).map(k => ({ topic: k, makers: market[k].makers, up: market[k].up, down: market[k].down, flat: market[k].flat,
-      meanScore: appInsightMean_(market[k].scores) })).sort((x, y) => y.makers - x.makers || x.topic.localeCompare(y.topic))
+      meanScore: appInsightMean_(market[k].scores) })).sort((x, y) => y.makers - x.makers || x.topic.localeCompare(y.topic)),
+    backtest: appBacktestCard_(pick)   // 物差し（Backtest.js。割合と点の数だけ。動かした計画が無ければ null）
   };
 }
 

@@ -93,6 +93,9 @@ const APP_OWNER_ACTIONS = {
     check: t => { appOwnerCheckPlanId_(t); appCalibrationCheck_(t); appOwnerCheckHash_(t); },
     payload: i => ({ planId: i.planId, action: 'CALIBRATION.SET', args: { set: i.set || {}, withdrawPendingReview: i.withdrawPendingReview === true, reason: i.reason },
       inputHash: i.inputHash }) },
+  // ---- 物差し（Backtest.js・裏の処理 MEASURE.BACKTEST。表の版 10 の 3-7）: 計画の年度の初め（cutoffFy を渡せばその年度。3 年前まで）に戻って予測し直す ----
+  runBacktest: { job: 'MEASURE.BACKTEST', args: ['planId', 'cutoffFy'], check: t => { appOwnerCheckPlanId_(t); appOwnerCheckCutoffFy_(t); },
+    payload: i => ({ planId: i.planId, fy: i.cutoffFy === undefined ? undefined : Number(i.cutoffFy) }) },
   // ---- 裏の処理の状態（jobId を省くと、自分が最後に始めた処理） ----
   jobStatus: { name: 'JOB.STATUS', args: ['jobId'], opts: () => ({ minRole: 'VIEWER', audit: false }),
     run: (ctx, i) => appJobStatus_(ctx, i.jobId || appOwnerLastJobId_(ctx)) }
@@ -205,6 +208,13 @@ function appOwnerCheckPlanId_(t) {
 function appOwnerCheckPurpose_(t) {
   if (t.purpose === undefined) throw new Error(t.action + ' には印（purpose）を入れてください（測る専用は "MEASURE"、外すときは ""）。');
   appPlanPurposeCheck_(t);
+}
+
+/** 物差しの区切りの年度（cutoffFy）は省ける（計画の年度）。入れるなら 4 桁の数（計画の年度から 3 年前までかは、裏の処理が確かめる） */
+function appOwnerCheckCutoffFy_(t) {
+  if (t.cutoffFy !== undefined && !/^\d{4}$/.test(String(t.cutoffFy === null ? '' : t.cutoffFy).trim())) {
+    throw new Error(t.action + ' の cutoffFy（区切りの年度）は 4 桁の数で入れてください（例: "cutoffFy":2026。省くと計画の年度）。');
+  }
 }
 
 /** 指紋（inputHash）は省ける。入れるなら calibrationPreview などで受け取った 64 桁のまま */
