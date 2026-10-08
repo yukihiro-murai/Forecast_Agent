@@ -13,6 +13,8 @@
  *   9. C-3 を保留のまま動かした見直し案（本物のデータと同じ形: 保留・判断の日時あり・未反映）も取り下げる。取り下げなければ、承認し直した C-3 が反映してしまう
  *      （比べる計画）。反映した見直し案は取り下げない
  *  10. 取り下げられる見直し案の決まり（どの案も反映していない・まだ全部は取り下げていない。判断と判断の日時では決めない）
+ *  11. 予測の記録（FORECAST_SNAPSHOT.calibration_applied_json）は、AI の重み 0 を 0 と書く（空にしない。2026-10-08 村井さん承認）。
+ *      C-3 の反映できる案が無いときの文は、止めている「見直し案を作る」へ案内しない（取り下げた案・まだ案が無い・反映済み）
  * モックの上の確かめで、本物の Apps Script の上では動かしていない。
  *
  *   node app/tests/app-calibration.test.mjs
@@ -141,6 +143,21 @@ function loadUi() {
     assert.equal(env.run('appCalibrationNorm_("bias_correction_factor", __raw)', { __raw: raw }), f, '係数: ' + raw);
     assert.equal(env.run('appCalibrationNorm_("auto_update_enabled", __raw)', { __raw: raw }), a, '旗: ' + raw);
   }
+  // 予測の記録の補正（calibration_applied_json）: 空だけを既定の書き方にし、0 は 0 のまま（前は「|| ''」で 0 を空と書いた。2026-10-08 村井さん承認）
+  vm.runInContext(['createDefaultCalibrationState_', 'buildCalibrationAppliedPayload_'].map((n) => extractFunction(legacySrc, n)).join('\n') + '\nconst VERSION = "v-test";', box);
+  const applied = (cal) => JSON.parse(JSON.stringify(vm.runInContext('buildCalibrationAppliedPayload_(__r)', Object.assign(box, { __r: cal === undefined ? {} : { calibration: cal } }))));
+  assert.deepEqual(applied({ ai_weight_override: 0, ai_max_abs_effect_override: 0, qual_scale_override: 0, bias_correction_factor: 0.8, ai_topic_disable_json: '["DX"]',
+    residual_month_bias_json: '{"4":0.05}', last_applied_quarter: 'FY2026-Q1' }),
+  { version: 'v-test', quarter: 'FY2026-Q1', ai_weight_override: 0, ai_max_abs_effect_override: 0, ai_topic_disable_json: '["DX"]', bias_correction_factor: 0.8,
+    qual_scale_override: 0, residual_month_bias_json: '{"4":0.05}' }, '0 は 0 のまま（AI の重み・AI の効きの上限・入力の効きの倍率）');
+  assert.deepEqual(applied({ ai_weight_override: '', ai_max_abs_effect_override: null, qual_scale_override: undefined, bias_correction_factor: '', ai_topic_disable_json: '',
+    residual_month_bias_json: null, last_applied_quarter: '' }),
+  { version: 'v-test', quarter: '', ai_weight_override: '', ai_max_abs_effect_override: '', ai_topic_disable_json: '[]', bias_correction_factor: 1, qual_scale_override: '',
+    residual_month_bias_json: '' }, '空は前と同じ書き方（上書きなし・係数 1・話題は []）');
+  assert.deepEqual(applied(undefined), { version: 'v-test', quarter: '', ai_weight_override: '', ai_max_abs_effect_override: '', ai_topic_disable_json: '[]', bias_correction_factor: 1,
+    qual_scale_override: '', residual_month_bias_json: '' }, '補正が無い予測（既定の状態）');
+  assert.deepEqual(applied({ ai_weight_override: 0.0004, ai_max_abs_effect_override: '0.03', bias_correction_factor: 1.1 }).ai_weight_override, 0.0004, '0 でない値はそのまま');
+  assert.doesNotMatch(extractFunction(legacySrc, 'buildCalibrationAppliedPayload_'), /cal\.\w+\s*\|\|/, '値を「||」で既定にしない（0 を空にしてしまう）');
   // AI の効き: 空は未設定（CONFIG の値）、0 は 0（以前の直し: 0 を未設定として扱わない）
   assert.match(legacySrc, /if \(v === '' \|\| v === null \|\| v === undefined\) return null;\n    const n = Number\(v\);\n    return isFinite\(n\) \? n : null;/);
   assert.deepEqual(['', null, 0, '0', 0.0004, 'abc'].map((raw) => env.run('appCalibrationNorm_("ai_weight_override", __raw)', { __raw: raw })), ['', '', 0, 0, 0.0004, '']);
@@ -287,7 +304,7 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
 
 // ==== 3. AI の効きを 0 にすると、A-9 の AI の倍率だけが 1 になる（同じ乱数で前と後の予測を比べる） ====
 {
-  // 2 回の予測で同じ乱数の並びにする（種は実行の ID なので、ここでは固定する）
+  // 2 回の予測で同じ乱数の並びにする（種は予測が読む表の中身から決まる。ここでは補正の値を変えて比べるので、種が変わる。ここでは固定する）
   env.run(`(() => { const orig = appWithSeededRandom_; appWithSeededRandom_ = function (seed, fn) { return orig('FIXED-SEED', fn); }; })()`);
   const influence = () => {
     const vals = env.call(`appEngLoadPlanSheets_(__p, ['OUTPUT'], true).OUTPUT.values`, { __p: planId });
@@ -350,6 +367,18 @@ const histBefore = () => engRows(env, 'CALIBRATION_HISTORY', planId).map((r) => 
   }
   assert.equal(r2.headline.objective.p50, r1.headline.objective.p50, '客観（統計だけ）の年間は同じ');
   assert.ok(r2.headline.annual.p50 < r1.headline.annual.p50);
+  // 11. 予測の記録（FORECAST_SNAPSHOT.calibration_applied_json）: AI の重み 0 で動かした予測は 0 と書く（空にすると「上書きなし」に見える）
+  const appliedOf = () => {
+    const snap = engRows(env, 'FORECAST_SNAPSHOT', planId);
+    const sids = [...new Set(snap.map((r) => r.snapshot_id))];
+    return sids.map((sid) => [...new Set(snap.filter((r) => r.snapshot_id === sid).map((r) => r.calibration_applied_json))].map((t) => JSON.parse(t)));
+  };
+  const ap = appliedOf();
+  assert.equal(ap.length, 2, '前提: 予測 2 回分の記録');
+  assert.ok(ap.every((x) => x.length === 1), '1 回の予測の行は、どれも同じ補正の記録');
+  assert.deepEqual([ap[0][0].ai_weight_override, ap[1][0].ai_weight_override], ['', 0], '前: 上書きなし（空）・後: 所有者が承認した 0（数の 0）');
+  assert.deepEqual([ap[1][0].bias_correction_factor, ap[1][0].residual_month_bias_json, ap[1][0].ai_max_abs_effect_override, ap[1][0].quarter],
+    [0.8, '{"4":0.05,"9":-0.1}', '', ''], 'ほかの項目は前と同じ書き方');
 
   // 前の C-3 の四半期が CALIBRATION_STATE に残っている（last_applied_quarter）と、旧来の A-9 は四半期と「・」の行を書き、AI の効き 0 を「既定」と書く。
   // 所有者が承認した値の後は、その区切りをまるごと、所有者が承認した値とその値に書き換える（前の四半期の値とは書かない）
@@ -653,6 +682,11 @@ function seedReviewPlan(e, name, withHistory) {
 {
   const envB = setUpEnv();
   const planB = seedReviewPlan(envB, '予測B', false);
+  // 見直し案がまだ無い計画で C-3: 止めている「見直し案を作る」へは案内しない（前は「C-1 を再実行してください。」）
+  const none = envB.runJob('PLAN.RUN', { planId: planB, action: 'REVIEW.APPLY' });
+  assert.equal(none.status, 'FAILED');
+  assert.equal(none.error, 'C-2 エラー: 反映できる見直し案がありません（まだ案がありません）。');
+  assert.equal(engRows(envB, 'QUARTERLY_REVIEW_LOG', planB).length, 0, '何も書かない');
   // 本物の C-1 で見直し案を作る（止めているので、待ち行列に直接入れる）
   assert.throws(() => envB.call('apiStartJob(__in)', { __in: { kind: 'PLAN.RUN', payload: { planId: planB, action: 'REVIEW.GENERATE' } } }), /止めています/);
   const gen = runQueued(envB, 'PLAN.RUN', { planId: planB, action: 'REVIEW.GENERATE' });
@@ -727,7 +761,7 @@ function seedReviewPlan(e, name, withHistory) {
   const apply = () => {
     const a = envB.runJob('PLAN.RUN', { planId: planB, action: 'REVIEW.APPLY' });
     assert.equal(a.status, 'FAILED', '適用するレビューが無い');
-    assert.match(a.error, /対象レビューが見つかりません/);
+    assert.equal(a.error, 'C-2 エラー: 反映できる見直し案がありません（取り下げた案か、まだ案がありません）。', '止めている「見直し案を作る」へ案内しない');
     assert.equal(JSON.stringify(engRows(envB, 'SOURCE_RELIABILITY', planB)), rel0, '信頼度は変えない');
     assert.equal(JSON.stringify(engRows(envB, 'CALIBRATION_STATE', planB)), cal0, '補正は変えない');
     assert.deepEqual(engRows(envB, 'QUARTERLY_REVIEW_LOG', planB).map((r) => [r.approval_status, r.applied]), [['取り下げ', '0'], ['取り下げ', '0']]);
@@ -831,10 +865,16 @@ function seedReviewPlan(e, name, withHistory) {
   assert.deepEqual(engRows(wd.e, 'QUARTERLY_REVIEW_LOG', wd.p).map((r) => [r.approval_status, r.applied]), [['承認', '1'], ['承認', '1']], '比べる計画: 取り下げなければ反映してしまう');
   assert.equal(engRows(wd.e, 'CALIBRATION_HISTORY', wd.p).filter((r) => r.review_id === wd.rid).length, 2);
   assert.notEqual(snap(wd), d0);
+  // 反映済みの案でもう一度 C-3: 何も変えず、止めている「見直し案を作る」へは案内しない
+  const d1 = snap(wd);
+  const again2 = wd.e.runJob('PLAN.RUN', { planId: wd.p, action: 'REVIEW.APPLY' });
+  assert.equal(again2.status, 'FAILED');
+  assert.equal(again2.error, 'C-2 エラー: 適用済み: この見直し案は反映済みです（新しい案はまだありません）。');
+  assert.equal(snap(wd), d1, '反映済みの案はもう一度反映しない');
   const c0 = snap(wc);
   const ac = approveAndApply(wc);
   assert.equal(ac.status, 'FAILED', '取り下げた計画: 適用するレビューが無い');
-  assert.match(ac.error, /対象レビューが見つかりません/);
+  assert.equal(ac.error, 'C-2 エラー: 反映できる見直し案がありません（取り下げた案か、まだ案がありません）。');
   assert.equal(snap(wc), c0, '補正・信頼度・履歴は変えない');
   assert.deepEqual(engRows(wc.e, 'QUARTERLY_REVIEW_LOG', wc.p).map((r) => [r.approval_status, r.applied]), [['取り下げ', '0'], ['取り下げ', '0']]);
 

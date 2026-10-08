@@ -1,6 +1,6 @@
 /**
  * LegacyEngine.js — 旧来の計算（Forecast_Agent.js）と旧来の Web アプリ（Forecast_WebApp.js）をそのまま関数で包んだもの。自動生成: app/tools/build-engine.mjs（手で編集しない）。
- * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 7721c3ca50e943ba80fb70e084e3624d866516308d970c16b7ab2fdc81931f3a）
+ * 元のファイル: Forecast_Agent.js（VERSION 2.4.0-dev、SHA-256 6a19638d0a20258ea8271db654e30769704239a8c243712563250d4a2a76cae5）
  *               Forecast_WebApp.js（SHA-256 8c0bb94d87f4ab3b7601ad0cb81b1ceca2cb1cce2a939554d5af26437b860de4）
  * 包んだ中の旧来の関数は外から呼べない。差し替えるもの（SpreadsheetApp・Date・Utilities・PropertiesService・UrlFetchApp・HtmlService・Session）は Engine.js の appLegacyServices_ が渡す。
  */
@@ -8961,17 +8961,24 @@ function readLatestVertexAssist_(client, months) {
   return out;
 }
 
+/**
+ * FORECAST_SNAPSHOT.calibration_applied_json（その予測に掛かっていた補正）。値は CALIBRATION_STATE から読んだまま書く。
+ * 空（'' / null / undefined）だけを既定の書き方にし、0 は 0 のまま残す（2026-10-08 村井さん承認。前は「|| ''」で、
+ * 所有者が AI の重みを 0 にした予測も ai_weight_override を空と書き、記録からは「上書きなし」に見えた。AI の効きの上限・
+ * 入力の効きの倍率も同じ。偏りの補正は読むときに正の数にしているので、書く値は前と同じ）
+ */
 function buildCalibrationAppliedPayload_(result) {
   const cal = (result && result.calibration) || createDefaultCalibrationState_('');
+  const keep = (v, def) => (v === '' || v === null || v === undefined ? def : v);
   return {
     version: VERSION,
-    quarter: cal.last_applied_quarter || '',
-    ai_weight_override: cal.ai_weight_override || '',
-    ai_max_abs_effect_override: cal.ai_max_abs_effect_override || '',
-    ai_topic_disable_json: cal.ai_topic_disable_json || '[]',
-    bias_correction_factor: cal.bias_correction_factor || 1,
-    qual_scale_override: cal.qual_scale_override || '',
-    residual_month_bias_json: cal.residual_month_bias_json || ''
+    quarter: keep(cal.last_applied_quarter, ''),
+    ai_weight_override: keep(cal.ai_weight_override, ''),
+    ai_max_abs_effect_override: keep(cal.ai_max_abs_effect_override, ''),
+    ai_topic_disable_json: keep(cal.ai_topic_disable_json, '[]'),
+    bias_correction_factor: keep(cal.bias_correction_factor, 1),
+    qual_scale_override: keep(cal.qual_scale_override, ''),
+    residual_month_bias_json: keep(cal.residual_month_bias_json, '')
   };
 }
 
@@ -9568,15 +9575,17 @@ function applyQuarterlyProposals() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW);
     const reviewId = String(sh.getRange(8, 10).getValue() || '').trim();
-    if (!reviewId) throw new Error('C-1 を再実行してください。');
+    // 反映できる案が無いときの文は、止めている「見直し案を作る」（C-1）へ案内しない（2026-10-08 村井さん承認。新アプリの画面にそのまま出る。
+    // 頭の「C-2 エラー: 」は下の catch が付ける。取り下げた案は、新アプリが review_id に「取り下げ:」を付けるので記録に見つからない）
+    if (!reviewId) throw new Error('反映できる見直し案がありません（まだ案がありません）。');
     const logSh = ss.getSheetByName(SHEETS.QUARTERLY_REVIEW_LOG);
     const all = logSh.getDataRange().getValues();
     const header = all[0] || [];
     const idx = {}; header.forEach((h,i)=>idx[String(h||'')]=i);
     const logRows = all.slice(1).filter(r => String(r[idx.review_id] || '') === reviewId);
-    if (!logRows.length) throw new Error('対象レビューが見つかりません。C-1を再実行してください。');
+    if (!logRows.length) throw new Error('反映できる見直し案がありません（取り下げた案か、まだ案がありません）。');
     if (logRows.some(r => Number(r[idx.applied] || 0) === 1)) {
-      alertOrThrow_('適用済み', 'このレビューは適用済みです。C-1 を再実行して新しい review_id を作ってください');
+      alertOrThrow_('適用済み', 'この見直し案は反映済みです（新しい案はまだありません）。');
       return;
     }
     const reviewVals = sh.getDataRange().getValues();
@@ -10658,7 +10667,7 @@ function webAuditLogUrl_() {
     hideNonUserSheets_: typeof hideNonUserSheets_ === 'undefined' ? undefined : hideNonUserSheets_,
     saveInitialSetupSettings: typeof saveInitialSetupSettings === 'undefined' ? undefined : saveInitialSetupSettings,
     getClientCandidatesForSetup_: typeof getClientCandidatesForSetup_ === 'undefined' ? undefined : getClientCandidatesForSetup_,
-    SOURCE_SHA256: '7721c3ca50e943ba80fb70e084e3624d866516308d970c16b7ab2fdc81931f3a',
+    SOURCE_SHA256: '6a19638d0a20258ea8271db654e30769704239a8c243712563250d4a2a76cae5',
     WEB_SOURCE_SHA256: '8c0bb94d87f4ab3b7601ad0cb81b1ceca2cb1cce2a939554d5af26437b860de4'
   };
 }

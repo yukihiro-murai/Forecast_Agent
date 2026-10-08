@@ -18,6 +18,9 @@
  *      （機械の列が前の決まりのまま）。B-4 の後は、人の記入を足して B-2 をもう一度動かしても出したまま
  *   9. 返品・値引きで実績が負の締まった月: B-4 は実績を 0 円と書くので、振り返りも 0 円で比べる（B-4 の後に出る）
  *  10. 検証の画面の scoredMonths: B-2 の前は 0、B-2 の後は測った月の数（どの月も売上 0 円で、精度の月が 0 でも）
+ *  11. 同じ月の行が 2 つ（v0.27.2 より前の B-4 の残り）で、人の記入が最後の行に無い: B-4 は最後の行だけを書き直すが、学びと計画の画面は
+ *      その月の人が書いた一番新しい行の記入を、書き直した行の数字で出す（計画の画面からその行に書ける）。人の学びの waitingMonths
+ *      （B-2 が測ったのに振り返りの行がまだ無い月。締めた年度の計画は数えない）。2026-10-08 村井さん承認
  * 数字はテスト用の作りもの。本物の Apps Script での確認の代わりではない。
  *
  *   node app/tests/app-legacy-closed-months.test.mjs
@@ -25,7 +28,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { setUpEnv, sources, repoRoot } from './gas-mock.mjs';
+import vm from 'node:vm';
+import { setUpEnv, sources, repoRoot, uiHtml, OWNER } from './gas-mock.mjs';
 
 /** 日本の時刻（月は 1 始まり） */
 const jst = (y, m, d, H = 0, M = 0) => new Date(Date.UTC(y, m - 1, d, H - 9, M));
@@ -520,6 +524,71 @@ const evalOf = (P, ym) => P.rows('EVAL_LOG').find((x) => ymOf(x.target_month, x.
   const after = lv();
   assert.deepEqual([after.scoredMonths, after.accuracy.months.length, after.accuracy.n], [3, 0, 0], 'B-2 の後: 比べた月はどれも売上 0 円（精度の月は 0・scoredMonths は 3）');
   assert.equal(P.env.call('apiPeopleLearning()').summary.scoredMonths, 3, '人の学びの scoredMonths と同じ数');
+}
+
+// ---- 11. 同じ月の行が 2 つ（v0.27.2 より前の B-4 が月を日付で書き、上書きの鍵が合わずに増えた行）。人の記入は 1 つ目の行にだけある。
+// B-4 は最後の行だけを今の数字で書き直す（人の記入の跡が無いので、機械の列も書き直す）。1 つ目の行の記入は、学びにも計画の画面にも出す ----
+{
+  const old = (at, o) => row('EVAL_INSIGHTS', Object.assign({ evaluated_at: at, client: CLIENT, target_month: '2026/07', actual_total: 1000, pred_p50: LATE, diff: 1000 - LATE,
+    error_rate: (1000 - LATE) / 1000, insight: '前の版の見立て', diagnostic_type: 'range_breach', range_breach: 1, cause_bucket: 'range_outside', action_type: 'update',
+    next_cycle_reflection: '次回サイクルで前提更新を反映', status: 'open', review_cycle: 'monthly_light' }, o));
+  const noted = old(jst(2026, 10, 2, 12), { cause_hypothesis: '大口の失注', action_type: '入力を修正', next_cycle_reflection: '見解を見直す', owner: '鷹野', status: 'in_progress' });
+  const P = setUpPlan(jst(2026, 10, 6, 9), [noted, old(jst(2026, 10, 2, 13))]);   // シートの 3 行目（記入あり）・4 行目（記入なし）
+  const people = () => P.env.call('apiPeopleLearning()');
+  const jul = () => people().lessons.find((l) => l.planId === P.planId && l.ym === '2026/07');
+  const view = () => P.env.call('apiPlanView(__in)', { __in: { planId: P.planId } });
+  const julRows = () => view().boot.eval.insights.filter((r) => r.month === '2026/07').map((r) => [r.row, r.pred, r.actual, r.hypothesis, r.owner, r.status, r.insight, r.rangeBreach]);
+
+  // B-2 の後・B-4 の前: 7 月の 2 行はどちらも前の版の数字（使える行が無い）なので、記入があっても出さない。3 か月とも B-4 待ち
+  P.ok('EVAL.REPORT');
+  assert.equal(jul(), undefined);
+  assert.deepEqual(julRows(), []);
+  assert.deepEqual([people().summary.scoredMonths, people().summary.waitingMonths], [3, 3], 'B-4 待ちは 3 か月');
+  // 締めた年度の計画は、B-4 を動かせないので B-4 待ちに数えない（測った月は数える）
+  P.env.run(`(() => { const orig = appYearIsFrozen_; appYearIsFrozen_ = fy => String(fy) === '2026' || orig(fy); globalThis.__unfreeze = () => { appYearIsFrozen_ = orig; }; })()`);
+  for (const k of Object.keys(P.env.cache)) delete P.env.cache[k];
+  assert.deepEqual([people().summary.scoredMonths, people().summary.waitingMonths], [3, 0], '締めた年度: B-4 待ちは数えない');
+  P.env.run('__unfreeze()');
+  for (const k of Object.keys(P.env.cache)) delete P.env.cache[k];
+
+  // B-4: 最後の行（4 行目）だけを今の数字で書き直し、8・9 月を足す。記入のある 3 行目はそのまま（消さない）
+  P.ok('EVAL.INSIGHTS');
+  const ins = P.rows('EVAL_INSIGHTS');
+  assert.equal(ins.length, 5, '行は消さない');
+  assert.deepEqual([Number(ins[1].pred_p50), ins[1].cause_hypothesis, Number(ins[2].pred_p50), ins[2].cause_hypothesis], [LATE, '大口の失注', PRE, ''],
+    '前提: B-4 は最後の行だけを書き直した（記入は 1 つ目の行に残ったまま）');
+  const j = jul();
+  assert.ok(j, '7 月を出す');
+  assert.deepEqual([j.pred, j.actual, j.direction, j.range], [PRE, 1000, 'over', false], '数字・印は書き直した行（今の B-2 の数字）から');
+  assert.deepEqual([j.hypothesis, j.actionType, j.reflection, j.owner, j.status, j.human, j.duplicates], ['大口の失注', '入力を修正', '見解を見直す', '鷹野', 'in_progress', true, 1],
+    '記入は 1 つ目の行から（前は隠れたまま）');
+  assert.deepEqual([people().summary.months, people().summary.waitingMonths, people().summary.withNotes], [3, 0, 1]);
+  // 計画の画面: 記入のある 3 行目を、書き直した行の数字・見立て・印で出す（行の番号は 3 のまま = 画面からそこに書ける）。書き直した 4 行目も出す（画面がまとめる）
+  const r4 = view().boot.eval.insights.find((r) => r.row === 4);
+  assert.deepEqual(julRows(), [[3, PRE, 1000, '大口の失注', '鷹野', 'in_progress', r4.insight, false], [4, PRE, 1000, '', '', r4.status, r4.insight, false]]);
+  assert.notEqual(r4.insight, '前の版の見立て', '前提: 見立ては今の B-4 のもの');
+  // 画面の「人の記入」は、人が書いた行（3 行目）を出し、自動の 4 行目はまとめる
+  const js = uiHtml.slice(uiHtml.indexOf('<script>') + 8, uiHtml.lastIndexOf('</script>'))
+    .replace('<?!= charsJs ?>', 'var YOMI_POSE = new Proxy({}, { get: () => "" }); var CHAR_SVG = new Proxy({}, { get: () => "" });')
+    .replace('<?!= bootJson ?>', JSON.stringify({ app: { name: 'T', version: 'x' }, user: { email: OWNER, isOwner: true, isAdmin: true, roles: [] }, setUp: true, allowed: true }));
+  const el = () => ({ innerHTML: '', classList: { add() {}, remove() {} }, set outerHTML(v) {} });
+  const ui = vm.createContext({ document: { getElementById: el, querySelector: () => null, addEventListener() {} }, setTimeout: () => 0, clearTimeout() {}, confirm: () => false,
+    window: { addEventListener() {}, innerWidth: 1280, innerHeight: 800 },
+    google: { script: { run: new Proxy({}, { get: (t, k) => (k === 'withSuccessHandler' || k === 'withFailureHandler' ? () => ui.google.script.run : () => {}) }) } } });
+  vm.runInContext(js, ui);
+  ui.__ins = view().boot.eval.insights;
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('fcInsRows(__ins).map(function(o){ return [o.r.month, o.r.row, o.hidden]; })', ui))),
+    [['2026/07', 3, 1], ['2026/08', 5, 0], ['2026/09', 6, 0]], '画面は 7 月を記入のある 3 行目で出す');
+
+  // 計画の画面から 3 行目の記入を直す → 学びにも出る。もう一度 B-4 を動かしても、記入は出したまま（行は増えない）
+  const saved = P.env.runJob('PLAN.EDIT', { planId: P.planId, action: 'INSIGHT.SAVE', inputHash: view().inputHash,
+    args: { rows: [{ row: 3, hypothesis: '大口の失注（確認済み）', actionType: '入力を修正', reflection: '見解を見直す', owner: '鷹野', status: 'done' }] } });
+  assert.equal(saved.status, 'DONE', saved.error);
+  assert.deepEqual([jul().hypothesis, jul().status], ['大口の失注（確認済み）', 'done']);
+  P.ok('EVAL.INSIGHTS');
+  assert.equal(P.rows('EVAL_INSIGHTS').length, 5, '行は増えない・消さない');
+  assert.deepEqual([jul().hypothesis, jul().status, jul().pred], ['大口の失注（確認済み）', 'done', PRE]);
+  assert.deepEqual(julRows().map((r) => [r[0], r[3]]), [[3, '大口の失注（確認済み）'], [4, '']]);
 }
 
 console.log('app-legacy-closed-months: all tests passed');
