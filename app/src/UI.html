@@ -980,6 +980,25 @@ function runWhen(acts){
   return seePeople() ? '各計画の振り返りで' + acts.map(function(a){ return '「' + actShort(a) + '」'; }).join('と') + 'を動かすと'
     : acts.map(function(a){ return RUN_DONE[a]; }).join('、') + 'ると';
 }
+/** 計画の、実績と比べた月の数（サーバーの scoredMonths。売上が 0 円の月も数える。分析は accuracy.scoredMonths を先に読む。無ければ null） */
+function scoredOf(p){ var a = p && p.accuracy; return a && isNum(a.scoredMonths) ? a.scoredMonths : p && isNum(p.scoredMonths) ? p.scoredMonths : null; }
+/**
+ * 外れ幅の無い計画を、比べた月がどれも売上 0 円の計画（外れ幅を % にできない）と、まだ比べていない計画に分ける（ホーム・分析・学び）。
+ * plans: 外れ幅の無い計画だけ。usable(p): 外れ幅に使える月があるか・分からないか（分析の精度の月。省くと、比べた月の数だけで決める）。
+ * 比べた月の数を返さないサーバーでは zero は 0（今までどおり「まだ比べていない」）。返り値 { zero: 計画の数, months: その比べた月の合計, rest: まだ比べていない計画の数 }
+ */
+function zeroSales(plans, usable){
+  var o = { zero: 0, months: 0, rest: 0 };
+  (plans || []).forEach(function(p){ var s = scoredOf(p); if (s > 0 && !(usable && usable(p))) { o.zero++; o.months += s; } else o.rest++; });
+  return o;
+}
+/**
+ * 比べた月がどれも売上 0 円のときの一文（振り返りと同じ言い方。計画が 2 つ以上なら「のべ」）。動かし方は言わない。
+ * how があり、まだ比べていない計画もあれば、そのメーカーの出し方を添える（runWhen の後ろの言葉。「出ます」など）
+ */
+function zeroSay(z, how){
+  return '比べた ' + (z.zero > 1 ? 'のべ ' : '') + z.months + ' か月は、どれも売上が 0 円のため、外れ幅を % で出せません。' + (z.rest && how ? 'ほかのメーカーは、' + runWhen() + how : '');
+}
 
 // ---- 見直し案の言葉（振り返りと学びで同じ言い方にする） ----
 var QR_SOURCES = { factor_product: '製品の入力', factor_client: 'メーカー全体の入力', opinion: '見解', ai_topic: 'AI の話題', vertex_forecast: 'AI の見立て' };
@@ -1526,13 +1545,16 @@ function homeTotals(h, plans){
   return { plans: plans.length, budget: homeSum(budgeted, planBudget), budgetPlans: budgeted.length, actualYtd: homeSum(plans, function(p){ return p.actualYtd; }),
     landing: homeSum(landed, function(p){ return p.landing; }), landingPlans: landed.length, ratio: bb ? homeSum(both, function(p){ return p.landing; }) / bb : null, ratioPlans: both.length };
 }
-/** 着地の推定の合計の 80% の幅: Σ着地 ± 1.2816・√Σ ばらつき²（メーカーどうしが別々に動くとみなす）。着地の無いメーカーは飛ばす。メーカーの画面の合計の行でも使う */
+/**
+ * 着地の推定の合計の 80% の幅: Σ着地 ± 1.2816・√Σ ばらつき²（メーカーどうしが別々に動くとみなす）。着地の無いメーカーは飛ばす。メーカーの画面の合計の行でも使う。
+ * 下の端は 0 円で止める（売上はマイナスにならない。「-0」も出さない。分析の合計の幅と同じ）
+ */
 function homeRange(plans){
   var L = 0, v = 0, n = 0;
   plans.forEach(function(p){ if (isNum(p.landing)) { L += p.landing; n++; if (isNum(p.landingSd)) v += p.landingSd * p.landingSd; } });
   if (!n) return null;
   var d = 1.2816 * Math.sqrt(v);
-  return { landing: L, lo: L - d, hi: L + d, n: n };
+  return { landing: L, lo: Math.max(0, L - d), hi: L + d, n: n };
 }
 function homeRangeTip(r, all){
   if (!r) return '着地を推定できるメーカーがまだありません';
@@ -1556,6 +1578,15 @@ function homeKpi(label, v, unit, tipText, main, sub){
     + subs.map(kpiSub).join('') + '</div>';
 }
 function homeMape(plans){ var xs = plans.map(function(p){ return p.mape; }).filter(isNum); return { v: xs.length ? xs.reduce(function(a, x){ return a + x; }, 0) / xs.length : null, n: xs.length }; }
+/**
+ * どのメーカーにも外れ幅が無いときの説明の一行（外れ幅の箱・精度の天気）。比べた月がどれも売上 0 円なら、そう言い（振り返りと同じ言い方）、
+ * 動かし方は、まだ比べていないメーカーがあるときだけ添える。比べた月の数（plans[].scoredMonths）を返さないサーバーでは今までどおり。
+ * short: 「まだ実績と比べたメーカーがありません。」を省く（霧の決まりで言っているとき）
+ */
+function homeNoMape(plans, short){
+  var z = zeroSales(plans.filter(function(p){ return !isNum(p.mape); }));
+  return z.zero ? zeroSay(z, '出ます') : (short ? '' : 'まだ実績と比べたメーカーがありません。') + runWhen() + '出ます';
+}
 function homeKpis(h, plans){
   var t = homeTotals(h, plans), r = homeRange(plans), m = homeMape(plans);
   var months = plans.reduce(function(a, p){ return Math.max(a, isNum(p.actualMonths) ? p.actualMonths : 0); }, 0);
@@ -1569,7 +1600,7 @@ function homeKpis(h, plans){
     + (isNum(t.ratio) ? '\n予算の ' + (t.ratio * 100).toFixed(1) + '%（着地と予算の両方がある ' + t.ratioPlans + ' メーカーで比べています' + (isNum(bothB) ? '。その予算の合計 ' + yenU(bothB) : '') + '）' : '');
   var actTip = '暫定実績の合計: ' + yenU(t.actualYtd) + '\n締まった月（月末から 5 日たってから取り込んだ月）の実績を足しています' + (months ? '（最大 ' + months + ' か月）' : '');
   var mapeTip = '締まった月の、予測の中心と実績の差の割合（向きは問わない）の平均です。メーカーごとの平均を、さらにメーカーで平均しています'
-    + (m.n ? '（' + m.n + ' メーカー）' : '\nまだ実績と比べたメーカーがありません。' + runWhen() + '出ます');
+    + (m.n ? '（' + m.n + ' メーカー）' : '\n' + homeNoMape(plans));
   return '<div class="kpis hm-kpis">'
     + homeKpi('年間予算', yenShort(t.budget), '円', budgetTip, true, isNum(t.budget) ? (t.budgetPlans < all ? t.budgetPlans + ' / ' + all + ' メーカー' : all + ' メーカー') : '')
     + homeKpi('着地の推定', yenShort(t.landing), '円', landTip, false, isNum(t.landing) ? [(t.landingPlans < all ? t.landingPlans + ' / ' + all + ' メーカー' : all + ' メーカー'),
@@ -1610,10 +1641,12 @@ function homeLearnCard(h, plans){
   });
   var nRough = Object.keys(rough).length, key = accWeather(m.v, nRough > 0);
   // まだ比べた月が無いときは、荒れていても（補正が限度に張りついただけでも）出し方を言う（動かせない人には「計算されると出ます」）
-  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? '\n' + (nRough ? 'まだ実績と比べたメーカーがありません。' : '') + runWhen() + '出ます' : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
+  // 比べた月がどれも売上 0 円なら、「まだ」とも動かし方とも言わず、外れ幅を % で出せないと言う（homeNoMape）
+  var zero = m.v === null && zeroSales(plans.filter(function(p){ return !isNum(p.mape); })).zero > 0;
+  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? '\n' + homeNoMape(plans, !nRough) : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
     + (nRough ? '\n荒れている印: ' + Object.keys(roughN).map(function(k){ return HOME_ROUGH[k] + ' ' + Object.keys(roughN[k]).length; }).join('・') : '') + '\n精度の推移は、学びの「AI の学び」で見られます';
   // 荒れの印が 1 種類だけなら、その印の名前で言う（補正が限度に張りついただけで「荒れています」とまとめない）
-  var kinds = Object.keys(roughN), sub = nRough ? (kinds.length === 1 ? HOME_ROUGH_SHORT[kinds[0]] : '荒れています') + '（' + nRough + ' メーカー）' : m.v === null ? '比べる実績はまだです' : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
+  var kinds = Object.keys(roughN), sub = nRough ? (kinds.length === 1 ? HOME_ROUGH_SHORT[kinds[0]] : '荒れています') + '（' + nRough + ' メーカー）' : m.v === null ? (zero ? '売上 0 円の月だけ' : '比べる実績はまだです') : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
   var pend = d.pending || [], nProp = pend.reduce(function(a, p){ return a + (p.proposals || []).length; }, 0);
   var pTip = 'AI が作った見直し案のうち、承認を待っているものです。承認者が承認して反映するまで、予測には効きません' + (pend.length ? '\n' + pend.length + ' メーカーの分' : '');
   return '<div class="card">' + head + '<div class="hm-lr">'
@@ -2161,18 +2194,36 @@ function fcCalText(f, done){
   return done ? '最新の予測は ' + p + (f < 1 ? '下げて' : '上げて') + '計算しました' : 'これまでの外れ方から ' + p + (f < 1 ? '下げています' : '上げています');
 }
 /**
- * 月ごとの補正の言葉（3 月 20.0% 下げ・4 月 5.0% 上げ。無ければ空）。mb: { 暦月: 割合 } か、その JSON の文字（予測の控えの residual_month_bias_json。空・壊れていれば無し）
+ * 月ごとの補正の並び（[{ m: 暦月, b: 割合 }]。暦月の順。0.0% になる値は効かないので入れない）。
+ * mb: { 暦月: 割合 } か、その JSON の文字（予測の控えの residual_month_bias_json。空・壊れていれば無し）
  */
-function fcMonthBiasText(mb){
+function fcMonthBiasList(mb){
   if (typeof mb === 'string') { try { mb = mb.trim() ? JSON.parse(mb) : {}; } catch (e) { mb = {}; } }
   mb = mb && typeof mb === 'object' && !Array.isArray(mb) ? mb : {};
-  return Object.keys(mb).filter(function(k){ return mb[k] !== null && mb[k] !== '' && isFinite(Number(mb[k])); }).sort(function(x, y){ return Number(x) - Number(y); })
-    .map(function(k){ var b = Number(mb[k]); return Number(k) + ' 月 ' + Math.abs(b * 100).toFixed(1) + '% ' + (b < 0 ? '下げ' : '上げ'); }).join('・');
+  return Object.keys(mb).filter(function(k){ return mb[k] !== null && mb[k] !== '' && isFinite(Number(mb[k])) && Math.abs(Number(mb[k])) >= 0.0005; })
+    .sort(function(x, y){ return Number(x) - Number(y); }).map(function(k){ return { m: Number(k), b: Number(mb[k]) }; });
 }
-/** 出している予測の補正（ap）と今の補正（f）が違うときの一文: 最新の予測は 3.0% 下げています（次の予測から補正なし） */
-function fcCalShown(ap, f){
-  var none = function(x){ return !isFinite(Number(x)) || Math.abs(Number(x) - 1) < 0.0005; };
-  return '最新の予測は' + (none(ap) ? '、補正なしです' : ' ' + qrValue('bias_correction_factor', ap) + 'ています') + '（次の予測から' + (none(f) ? '補正なし' : ' ' + qrValue('bias_correction_factor', f)) + '）';
+/** 月ごとの補正の言葉（3 月 20.0% 下げ・4 月 5.0% 上げ。無ければ空。カーソルの説明に使う） */
+function fcMonthBiasText(mb){ return fcMonthBiasList(mb).map(function(x){ return x.m + ' 月 ' + Math.abs(x.b * 100).toFixed(1) + '% ' + (x.b < 0 ? '下げ' : '上げ'); }).join('・'); }
+/** 見える一文の月ごとの補正（3 月を 20.0% 下げ・4 月を 5.0% 上げ。3 つ以上は「3 か月分を月ごとに直し」で、内訳はカーソルで）。list: fcMonthBiasList */
+function fcMonthBiasSay(list){
+  return list.length > 2 ? list.length + ' か月分を月ごとに直し' : list.map(function(x){ return x.m + ' 月を ' + Math.abs(x.b * 100).toFixed(1) + '% ' + (x.b < 0 ? '下げ' : '上げ'); }).join('・');
+}
+/**
+ * 出している予測の補正と今の補正が違うときの一文。ap・f: 出している予測の倍率・今の倍率。shown・now: それぞれの月ごとの補正（fcMonthBiasList）。
+ * monthsOnly: 倍率は同じで、月ごとの補正だけが違う（月ごとの補正を言う）。倍率が違うときは倍率を言い（月ごとの補正はカーソルで）、
+ * 倍率が無くて月ごとの補正だけがある側は月ごとの補正を言う（月ごとに直しているのに「補正なし」とは言わない）
+ *   倍率が違う:     最新の予測は 3.0% 下げています（次の予測から補正なし）
+ *   月ごとだけ違う: 最新の予測は 3 月を 20.0% 下げています（次の予測から補正なし）/ 最新の予測は 20.0% 上げ、月ごとの補正なしです（次の予測から 3 月を 20.0% 下げ）
+ */
+function fcCalShown(ap, f, shown, now, monthsOnly){
+  var none = function(x){ return !isFinite(Number(x)) || Math.abs(Number(x) - 1) < 0.0005; }, fx = function(x){ return qrValue('bias_correction_factor', x); };
+  shown = shown || []; now = now || [];
+  var s = monthsOnly ? (shown.length ? (none(ap) ? ' ' : ' ' + fx(ap) + '、') + fcMonthBiasSay(shown) + 'ています' : none(ap) ? '、補正なしです' : ' ' + fx(ap) + '、月ごとの補正なしです')
+    : !none(ap) ? ' ' + fx(ap) + 'ています' : shown.length ? ' ' + fcMonthBiasSay(shown) + 'ています' : '、補正なしです';
+  var n = monthsOnly ? (now.length ? ' ' + fcMonthBiasSay(now) : none(f) ? '補正なし' : '月ごとの補正なし')
+    : !none(f) ? ' ' + fx(f) : now.length ? ' ' + fcMonthBiasSay(now) : '補正なし';
+  return '最新の予測は' + s + '（次の予測から' + n + '）';
 }
 function fcBasisTab(d, v){
   var r = S.fc.basis;
@@ -2224,15 +2275,20 @@ function fcBasisTab(d, v){
     // 今の補正の倍率（空は補正なし: 旧来の予測と同じ既定の 1）と、出している予測を計算したときの倍率（予測の控えの calibration_applied_json。無ければ null）
     var nowF = isNum(c.factor) && c.factor > 0 ? c.factor : 1, ap = apRaw === null || apRaw === undefined || apRaw === '' || !(Number(apRaw) > 0) ? null : Number(apRaw);
     // 出している予測（数字・グラフ）を計算した補正と今の補正が違う（所有者が戻した直後など）ときは、見える一文は出している予測のことを言い、今の補正は（ ）とカーソルで。
-    // 月ごとの補正も、出している予測が使った分（控えの residual_month_bias_json）を言い、今の分は違うときだけ添える（今が空なら「なし」）
-    var shownDiff = ap !== null && Math.abs(ap - nowF) >= 0.0005, nowMb = fcMonthBiasText(c.monthBias);
+    // 倍率が同じでも、月ごとの補正（控えの residual_month_bias_json）が違えば違うとみなす。控えにその欄が無ければ、旧来の計算と同じく月ごとの補正なしとみなす。
+    // カーソルの説明は、出している予測が使った分 → 今の分（違うものだけ。今が空なら「なし」）
+    var nowList = fcMonthBiasList(c.monthBias), nowMb = fcMonthBiasText(c.monthBias);
+    var apHasMb = !!r.applied && typeof r.applied === 'object';
+    var apMb = apHasMb ? fcMonthBiasText(r.applied.residual_month_bias_json) : '';
+    var factorDiff = ap !== null && Math.abs(ap - nowF) >= 0.0005, mbDiff = apHasMb && apMb !== nowMb, shownDiff = factorDiff || mbDiff;
+    var apF = ap !== null ? ap : nowF, apNone = Math.abs(apF - 1) < 0.0005;
     if (shownDiff) {
-      var apMb = fcMonthBiasText(r.applied.residual_month_bias_json);
-      lines.push(fcCalText(ap, true));
-      if (apMb) lines.push('最新の予測は月ごとにも直しています: ' + apMb);
-      lines.push('今の補正: ' + qrValue('bias_correction_factor', nowF) + '（次の予測から効きます）');
+      if (!apNone) lines.push(fcCalText(apF, true));
+      if (apMb) lines.push('最新の予測は月ごと' + (apNone ? 'に' : 'にも') + '直しています: ' + apMb);
+      else if (apNone) lines.push(fcCalText(apF, true));
+      if (factorDiff) lines.push('今の補正: ' + qrValue('bias_correction_factor', nowF) + '（次の予測から効きます）');
       if (nowMb !== apMb) lines.push('今の月ごとの補正: ' + (nowMb || 'なし') + '（次の予測から効きます）');
-    } else if (nowMb) lines.push('月ごとにも直しています: ' + nowMb);
+    } else if (nowMb) lines.push('月ごと' + (Math.abs(nowF - 1) < 0.0005 ? 'に' : 'にも') + '直しています: ' + nowMb);
     lines.push('補正は、実績がまだの月だけに効きます');
     if (isNum(c.aiWeight) || isNum(c.aiMax)) lines.push('AI の効き ' + (isNum(c.aiWeight) ? aiPct(c.aiWeight) : '既定') + (isNum(c.aiMax) ? '・上限 ±' + Math.round(c.aiMax * 100) + '%' : ''));
     if (c.quarter) lines.push('最後に反映した見直し: ' + qrQuarter(c.quarter));
@@ -2242,7 +2298,10 @@ function fcBasisTab(d, v){
     var L = fcLearnInfo(v), own = fcOwnerSet(L), off = L.autoUpdate === false;
     var cTip = own ? '所有者が承認した値（' + own + '）で決めた、予測の直し方です' : off ? '今の値のまま使う、予測の直し方です' : '「補正を学び直す」と「見直しを反映」で決まる、予測の直し方です';
     if (off) cTip += '\n自動の学びを止めているので、「補正を学び直す」と「見直しを反映」では変わりません';
-    html += '<div class="card"><div class="card-head"><h2>補正' + tip(cTip) + '</h2></div><p class="fc-say" data-tip="' + esc(lines.join('\n')) + '">' + esc(shownDiff ? fcCalShown(ap, nowF) : fcCalText(nowF)) + '</p></div>';
+    // 見える一文: 違えば出している予測のこと（倍率が違えば倍率・月ごとだけ違えば月ごとの補正）。同じなら今の補正（倍率が無くて月ごとだけ直していれば、そう言う）
+    var calSay = shownDiff ? fcCalShown(apF, nowF, apHasMb ? fcMonthBiasList(r.applied.residual_month_bias_json) : [], nowList, !factorDiff)
+      : Math.abs(nowF - 1) < 0.0005 && nowList.length ? 'これまでの外れ方から、' + fcMonthBiasSay(nowList) + 'ています' : fcCalText(nowF);
+    html += '<div class="card"><div class="card-head"><h2>補正' + tip(cTip) + '</h2></div><p class="fc-say" data-tip="' + esc(lines.join('\n')) + '">' + esc(calSay) + '</p></div>';
   }
   // 市場の調査（AI が調べた話題・向き・根拠）と AI の見立て
   var vx = r.vertex && r.vertex.rationale ? r.vertex : null;
@@ -2698,11 +2757,15 @@ function anOut(list, label){
   return '<p class="note anx" data-tip="' + esc((label || '数字がそろわないため除いたメーカー') + '\n' + list.map(function(x){ return x[0] + (x[1] ? '（' + x[1] + '）' : ''); }).join('\n')) + '">'
     + esc(label ? label : '除いたメーカー') + ' ' + list.length + '</p>';
 }
+/** 計画の精度に、外れ幅に使える月があるか（締まった後の予測の月も数える）。精度が無ければ分からないので、あるとみなす（売上 0 円とは言わない） */
+function anAccUsable(p){ var a = p.accuracy; return !a || ((a.n || 0) + (a.leaks || 0)) > 0; }
+/** 外れ幅が無く、比べた月がどれも売上 0 円の計画（振り返りと同じ見分け方: 比べた月の数はあるのに、精度の月が無い） */
+function anZeroPlan(p){ return !(p.accuracy && isNum(p.accuracy.mape)) && scoredOf(p) > 0 && !anAccUsable(p); }
 /** グラフに入れなかった理由（ふつうの言葉） */
 function anWhy(p, need){
   var k = skyKey(p);
   if (k === 'mikakunin') return skyName(k) + '：' + (skyReasonText(p) || '推定できません');
-  if (need === 'accuracy') return 'まだ実績と比べられる月がありません';
+  if (need === 'accuracy') return anZeroPlan(p) ? '比べた月は、どれも売上が 0 円' : 'まだ実績と比べられる月がありません';
   if (need === 'revisions') return 'まだこのアプリで予測していません';
   if (!isNum(p.landing)) return '着地の推定がありません';
   if (need === 'spread' && k === 'sekka') return skyName(k) + '：売上が 0 のため、幅を比べられません';
@@ -2731,11 +2794,13 @@ function anOverview(d){
   // 動かせない人には「計算されると出ます」）。締め済みの年度は、予測も当たり具合も計算し直さない（ずっと出ない）ので、動かし方も「まだ」も言わない
   var accMiss = miss.filter(function(x){ return x === '外れ幅' || x === '読みのクセ'; }), onlyAcc = accMiss.length === miss.length, closed = anClosed(d);
   var why = '（FY' + d.fy + ' は締め済みのため、' + (onlyAcc ? '' : '予測や') + '当たり具合は計算し直しません）。';
-  var accHow = closed ? '' : accMiss.length ? (onlyAcc ? '' : accMiss.join('・') + 'は、') + runWhen() + (onlyAcc ? '、ここに出てきます。' : '出ます。') : '';
+  // 比べた月がどれも売上 0 円の計画（外れ幅を % にできない）があれば、「まだ」・動かし方の代わりにそう言う（まだ比べていない計画があれば、その出し方だけ添える。締め済みは添えない）
+  var z = accMiss.length ? zeroSales(plans.filter(function(p){ return !(p.accuracy && isNum(p.accuracy.mape)); }), anAccUsable) : { zero: 0 }, zeroHow = z.zero ? zeroSay(z, closed ? '' : '出ます。') : '';
+  var accHow = closed ? '' : accMiss.length ? (z.zero ? zeroHow : (onlyAcc ? '' : accMiss.join('・') + 'は、') + runWhen() + (onlyAcc ? '、ここに出てきます。' : '出ます。')) : '';
   var more = closed ? '' : '予測を動かし、実績を取り込むと、ここに出てきます。';
-  var g = !miss.length ? '' : closed ? guide('explain', esc(miss.length === parts.length ? '着地の推定や、予測と実績の比べ' : miss.join('・')) + 'はありません' + esc(why))
-    : miss.length === parts.length ? guide('explain', 'まだ着地の推定や、予測と実績の比べがないため、グラフは出していません。' + more + esc(accHow))
-    : guide('explain', 'まだ数字がそろっていないため、' + esc(miss.join('・')) + 'は出していません。' + (onlyAcc ? '' : more) + esc(accHow));
+  var g = !miss.length ? '' : closed ? guide('explain', esc(miss.length === parts.length ? '着地の推定や、予測と実績の比べ' : miss.join('・')) + 'はありません' + esc(why) + (miss.length === parts.length ? '' : esc(zeroHow)))
+    : miss.length === parts.length ? guide('explain', (z.zero ? 'まだ数字がそろっていないため、グラフは出していません。' : 'まだ着地の推定や、予測と実績の比べがないため、グラフは出していません。') + more + esc(accHow))
+    : guide('explain', (onlyAcc && z.zero && !z.rest ? '' : 'まだ数字がそろっていないため、') + esc(miss.join('・')) + 'は出していません。' + (onlyAcc ? '' : more) + esc(accHow));
   return anTotals(d, plans) + anSkyBoard(plans) + g + body;   // 出していないグラフの案内は、グラフより先に
 }
 /** 合計の 4 つ（年間予算・着地の推定・予算を超える見込みのメーカー・霧）。大きな金額は短い形で、正確な金額はカーソルで */
@@ -3059,22 +3124,28 @@ function lrPeopleView(d){
  *   実績と比べた月（summary.scoredMonths。今の検証の版で当たり具合を計算した 計画 × 月）が無い → 当たり具合を計算（出した直後。各計画で計算し直すまで）
  *   比べた月はあるが、振り返りの記録（summary.months）が無い → 外れの原因を整理
  *   振り返りの記録はあるが、比べた月のほうが多い → まとめの後に、残りの月の数と、外れの原因を整理で出ることを添える
- * scoredMonths を返さないサーバーでは、振り返りの記録が無ければ前者とみなす（今までどおり）。動かせない人には「計算されると」の言い方（runWhen）
+ * scoredMonths を返さないサーバーでは、振り返りの記録が無ければ前者とみなす（今までどおり）。動かせない人には「計算されると」の言い方（runWhen）。
+ * 外れの原因を整理で出る月の数は、サーバーの summary.waitingMonths（締め済みの年度の計画は入らない。整理できない月に動かし方を言わない）。
+ * 無いサーバーでは、比べた月から振り返りの記録の月を引いた数（今までどおり）
  */
 function lrPeopleHero(d){
   var s = d.summary || {}, months = s.months > 0 ? s.months : 0, scored = isNum(s.scoredMonths) ? s.scoredMonths : months;
+  var hasWait = isNum(s.waitingMonths), waiting = Math.max(0, hasWait ? s.waitingMonths : scored - months);
   var none = !months && !(scored > 0), notYet = !months && scored > 0, misses = s.misses || 0, open = (d.openActions || []).length, rep = (d.repeats || []).length;
+  // 比べた月があっても、整理できる月が無い（締め済みの年度の計画だけ）ときは、動かし方を言わない
   var t = none ? 'まだ実績と比べた月がありません。' + runWhen(['EVAL.REPORT', 'EVAL.INSIGHTS']) + '、大きく外れた月がここに出ます。'
-    : notYet ? '実績と比べた月が のべ ' + scored + ' か月あります。' + runWhen(['EVAL.INSIGHTS']) + '、大きく外れた月がここに出ます。'
+    : notYet ? '実績と比べた月が のべ ' + scored + ' か月あります' + (waiting > 0 ? '。' + runWhen(['EVAL.INSIGHTS']) + '、大きく外れた月がここに出ます。' : '（締め済みの年度は、外れの原因を整理しません）。')
     : misses ? '大きく外れた月を ' + misses + ' 件観測しました。人の振り返りは ' + (s.withNotes || 0) + ' 件、残っている対応は ' + open + ' 件です。'
     : '大きく外れた月はありません。予報どおりの空模様が続いています。';
-  // 振り返りの記録がある月より、比べた月が多い（当たり具合を計算した後、外れの原因を整理がまだの計画がある）: 残りの月の数と出し方を添える
-  if (months && scored > months) t += 'ほかに のべ ' + (scored - months) + ' か月は、' + runWhen(['EVAL.INSIGHTS']) + '出ます。';
+  // 振り返りの記録がある月のほかに、整理で出る月がある（当たり具合を計算した後、外れの原因を整理がまだの計画がある）: 残りの月の数と出し方を添える
+  if (months && waiting > 0) t += 'ほかに のべ ' + waiting + ' か月は、' + runWhen(['EVAL.INSIGHTS']) + '出ます。';
   if (rep) t += '同じメーカーの同じ月に、年度をまたいでまた外れたのが ' + rep + ' 件あります。';
   var pose = none || notYet ? 'explain' : !misses ? 'done' : open || rep ? 'discover' : 'explain';
   var tipText = '大きく外れた月: 締まった月で、予測が実績から 10% 以上外れたか、見通しの幅（下振れ〜上振れ）の外に出た月です。メーカーごとの月で数えます'
     + (s.months ? '（振り返りの記録がある月は ' + s.months + ' 件）' : '')
     + (none || notYet ? '\n締まった月（月末から 5 日たってから実績を取り込んだ月）を、その月が始まる前の最後の予測と比べます' : '')
+    // 振り返りの記録があって、比べた月の残りが整理で出る月より多い = 締め済みの年度の月が残っている（数は言わない）
+    + (months && hasWait && scored - months > waiting ? '\n締め済みの年度の月は、外れの原因を整理しません' : '')
     + (d.noPreMonth > 0 ? '\n締まった月のうち のべ ' + d.noPreMonth + ' か月は、その月が始まる前の予測が無いので比べていません' : '');
   return '<div class="card"><div class="hero"><div class="charbox">' + YOMI_POSE[pose] + '</div><div class="bubble"><span data-tip="' + esc(tipText) + '">' + esc(t) + '</span></div></div></div>';
 }
@@ -3229,8 +3300,12 @@ function lrUpliftCard(d){
 function lrAiView(d){
   var curves = (d.curves || []).filter(function(c){ return c && c.prior && (c.quarters || []).length; });
   var sh = d.shrinkage || {}, tl = d.timeline || [], cal = d.calibration || [], pend = d.pending || [];
-  if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length)
-    return guide('guide', '実績が締まって、' + runWhen() + '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');   // AI の学びは当たり具合の計算から（外れの原因の整理は使わない）
+  // AI の学びは当たり具合の計算から（外れの原因の整理は使わない）。今の年度の比べた月がどれも売上 0 円なら、「まだ」の代わりにそう言う（よみのまとめと同じ）
+  if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length) {
+    var z = lrZero();
+    return z.zero ? guide('explain', esc(zeroSay(z, '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。')))
+      : guide('guide', '実績が締まって、' + runWhen() + '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');
+  }
   return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []) + lrLandingCard(d.landing);
 }
 /** 今の年度（ホームと同じ: サーバーが決めた B.home.fy。無ければ今日の日付から。4 月始まり） */
@@ -3269,11 +3344,18 @@ function lrMape(tl){
   var last = tl[tl.length - 1], v = last ? (isNum(last.rolling3) ? last.rolling3 : last.mape) : null;
   return { v: isNum(v) ? v : null, how: '全計画の直近 3 か月の外れ幅の平均' };
 }
+/** 今の年度のメーカー（ホームの中身）を、比べた月がどれも売上 0 円の計画と、まだ比べていない計画に分ける（zeroSales。ホームの中身が無い・外れ幅のあるメーカーがあれば zero は 0） */
+function lrZero(){
+  var fy = lrFy(), ps = B.home && B.home.plans ? B.home.plans.filter(function(p){ return String(p.fy) === fy; }) : [];
+  return ps.some(function(p){ return isNum(p.mape); }) ? { zero: 0, months: 0, rest: 0 } : zeroSales(ps);
+}
 /** よみのまとめと精度の天気（荒れているときは台風）。気になる点は種類ごとの数だけ（メーカーはカーソルで） */
 function lrAiHero(d){
   var health = d.health || [], fy = lrFy(), rough = Object.keys(lrRough(health)).length, m = lrMape(d.timeline || []), wk = accWeather(m.v, rough > 0);
   var nProp = (d.pending || []).reduce(function(a, p){ return a + (p.proposals || []).length; }, 0);
-  var notYet = 'まだ実績と比べた月がありません。' + runWhen() + '、外れ幅がここに出ます。';
+  // 外れ幅が無いとき: 今の年度のメーカーの比べた月がどれも売上 0 円なら、「まだ」・動かし方の代わりにそう言う（ホームと同じ。lrZero）
+  var z = isNum(m.v) ? { zero: 0 } : lrZero();
+  var notYet = z.zero ? zeroSay(z, '、外れ幅がここに出ます。') : 'まだ実績と比べた月がありません。' + runWhen() + '、外れ幅がここに出ます。';
   // 荒れの文は、出ている印だけで作る（補正が限度に張りついただけなら、幅の外れは言わない）。比べた月がまだ無ければ、印の短い言い方と出し方だけにして
   // （「当たり方が荒れています」と「まだ比べた月がありません」を並べない）、荒れの説明はカーソルで出す
   var brief = rough && !isNum(m.v), sayTip = brief ? lrRoughSay(health) : '';
@@ -3301,11 +3383,11 @@ function lrAiHero(d){
     var ft = w[1] + (LR_ROUGH[k.key] ? '（荒れの印）' : '（荒れの印には数えません）') + '\n' + k.items.map(function(h){ var v = flagVal(h); return h.clientName + (v ? '　' + v : ''); }).join('\n');
     return '<span class="chip" tabindex="0" data-tip="' + esc(ft) + '">' + esc(w[0]) + ' ' + k.items.length + '</span>';
   }).join('') + '</div>' : '';
-  var wxTip = '精度の天気「' + skyName(wk) + '」: ' + accRule(wk) + (isNum(m.v) ? '\n外れ幅 ' + pct0(m.v) + ' = ' + m.how : '')
+  var wxTip = '精度の天気「' + skyName(wk) + '」: ' + accRule(wk) + (isNum(m.v) ? '\n外れ幅 ' + pct0(m.v) + ' = ' + m.how : z.zero ? '\n' + zeroSay(z) : '')
     + '\n荒れている = 今の年度に、補正が限度に張りついた計画か、見通しの幅に収まる割合が 80% より低い計画がある（ホームと同じ決まり）';
-  return '<div class="card"><div class="hero lr-hero"><div class="charbox">' + YOMI_POSE[rough ? 'discover' : isNum(m.v) ? 'explain' : 'guide'] + '</div>'
+  return '<div class="card"><div class="hero lr-hero"><div class="charbox">' + YOMI_POSE[rough ? 'discover' : isNum(m.v) || z.zero ? 'explain' : 'guide'] + '</div>'
     + '<div class="bubble">' + (sayTip ? '<span data-tip="' + esc(sayTip) + '">' + esc(t) + '</span>' : esc(t)) + flags + '</div>'
-    + '<div class="lr-wx" tabindex="0" data-tip="' + esc(wxTip) + '">' + skyChar(wk, 72) + '<span class="nm">' + esc(skyName(wk)) + '</span><span class="v">' + (isNum(m.v) ? '外れ幅 ' + pct0(m.v) : '比べる実績なし') + '</span></div></div></div>';
+    + '<div class="lr-wx" tabindex="0" data-tip="' + esc(wxTip) + '">' + skyChar(wk, 72) + '<span class="nm">' + esc(skyName(wk)) + '</span><span class="v">' + (isNum(m.v) ? '外れ幅 ' + pct0(m.v) : z.zero ? '売上 0 円の月だけ' : '比べる実績なし') + '</span></div></div></div>';
 }
 /** 承認待ちの見直し案（承認は、開いた計画の振り返りで） */
 function lrPendingCard(pend){
