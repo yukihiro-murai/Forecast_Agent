@@ -25,6 +25,12 @@
  *  19. 所有者が設定した日は 2026/10/07 の形で「所有者が設定」
  *  20. 根拠の補正: 出している予測の補正と今の補正が違えば、月ごとの補正も出している予測が使った分を言う。今の補正が空なら補正なし
  *  21. AI の学び: 比べた月が無いときの荒れの文は、印の短い言い方と出し方だけ（荒れの説明はカーソル）
+ *  22. 根拠の補正: 倍率が同じでも月ごとの補正が違えば違うとみなし、見える一文は出している予測のこと（カーソルで出している分 → 今の分）。
+ *      月ごとに直しているのに「補正なし」とは言わない。0.0% の月は違いとみなさない。控えに月ごとの欄が無ければ月ごとの補正なし（旧来の計算と同じ）
+ *  23. 人の学びのまとめ: 外れの原因を整理で出る月は summary.waitingMonths（締め済みの年度だけなら動かし方を言わない）。無いサーバーでは今までどおり
+ *  24. 比べた月がどれも売上 0 円（plans[].scoredMonths・accuracy.scoredMonths）: ホームの外れ幅・精度の天気、分析の案内、AI の学びで
+ *      「まだ」・動かし方の代わりに振り返りと同じ言い方。まだ比べていないメーカーがあれば、その出し方だけ添える
+ *  25. ホームの着地の推定の 80% の幅: 下の端は 0 円で止める
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
  *   node app/tests/app-ui-texts.test.mjs
@@ -593,10 +599,14 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   assert.ok(!empty.tip.some((x) => /今の補正: -/.test(x)));
   assert.equal(cal(null, null, {}).say, 'これまでの外れ方による補正は、かけていません');
   assert.equal(cal({ bias_correction_factor: 1 }, null, {}).say, 'これまでの外れ方による補正は、かけていません', '空と 1 は同じ（違うとは言わない）');
-  // 同じ補正なら、今までどおり今の月ごとの補正
+  // 倍率が同じでも、月ごとの補正が違えば違うとみなす（出している予測のことを言う。くわしくは 22）
   const keep = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{"3":-0.1}' }, 0.97, { 3: -0.2 });
-  assert.equal(keep.say, 'これまでの外れ方から 3.0% 下げています');
-  assert.equal(keep.tip[0], '月ごとにも直しています: 3 月 20.0% 下げ');
+  assert.equal(keep.say, '最新の予測は 3.0% 下げ、3 月を 10.0% 下げています（次の予測から 3 月を 20.0% 下げ）');
+  assert.deepEqual(keep.tip.slice(0, 3), ['最新の予測は 3.0% 下げて計算しました', '最新の予測は月ごとにも直しています: 3 月 10.0% 下げ', '今の月ごとの補正: 3 月 20.0% 下げ（次の予測から効きます）']);
+  // 倍率も月ごとの補正も同じなら、今までどおり今の月ごとの補正
+  const same2 = cal({ bias_correction_factor: 0.97, residual_month_bias_json: '{"3":-0.2}' }, 0.97, { 3: -0.2 });
+  assert.equal(same2.say, 'これまでの外れ方から 3.0% 下げています');
+  assert.equal(same2.tip[0], '月ごとにも直しています: 3 月 20.0% 下げ');
 }
 
 // ==== 21. AI の学び（比べた月が無いときの荒れの文）とホームの学びの進み ====
@@ -611,6 +621,175 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   const home = { fy, plans: [{ planId: 'P1', clientName: 'テスト製薬', fy, mape: null }] };
   const card = run('S.lr.ai = { health: __hl, pending: [] }; homeLearnCard(__h, __h.plans)', { __hl: [clamp], __h: home });
   assert.doesNotMatch(card.replace(/data-tip="[^"]*"/g, ''), /追いきれて|状態です/);
+}
+
+// ==== 22. 根拠の補正: 倍率は同じで、月ごとの補正だけが違う（出している予測が使った分を言う） ====
+{
+  const cal = (applied, factor, monthBias) => {
+    const html = run(`S.fc.view = __v; S.fc.basis = __b; fcBasisTab(S.fc.data, __v)`, { __v: planView(), __b: { planId: 'P1', annual: {}, monthly: [], research: [], applied,
+      calibration: { factor, aiWeight: null, aiMax: null, monthBias: monthBias || {}, updatedAt: '', quarter: '' } } });
+    const m = /<h2>補正<span[\s\S]*?<p class="fc-say" data-tip="([^"]*)">([^<]*)<\/p>/.exec(html);
+    return { tip: m[1].split('\n'), say: m[2] };
+  };
+  const END = '補正は、実績がまだの月だけに効きます';
+  // (a) 出している予測は 3 月を下げた・今は補正なし（月ごとの補正を戻した直後）: 見える一文は出している予測のこと、カーソルで出している分 → 今の分
+  const a = cal({ bias_correction_factor: 1, residual_month_bias_json: '{"3":-0.2}' }, 1, {});
+  assert.equal(a.say, '最新の予測は 3 月を 20.0% 下げています（次の予測から補正なし）');
+  assert.deepEqual(a.tip.slice(0, 3), ['最新の予測は月ごとに直しています: 3 月 20.0% 下げ', '今の月ごとの補正: なし（次の予測から効きます）', END]);
+  assert.doesNotMatch(a.say, /かけていません/);
+  // (b) 出している予測は 20% 上げだけ・今は 3 月も下げる: 今の月ごとの補正を、出している予測のことのように言わない
+  const b = cal({ bias_correction_factor: 1.2, residual_month_bias_json: '' }, 1.2, { 3: -0.2 });
+  assert.equal(b.say, '最新の予測は 20.0% 上げ、月ごとの補正なしです（次の予測から 3 月を 20.0% 下げ）');
+  assert.deepEqual(b.tip.slice(0, 3), ['最新の予測は 20.0% 上げて計算しました', '今の月ごとの補正: 3 月 20.0% 下げ（次の予測から効きます）', END]);
+  assert.ok(!b.tip.some((x) => /^月ごとにも直しています/.test(x)));
+  // 倍率が同じなら「今の補正」（倍率）の行は出さない（違うものだけ並べる）
+  [a, b].forEach((x) => assert.ok(!x.tip.some((l) => /^今の補正:/.test(l))));
+  // (c) 出している予測は 20% 上げ・3 月を下げた。今は 3 月の補正なし
+  assert.equal(cal({ bias_correction_factor: 1.2, residual_month_bias_json: '{"3":-0.2}' }, 1.2, {}).say, '最新の予測は 20.0% 上げ、3 月を 20.0% 下げています（次の予測から月ごとの補正なし）');
+  // (d) 出している予測は補正なし・今は 3 月を下げる
+  const d = cal({ bias_correction_factor: 1, residual_month_bias_json: '' }, 1, { 3: -0.2 });
+  assert.equal(d.say, '最新の予測は、補正なしです（次の予測から 3 月を 20.0% 下げ）');
+  assert.deepEqual(d.tip.slice(0, 2), ['最新の予測は、外れ方の補正なしで計算しました', '今の月ごとの補正: 3 月 20.0% 下げ（次の予測から効きます）']);
+  // (e) 月が 2 つまではそのまま、3 つ以上は数だけ（内訳はカーソル）
+  assert.equal(cal({ bias_correction_factor: 1, residual_month_bias_json: '{"4":0.05,"3":-0.2}' }, 1, { 3: -0.2 }).say, '最新の予測は 3 月を 20.0% 下げ・4 月を 5.0% 上げています（次の予測から 3 月を 20.0% 下げ）');
+  const many = cal({ bias_correction_factor: 1, residual_month_bias_json: '{"1":0.1,"2":0.1,"3":-0.1}' }, 1, {});
+  assert.equal(many.say, '最新の予測は 3 か月分を月ごとに直しています（次の予測から補正なし）');
+  assert.equal(many.tip[0], '最新の予測は月ごとに直しています: 1 月 10.0% 上げ・2 月 10.0% 上げ・3 月 10.0% 下げ');
+  // (f) 0.0% の月は効かないので違いとみなさない。控えに月ごとの欄が無ければ、旧来の計算（parseResidualMonthBiasJson_）と同じく月ごとの補正なし
+  assert.equal(cal({ bias_correction_factor: 1, residual_month_bias_json: '{"3":0}' }, 1, {}).say, 'これまでの外れ方による補正は、かけていません');
+  const noKey = cal({ bias_correction_factor: 1.2 }, 1.2, { 3: -0.2 });
+  assert.equal(noKey.say, '最新の予測は 20.0% 上げ、月ごとの補正なしです（次の予測から 3 月を 20.0% 下げ）');
+  assert.ok(!noKey.tip.some((x) => /^月ごとにも直しています/.test(x)));
+  assert.equal(cal({ bias_correction_factor: 0.97 }, 0.97, {}).say, 'これまでの外れ方から 3.0% 下げています', '欄が無く、今も月ごとの補正なしなら同じ');
+  // (g) 倍率が違う: 倍率の言い方のまま。倍率の無い側に月ごとの補正があれば「補正なし」とは言わない
+  const g = cal({ bias_correction_factor: 1, residual_month_bias_json: '{"3":-0.2}' }, 0.98, { 3: -0.2 });
+  assert.equal(g.say, '最新の予測は 3 月を 20.0% 下げています（次の予測から 2.0% 下げ）');
+  assert.deepEqual(g.tip.slice(0, 3), ['最新の予測は月ごとに直しています: 3 月 20.0% 下げ', '今の補正: 2.0% 下げ（次の予測から効きます）', END]);
+  assert.equal(cal({ bias_correction_factor: 0.97, residual_month_bias_json: '' }, 1, { 5: 0.1 }).say, '最新の予測は 3.0% 下げています（次の予測から 5 月を 10.0% 上げ）');
+  // (h) 同じで、倍率は無く月ごとだけ直している: 「補正は、かけていません」と言わない
+  const h = cal({ bias_correction_factor: 1, residual_month_bias_json: '{"3":-0.2}' }, 1, { 3: -0.2 });
+  assert.equal(h.say, 'これまでの外れ方から、3 月を 20.0% 下げています');
+  assert.equal(h.tip[0], '月ごとに直しています: 3 月 20.0% 下げ');
+  assert.equal(cal(null, 1, { 3: -0.2 }).say, 'これまでの外れ方から、3 月を 20.0% 下げています', '予測の控えが無くても同じ');
+}
+
+// ==== 23. 人の学びのまとめ: 外れの原因を整理で出る月（summary.waitingMonths。締め済みの年度の計画は入らない） ====
+{
+  const h = (summary, more) => hero(Object.assign({ openActions: [], repeats: [], noPreMonth: 0, summary }, more || {}));
+  const heroTip = (x) => (/<span data-tip="([^"]*)">/.exec(x) || [])[1];
+  const CALM = '大きく外れた月はありません。予報どおりの空模様が続いています。';
+  // 振り返りの記録はある・残りの月はどれも締め済みの年度: 動かし方は言わない（説明に 1 行）
+  const done = h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7, waitingMonths: 0 });
+  assert.equal(heroSay(done), CALM);
+  assert.match(heroTip(done), /\n締め済みの年度の月は、外れの原因を整理しません/);
+  // 一部だけ整理で出る: その数だけ言う（動かせない人には「整理されると」）
+  assert.equal(heroSay(h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7, waitingMonths: 1 })), CALM + 'ほかに のべ 1 か月は、各計画の振り返りで「外れの原因を整理」を動かすと出ます。');
+  asRoles(VIEWER_ROLES, () => assert.equal(heroSay(h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7, waitingMonths: 2 })), CALM + 'ほかに のべ 2 か月は、外れの原因が整理されると出ます。'));
+  // 比べた月はある・振り返りの記録は無い・整理できる月も無い（締め済みの年度だけ）: 動かし方は言わない
+  const fz = h({ months: 0, misses: 0, withNotes: 0, scoredMonths: 5, waitingMonths: 0 });
+  assert.equal(heroSay(fz), '実績と比べた月が のべ 5 か月あります（締め済みの年度は、外れの原因を整理しません）。');
+  assert.doesNotMatch(fz, /を動かすと|整理されると|大きく外れた月はありません/);
+  assert.equal(pose(fz), 'explain');
+  asRoles(VIEWER_ROLES, () => assert.doesNotMatch(heroSay(h({ months: 0, scoredMonths: 5, waitingMonths: 0 })), /されると|を動かすと/));
+  // 整理できる月があれば今までどおり（比べた月の数と動かし方）
+  assert.equal(heroSay(h({ months: 0, misses: 0, withNotes: 0, scoredMonths: 5, waitingMonths: 2 })), '実績と比べた月が のべ 5 か月あります。各計画の振り返りで「外れの原因を整理」を動かすと、大きく外れた月がここに出ます。');
+  // waitingMonths を返さないサーバー: 今までどおり（16 の残りの月の数）。締め済みの 1 行も出さない
+  const prev = h({ months: 4, misses: 0, withNotes: 0, scoredMonths: 7 });
+  assert.equal(heroSay(prev), CALM + 'ほかに のべ 3 か月は、各計画の振り返りで「外れの原因を整理」を動かすと出ます。');
+  assert.doesNotMatch(heroTip(prev), /締め済み/);
+  // まだ比べた月が無ければ、waitingMonths に関わらず当たり具合を計算から
+  assert.equal(heroSay(h({ months: 0, misses: 0, withNotes: 0, scoredMonths: 0, waitingMonths: 0 })), NONE_SAY);
+}
+
+// ==== 24. 比べた月がどれも売上 0 円（plans[].scoredMonths があって外れ幅が無い）: ホーム・分析・学び ====
+{
+  const fy = '2026';
+  const ZERO2 = '比べた 2 か月は、どれも売上が 0 円のため、外れ幅を % で出せません。';
+  const zp = { planId: 'P1', clientName: 'テスト製薬', fy, mape: null, scoredMonths: 2 };
+  const np = { planId: 'P2', clientName: '別の製薬', fy, mape: null, scoredMonths: 0 };
+  const kpiTip = (plans) => (/<div class="kpi" data-tip="([^"]*)"><div class="k">外れ幅<\/div>/.exec(run('homeKpis(__h, __h.plans)', { __h: { fy, plans } })) || [])[1];
+  // ホームの外れ幅の箱: 「まだ」とも動かし方とも言わない。まだ比べていないメーカーがあれば、その出し方だけ
+  assert.ok(kpiTip([zp]).endsWith('\n' + ZERO2), kpiTip([zp]));
+  assert.doesNotMatch(kpiTip([zp]), /まだ実績と比べた|当たり具合を計算/);
+  assert.ok(kpiTip([zp, np]).endsWith('\n' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと出ます'));
+  assert.ok(kpiTip([zp, Object.assign({}, zp, { planId: 'P3', scoredMonths: 3 })]).endsWith('\n比べた のべ 5 か月は、どれも売上が 0 円のため、外れ幅を % で出せません。'), '2 メーカー以上は「のべ」');
+  asRoles(VIEWER_ROLES, () => assert.ok(kpiTip([zp, np]).endsWith('ほかのメーカーは、当たり具合が計算されると出ます')));
+  // 比べた月の数が無い・外れ幅のあるメーカーがある: 今までどおり
+  assert.ok(kpiTip([Object.assign({}, zp, { scoredMonths: undefined })]).endsWith('\nまだ実績と比べたメーカーがありません。各計画の振り返りで「当たり具合を計算」を動かすと出ます'));
+  assert.match(kpiTip([zp, Object.assign({}, np, { mape: 0.1, scoredMonths: 3 })]), /（1 メーカー）$/);
+  // ホームの精度の天気: 説明と見える短い言い方
+  const card = (plans, health) => run('S.lr.ai = { health: __hl, pending: [] }; homeLearnCard(__h, __h.plans)', { __hl: health || [], __h: { fy, plans } });
+  const c1 = card([zp]);
+  assert.match(c1, new RegExp('data-tip="霧：比べられる実績がまだない\\n' + ZERO2 + '\\n精度の推移は'));
+  assert.match(c1, /<span class="t2">売上 0 円の月だけ<\/span>/);
+  assert.doesNotMatch(c1, /当たり具合を計算|比べる実績はまだです/);
+  assert.match(card([zp, np]), new RegExp('\\n' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと出ます\\n'));
+  const clamp = { planId: 'P1', clientName: 'テスト製薬', fy, key: 'factor_clamp', label: '', value: 0.75 };
+  const c2 = card([zp], [clamp]);
+  assert.match(c2, new RegExp('data-tip="台風：[^"\\n]*\\n' + ZERO2 + '\\n荒れている印'));
+  assert.match(c2, /<span class="t2">補正が限度（1 メーカー）<\/span>/);
+  assert.match(card([Object.assign({}, zp, { scoredMonths: undefined })]), /<span class="t2">比べる実績はまだです<\/span>/, '比べた月の数が無いサーバーは今までどおり');
+
+  // 分析の案内: 精度（accuracy）の月が無く、比べた月の数がある計画（accuracy.scoredMonths か plans[].scoredMonths）
+  const acc0 = { mape: null, bias: null, n: 0, leaks: 0, coverage: null, coverageN: 0 };
+  const az = Object.assign({}, AN_PLAN, { accuracy: Object.assign({}, acc0, { scoredMonths: 2 }) });
+  assert.equal(anGuide([az]), '外れ幅・読みのクセは出していません。' + ZERO2);
+  assert.equal(anGuide([Object.assign({}, AN_PLAN, { accuracy: acc0, scoredMonths: 2 })]), '外れ幅・読みのクセは出していません。' + ZERO2, '計画の一覧の scoredMonths でもよい');
+  const an2 = Object.assign({}, AN_PLAN, { planId: 'P2', clientName: '別の製薬' });
+  assert.equal(anGuide([az, an2]), 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと出ます。');
+  asRoles(VIEWER_ROLES, () => {
+    assert.equal(anGuide([az]), '外れ幅・読みのクセは出していません。' + ZERO2);
+    assert.equal(anGuide([az, an2]), 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。' + ZERO2 + 'ほかのメーカーは、当たり具合が計算されると出ます。');
+  });
+  // 締め済みの年度: 締め済みのことと、売上 0 円のこと（動かし方は言わない）
+  assert.equal(anGuide([Object.assign({}, az, { fy: '2025', frozen: true })], '2025'), '外れ幅・読みのクセはありません（FY2025 は締め済みのため、当たり具合は計算し直しません）。' + ZERO2);
+  // 締まった後の予測の月だけ・精度が無い・比べた月の数が無い: 今までどおり（売上 0 円とは言わない）
+  const AS_BEFORE = 'まだ数字がそろっていないため、外れ幅・読みのクセは出していません。各計画の振り返りで「当たり具合を計算」を動かすと、ここに出てきます。';
+  assert.equal(anGuide([Object.assign({}, AN_PLAN, { accuracy: Object.assign({}, acc0, { leaks: 2, scoredMonths: 2 }) })]), AS_BEFORE);
+  assert.equal(anGuide([Object.assign({}, AN_PLAN, { accuracy: null, scoredMonths: 2 })]), AS_BEFORE);
+  assert.equal(anGuide([AN_PLAN]), AS_BEFORE);
+  // 外れ幅のグラフから除いたメーカーの理由
+  const withAcc = Object.assign({}, AN_PLAN, { planId: 'P9', clientName: '当たる製薬', accuracy: { mape: 0.12, bias: 0.04, n: 5, leaks: 0, coverage: 0.8, coverageN: 5 } });
+  const mc = run('anMapeCard(__p)', { __p: [withAcc, az, an2] });
+  assert.match(mc, /data-tip="数字がそろわないため除いたメーカー\nテスト製薬（比べた月は、どれも売上が 0 円）\n別の製薬（まだ実績と比べられる月がありません）"/);
+
+  // 学び > AI の学び: 今の年度のメーカー（ホームの中身）の比べた月がどれも売上 0 円
+  const keepHome = run('B.home');
+  const ai = (plans, d) => { run('B.home = __h', { __h: { fy, plans } }); return run('lrAiHero(__d)', { __d: Object.assign({ health: [], timeline: [], pending: [] }, d || {}) }); };
+  const bubbleOf = (x) => /<div class="bubble">([\s\S]*?)(?:<div class="lr-tags[\s\S]*?)?<\/div><div class="lr-wx"/.exec(x)[1];   // 気になる点の札は除く
+  try {
+    const h1 = ai([zp]);
+    assert.equal(bubbleOf(h1), ZERO2);
+    assert.match(h1, /<span class="v">売上 0 円の月だけ<\/span>/);
+    assert.match(h1, new RegExp('data-tip="精度の天気「霧」: 比べられる実績がまだない\\n' + ZERO2 + '\\n荒れている'));
+    assert.equal(pose(h1), 'explain');
+    assert.equal(bubbleOf(ai([zp, np])), ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。');
+    assert.equal(bubbleOf(ai([zp], { health: [clamp] })), '<span data-tip="補正が限度に張りついていて、外れを補正で追いきれていない状態です。">補正が限度に張りついています（1 メーカー）。' + ZERO2 + '</span>');
+    // 全計画の推移に外れ幅があれば、今までどおりそれを出す
+    assert.match(bubbleOf(ai([zp], { timeline: [{ ym: '2026/05', n: 2, mape: 0.12, rolling3: 0.12 }] })), /^外れ幅は平均 12\.0%/);
+    // 比べた月の数が無いサーバー: 今までどおり
+    assert.equal(bubbleOf(ai([Object.assign({}, zp, { scoredMonths: undefined })])), 'まだ実績と比べた月がありません。各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。');
+    // AI の学びが空のときの案内 1 枚も同じ
+    run('B.home = __h', { __h: { fy, plans: [zp] } });
+    assert.match(run('lrAiView({})'), new RegExp('<div class="bubble">' + ZERO2 + '</div>'));
+    run('B.home = __h', { __h: { fy, plans: [zp, np] } });
+    assert.match(run('lrAiView({})'), new RegExp('<div class="bubble">' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。</div>'));
+  } finally { run('B.home = __k', { __k: keepHome }); }
+}
+
+// ==== 25. ホームの着地の推定: 80% の幅の下の端は 0 円で止める（「-0」・マイナスを出さない。分析の合計と同じ） ====
+{
+  const rt = (plans) => run('homeRangeTip(homeRange(__p), __p.length)', { __p: plans });
+  assert.match(rt([{ landing: 0.3, landingSd: 1 }]), /^80% の幅: 0〜2 円/);
+  assert.match(rt([{ landing: 100, landingSd: 1000 }, { landing: 50, landingSd: 10 }]), /^80% の幅: 0〜1,432 円/);
+  assert.match(rt([{ landing: 1000, landingSd: 10 }]), /^80% の幅: 987〜1,013 円/, '0 より上は今までどおり');
+  assert.equal(run('homeRange(__p).lo', { __p: [{ landing: 0, landingSd: 0 }] }), 0);
+  assert.ok(!Object.is(run('homeRange(__p).lo', { __p: [{ landing: 0.2, landingSd: 1 }] }), -0));
+  // ホームの着地の推定の箱の説明にも、マイナスの下の端を出さない
+  const home = { fy: '2026', plans: [{ planId: 'P1', clientName: 'テスト製薬', fy: '2026', landing: 0.3, landingSd: 1, mape: null }] };
+  const k = run('homeKpis(__h, __h.plans)', { __h: home });
+  assert.doesNotMatch(k, /80% の幅: -/);
+  assert.match(k, /80% の幅: 0〜/);
 }
 
 console.log('app-ui-texts: all tests passed');
