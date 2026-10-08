@@ -535,7 +535,8 @@ function appInsightCountMonths_(byPlan) {
  *   revisions: [{ at, p10, p50, p90 }]（新アプリで動かした予測。古い順に最近の 12 回）
  *   accuracy:  { n, leaks, mape, bias, coverage, coverageN, widthScale }（Learning.js の精度。締まった月だけ。締まった後の予測の月は除く）
  *   topics:    [{ topic, rowType, direction, impact, confidence, score, position, percentile, horizon, asOf }]（AI 調査の一番新しい回）
- *   totals:    { plans, budget, budgetDraft, p50, landing, landingPlans, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding }
+ *   totals:    { plans, budget, budgetDraft, p50, landing, landingPlans, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding, measurePlans }
+ *              （測る専用の計画（measure。版 10 の 3-9）は合計に入れない。measurePlans = 入れなかった数。行には残す）
  *              （合計。予算は計画ごとの空模様と同じ budgetUsed = 承認済みの公式版の最終予算、無ければ今の予算。budgetDraft = 今の予算（OUTPUT）の合計。
  *               着地の見込みが無い計画は着地の合計に入れない（landingPlans = 入れた計画の数）。比は予算のある計画だけで）
  *   market:    [{ topic, makers, up, down, flat, meanScore }]（話題ごと。メーカーの向きは、その話題の行の点数の平均の符号）
@@ -589,11 +590,12 @@ function appCrossMaker_(fy) {
   const fin = v => typeof v === 'number' && isFinite(v);
   const sum = (xs, f) => xs.reduce((s, p) => { const v = f(p); return fin(v) ? (s || 0) + v : s; }, null);
   const used = p => (typeof p.budgetUsed === 'number' ? p.budgetUsed : p.budget);   // 空模様と同じ予算
-  const budgeted = rows.filter(p => fin(used(p)) && used(p) > 0);
+  const counted = appBudgetPlanRows_(rows);   // 測る専用の計画は合計に入れない
+  const budgeted = counted.filter(p => fin(used(p)) && used(p) > 0);
   const withP50 = budgeted.filter(p => fin(p.p50)), withLanding = budgeted.filter(p => fin(p.landing));
-  const totals = { plans: rows.length, budget: sum(rows, used), budgetDraft: sum(rows, p => p.budget), p50: sum(rows, p => p.p50),
-    landing: sum(rows, p => p.landing), landingPlans: rows.filter(p => fin(p.landing)).length, actualYtd: sum(rows, p => p.actualYtd),
-    budgetPlans: budgeted.length, p50Budgeted: sum(withP50, p => p.p50), landingBudgeted: sum(withLanding, p => p.landing) };
+  const totals = { plans: counted.length, budget: sum(counted, used), budgetDraft: sum(counted, p => p.budget), p50: sum(counted, p => p.p50),
+    landing: sum(counted, p => p.landing), landingPlans: counted.filter(p => fin(p.landing)).length, actualYtd: sum(counted, p => p.actualYtd),
+    budgetPlans: budgeted.length, p50Budgeted: sum(withP50, p => p.p50), landingBudgeted: sum(withLanding, p => p.landing), measurePlans: rows.length - counted.length };
   const b50 = sum(withP50, used), bLanding = sum(withLanding, used);
   totals.ratioP50 = totals.p50Budgeted !== null && b50 > 0 ? totals.p50Budgeted / b50 : null;
   totals.ratioLanding = totals.landingBudgeted !== null && bLanding > 0 ? totals.landingBudgeted / bLanding : null;

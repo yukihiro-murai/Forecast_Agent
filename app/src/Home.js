@@ -29,9 +29,11 @@ function appHome_(ctx) {
 function appHomeData_(ctx) {
   const all = appPortfolioAll_();
   const plans = all.plans;
-  // 見せる年度: 今の年度の計画があればそれ、無ければ一番新しい年度
+  // 見せる年度: 今の年度の計画があればそれ、無ければ一番新しい年度（予算を立てる計画があれば、それだけで決める。測る専用の計画は前の年度が多い）
   const thisFy = String(appFy_(new Date()));
-  const fy = plans.some(p => String(p.fy) === thisFy) ? thisFy : plans.reduce((m, p) => (m === null || String(p.fy) > m ? String(p.fy) : m), null) || thisFy;
+  const budgeted = appBudgetPlanRows_(plans);
+  const pick = budgeted.length ? budgeted : plans;
+  const fy = pick.some(p => String(p.fy) === thisFy) ? thisFy : pick.reduce((m, p) => (m === null || String(p.fy) > m ? String(p.fy) : m), null) || thisFy;
   const planRows = appReadTable_('PLANS');
   const clientOf = {};
   planRows.forEach(p => { clientOf[p.plan_id] = p.client_id; });
@@ -54,21 +56,21 @@ function appHomeData_(ctx) {
       actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, rangeOut: p.rangeOut, rangeN: p.rangeN,
       landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
       sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource,
-      scoredMonths: p.scoredMonths, frozen: p.frozen })),
+      scoredMonths: p.scoredMonths, frozen: p.frozen, measure: !!p.measure })),
     totals: appHomeTotals_(plans, fy, all.prior && all.prior.used),
     approvals: approvals, mine: mine
   };
 }
 
 /**
- * 見せる年度の合計。予算は空模様と同じ budgetUsed（承認済みの公式版の最終予算、無ければ今の予算）。
+ * 見せる年度の合計（測る専用の計画 measure は入れない。版 10 の 3-9）。予算は空模様と同じ budgetUsed（承認済みの公式版の最終予算、無ければ今の予算）。
  * 着地見込みの無い計画（実績の取り込みの遅れ。空模様が霧（予算が無い）・雪でも同じ。予測が無い など）は、着地の合計にも着地 ÷ 予算にも入れない。入れた計画の数も返す
  * reach は、着地と予算の両方がある計画の合計の予算に届く見込み（試し。メーカーどうしが独立なら / 全部同じ向きなら。appLandingReachTotal_ に
  * 使っている τ・w を足したもの。判断 24）。used = appLandingApproved_ の返り値（省けば τ・w は入れない）
  * 返り値: { plans, budget, budgetPlans, actualYtd, landing, landingPlans, ratio（着地と予算の両方がある計画だけで）, ratioPlans, reach（両方がある計画があるときだけ） }
  */
 function appHomeTotals_(plans, fy, used) {
-  const rows = plans.filter(p => String(p.fy) === String(fy));
+  const rows = appBudgetPlanRows_(plans).filter(p => String(p.fy) === String(fy));
   const num = v => typeof v === 'number' && isFinite(v);
   const sum = (xs, k) => xs.reduce((s, p) => (num(p[k]) ? (s || 0) + p[k] : s), null);
   const budgeted = rows.filter(p => num(p.budgetUsed) && p.budgetUsed > 0);

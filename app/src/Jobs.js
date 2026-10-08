@@ -138,10 +138,10 @@ function appJobExecute_(ctx, job) {
         after: res => (res.__next ? { next: res.__next.kind, done: res.__next.payload.done.length, remaining: res.__next.payload.remaining.length } : { written: res.written, plans: res.plans }) },
         () => appPoolApply_(ctx, p));
     case 'PLAN.CREATE':
-      return appAudited_(ctx, 'PLAN.CREATE.BUILD', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, peopleCsv: p.peopleCsv, jobId: job.id },
+      return appAudited_(ctx, 'PLAN.CREATE.BUILD', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, peopleCsv: p.peopleCsv, purpose: p.purpose || '', jobId: job.id },
         after: res => ({ next: res.__next.kind, buildMs: res.__next.payload.buildMs }) }, () => appPlanCreateBuild_(ctx, p));
     case 'PLAN.CREATE_SAVE':
-      return appAudited_(ctx, 'PLAN.CREATE.SAVE', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, jobId: job.id },
+      return appAudited_(ctx, 'PLAN.CREATE.SAVE', { entityType: 'PLAN', detail: { clientName: p.clientName, fy: p.fy, purpose: p.purpose || '', jobId: job.id },
         after: res => ({ planId: res.planId, sheets: res.sheets, written: res.written, timing: res.timing }) }, () => appPlanCreateSave_(ctx, p));
     case 'SYSTEM.RECOVER':
       return appAudited_(ctx, 'SYSTEM.RECOVER', { entityType: 'SYSTEM', detail: { jobId: job.id, pending: appJournalPending_() },
@@ -228,7 +228,7 @@ function appActiveJobOf_(email) {
 // ---- 始める・動かす・状態を返す ----
 
 /** 画面から渡せる項目（ほかは裏の処理どうしの受け渡し専用。画面から渡されたら捨てる） */
-const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'clientName', 'fy', 'peopleCsv'];
+const APP_JOB_CLIENT_FIELDS = ['planId', 'confirms', 'action', 'args', 'inputHash', 'clientName', 'fy', 'peopleCsv', 'purpose'];
 
 function appJobClientPayload_(payload) {
   const out = {};
@@ -257,9 +257,9 @@ function appStartJob_(ctx, input) {
       // 計画に書く処理は、年度が締められていたら待ち行列に入れる前に止める
       appRequireOpenPlan_(payload && payload.planId);
     }
-    // 止めている操作（四半期の見直し案を作る。2026-10-07 村井さん決定）は始めない
+    // 止めている操作（四半期の見直し案を作る。2026-10-07 村井さん決定）と、測る専用の計画で断る操作（予算の保存・A-4。PlanPurpose.js）は始めない
     if (kind === 'PLAN.RUN' || kind === 'PLAN.EDIT') {
-      const paused = appPlanActionPaused_(payload && payload.action);
+      const paused = appPlanActionPaused_(payload && payload.action) || appMeasureJobRefusal_(kind, payload);
       if (paused) throw new Error(paused);
     }
     const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
@@ -404,6 +404,8 @@ function appRunJob_(id) {
     if (!allowed) throw new Error('この操作をする権限がありません。');
     // 計画に書く処理（続きの段・内部の段も）は、年度が締められていたら始める前に止める
     if (spec.planScoped) appRequireOpenPlan_(job.payload && job.payload.planId);
+    const refused = appMeasureJobRefusal_(job.kind, job.payload);   // 途中で測る専用の印が付いた計画も止める
+    if (refused) throw new Error(refused);
     const res = appJobExecute_(ctx, job);
     if (res && res.__next) {
       // 続きの処理: 次の処理を待ち行列に入れ、この処理の結果は「続きあり」にする

@@ -34,6 +34,7 @@ function appPlanCreateCheck_(p) {
   const clientName = String(p && p.clientName || '').trim();
   const fy = Number(p && p.fy);
   const people = String(p && p.peopleCsv || '').split(/[,、，]/).map(s => s.trim()).filter(Boolean);
+  const purpose = appPlanPurposeOf_(p && p.purpose);   // 空 = 予算を立てる計画・MEASURE = 測る専用（PlanPurpose.js）
   if (!clientName) throw new Error('メーカーを選んでください。');
   if (clientName.length > 100) throw new Error('メーカーの名前が長すぎます。');
   if (!fy || fy < 2000 || fy > 2100 || Math.floor(fy) !== fy) throw new Error('年度（FY）を 4 桁の数で入れてください。');
@@ -46,7 +47,8 @@ function appPlanCreateCheck_(p) {
   if (client && appReadTable_('PLANS').some(x => x.client_id === client.client_id && String(x.fy) === String(fy) && x.state !== 'ARCHIVED')) {
     throw new Error(appClientDisplayName_(client.client_name) + ' の FY' + fy + ' の計画は、すでにあります。');
   }
-  return { clientName: clientName, fy: fy, peopleCsv: people.join(','), client: client, normalized: normalized };
+  if (purpose === APP_PLAN_MEASURE) appMeasureRequireRoom_(appReadTable_('PLANS'), '');   // 測る専用は 5 計画まで
+  return { clientName: clientName, fy: fy, peopleCsv: people.join(','), client: client, normalized: normalized, purpose: purpose };
 }
 
 /** 作る（PLAN.CREATE）: 計算用ブックの上で旧来の A-1 初期セットアップと設定の保存を動かす（データ本体には書かない） */
@@ -55,6 +57,7 @@ function appPlanCreateBuild_(ctx, p) {
   return appWithLock_(() => {
     appJournalRecover_(ctx);
     const c = appPlanCreateCheck_(p);
+    appMeasureRequireOwner_(ctx, c.purpose);
     const scratch = appWorkScratch_(appNewPlanTz_());
     const token = appId_('SCR');
     appScratchReset_(scratch, token);
@@ -62,7 +65,7 @@ function appPlanCreateBuild_(ctx, p) {
     const engine = appLegacySetupBook_(scratch, { asOfMs: asOfMs, seed: token, actor: ctx.actor }, APP_SETUP_ORDER, c.clientName, c.fy, c.peopleCsv);
     // A-1 が作る検証の表は 26 列。旧来の B-2 が書く 36 列まで広げてから保存する（Engine.js の APP_ENGINE_MIN_COLUMNS）
     appEnsureMinColumns_(scratch);
-    const payload = { clientName: c.clientName, fy: c.fy, peopleCsv: c.peopleCsv, token: token, engine: engine, buildMs: new Date().getTime() - t0 };
+    const payload = { clientName: c.clientName, fy: c.fy, peopleCsv: c.peopleCsv, purpose: c.purpose, token: token, engine: engine, buildMs: new Date().getTime() - t0 };
     return { __next: { kind: 'PLAN.CREATE_SAVE', payload: payload }, audit: { entityId: c.clientName + ' FY' + c.fy } };
   });
 }
@@ -73,7 +76,8 @@ function appPlanCreateSave_(ctx, p) {
   return appWithLock_(() => {
     appJournalRecover_(ctx);
     if (!appScratchOwnedBy_(p.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度作ってください。');
-    const c = appPlanCreateCheck_(p);   // 作っている間に、同じ計画がほかで作られていないか
+    const c = appPlanCreateCheck_(p);   // 作っている間に、同じ計画がほかで作られていないか（測る専用の数も）
+    appMeasureRequireOwner_(ctx, c.purpose);
     const now = appNowIso_();
     const planId = appId_('PL');
     const ops = [];
@@ -90,21 +94,21 @@ function appPlanCreateSave_(ctx, p) {
     appChangedOps_(ctx, planId, cap.changed, batchId).forEach(op => ops.push(op));
     ops.push({ table: 'PLANS', mode: 'ensure', rows: [{ plan_id: planId, client_id: client.client_id, fy: String(c.fy), client_label: c.clientName,
       people_csv: c.peopleCsv, source_book_id: '', locale: appNewPlanTz_().locale, time_zone: appNewPlanTz_().time_zone, state: 'ACTIVE', note: '',
-      created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1 }] });
+      created_at: now, created_by: ctx.actor, updated_at: now, updated_by: ctx.actor, row_version: 1, purpose: c.purpose }] });
     const written = appJournalRun_(ctx, '計画の作成（' + c.clientName + ' FY' + c.fy + '）', planId, ops);
     appScratchMarkSynced_(planId, p.token, null);   // 作った後の A-2 などは組み立て直さずに使える
-    return { planId: planId, clientName: appClientDisplayName_(c.clientName), fy: c.fy, sheets: cap.changed.length, written: written, engine: p.engine,
+    return { planId: planId, clientName: appClientDisplayName_(c.clientName), fy: c.fy, purpose: c.purpose, sheets: cap.changed.length, written: written, engine: p.engine,
       timing: { buildMs: p.buildMs, saveMs: new Date().getTime() - t0 }, audit: { entityId: planId, clientId: client.client_id } };
   });
 }
 
 // ---- 一覧 ----
 
-/** 計画の一覧（予測の画面の計画を選ぶ欄） */
+/** 計画の一覧（予測の画面の計画を選ぶ欄）。measure = 測る専用の計画（PlanPurpose.js） */
 function appListPlans_() {
   const clients = appClientNameMap_();   // 画面に出す名前（半角カナ・株式会社などを除いた、ふつうの表記）
   return appReadTable_('PLANS').map(p => {
-    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state, frozen: appYearIsFrozen_(p.fy) };
+    return { planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy, state: p.state, frozen: appYearIsFrozen_(p.fy), measure: appPlanIsMeasure_(p) };
   });
 }
 
@@ -124,6 +128,7 @@ function appListPlans_() {
  *   reach        … 予算に届く見込み（今の予算と承認済みの公式版の予算。届く金額 50〜80%。appLandingReach_。判断 24・25）。
  *                  12 か月を数えた計画は reach.done と reach.actual（実績の合計。届いた／届かなかった。届く金額は出さない）。年度を締めても 12 か月に足りなければ見込みのまま
  *   scoredMonths … 今の決まりで B-2 が測った締まった月の数（appPortfolioScored_。実績 0 円の月も数える。数）
+ *   measure      … 測る専用の計画（PLANS.purpose。版 10 の 3-9）。着地の τ・w の学びに入れず、ホームと分析の合計にも入れない
  * 返り値: { plans: [計画の要点], prior: { learned: appLandingPrior_ の返り値, used: appLandingApproved_ の返り値 } }
  */
 function appPortfolioData_() {
@@ -167,8 +172,9 @@ function appPortfolioData_() {
   });
   const ver = appVersionSummary_();
   const num = x => { if (!x) return null; const t = x.charAt(0); if (t !== 'n') return null; const v = Number(x.slice(1)); return isFinite(v) ? v : null; };
-  // 全計画の締まった月から学ぶ τ・w（1 回だけ。書き直していない計画は予測が無いので入らない）。承認されるまで着地には使わない（学びの画面に試しで出す）
-  const learned = appLandingPrior_(plans.map(p => {
+  // 全計画の締まった月から学ぶ τ・w（1 回だけ。書き直していない計画は予測が無いので入らない）。承認されるまで着地には使わない（学びの画面に試しで出す）。
+  // 測る専用の計画は入れない（版 10 の 3-9）
+  const learned = appLandingPrior_(plans.filter(p => !appPlanIsMeasure_(p)).map(p => {
     const c = cmp[p.plan_id] || {};
     return Object.keys(c).filter(ym => cut[p.plan_id] && ym < cut[p.plan_id]).sort()
       .map(ym => ({ f: c[ym].p50, a: c[ym].actual === null ? 0 : c[ym].actual, p10: c[ym].p10, p90: c[ym].p90 }));   // 実績の空の締まった月は 0 円（着地の計算と同じ。全部 0 円の計画 = 雪は appLandingPrior_ が除く）
@@ -231,7 +237,8 @@ function appPortfolioData_() {
       aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, pending: pendingCut !== '' || sky.skyReason === 'eval_pending' || sky.skyReason === 'stale_actuals' }),
       frozen: !!frozen,
       reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used),
-      scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0
+      scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0,
+      measure: appPlanIsMeasure_(p)
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));
   return { plans: rows, prior: { learned: learned, used: used } };

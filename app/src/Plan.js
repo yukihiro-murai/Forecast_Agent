@@ -210,7 +210,7 @@ function appPlanView_(ctx, planId) {
   const pending = appJournalPending_();
   if (pending) {
     // 保存が途中で止まっている間は、表どうしが食い違っていることがあるので組み立てない（続きを書くまで待ってもらう）
-    return { plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen },
+    return { plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen, measure: appPlanIsMeasure_(plan) },
       pendingWrite: { label: pending.label, at: pending.at }, can: { plan: appHasRole_(roles, 'PLANNER') && !frozen, approve: false, admin: appHasRole_(roles, 'ADMIN') && !frozen },
       actions: [], recent: [], boot: null };
   }
@@ -236,7 +236,7 @@ function appPlanView_(ctx, planId) {
     if (view.builtMs > 20000) appRunLog_({ requestId: ctx.requestId, kind: 'PLAN.VIEW', status: 'SLOW', durationMs: view.builtMs, detail: { planId: plan.plan_id } });
   }
   return Object.assign({
-    plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen },
+    plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen, measure: appPlanIsMeasure_(plan) },
     inputHash: inputHash,
     can: {
       plan: appHasRole_(roles, 'PLANNER', plan.client_id) && !frozen,
@@ -244,8 +244,9 @@ function appPlanView_(ctx, planId) {
       admin: appHasRole_(roles, 'ADMIN') && !frozen
     },
     sourceReady: !!appSettingValue_('source.zac_spreadsheet'),
+    // 測る専用の計画で断る操作（予算の保存・A-4）は、止めている操作と同じに出す（PlanPurpose.js）
     actions: Object.keys(APP_PLAN_ACTIONS).map(k => ({ action: k, kind: APP_PLAN_ACTIONS[k].kind, label: APP_PLAN_ACTIONS[k].label,
-      minRole: APP_PLAN_ACTIONS[k].minRole, paused: APP_PLAN_ACTIONS[k].paused || '' })),
+      minRole: APP_PLAN_ACTIONS[k].minRole, paused: APP_PLAN_ACTIONS[k].paused || appMeasureActionRefusal_(plan, k) })),
     recent: appReadTable_('PLAN_ACTIONS').filter(r => r.plan_id === plan.plan_id).map(appStripRow_)
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,

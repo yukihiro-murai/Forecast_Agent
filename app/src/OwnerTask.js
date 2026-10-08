@@ -55,14 +55,19 @@ const APP_OWNER_ACTIONS = {
   saveSetting: { name: 'SETTING.SAVE', args: ['key', 'value', 'effectiveFrom', 'note'],
     opts: i => ({ minRole: 'ADMIN', entityType: 'SETTING', entityId: i.key, detail: i, after: res => res.saved }),
     run: (ctx, i) => appSaveSetting_(ctx, i) },
-  // ---- 計画の一覧・作成・担当者（Portfolio.js・裏の処理 PLAN.CREATE / PLAN.EDIT） ----
+  // ---- 計画の一覧・作成・担当者・測る専用の印（Portfolio.js・裏の処理 PLAN.CREATE / PLAN.EDIT・PlanPurpose.js） ----
   listPlans: { name: 'PLANS.LIST', opts: () => ({ minRole: 'VIEWER', audit: false }), run: () => appCachedRead_('PLANS', () => ({ plans: appListPlans_() })) },
   planCandidates: { name: 'PLAN.CANDIDATES', args: ['refresh'], opts: () => ({ minRole: 'ADMIN', audit: false }),
     run: (ctx, i) => appPlanCandidates_(ctx, i), brief: r => appOwnerCandidatesBrief_(r), always: true },
-  createPlan: { job: 'PLAN.CREATE', args: ['clientName', 'fy', 'peopleCsv'], check: t => appOwnerCheckFy_(t),
-    payload: i => ({ clientName: i.clientName, fy: Number(i.fy), peopleCsv: i.peopleCsv }) },
+  // purpose: 省くか "" = 予算を立てる計画・"MEASURE" = 測る専用（5 計画まで。PlanPurpose.js）
+  createPlan: { job: 'PLAN.CREATE', args: ['clientName', 'fy', 'peopleCsv', 'purpose'], check: t => { appOwnerCheckFy_(t); appPlanPurposeCheck_(t); },
+    payload: i => ({ clientName: i.clientName, fy: Number(i.fy), peopleCsv: i.peopleCsv, purpose: i.purpose }) },
   setPeople: { job: 'PLAN.EDIT', args: ['planId', 'peopleCsv', 'inputHash'],
     payload: i => ({ planId: i.planId, action: 'SETUP.PEOPLE', args: { peopleCsv: i.peopleCsv }, inputHash: i.inputHash }) },
+  // 計画の印（測る専用）を付ける・外す（所有者だけ。監査に前と後の値。PlanPurpose.js）
+  setPlanPurpose: { name: 'PLAN.PURPOSE', args: ['planId', 'purpose'], check: t => { appOwnerCheckPlanId_(t); appOwnerCheckPurpose_(t); },
+    opts: i => ({ minRole: 'ADMIN', entityType: 'PLAN', entityId: i.planId, detail: i, after: res => res.plan }),
+    run: (ctx, i) => appSetPlanPurpose_(ctx, i) },
   // ---- バックアップ・手入れ・監査の鎖・状態・ログ（Backup.js・Housekeeping.js・Setup.js） ----
   enableBackup: { name: 'BACKUP.ENABLE', opts: () => ({ minRole: 'ADMIN', entityType: 'SYSTEM', after: res => res }), run: () => appEnableBackup_() },
   runBackup: { name: 'BACKUP.RUN', opts: () => ({ minRole: 'ADMIN', entityType: 'SYSTEM', after: res => res }), run: ctx => appBackup_(ctx) },
@@ -194,6 +199,12 @@ function appOwnerCheckFy_(t) {
 /** 計画（planId）が要る操作: 無ければ、何もせずに止める（計画が見つからないときは、始める前の判定が止める） */
 function appOwnerCheckPlanId_(t) {
   if (typeof t.planId !== 'string' || !t.planId.trim()) throw new Error(t.action + ' には計画の ID（planId。listPlans の planId）を入れてください。');
+}
+
+/** setPlanPurpose の印（purpose）は省けない（外すときは ""） */
+function appOwnerCheckPurpose_(t) {
+  if (t.purpose === undefined) throw new Error(t.action + ' には印（purpose）を入れてください（測る専用は "MEASURE"、外すときは ""）。');
+  appPlanPurposeCheck_(t);
 }
 
 /** 指紋（inputHash）は省ける。入れるなら calibrationPreview などで受け取った 64 桁のまま */

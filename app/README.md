@@ -208,7 +208,10 @@ Trends2Targets_System/
 
 - `FORECAST_RUNS` の 3 列（アプリの版・種の決め方・入れた直し）: 新しい予測の回に `app_version` = `APP_VERSION`、`seed_rule` = `INPUT_V1`（入力の中身と版から決めた種）、`fixes_json` = `[]`（本番に入れたアプリ側の直しの名前。今は無い。`Forecast.js` の `APP_FORECAST_SEED_RULE`・`APP_FORECAST_FIXES`）を書きます。前からある行は空のまま（空の `seed_rule` は実行ごとの種）です。
 
-- `PLANS.purpose` 測る専用の印（年度を締める条件の公式版からは外してある）: （測る専用の印の担当が足す）
+- `PLANS.purpose` 測る専用の印（3-9。予算を立てないメーカー・前の年度の計画。過去の売上だけを取り込み、物差しの点を増やす。`PlanPurpose.js`）:
+  - 付けるのは所有者だけです。作るときは `createPlan` に `"purpose":"MEASURE"`、後からは `setPlanPurpose`（外すときは `"purpose":""`）。監査に `PLAN.PURPOSE`（前と後の印）が残ります。測る専用は 5 計画まで（保管をやめた計画は数えない・締めた年度の計画は数える）で、6 つ目は断ります。締めた年度の計画・承認待ちの公式版がある計画は変えません。
+  - 断る操作: 予算の保存・公式版を出す・手で動かす A-4（費用のため）。画面ではボタンを押せなくし、理由はカーソルで出します。処理の途中で印が付いても、次の段で止めます。週 1 回の自動の AI 調査の候補にもしません。
+  - 入れないもの: 着地の τ・w の学び・ホームと分析の合計（メーカーの一覧と分析には「測る専用」の札を付けて分け、合計の行の後ろに並べる）・年度を締める条件の公式版。年度の控えには計画の行として入ります。外れ幅・読みのクセ・予測の見直しの流れには入れます。予測の数字・保存している数字は変えません。
 
 - **一度だけの写し**: 表の版がそろった後の操作の初めに、入力の記録の BASELINE・AI 調査の記録の BASELINE・当たりの記録を 1 回ずつ作ります（`V10.js` の `APP_V10_BACKFILLS`。中身はそれぞれの担当が書く）。済んだものはスクリプト プロパティ `APP_BACKFILLS` に残り、二度と動きません。失敗はエラーのログに残し、操作は止めず、10 分あけてやり直します。
 - **見せる範囲**: 入力の記録と当たりの記録は、予算策定担当以上（そのメーカーの担当を含む）に全部、ほかの人には人のつなぎで本人と分かる自分の行だけを送ります（ほかは種類ごとの件数だけ。`appLogViewer_`・`appLogVisible_`）。
@@ -293,6 +296,7 @@ Trends2Targets_System/
 | `planCandidates` | 計画を作れるメーカーの候補（ZAC の名前）を見る（`"refresh":true` で ZAC を読み直す） | `{"action":"planCandidates"}` |
 | `createPlan` | 計画を作る（裏の処理） | `{"action":"createPlan","clientName":"（ZAC の名前）","fy":2027,"peopleCsv":"山田,佐藤"}` |
 | `setPeople` | 計画の担当者を変える（裏の処理） | `{"action":"setPeople","planId":"PL-…","peopleCsv":"山田,佐藤"}` |
+| `setPlanPurpose` | 計画に測る専用の印を付ける（`"MEASURE"`）・外す（`""`）。作るときに付けるなら `createPlan` に `"purpose":"MEASURE"` を足す（版 10。下の「表の版 10」の `PLANS.purpose`） | `{"action":"setPlanPurpose","planId":"PL-…","purpose":"MEASURE"}` |
 | `enableBackup` | 毎日のバックアップを有効にする（ふだんは所有者が画面を開いたときに自動で有効になる。`BACKUP_AUTO_ENABLE` で止めているとき・自動で作れなかったときに使う） | `{"action":"enableBackup"}` |
 | `runBackup` | 今すぐバックアップを取る | `{"action":"runBackup"}` |
 | `runHousekeeping` | 毎日の手入れを今すぐ動かす | `{"action":"runHousekeeping"}` |

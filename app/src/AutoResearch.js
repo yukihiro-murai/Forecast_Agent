@@ -5,6 +5,7 @@
  *   3 時台の毎日のバックアップと手入れ（triggerDailyBackup）はスクリプトのロックを使うので、時間を分ける。
  *   始めてよいのは 4 時から 7 時より前まで。毎日のバックアップのトリガーがあるときは、その日の手入れが終わるまで始めない。
  *   選ぶのは、進行中（ACTIVE）・今年度か来年度・年度を締めていない計画のうち、最後に A-4 が終わってから 7 日を過ぎた（一度も無い）もので、いちばん古いもの。
+ *   測る専用の計画（PLANS.purpose = MEASURE。版 10 の 3-9）は、費用のため選ばない（手で動かす A-4 も断る。PlanPurpose.js）。
  *   ほかの処理が動いている・待っているときは何もしない（裏の処理は 1 つずつ。Jobs.js）。
  * - 自動で始めた A-4 が終わったら（成功でも失敗でも）、7 時より前なら次に古い計画を始める（Jobs.js の appRunJob_ から appAutoResearchAfterJob_）。
  * - 始め方は画面から始めるのと同じ（appStartJob_）。頼んだ人の役割と年度の締めは appRunJob_ が段ごとに確かめ直し、段ごとに監査ログに残る。
@@ -156,7 +157,7 @@ function appAutoResearchNote_(st, planId, status, nowMs, reason, toHistory) {
 // ---- 対象の計画 ----
 
 /**
- * 自動で集める対象の計画: 進行中・今年度（fy）か来年度・年度を締めていない。
+ * 自動で集める対象の計画: 進行中・測る専用でない・今年度（fy）か来年度・年度を締めていない。
  * 最後に A-4 が終わった時刻（PLAN_ACTIONS の DONE。画面から動かしたものも数える。無ければ 0）の古い順
  */
 function appAutoResearchPlans_(fy) {
@@ -168,7 +169,7 @@ function appAutoResearchPlans_(fy) {
   });
   const names = appClientNameMap_();
   return appReadTable_('PLANS')
-    .filter(p => p.state === 'ACTIVE' && (Number(p.fy) === fy || Number(p.fy) === fy + 1) && !appAutoResearchFrozen_(p.fy))
+    .filter(p => p.state === 'ACTIVE' && !appPlanIsMeasure_(p) && (Number(p.fy) === fy || Number(p.fy) === fy + 1) && !appAutoResearchFrozen_(p.fy))
     .map(p => ({ planId: p.plan_id, clientId: p.client_id, clientName: names[p.client_id] || p.client_label, fy: String(p.fy), lastAt: last[p.plan_id] || 0 }))
     .sort((a, b) => a.lastAt - b.lastAt || (a.planId < b.planId ? -1 : a.planId > b.planId ? 1 : 0));
 }
