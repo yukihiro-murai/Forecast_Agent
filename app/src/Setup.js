@@ -230,14 +230,15 @@ function appBackfillFn_(name) {
  * 一度だけの写しを、名前の順に動かす（表の版がそろった後の操作の初め。appAutoEnsureTables_ から）。済んだものは飛ばす。
  * 写しの返り値: { skipped: true } = 中身のない仮のもの（記録せず、次の操作でまた呼ぶ）・{ more: true } = 続きがある（次の操作でまた呼ぶ）・
  * それ以外 = 済み（{ rows } を控える）。投げたらエラーのログに残し、操作は止めず、10 分たってからやり直す。
- * ここではロックを取らない（写しが自分で appWithLock_ の中で書く。2 つの操作が同時に呼んでも二重にならないよう、キーは中身から決める）
+ * ここではロックを取らずに写しを動かす（写しが自分で appWithLock_ の中で書く。2 つの操作が同時に呼んでも二重にならないよう、キーは中身から決める）。
+ * 済み・失敗の控えは、最後にロックの中で読み直してから、この回の分だけを足して書く（ほかの操作が先に書いた「済み」を消さない。済んだ写しの失敗は書かない）
  */
 function appRunBackfills_(ctx) {
   const st = appBackfillState_();
   const now = new Date().getTime();
   const todo = appBackfillNames_().filter(n => !st.done[n] && !(st.failed[n] && now - Number(st.failed[n].at || 0) < APP_BACKFILL_RETRY_MS));
   if (!todo.length) return;
-  let changed = false;
+  const done = {}, failed = {}, ran = {};
   todo.forEach(name => {
     const t0 = new Date().getTime();
     try {
@@ -247,18 +248,25 @@ function appRunBackfills_(ctx) {
       if (res.skipped) return;
       appRunLog_({ requestId: ctx.requestId, kind: 'SCHEMA.BACKFILL', status: res.more ? 'MORE' : 'OK', durationMs: new Date().getTime() - t0,
         detail: { name: name, result: res } });
-      if (st.failed[name]) { delete st.failed[name]; changed = true; }
-      if (!res.more) { st.done[name] = { at: appNowIso_(), v: APP_SCHEMA_VERSION, rows: Number(res.rows) || 0 }; changed = true; }
+      ran[name] = true;
+      if (!res.more) done[name] = { at: appNowIso_(), v: APP_SCHEMA_VERSION, rows: Number(res.rows) || 0 };
     } catch (e) {
       const prev = st.failed[name];
-      st.failed[name] = { at: now, error: String(e && e.message ? e.message : e).slice(0, 200), tries: (prev ? Number(prev.tries) || 0 : 0) + 1 };
-      changed = true;
+      failed[name] = { at: now, error: String(e && e.message ? e.message : e).slice(0, 200), tries: (prev ? Number(prev.tries) || 0 : 0) + 1 };
       appLogError_('SCHEMA.BACKFILL', e, ctx);
     }
   });
-  if (!changed) return;
-  try { appProps_().setProperty(APP_BACKFILL_PROP, JSON.stringify(st)); }
-  catch (e) { Logger.log('一度だけの写しの控えを残せません: ' + (e && e.message ? e.message : e)); }
+  if (!Object.keys(ran).length && !Object.keys(failed).length) return;
+  try {
+    appWithLock_(() => {
+      const cur = appBackfillState_();   // ほかの操作が、この回の間に書いた控え
+      Object.keys(done).forEach(n => { if (!cur.done[n]) cur.done[n] = done[n]; });
+      Object.keys(ran).forEach(n => { delete cur.failed[n]; });
+      Object.keys(failed).forEach(n => { if (!cur.done[n]) cur.failed[n] = failed[n]; });
+      Object.keys(cur.done).forEach(n => { delete cur.failed[n]; });
+      appProps_().setProperty(APP_BACKFILL_PROP, JSON.stringify(cur));
+    });
+  } catch (e) { Logger.log('一度だけの写しの控えを残せません: ' + (e && e.message ? e.message : e)); }
 }
 
 /** 一度だけの写しの状態（状態の点検）: 済み・まだ・失敗（時刻・理由・回数） */
@@ -335,6 +343,10 @@ function appHealth_() {
     } catch (e) { t.ok = false; t.note = String(e && e.message || e); }
     out.tables.push(t);
   });
+  // 列を足す移行がバックアップを待っている間は、版を上げて足す表もまだ作らない（初期設定をやり直しても作られない）。移行の後、次の操作で作る
+  if (props.getProperty(APP_PROP.tablesVersion) !== String(APP_SCHEMA_VERSION) && out.tables.some(t => t.pending)) {
+    out.tables.forEach(t => { if (t.missing) t.note = '未作成（列を足す移行の後に作る。移行の前のバックアップが取れたら、次の操作で作られます）'; });
+  }
   try {
     const now = new Date();
     const ss = appLogSpreadsheet_(now, 'read');

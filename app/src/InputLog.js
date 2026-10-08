@@ -3,12 +3,16 @@
  * - 入力の 4 つの表（ENG_PRODUCT・ENG_CLIENT・ENG_OPINIONS・ENG_DEV_SPOT）が変わる保存と実行のすべて（入力の保存・売上の取り込み・計画を作る ほか）で、
  *   変わった行だけを前と後で残す（Forecast.js の appChangedOps_ から。本体の保存と同じ控えに入れて一緒に書く）。前の行は書く前のデータ本体から読む。
  * - 行の印 row_key = 種類|担当者|製品|月（スポットは案件名）。同じ印が 2 行あれば 2 つ目から #2・#3（上からの順）。
- *   前と後は同じ印どうしで比べ、印の無くなった行と新しい印の行は、同じ位置（行の番号）なら「変えた」とみなす（担当者を入れた・月を変えた）。
+ *   入力の保存では、画面が行ごとに「開いたときの何行目から来たか」（fromRow）を渡す。そのときは前と後をその印で組む（外した行・足した行・
+ *   変えた行が、位置がずれても取り違えない）。渡さない保存（前の画面）とほかの操作は、同じ印どうしで比べ、印の無くなった行と新しい印の行は、
+ *   同じ位置（行の番号）なら「変えた」とみなす（担当者を入れた・月を変えた）。
  * - 自信（self_conf: 高い・ふつう・低い・空）は製品とメーカー全体の行だけ。入力の画面で選び、この記録にだけ書く（旧来の表には渡さない。計算に使わない）。
  *   行の中身が同じで自信だけ変えたら CONF。入力の保存のほかの操作で変えた・外した行は、その行の一番新しい自信を引き継ぐ（足した行は空）。
  * - 見せる範囲（appInputLogView_）: 予算策定担当以上（そのメーカーの担当を含む）は全部。ほかの人は、人のつなぎ（PERSON_LINKS）で本人と分かる行だけで、
- *   その中でも担当者の名前と保存した人は送らない。ほかの行は種類ごとの件数だけ（V10.js の appLogViewer_・appLogVisible_）。
+ *   その中でも担当者の名前と保存した人は送らない。本人の行かは、保存した日に効くつなぎで決める（今日のつなぎで前の行を決めない）。
+ *   担当者が変わった行（CHANGE）の前の中身は、前の担当者も本人のときだけ送る。ほかの行は種類ごとの件数だけ（V10.js の appLogViewer_・appLogVisible_）。
  * - 版 10 の移行の後に 1 回、今の 4 つの表の行を BASELINE として写す（appInputLogBackfill_。前の保存の履歴は残っていないので作れない）。
+ *   した人は仕組み（APP_V10_BACKFILL_ACTOR。画面には人として出さない）。
  * 行は消さず、書き換えない。記録は計算に使わない。
  */
 
@@ -80,9 +84,11 @@ function appInputLogList_(kind, objs) {
 
 /**
  * 前と後の行を比べる。返り値 [{ change: 'ADD'|'CHANGE'|'REMOVE'|''（同じ）, a: 後の行, b: 前の行 }]。
- * 同じ印どうしで比べる。印の無くなった前の行と新しい印の後の行は、同じ位置（行の番号）なら CHANGE（担当者を入れた・月を変えた）、ほかは REMOVE と ADD
+ * from（後の行の番号 → 前の行の位置（0 から。画面が開いたときの行の何行目か））を渡したときは、その印で組む（appInputLogDiffFrom_）。
+ * 渡さないときは同じ印どうしで比べる。印の無くなった前の行と新しい印の後の行は、同じ位置（行の番号）なら CHANGE（担当者を入れた・月を変えた）、ほかは REMOVE と ADD
  */
-function appInputLogDiff_(before, after) {
+function appInputLogDiff_(before, after, from) {
+  if (from) return appInputLogDiffFrom_(before, after, from);
   const bk = {}, ak = {};
   before.forEach(b => { bk[b.key] = b; });
   after.forEach(a => { ak[a.key] = a; });
@@ -101,11 +107,52 @@ function appInputLogDiff_(before, after) {
   return out;
 }
 
+/**
+ * 画面が渡した行の出どころで前と後を組む。from[後の行の番号] = 前の行の位置（before の何番目か。画面の開いたときの行と同じ並び）。
+ * 出どころのある後の行は、その前の行と比べる（同じ中身なら ''・違えば CHANGE。同じ中身の行どうしの #2 の付け直しは変えたことにしない）。
+ * 出どころの無い後の行・前の行の数を超える位置・2 つ目からの同じ位置は ADD。どの後の行の出どころにもならなかった前の行は REMOVE（外した行）。
+ * 同じ中身の行（#2 など）は見分けない: 外した行の印が残った行の印とぶつかり、同じ中身で印の無くなる行があれば、無くなる印の方を外したことにする
+ * （例: 同じ中身の 2 行の 1 行目を外すと、残った行は 1 行目の印になり、外したのは 2 行目の印。前の画面の組み方と同じ）
+ */
+function appInputLogDiffFrom_(before, after, from) {
+  const used = {};
+  const out = [];
+  after.forEach(a => {
+    const i = Object.prototype.hasOwnProperty.call(from, a.seq) ? from[a.seq] : null;
+    const b = i !== null && i >= 0 && i < before.length && !used[i] ? before[i] : null;
+    if (!b) { out.push({ change: 'ADD', a: a, b: null }); return; }
+    used[i] = true;
+    out.push({ change: JSON.stringify(a.row) === JSON.stringify(b.row) ? '' : 'CHANGE', a: a, b: b });
+  });
+  const ak = {};
+  after.forEach(a => { ak[a.key] = true; });
+  const same = out.filter(d => d.change === '');
+  before.forEach((b, i) => {
+    if (used[i]) return;
+    const d = { change: 'REMOVE', a: null, b: b };
+    if (ak[b.key]) {
+      const text = JSON.stringify(b.row);
+      const p = same.filter(x => !ak[x.b.key] && JSON.stringify(x.b.row) === text)[0];
+      if (p) { d.b = p.b; p.b = b; same.splice(same.indexOf(p), 1); }   // 同じ中身なので、外した行と残った行の印を入れ替えても前と後の中身は同じ
+    }
+    out.push(d);
+  });
+  return out;
+}
+
+/** 画面が渡した行の出どころ（fromRow。開いたときの行の位置。0 から）。整数でない・負の値は無いことにする（null） */
+function appInputLogFromRow_(v) {
+  if (v === undefined || v === null || v === '' || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 // ---- 書く（本体の保存と同じ控えに入れる）----
 
 /**
- * 入力の保存（INPUT.SAVE）の中身から、自信と保存の理由を取り出す（旧来の webSaveInputs には渡さない。旧来の表に列を足さない）。
- * info を埋めて、旧来に渡す中身（写し）を返す: info.reason = 保存の理由、info.conf = { kind, bySeq: { 書く行の番号: 自信（送らない行は null） } }。
+ * 入力の保存（INPUT.SAVE）の中身から、自信・行の出どころ・保存の理由を取り出す（旧来の webSaveInputs には渡さない。旧来の表に列を足さない）。
+ * info を埋めて、旧来に渡す中身（写し）を返す: info.reason = 保存の理由、info.conf = { kind, bySeq: { 書く行の番号: 自信（送らない行は null） } }、
+ * info.from = { kind, bySeq: { 書く行の番号: 開いたときの行の位置 } }（どれかの行が fromRow を渡したときだけ）。
  * 書く行の番号は旧来と同じ数え方（値の無い行を飛ばして 2 行目から詰める）。自信は製品とメーカー全体の行だけ。ほかの操作はそのまま返す
  */
 function appInputLogTake_(args, info) {
@@ -118,25 +165,33 @@ function appInputLogTake_(args, info) {
   if (!Array.isArray(out.rows)) return out;
   const kind = String(out.kind || '');
   const useConf = APP_INPUT_CONF_KINDS.indexOf(kind) >= 0;
-  const bySeq = {};
-  let n = 0;
+  const bySeq = {}, fromBySeq = {};
+  let n = 0, anyFrom = false;
   out.rows = out.rows.map(r => {
     if (!r || typeof r !== 'object') return r;
     const x = Object.assign({}, r);
     const c = x.selfConf === undefined || x.selfConf === null ? null : String(x.selfConf).trim();   // 送らない（null）= 今の自信のまま。空 = 外した
+    const f = appInputLogFromRow_(x.fromRow);   // 開いたときの何行目から来たか（足した行は無い）
     delete x.selfConf;
+    delete x.fromRow;
     if (c && APP_INPUT_CONF.indexOf(c) < 0) throw new Error('自信は「高い」「ふつう」「低い」から選んでください。');
     // 旧来の webSaveInputs と同じ見分け方（どの値も空なら書かない）
-    if (Object.keys(x).some(k => String(x[k] || '').trim() !== '')) { n++; if (useConf) bySeq[n + 1] = c; }
+    if (Object.keys(x).some(k => String(x[k] || '').trim() !== '')) {
+      n++;
+      if (useConf) bySeq[n + 1] = c;
+      if (f !== null) { fromBySeq[n + 1] = f; anyFrom = true; }
+    }
     return x;
   });
   if (useConf) info.conf = { kind: kind, bySeq: bySeq };
+  if (anyFrom) info.from = { kind: kind, bySeq: fromBySeq };
   return out;
 }
 
 /**
  * 入力の記録を足す控えの書き方（ops。appChangedOps_ が本体の ops に足す）。changed = 控えの形にしたシート（appCaptureChanged_ の changed）、
- * batchId = 操作の番号（action_id）、info = { action, reason, conf }（appInputLogTake_。無ければ番号の頭から操作を決める）。
+ * batchId = 操作の番号（action_id）、info = { action, reason, conf, from, hashChecked }（appInputLogTake_。無ければ番号の頭から操作を決める）。
+ * 行の出どころ（from）は、画面が開いたときのデータ本体と同じだと確かめた保存（hashChecked = 入力のハッシュが一致）でだけ使う。
  * 入力の表が変わっていなくても、自信だけ変えた行は CONF として足す。前の行と一番新しい自信は、書く前のデータ本体から読む
  */
 function appInputLogOps_(ctx, planId, changed, batchId, info) {
@@ -147,6 +202,7 @@ function appInputLogOps_(ctx, planId, changed, batchId, info) {
     if (k && e.sheetRow.mode === 'table') enc[k] = e;   // 見出しが変わって行ごとに持つシートは比べない（旧来は見出しを変えない）
   });
   const confKind = o.conf && APP_INPUT_CONF_KINDS.indexOf(o.conf.kind) >= 0 ? o.conf.kind : '';
+  const fromKind = o.from && o.hashChecked ? String(o.from.kind || '') : '';
   if (!Object.keys(enc).length && !confKind) return [];
   const action = o.action || APP_INPUT_LOG_BATCH[String(batchId || '').split('-')[0]] || '';
   const now = appNowIso_();
@@ -159,7 +215,7 @@ function appInputLogOps_(ctx, planId, changed, batchId, info) {
     const stored = appInputLogList_(kind, appReadPlanTable_('ENG_' + appInputLogSheet_(kind), planId));
     const next = enc[kind] ? appInputLogList_(kind, enc[kind].tableRows) : stored;
     const withConf = APP_INPUT_CONF_KINDS.indexOf(kind) >= 0;
-    appInputLogDiff_(stored, next).forEach(d => {
+    appInputLogDiff_(stored, next, kind === fromKind ? o.from.bySeq : null).forEach(d => {
       let change = d.change;
       let conf = '';
       if (withConf) {
@@ -197,6 +253,21 @@ function appInputLogLatestConf_(planId) {
   return out;
 }
 
+/**
+ * 1 つの印の跡（新しい順）を、保存ごとにまとめて並べ直す。1 回の保存で、外した行（REMOVE）と同じ印の行を足す・変えることがある
+ * （行の出どころで組んだとき。例: 行を外し、別の行をその印に変えた）。同じ保存の中では外した方を古い方にし、残った行の跡が先に来るようにする。
+ * 保存の並び（新しい順）は変えない
+ */
+function appInputLogHistOrder_(h) {
+  const groups = [], at = {};
+  (h || []).forEach(r => {
+    const k = String(r.action_id || '') + '\u0001' + String(r.saved_at || '');
+    if (!at[k]) { at[k] = []; groups.push(at[k]); }
+    at[k].push(r);
+  });
+  return [].concat.apply([], groups.map(g => g.filter(r => r.change !== 'REMOVE').concat(g.filter(r => r.change === 'REMOVE'))));
+}
+
 /** 記録の JSON の列を読む（空・読めなければ null） */
 function appInputLogJson_(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -214,7 +285,7 @@ function appInputLogView_(ctx, plan) {
   if (!appLogReady_()) return null;
   try {
     const viewer = appLogViewer_(ctx, plan.client_id);
-    const vis = appLogVisible_(viewer, appInputLogRead_(plan.plan_id), { personOf: r => r.person, typeOf: r => r.kind });
+    const vis = appLogVisible_(viewer, appInputLogRead_(plan.plan_id), { personOf: r => r.person, dateOf: r => r.saved_at, typeOf: r => r.kind });
     const by = {};
     vis.rows.forEach(r => { (by[r.row_key] = by[r.row_key] || []).unshift(r); });   // 新しい順
     const hideName = j => {
@@ -224,16 +295,26 @@ function appInputLogView_(ctx, plan) {
       delete c.person;
       return c;
     };
+    // 本人の行の前の中身: 担当者が変わった行（ほかの人の行を引き継いだ）は、前の担当者もその日に本人のときだけ送る
+    const beforeOf = r => {
+      const x = appInputLogJson_(r.before_json);
+      if (!x || viewer.full) return x;
+      const was = String(x.person === null || x.person === undefined ? '' : x.person).trim();
+      if (was && was !== String(r.person || '').trim() &&
+        appPersonEmailOf_(was, viewer.clientId, appLogDay_(r.saved_at) || appToday_(), viewer.links) !== viewer.email) return null;
+      return hideName(x);
+    };
+    const byOf = r => (viewer.full && !appLogSystemActor_(r.actor_email) ? r.actor_email : '');   // 一度だけの写しの行は人ではない
     const rows = {};
     Object.keys(APP_INPUT_LOG_SHEETS).forEach(sheet => {
       const kind = APP_INPUT_LOG_SHEETS[sheet];
       rows[kind] = appInputLogList_(kind, appReadPlanTable_('ENG_' + sheet, plan.plan_id)).map(x => {
-        const h = by[x.key];
-        if (!h) return null;
+        if (!by[x.key]) return null;
+        const h = appInputLogHistOrder_(by[x.key]);
         const live = h.filter(r => r.change !== 'REMOVE')[0];
         return { conf: APP_INPUT_CONF_KINDS.indexOf(kind) >= 0 && live ? String(live.self_conf || '') : '', n: h.length,
-          hist: h.slice(0, APP_INPUT_LOG_HIST).map(r => ({ at: r.saved_at, change: r.change, action: r.action, by: viewer.full ? r.actor_email : '',
-            reason: viewer.full ? r.reason : '', conf: r.self_conf, before: hideName(r.before_json), after: hideName(r.after_json) })) };
+          hist: h.slice(0, APP_INPUT_LOG_HIST).map(r => ({ at: r.saved_at, change: r.change, action: r.action, by: byOf(r),
+            reason: viewer.full ? r.reason : '', conf: r.self_conf, before: beforeOf(r), after: hideName(r.after_json) })) };
       });
     });
     return { full: viewer.full, rows: rows, counts: vis.counts, hidden: vis.hidden };
@@ -247,7 +328,10 @@ function appInputLogView_(ctx, plan) {
 
 /**
  * 今の 4 つの入力の表の行を、計画ごとに BASELINE として 1 回だけ写す（締めた年度の計画は飛ばす）。キーは計画・印から決める（appStableLogId_。
- * 2 つの操作が同時に動かしても二重にならない）。BASELINE がもうある計画は飛ばす。1 回は約 20 秒までで、残りは次の操作で（{ more: true }）
+ * 2 つの操作が同時に動かしても二重にならない）。BASELINE がもうある計画は飛ばす。1 回は約 20 秒までで、残りは次の操作で（{ more: true }）。
+ * 計画ごとにロックの中で、書きかけの保存を先に書き終えてから（appJournalRecover_）読む（途中の表から写さない）。
+ * 記録がもうある行（写しより前に保存した行）には BASELINE を足さない（写しの方が新しくなり、その保存の自信を隠すため。その行の初めの姿は前の記録にある）。
+ * した人は仕組み（APP_V10_BACKFILL_ACTOR）。写しを動かした操作の人ではない
  */
 function appInputLogBackfill_(ctx) {
   if (!appLogReady_()) return { more: true, rows: 0 };
@@ -260,17 +344,23 @@ function appInputLogBackfill_(ctx) {
   let rows = 0;
   for (let i = 0; i < plans.length; i++) {
     if (new Date().getTime() - t0 > APP_INPUT_LOG_BACKFILL_MS) return { more: true, rows: rows };
-    const plan = plans[i];
+    const planId = plans[i].plan_id;
     rows += appWithLock_(() => {
-      if (appReadPlanTable_('INPUT_LOG', plan.plan_id).some(r => r.change === 'BASELINE')) return 0;   // ほかの操作が先に写した
+      appJournalRecover_(ctx);   // 書きかけの保存を先に書き終える（その保存の入力の行と記録が入ってから読む）
+      const plan = appPlanOf_(planId);
+      if (appYearIsFrozen_(plan.fy)) return 0;
+      const had = appReadPlanTable_('INPUT_LOG', plan.plan_id);
+      if (had.some(r => r.change === 'BASELINE')) return 0;   // ほかの操作が先に写した
+      const logged = {};
+      had.forEach(r => { logged[r.row_key] = true; });
       const now = appNowIso_();
       const list = [];
       Object.keys(APP_INPUT_LOG_SHEETS).forEach(sheet => {
         const kind = APP_INPUT_LOG_SHEETS[sheet];
-        appInputLogList_(kind, appReadPlanTable_('ENG_' + sheet, plan.plan_id)).forEach(x => list.push({
+        appInputLogList_(kind, appReadPlanTable_('ENG_' + sheet, plan.plan_id)).filter(x => !logged[x.key]).forEach(x => list.push({
           plan_id: plan.plan_id, log_id: appStableLogId_(APP_LOG_PREFIX.INPUT_LOG, ['BASELINE', plan.plan_id, x.key]), action_id: '', action: 'BASELINE',
           kind: kind, change: 'BASELINE', row_key: x.key, person: String(x.row.person === null || x.row.person === undefined ? '' : x.row.person),
-          before_json: '', after_json: x.row, self_conf: '', reason: '', signal_id: '', actor_email: ctx.actor || '', saved_at: now }));
+          before_json: '', after_json: x.row, self_conf: '', reason: '', signal_id: '', actor_email: APP_V10_BACKFILL_ACTOR, saved_at: now }));
       });
       if (!list.length) return 0;
       appJournalRun_(ctx, '入力の記録の初めの姿（' + plan.plan_id + '）', plan.plan_id, appLogOps_('INPUT_LOG', list));

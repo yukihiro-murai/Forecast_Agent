@@ -459,8 +459,9 @@ const APP_EDIT_WRITE_DEADLINE_MS = 4 * 60 * 1000;
 function appPlanEdit_(ctx, p) {
   const act = appPlanAction_(p.action, 'edit');
   const plan = appPlanOf_(p.planId);
-  const inLog = { action: p.action };
-  const args = appInputLogTake_(appPlanCheckArgs_(appJobArgs_(p)), inLog);   // 自信と保存の理由は入力の記録にだけ書く（旧来の表に渡さない。InputLog.js）
+  // hashChecked: 画面が開いたときの入力のハッシュを渡した保存（下で一致を確かめる）。行の出どころ（fromRow）は、そのときだけ使う
+  const inLog = { action: p.action, hashChecked: !!p.inputHash };
+  const args = appInputLogTake_(appPlanCheckArgs_(appJobArgs_(p)), inLog);   // 自信・行の出どころ・保存の理由は入力の記録にだけ使う（旧来の表に渡さない。InputLog.js）
   const t0 = new Date().getTime();
   const actionId = appId_('ACT');
   return appWithLock_(() => {

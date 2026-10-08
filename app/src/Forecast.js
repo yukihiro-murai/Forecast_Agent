@@ -63,8 +63,10 @@ function appForecastSeed_(plan, forecastInputHash, engine) {
 
 /**
  * 予測の版（FORECAST_RUNS の版 10 の列。SCHEMA_PLAN_v10-12_JA.md の 3-8）: 新しい回に、アプリの版（app_version = APP_VERSION）・
- * 種の決め方（seed_rule。INPUT_V1 = 入力の中身と版から決めた種 appForecastSeed_。空 = 実行ごとの種 v0.28.0 まで）・
- * 本番に入れたアプリ側の直し（fixes_json。決定 10・12 の直しを本番にしたら、その名前を足す。今は無い）を書く。前からある行は空のまま
+ * 種の決め方（seed_rule。INPUT_V1 = 入力の中身と版から決めた種 appForecastSeed_）・
+ * 本番に入れたアプリ側の直し（fixes_json。決定 10・12 の直しを本番にしたら、その名前を足す。今は無い）を書く。前からある行は空のまま（書き換えない）。
+ * 空の seed_rule は seed で読み分ける: 64 文字の 16 進なら INPUT_V1（v0.29.0・@65）、RUN-… なら実行ごとの種（v0.28.0 まで）。
+ * 種に APP_VERSION が入るので、版を上げた後の最初の予測は、同じ入力でも数字が少し動く（版 10 の手元の試しで年間の中心 −0.56%）
  */
 const APP_FORECAST_SEED_RULE = 'INPUT_V1';
 const APP_FORECAST_FIXES = [];

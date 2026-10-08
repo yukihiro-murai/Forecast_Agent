@@ -79,8 +79,8 @@ const APP_TABLES = {
   },
   FORECAST_RUNS: {
     // 新アプリで動かした予測 1 回（追記のみ）。同じ入力（input_hash）・種（seed）・「今」（as_of）なら同じ結果になる
-    // 版 10 の列（3-8）: app_version = アプリの版、seed_rule = 種の決め方（空 = 実行ごとの種 v0.28.0 まで・INPUT_V1 = 入力の中身と版から）、
-    // fixes_json = 本番に入れたアプリ側の直し。前からある行は空のまま（書き換えない）
+    // 版 10 の列（3-8）: app_version = アプリの版、seed_rule = 種の決め方（INPUT_V1 = 入力の中身と版から。空 = 版 10 より前の回で、seed が
+    // 64 文字の 16 進なら INPUT_V1＝v0.29.0、RUN-… なら実行ごとの種＝v0.28.0 まで）、fixes_json = 本番に入れたアプリ側の直し。前からある行は空のまま（書き換えない）
     key: ['run_id'],
     columns: ['run_id', 'plan_id', 'status', 'engine_version', 'engine_sha256', 'seed', 'as_of', 'input_hash',
       'annual_p10', 'annual_p50', 'annual_p90', 'objective_p10', 'objective_p50', 'objective_p90',
@@ -155,10 +155,11 @@ const APP_TABLES = {
   },
   LEARNING_LOG: {
     // 学びの記録（3-5）: 案・判断・反映・振り返りを 1 件ずつ足す。全計画の学び（τ・w など）は plan_id が空（年度の控えに入らない）
+    // evidence_n は数（num）: 分からない根拠の件数は空のまま（int だと 0 と書かれ「根拠 0 件」と読めてしまう）。型は列のハッシュに入らない（_SCHEMA は変わらない）
     key: ['learn_id'], appendOnly: true, globalRows: true,
     columns: ['plan_id', 'learn_id', 'proposal_id', 'event', 'origin', 'target', 'current_value', 'proposed_value', 'evidence_n',
       'ci80_json', 'compare_json', 'decision', 'applied_value', 'review_quarter', 'note', 'actor_email', 'at'],
-    types: { evidence_n: 'int' }
+    types: { evidence_n: 'num' }
   },
   PERSON_LINKS: {
     // 入力の「担当者」の名前とメンバーのメールのつなぎ（3-6）。client_id が空 = 全部のメーカー。外すときは消さずに無効にする（ROLES と同じ）

@@ -79,17 +79,34 @@ function appAiResearchLogCells_(rowJson) {
 /**
  * 一度だけの写し（V10.js の appV10BackfillAiResearchLog_）: 今の AI_RESEARCH_STRUCTURED の 1 回分を、計画ごとに BASELINE として写す。
  * 締めた年度の計画は飛ばす。キーは計画と行の番号から決める（2 つの操作が同時に動かしても、控えの書き直しでも二重にならない）。
+ * 計画ごとにロックの中で、書きかけの保存を先に書き終えてから（appJournalRecover_）読む。BASELINE がもうある計画は飛ばす
+ * （写しの控えが消えて写しがもう一度動いても、後の A-4 の中身を BASELINE として足さない）。1 回は約 20 秒までで、残りは次の操作で（{ more: true }）。
  * 前の回の根拠の文は残っていない（話題ごとの点数は AI_SCORE_HISTORY にある）
  */
 function appAiResearchBackfill_(ctx) {
-  const open = {};
-  appReadTable_('PLANS').forEach(pl => { if (!appYearIsFrozen_(pl.fy)) open[pl.plan_id] = true; });
-  const now = appNowIso_();
-  const rows = appReadTable_('ENG_AI_RESEARCH_STRUCTURED').filter(r => open[r.plan_id]).map(r => appAiResearchLogRow_(r.plan_id, r, {
-    research_id: appStableLogId_(APP_LOG_PREFIX.AI_RESEARCH_LOG, ['BASELINE', r.plan_id, r.seq]), action_id: 'BASELINE', started_by: 'BASELINE', recorded_at: now }));
-  if (!rows.length) return { rows: 0 };
-  const ops = appLogOps_('AI_RESEARCH_LOG', rows);
-  if (!ops.length) return { more: true, rows: 0 };   // 表の版がそろう前（次の操作でまた）
-  const written = appWithLock_(() => appJournalRun_(ctx, 'AI 調査の記録（版 10 の写し）', '', ops));
-  return { rows: (written.AI_RESEARCH_LOG && written.AI_RESEARCH_LOG.appended) || 0, plans: Object.keys(rows.reduce((a, r) => { a[r.plan_id] = 1; return a; }, {})).length };
+  if (!appLogReady_()) return { more: true, rows: 0 };   // 表の版がそろう前（次の操作でまた）
+  const t0 = new Date().getTime();
+  const ids = appReadTable_('PLANS').filter(pl => !appYearIsFrozen_(pl.fy)).map(pl => String(pl.plan_id)).sort();
+  let rows = 0, plans = 0;
+  for (let i = 0; i < ids.length; i++) {
+    if (new Date().getTime() - t0 > APP_INPUT_LOG_BACKFILL_MS) return { more: true, rows: rows };
+    const planId = ids[i];
+    rows += appWithLock_(() => {
+      appJournalRecover_(ctx);   // 書きかけの保存（A-4 の保存を含む）を先に書き終える
+      const plan = appPlanOf_(planId);
+      if (appYearIsFrozen_(plan.fy)) return 0;
+      if (appReadPlanTable_('AI_RESEARCH_LOG', planId).some(r => r.action_id === 'BASELINE')) return 0;   // ほかの操作が先に写した
+      const eng = appReadPlanTable_('ENG_AI_RESEARCH_STRUCTURED', planId);
+      if (!eng.length) return 0;
+      const now = appNowIso_();
+      const ops = appLogOps_('AI_RESEARCH_LOG', eng.map(r => appAiResearchLogRow_(planId, r, {
+        research_id: appStableLogId_(APP_LOG_PREFIX.AI_RESEARCH_LOG, ['BASELINE', planId, r.seq]), action_id: 'BASELINE', started_by: 'BASELINE', recorded_at: now })));
+      if (!ops.length) return 0;
+      const written = appJournalRun_(ctx, 'AI 調査の記録（版 10 の写し・' + planId + '）', planId, ops);
+      const n = (written.AI_RESEARCH_LOG && written.AI_RESEARCH_LOG.appended) || 0;
+      if (n) plans++;
+      return n;
+    });
+  }
+  return plans ? { rows: rows, plans: plans } : { rows: rows };
 }
