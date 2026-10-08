@@ -1,5 +1,5 @@
 /**
- * app-basis.test.mjs — 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化）。
+ * app-basis.test.mjs — 予測の根拠（月ごとの内訳・入力と AI の押し・補正・AI 調査の根拠・前回からの変化とそのわけ changeCause）。
  * 旧来の予測の代わりに、旧来と同じ見出しで記録のシートを書く（本物の予測はモックでは動かさない）。
  */
 import assert from 'node:assert/strict';
@@ -78,5 +78,57 @@ assert.equal(b.research.length, 1);
 assert.equal(b.research[0].direction, 'up');
 assert.match(b.research[0].evidence, /新薬/);
 assert.equal(b.annual.p50 - b.annual.prevP50, 10);
-assert.equal(b.inputChanged, false, 'この間に計画への操作は無い（変化は乱数の揺れ）');
+assert.equal(b.inputChanged, false, 'この間に計画への操作は無い');
+// テストの予測は、同じ入力・同じ種でも回ごとに数字を変える（本物は変えない）。月も旧来の計算も同じなので、残るわけはアプリの版（記録していない）
+assert.deepEqual([b.changeCause, b.changeCauses, b.changeVersion], ['version', ['version'], { engine: 'same', app: 'unknown' }]);
+
+// ==== 前回の予測からの変化のわけ（changeCause。2026-10-08 F4）: 決まった順で 1 つ選ぶ ====
+{
+  const SEED = (c) => c.repeat(64);
+  const run = (o) => Object.assign({ run_id: 'R', seed: SEED('a'), as_of: '2026-10-08T10:00:00+0900', engine_version: '2.4.0-dev', engine_sha256: SEED('e'), annual_p50: 1000 }, o);
+  const mon = (v) => ({ '2026/04': { p50: v }, '2026/05': { p50: 500 } });
+  const cause = (latest, prev, cur, before, between) => env.call('appBasisChangeCause_(__l, __p, __c, __b, __w)', { __l: latest, __p: prev, __c: cur, __b: before, __w: between || [] });
+  const op = (action, changed) => ({ action, changed });
+  // 前の回が無い
+  assert.deepEqual(cause(run({}), null, mon(500), {}), { changeCause: '', changeCauses: [], changeVersion: null });
+  // none: 年度と月の P50 がまったく同じ（操作があっても、月や版が違っても none だけ）
+  const n = cause(run({ seed: SEED('b'), as_of: '2026-11-02T09:00:00+0900' }), run({}), mon(500), mon(500), [op('INPUT.SAVE', ['OPINIONS'])]);
+  assert.deepEqual([n.changeCause, n.changeCauses], ['none', ['none']]);
+  assert.equal(cause(run({ annual_p50: 1000 }), run({}), mon(501), mon(500)).changeCause !== 'none', true, '月の P50 が違えば none ではない');
+  assert.notEqual(cause(run({ annual_p50: 1001 }), run({}), mon(500), mon(500)).changeCause, 'none', '年度の P50 が違えば none ではない');
+  assert.notEqual(cause(run({}), run({}), mon(500), { '2026/04': { p50: 500 } }).changeCause, 'none', '片方にしか無い月があれば none ではない');
+  // inputs: 間の操作が予測の読む表を変えた（月や版が違っても inputs が先）。予算・記入・実績の取り込みだけなら数えない
+  const i = cause(run({ seed: SEED('b'), annual_p50: 1100, as_of: '2026-11-02T09:00:00+0900', engine_sha256: SEED('f') }), run({}), mon(600), mon(500), [op('BUDGET.SAVE', ['OUTPUT']), op('INPUT.SAVE', ['OPINIONS'])]);
+  assert.deepEqual([i.changeCause, i.changeCauses, i.changeVersion], ['inputs', ['inputs', 'calendar', 'version'], { engine: 'changed', app: 'unknown' }]);
+  for (const [a, ch] of [['IMPORT.SALES', ['SALES_INPUT', 'PROCESS_STATUS']], ['AI.RESEARCH', ['AI_RESEARCH_STRUCTURED']], ['EVAL.REPORT', ['EVAL_LOG', 'CALIBRATION_STATE']], ['SETUP.PEOPLE', ['CONFIG']]]) {
+    assert.equal(cause(run({ seed: SEED('b'), annual_p50: 1100 }), run({}), mon(600), mon(500), [op(a, ch)]).changeCause, 'inputs', a);
+  }
+  for (const [a, ch] of [['BUDGET.SAVE', ['OUTPUT']], ['INSIGHT.SAVE', ['EVAL_INSIGHTS']], ['IMPORT.ACTUALS', ['ACTUAL_EVAL_MONTHLY', 'PROCESS_STATUS', 'RUN_LOG']], ['EVAL.REPORT', ['EVAL_LOG', 'EVAL_COMPARE_MONTHLY']]]) {
+    assert.notEqual(cause(run({ seed: SEED('b'), annual_p50: 1100 }), run({}), mon(600), mon(500), [op(a, ch)]).changeCause, 'inputs', a + ' は予測の読む表を変えない');
+  }
+  // 両方とも中身から作った同じ種なら、操作があっても予測の読んだ表は同じ（inputs にしない）。月が違えば calendar
+  const ss = cause(run({ annual_p50: 1100, as_of: '2026-11-02T09:00:00+0900' }), run({}), mon(600), mon(500), [op('INPUT.SAVE', ['OPINIONS'])]);
+  assert.deepEqual([ss.changeCause, ss.changeCauses], ['calendar', ['calendar']]);
+  // calendar: 「今」の月が違う（同じ月の別の日は calendar ではない）。版が違っても calendar が先
+  const cal = cause(run({ seed: SEED('b'), annual_p50: 1100, as_of: '2026-11-01T00:30:00+0900', engine_sha256: SEED('f') }), run({ as_of: '2026-10-31T23:30:00+0900' }), mon(600), mon(500));
+  assert.deepEqual([cal.changeCause, cal.changeCauses, cal.changeVersion.engine], ['calendar', ['calendar', 'version'], 'changed']);
+  assert.notEqual(cause(run({ seed: SEED('b'), annual_p50: 1100, as_of: '2026-10-31T23:00:00+0900' }), run({ as_of: '2026-10-01T09:00:00+0900' }), mon(600), mon(500)).changeCause, 'calendar');
+  // version: 旧来の計算の中身が違う（同じ月・操作なし）。どちらの回も中身から作った種
+  const ver = cause(run({ seed: SEED('b'), annual_p50: 1100, engine_sha256: SEED('f') }), run({}), mon(600), mon(500));
+  assert.deepEqual([ver.changeCause, ver.changeCauses, ver.changeVersion], ['version', ['version'], { engine: 'changed', app: 'unknown' }]);
+  // 中身のハッシュの記録が無ければ、版の名前で比べる（名前も同じ・無ければ分からない）
+  assert.deepEqual(cause(run({ seed: SEED('b'), annual_p50: 1100, engine_sha256: '', engine_version: '2.5.0' }), run({}), mon(600), mon(500)).changeVersion, { engine: 'changed', app: 'unknown' });
+  assert.deepEqual(cause(run({ seed: SEED('b'), annual_p50: 1100, engine_sha256: '' }), run({}), mon(600), mon(500)).changeVersion, { engine: 'unknown', app: 'unknown' });
+  // jitter: どちらかの種が中身から作った種でない（v0.29.0 より前の実行の ID）。同じ月・同じ旧来の計算。アプリの版も前と後で違う
+  const jit = cause(run({ annual_p50: 1100 }), run({ seed: 'ACT-20261001-abc' }), mon(600), mon(500));
+  assert.deepEqual([jit.changeCause, jit.changeCauses, jit.changeVersion], ['jitter', ['jitter', 'version'], { engine: 'same', app: 'changed' }]);
+  assert.equal(cause(run({ seed: 'RUN-1', annual_p50: 1100 }), run({ seed: 'RUN-0' }), mon(600), mon(500)).changeCause, 'jitter', '両方とも前の種');
+  assert.equal(cause(run({ annual_p50: 1100, as_of: '2026-11-02T09:00:00+0900' }), run({ seed: 'RUN-0' }), mon(600), mon(500)).changeCause, 'calendar', '月が違えば jitter ではない');
+  assert.equal(cause(run({ annual_p50: 1100, engine_sha256: SEED('f') }), run({ seed: 'RUN-0' }), mon(600), mon(500)).changeCause, 'version', '旧来の計算が違えば jitter ではない');
+  // version（ほかのわけが無い）: 両方とも中身から作った種で、月も旧来の計算も同じ。アプリの版は記録していないので unknown
+  const fb = cause(run({ seed: SEED('b'), annual_p50: 1100 }), run({}), mon(600), mon(500), [op('BUDGET.SAVE', ['OUTPUT'])]);
+  assert.deepEqual([fb.changeCause, fb.changeCauses, fb.changeVersion], ['version', ['version'], { engine: 'same', app: 'unknown' }]);
+  // 同じ入力なら何度でも同じ答え（決まった順）
+  assert.deepEqual(cause(run({ seed: SEED('b'), annual_p50: 1100 }), run({}), mon(600), mon(500)), cause(run({ seed: SEED('b'), annual_p50: 1100 }), run({}), mon(600), mon(500)));
+}
 console.log('app-basis: all tests passed');

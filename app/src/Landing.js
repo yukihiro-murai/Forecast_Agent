@@ -118,14 +118,18 @@ function appLandingDist_(fc, acts, tau, w) {
  * inp: { fy, months: [{ ym, p10, p50, p90 }]（OUTPUT の 29〜40 行）, actual: { 'yyyy/MM': 実績 }（検証の表の actual_total）,
  *        cutoffYm（締まった月の境目。この月より前が締まった月。分からなければ ''）,
  *        todayYm（今日取り込んだとしたときの境目 = appCloseCutoffYm_(今日)。この月より前は、今日までに締まっているはずの月）, budget,
+ *        pendingCutoffYm（B-1 の後に B-2 がまだのとき、その B-1 の取り込みの境目 = appLandingPendingCutoff_。B-2 が済んでいれば ''）,
  *        tau・w（承認した値 appLandingApproved_。省けば 0.15 と 1）, runs: [{ p50, ageDays }]（直近の予測 2 回。新しい順） }
  * 返り値: { k（締まった月の数）, actualYtd, budget, landing, landingSd, landingP10, landingP90, pAbove（予算以上で着地する確率）, ratio（着地 ÷ 予算）,
  *          theta, credibility（実績の重み 0〜1）, sky, skyReason, skyDir, zLast, dRatio1, dRatio2 }
- * 空模様（先に当てはまったもの）: 霧 mikakunin（no_budget）→ 雪 sekka（zero_sales）→ 霧（no_forecast）→ 霧（stale_actuals）
+ * 空模様（先に当てはまったもの）: 霧 mikakunin（no_budget）→ 雪 sekka（zero_sales）→ 霧（no_forecast）→ 霧（eval_pending / stale_actuals）
  *   → 天変地異 tenpen（shock / shift / premise。skyDir = up / down）→ 着地 ÷ 予算（ratio）: 猛暑 mousho ≥ 1.5・快晴 kaisei ≥ 1.1・
  *   晴れのち曇り harenochi > 0.9・曇り kumori > 0.5・雨 ame ≤ 0.5。
  * 着地の数字は、予測が使えれば雪・霧（予算が無い）のときも出す（予算が無ければ ratio と pAbove は出さない）。
  * 実績の取り込みが遅れている（stale_actuals の条件に当たる）ときは、空模様が霧（予算が無い）・雪でも出さない（古い実績のままの数字を見せない。合計にも入らない）。
+ * 実績は取り込んだ（B-1）が当たり具合の計算（B-2）がまだで、締まった月が数えられないだけのとき（B-1 の取り込みの境目で数えれば遅れていない）は、
+ * 霧の理由を eval_pending（当たり具合の計算待ち）にする。数字を出さないのは stale_actuals と同じ（2026-10-08。前は「実績の遅れ」と出ていた）。
+ * B-1 の取り込みの境目で数えても 3 か月以上遅れていれば、stale_actuals のまま
  * 前提の変化（premise）は、締まっていない月があるときだけ（12 か月締まった年度の着地は実績の合計で動かない）
  */
 function appLandingSky_(inp) {
@@ -142,6 +146,9 @@ function appLandingSky_(inp) {
   const A = obsYm.reduce((s, ym) => s + aOf(ym), 0);
   const closedByToday = inp.todayYm ? yms.filter(ym => ym < inp.todayYm).length : k;
   const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月（月末から 5 日たった月）のうち、3 か月以上の実績が取り込まれていない
+  // B-2 待ち: B-1 の取り込みの境目で数えれば遅れていない（遅れて見えるのは、B-2 がまだで締まった月を数えられないため）
+  const pend = String(inp.pendingCutoffYm || '');
+  const evalPending = stale && !!pend && closedByToday - Math.max(k, yms.filter(ym => ym < pend).length) < C.STALE_MONTHS;
   const B = appLandingBudget_(inp.budget);
   const out = { k: k, actualYtd: A, budget: B, landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null,
     theta: null, credibility: null, sky: 'mikakunin', skyReason: '', skyDir: '', zLast: null, dRatio1: null, dRatio2: null };
@@ -158,7 +165,7 @@ function appLandingSky_(inp) {
   if (!(B !== null && B > 0)) { out.skyReason = 'no_budget'; return out; }
   if (k >= 1 && Math.abs(A) < 1) { out.sky = 'sekka'; out.skyReason = 'zero_sales'; return out; }
   if (!usable) { out.skyReason = 'no_forecast'; return out; }
-  if (stale) { out.skyReason = 'stale_actuals'; return out; }
+  if (stale) { out.skyReason = evalPending ? 'eval_pending' : 'stale_actuals'; return out; }
   // 5: 天変地異（月の外れは、その月の前までの実績で立てた見込みと比べる）
   let t1 = false, t2 = false, dir = 0;
   if (fcOk && k >= 1 && k < 12) {
@@ -248,41 +255,58 @@ function appLandingPct5_(p) { return typeof p === 'number' && isFinite(p) ? Math
  * 今の年度の P10/P50/P90 は旧来の計算の試行（学んだ補正を入れず、月を別々に足す）なので、月の P50 の合計と違い、幅も狭い。
  * そこで、中心 = 最新の予測の月の P50（OUTPUT の 29〜40 行。補正を入れた値）の 12 か月の合計、幅 = 着地見込みと同じ式で締まった月が無いとき（appLandingDist_）。
  * months: appLandingMonths_ の形、tau・w: appLandingApproved_、budget: 予算以上になる確率を出す予算（無い・0 以下なら pAbove は null）。
- * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w }
+ * opts: { k（締まった月の数。着地見込み appLandingSky_ の k）, frozen（年度を締めた計画） }。省けば締まった月なし。
+ * 締まった月がある（k > 0）ときは、幅を出さない（sd・p10・p90・pAbove は null）: 予測の締まった月は実績が入っているので、年度全体に τ の幅を
+ * つけると、ぶれを大きく見せ、着地見込みの幅とも食い違う（年度の途中の幅は着地見込みの方。2026-10-08）。中心はそのまま出す。
+ * 12 か月締まった・年度を締めた計画は done（年度は終わった）。done も幅を出さない。
+ * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w, k, done }
  */
-function appLandingAligned_(fy, months, tau, w, budget) {
+function appLandingAligned_(fy, months, tau, w, budget, opts) {
   const fc = appLandingFc_(fy, months);
   if (!fc) return null;
+  const o = opts || {};
+  const k = Math.max(0, Math.min(12, Math.floor(Number(o.k) || 0)));
+  const done = k >= 12 || !!o.frozen;
   const d = appLandingDist_(fc, [], tau, w);
   const B = appLandingBudget_(budget);
-  return { center: d.landing, sd: d.sd, p10: d.p10, p90: d.p90, budget: B, pAbove: B !== null && B > 0 ? appLandingPAbove_(d.landing, d.sd, B) : null, tau: tau, w: w };
+  const band = k === 0 && !done;
+  return { center: d.landing, sd: band ? d.sd : null, p10: band ? d.p10 : null, p90: band ? d.p90 : null, budget: B,
+    pAbove: band && B !== null && B > 0 ? appLandingPAbove_(d.landing, d.sd, B) : null, tau: tau, w: w, k: k, done: done };
 }
 
 /**
  * 予算に届く見込み（判断 24・25 の見せ方。影: 予算も予測も変えない。確率を選んで予算を書く操作は、まだ無い）。
  * sky: その計画の着地見込み（appLandingSky_ の返り値。年度の途中は締まった月の実績を入れた分布、先の年度は締まった月なし）。
- * budgets: { draft（今の予算 = 採用予測 + 上乗せ）, official（承認済みの公式版の最終予算）, officialNo }、prior: appLandingApproved_。
+ * budgets: { draft（今の予算 = 採用予測 + 上乗せ）, official（承認済みの公式版の最終予算）, officialNo }、prior: appLandingApproved_、
+ * opts: { frozen（年度を締めた計画） }。
  * 着地見込みの数字が無い（実績の遅れ・予測が無い）ときは null。
- * 返り値: { center, sd, p10, p90, k, actualYtd, tau, w, tauSet, wSet, amounts: [{ pct, amount }]（その確率で届く金額。50〜80%）,
- *          draft: { budget, p, pct } | null, official: { budget, p, pct, versionNo } | null }
+ * 12 か月締まった・年度を締めた計画は done（年度は終わった。2026-10-08）: actual = 締まった月の実績の合計、届く金額（amounts）は空。
+ * 画面は確率ではなく、届いた／届かなかったを出す（予算ごとの reached = 実績の合計 ≥ 予算。p・pct は今までどおりの値）。
+ * 返り値: { center, sd, p10, p90, k, actualYtd, tau, w, tauSet, wSet, done, actual（done のときだけ数。ほかは null）,
+ *          amounts: [{ pct, amount }]（その確率で届く金額。50〜80%。done なら空）,
+ *          draft: { budget, p, pct, reached? } | null, official: { budget, p, pct, versionNo, reached? } | null }（reached は done のときだけ）
  */
-function appLandingReach_(sky, budgets, prior) {
+function appLandingReach_(sky, budgets, prior, opts) {
   const fin = v => typeof v === 'number' && isFinite(v);
   if (!sky || !fin(sky.landing) || !fin(sky.landingSd)) return null;
   const L = sky.landing, sd = sky.landingSd, A = fin(sky.actualYtd) ? sky.actualYtd : 0;
+  const done = (fin(sky.k) && sky.k >= 12) || !!(opts && opts.frozen);
   const one = b => {
     const B = appLandingBudget_(b);
     if (B === null || !(B > 0)) return null;
     const p = appLandingPAbove_(L, sd, B);
-    return { budget: B, p: p, pct: appLandingPct5_(p) };
+    const out = { budget: B, p: p, pct: appLandingPct5_(p) };
+    if (done) out.reached = A >= B;
+    return out;
   };
   const bs = budgets || {}, pr = prior || {};
   const official = one(bs.official);
   if (official) official.versionNo = bs.officialNo || null;
   return { center: L, sd: sd, p10: sky.landingP10, p90: sky.landingP90, k: sky.k, actualYtd: A,
     tau: fin(pr.tau) ? pr.tau : APP_LANDING.TAU0, w: fin(pr.w) ? pr.w : 1, tauSet: !!pr.tauSet, wSet: !!pr.wSet,
-    // 届く金額は、締まった月の実績の合計より下にはしない（80% の幅の下と同じ）
-    amounts: APP_LANDING.REACH.map(x => ({ pct: x[0], amount: Math.max(A, L - x[1] * sd) })),
+    done: done, actual: done ? A : null,
+    // 届く金額は、締まった月の実績の合計より下にはしない（80% の幅の下と同じ）。年度が終わっていれば出さない
+    amounts: done ? [] : APP_LANDING.REACH.map(x => ({ pct: x[0], amount: Math.max(A, L - x[1] * sd) })),
     draft: one(bs.draft), official: official };
 }
 
@@ -363,16 +387,31 @@ function appMonthStartMs_(ym) {
  * stRows は、データ本体の行（値は文字のまま・型の並び _types つき）でも、読み戻した行（日時は日時の型）でもよい
  */
 function appLandingCutoff_(stRows) {
+  const st = appLandingSteps_(stRows);
+  if (st.t1 === null || st.t2 === null || st.t2 < st.t1) return '';
+  return appCloseCutoffYm_(Utilities.formatDate(new Date(st.t1), APP_TZ, 'yyyy-MM-dd'));   // 取り込んだ時刻の、日本の暦の日（文字の ISO 時刻も時差を見る）
+}
+
+/**
+ * B-1 の後に B-2 がまだのとき（B-2 の成功が無い・B-1 の成功より古い）、その B-1 の取り込みの境目（'yyyy/MM'。appCloseCutoffYm_）。
+ * B-2 が済めば締まった月の境目（appLandingCutoff_）になる値。B-2 が済んでいる・B-1 の成功が無い・時刻が読めなければ ''。
+ * 空模様の霧の理由を、実績の遅れ（stale_actuals）と当たり具合の計算待ち（eval_pending）に分けるために使う（appLandingSky_ の pendingCutoffYm）
+ */
+function appLandingPendingCutoff_(stRows) {
+  const st = appLandingSteps_(stRows);
+  if (st.t1 === null || (st.t2 !== null && st.t2 >= st.t1)) return '';
+  return appCloseCutoffYm_(Utilities.formatDate(new Date(st.t1), APP_TZ, 'yyyy-MM-dd'));
+}
+
+/** PROCESS_STATUS の行から、B-1（step2）と B-2（step5）の成功の時刻（ミリ秒。成功が無い・読めなければ null） */
+function appLandingSteps_(stRows) {
   const ok = key => (stRows || []).filter(s => s.step_key === key && String(s.status).toLowerCase() === 'success')[0] || null;
-  const b1 = ok('step2_status'), b2 = ok('step5_status');
-  if (!b1 || !b2) return '';
   const timeOf = s => {
+    if (!s) return null;
     if (appIsDate_(s.last_run_date)) { const t = s.last_run_date.getTime(); return isFinite(t) ? t : null; }
     return appLandingTime_(String(s._types || '').charAt(1), s.last_run_date);   // last_run_date は見出しの 2 列目
   };
-  const t1 = timeOf(b1), t2 = timeOf(b2);
-  if (t1 === null || t2 === null || t2 < t1) return '';
-  return appCloseCutoffYm_(Utilities.formatDate(new Date(t1), APP_TZ, 'yyyy-MM-dd'));   // 取り込んだ時刻の、日本の暦の日（文字の ISO 時刻も時差を見る）
+  return { t1: timeOf(ok('step2_status')), t2: timeOf(ok('step5_status')) };
 }
 
 /** 予測を実行した日から今日まで、日本の暦で何日か（today = 'yyyy-MM-dd'。読めなければ null） */

@@ -30,9 +30,13 @@ function appPlanInputHash_(planId) {
  *     PROCESS_STATUS・RUN_LOG）。入れると予測のたびに種が変わり、何も変えずにもう一度予測しても数字が揺れる
  *   - SALES_MONTHLY（予測が SALES_INPUT から毎回作り直す。元の SALES_INPUT を入れる）
  *   - 振り返り・見直しの表（EVAL_*・DASHBOARD・QUARTERLY_*・RELIABILITY_EVIDENCE・CALIBRATION_HISTORY・POOL_PRIOR）。予測は読まないので、
- *     当たり具合の計算や記入の保存では予測の数字は揺れない
+ *     その表だけが変わる操作（記入の保存・実績の取り込み B-1 など）では、予測の数字は変わらない。
+ *     ただし当たり具合の計算（B-2）は、最後に月次の自動学習（B-5 と同じ）を動かし、補正の CALIBRATION_STATE（種が見る表）を書くことがある。
+ *     そのときは B-2 の後の予測の数字が変わる（入力の変化として種も変わる。乱数の揺れではない）
  * VERTEX_FORECAST_LOG は AI のアシストを使う設定のときだけ読む。ここに無い表を予測が読むようになっても、数字は入力どおりに変わる
  * （同じ乱数の並びで計算するだけ）。本物の A-9 が開く表と比べるテスト: app/tests/app-forecast-seed.test.mjs
+ * 例外（既定ではない設定）: CONFIG の AI_SCORE_BASIS を momentum にすると、A-9 は自分で書き足す AI_SCORE_HISTORY を読む（種には入れない
+ * 記録の表）。そのため市場の調査（A-4）の直後は、何も変えずに 2 回予測しても 1 回目が書いた行を 2 回目が読み、数字が違うことがある（app/README.md）
  */
 const APP_FORECAST_SEED_SHEETS = ['CONFIG', 'SALES_INPUT', 'PRODUCT', 'CLIENT', 'OPINIONS', 'DEV_SPOT', 'AI_RESEARCH', 'AI_RESEARCH_STRUCTURED',
   'CALIBRATION_STATE', 'SOURCE_RELIABILITY', 'VERTEX_FORECAST_LOG'];

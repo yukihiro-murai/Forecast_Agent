@@ -369,6 +369,33 @@ function appLegacyWith_(book, opts, fn) {
 
 // ---- 計算用ブックの準備と、計算後の中身の控え ----
 
+/**
+ * 旧来の計算が書き込む一番右の列（シートの列がこれより少ないと、旧来の計算が範囲の外に書いて止まる）。
+ * EVAL_COMPARE_MONTHLY: 旧来の B-2（updatePhase1EvaluationReport の writeEvaluationSummaryBlocks_）は、横の要約を Y〜AJ 列（25〜36 列）に消して書く。
+ * 旧来の A-1 が作る表は 26 列（新しいシートの既定）なので、新アプリで作った計画では B-2 が
+ * 「The coordinates of the range are outside the dimensions of the sheet」で止まっていた（2026-10-08。旧ブックから来た計画は 36 列以上で動いていた）。
+ * 旧来の計算は変えず、計算用ブックのシートに列を足しておく（appEnsureMinColumns_）
+ */
+const APP_ENGINE_MIN_COLUMNS = { EVAL_COMPARE_MONTHLY: 36 };
+
+/**
+ * 計算用ブックのシートの列を、APP_ENGINE_MIN_COLUMNS の数まで右に足す（names: 見るシート。省くと全部）。
+ * 減らさない・セルの値や表示形式は触らない（右端の後ろに空の列を足すだけ）。シートが無ければ何もしない。
+ * 足した列はシートの大きさ（max_columns）として、ふつうの保存（appCaptureChanged_）でデータ本体の ENG_SHEETS に残る。
+ * 返り値: 列を足したシートの名前
+ */
+function appEnsureMinColumns_(book, names) {
+  const widened = [];
+  (names || Object.keys(APP_ENGINE_MIN_COLUMNS)).forEach(name => {
+    const need = APP_ENGINE_MIN_COLUMNS[name];
+    const sh = need ? book.getSheetByName(name) : null;
+    if (!sh) return;
+    const mc = sh.getMaxColumns();
+    if (mc < need) { sh.insertColumnsAfter(mc, need - mc); widened.push(name); }
+  });
+  return widened;
+}
+
 /** 計算用ブック（計画の地域・時差に合わせる）。予測・実行・計画の作成で使う */
 function appWorkScratch_(plan) {
   const scratch = appScratchBook_();

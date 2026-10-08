@@ -93,6 +93,26 @@ const evalLogSheet = (env, rows) => {
   assert.deepEqual([j.k, j.actualYtd, j.budget], [1, 100, 1200], '締まった月の実績と予算はそのまま');
   assert.equal(sky({ actual: acts([100, 100, 100, 100]), cutoffYm: '2026/08', todayYm: '2026/10' }).sky, 'harenochi', '2 か月の遅れは霧にしない');
   assert.equal(sky({ months: [], actual: acts([100]), cutoffYm: '2026/05', todayYm: '2026/10' }).skyReason, 'no_forecast', '予測が無いのが先');
+  const nulls0 = (x) => [x.landing, x.landingSd, x.landingP10, x.landingP90, x.pAbove, x.ratio, x.theta, x.credibility];
+  // J5: B-1 の後に B-2 がまだ（締まった月の境目が '' で 0 か月に見える）。B-1 の取り込みの境目で数えれば遅れていない → 計算待ち（eval_pending）。
+  // 数字を出さないのは実績の遅れと同じ。B-1 の境目で数えても 3 か月以上遅れていれば、実績の遅れ（stale_actuals）のまま
+  const j5 = sky({ actual: {}, cutoffYm: '', pendingCutoffYm: '2026/10', todayYm: '2026/10' });
+  assert.deepEqual([j5.sky, j5.skyReason, j5.k, ...nulls0(j5)], ['mikakunin', 'eval_pending', 0, null, null, null, null, null, null, null, null], 'B-2 待ち');
+  const j6 = sky({ actual: acts([100, 100, 100, 100]), cutoffYm: '2026/08', pendingCutoffYm: '2026/10', todayYm: '2026/10' });
+  assert.deepEqual([j6.skyReason, j6.k], ['ratio', 4], '前の B-2 の境目で遅れが 3 か月未満なら、これまでどおり前の B-2 の月で着地を出す');
+  assert.equal(sky({ actual: acts([100]), cutoffYm: '2026/05', pendingCutoffYm: '2026/10', todayYm: '2026/10' }).skyReason, 'eval_pending', '前の B-2 の月があっても、B-1 の境目で遅れていなければ計算待ち');
+  assert.equal(sky({ actual: {}, cutoffYm: '', pendingCutoffYm: '2026/07', todayYm: '2026/10' }).skyReason, 'stale_actuals', 'B-1 の取り込み自体が 3 か月遅れていれば、実績の遅れ');
+  assert.equal(sky({ actual: {}, cutoffYm: '', pendingCutoffYm: '2026/08', todayYm: '2026/10' }).skyReason, 'eval_pending', 'B-1 の境目で遅れが 2 か月なら計算待ち');
+  assert.equal(sky({ actual: {}, cutoffYm: '', pendingCutoffYm: '', todayYm: '2026/10' }).skyReason, 'stale_actuals', 'B-1 が無ければ実績の遅れ');
+  assert.equal(sky({ budget: null, actual: {}, cutoffYm: '', pendingCutoffYm: '2026/10', todayYm: '2026/10' }).skyReason, 'no_budget', '予算が無いのが先');
+  // 境目の読み方: B-1 の後に B-2 が無い・古いときだけ B-1 の境目。B-2 が新しければ ''（締まった月の境目 appLandingCutoff_ の方）
+  const stp = (b1, b2) => [['step2_status', b1], ['step5_status', b2]].filter((x) => x[1]).map(([k, t]) => ({ step_key: k, status: 'success', last_run_date: t }));
+  const pc = (rows) => pure.run('appLandingPendingCutoff_(__r)', { __r: rows });
+  const cu = (rows) => pure.run('appLandingCutoff_(__r)', { __r: rows });
+  assert.deepEqual([pc(stp(new Date(2026, 9, 5, 10), new Date(2026, 8, 5, 10))), cu(stp(new Date(2026, 9, 5, 10), new Date(2026, 8, 5, 10)))], ['2026/10', ''], 'B-2 が古い');
+  assert.deepEqual([pc(stp(new Date(2026, 9, 5, 10), null)), cu(stp(new Date(2026, 9, 5, 10), null))], ['2026/10', ''], 'B-2 が無い');
+  assert.deepEqual([pc(stp(new Date(2026, 9, 5, 10), new Date(2026, 9, 5, 11))), cu(stp(new Date(2026, 9, 5, 10), new Date(2026, 9, 5, 11)))], ['', '2026/10'], 'B-2 が済んでいる');
+  assert.deepEqual([pc(stp(null, new Date(2026, 9, 5, 11))), pc([]), pc(stp(new Date(2026, 9, 3, 10), null))], ['', '', '2026/09'], 'B-1 が無い・10/03 の取り込みは 9 月が途中');
   // J3 / J4: 予算が無い・雪が先に当たっても、実績の取り込みが遅れていれば着地の数字は出さない（空模様の順は変えない）
   const nulls = (x) => [x.landing, x.landingSd, x.landingP10, x.landingP90, x.pAbove, x.ratio, x.theta, x.credibility];
   const j3 = sky({ budget: null, actual: {}, cutoffYm: '', todayYm: '2026/10' });
@@ -296,8 +316,9 @@ const evalLogSheet = (env, rows) => {
   assert.ok(a.landingP10 < a.landing && a.landingP90 > a.landing && a.pAbove < 0.01 && a.credibility > 0.7);
   assert.deepEqual([a.p10, a.p50, a.p90], [1000, 1200, 1400], '年間の P10/P50/P90（まだ予測を実行していないので OUTPUT の 26 行）');
   const b = plan(idB);
-  assert.deepEqual([b.k, b.actualYtd, b.actualMonths, b.sky, b.skyReason], [0, null, 0, 'mikakunin', 'stale_actuals'], 'B-2 が古ければ締まった月は数えず霧');
-  assert.deepEqual([b.landing, b.landingSd, b.landingP10, b.landingP90, b.pAbove, b.ratio, b.theta, b.credibility], [null, null, null, null, null, null, null, null], '霧（遅れ）は着地の数字を出さない');
+  // B-1（10/05）の後に B-2 がまだ（9/05 の B-2 が最後）: 実績は取り込んだが、当たり具合の計算待ち（2026-10-08。前は「実績の遅れ」と出ていた）
+  assert.deepEqual([b.k, b.actualYtd, b.actualMonths, b.sky, b.skyReason], [0, null, 0, 'mikakunin', 'eval_pending'], 'B-2 が古ければ締まった月は数えず霧（計算待ち）');
+  assert.deepEqual([b.landing, b.landingSd, b.landingP10, b.landingP90, b.pAbove, b.ratio, b.theta, b.credibility], [null, null, null, null, null, null, null, null], '霧（計算待ち）は着地の数字を出さない');
   // ホームの合計: 着地の無い計画（霧）は着地の合計にも着地 ÷ 予算にも入れない。入れた数も返す
   const ht = env.call('apiHome()').totals;
   assert.deepEqual([ht.plans, ht.budget, ht.budgetPlans, ht.actualYtd, ht.landingPlans, ht.ratioPlans], [2, 2400, 2, 480, 1, 1], JSON.stringify(ht));
