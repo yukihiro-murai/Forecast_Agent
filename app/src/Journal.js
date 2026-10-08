@@ -33,6 +33,7 @@ function appJournalRun_(ctx, label, planId, ops) {
   if (planId) appRequireOpenYear_(appYearPlanFyOf_(planId, ops));
   appRequireOpenJournalOps_(ops);
   appJournalRequireTables_(ops);   // 書く表がどれも今の列か（列を足す前の表・無い表があれば、控えを置く前に止める。書きかけを残さない）
+  appJournalRequireAppends_(ops);   // 記録の表に足す行（キーの空の行・同じキーの 2 行があれば、控えを置く前に止める）
   appJournalRecover_(ctx);   // 前の書きかけがあれば、先に書き終える
   const id = appId_('JNL');
   const body = JSON.stringify({ id: id, label: label, planId: planId || '', actor: ctx.actor, createdAt: appNowIso_(), ops: ops });
@@ -79,6 +80,23 @@ function appJournalRequireTables_(ops) {
     seen[op.table] = true;
     appTableSheet_(op.table, false);
     appRequireCurrentHead_(op.table);
+  });
+}
+
+/**
+ * 記録の表に足す書き方（append）の行を、控えを置く前に確かめる: キーの空の行・1 つの書き方の中の同じキーの 2 行があれば、何も書かずに止める。
+ * 書くときに appAppendLogRows_ が同じ理由で止めると、書きかけの控えが残り、控えを書き直すたびに同じところで止まって、
+ * ほかの計画の保存まで止めるため（appLogOps_ が作る行は、そこでも確かめてある）
+ */
+function appJournalRequireAppends_(ops) {
+  (ops || []).forEach(op => {
+    if (!op || op.mode !== 'append' || !(op.rows && op.rows.length)) return;
+    const def = APP_TABLES[op.table];
+    if (!def) throw new Error('未定義の表: ' + op.table);
+    op.rows.forEach(o => {
+      if (!o || def.key.some(c => o[c] === undefined || o[c] === null || o[c] === '')) throw new Error('キーが空の行は足せません（' + op.table + '）。何も書いていません。');
+    });
+    appLogRequireUnique_(op.table, op.rows);
   });
 }
 

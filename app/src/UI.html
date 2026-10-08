@@ -721,7 +721,8 @@ var JOB_DONE = {
     toast('予測の前に確認があります', false);
   },
   'FORECAST.RUN_SAVE': function(r){ toast('予測を保存しました'); jobReload(r.planId, { action: 'FORECAST.RUN' }); },
-  'PLAN.EDIT': function(r, payload){ toast(r.changed && r.changed.length ? '保存しました' : '変更はありませんでした');
+  // 表が変わらなくても、入力の記録に足した行（自信だけ選び直した CONF）があれば「保存しました」
+  'PLAN.EDIT': function(r, payload){ toast(r && ((r.changed && r.changed.length) || r.inputLogRows > 0) ? '保存しました' : '変更はありませんでした');
     jobReload(r.planId, { action: (r && r.action) || (payload && payload.action), kind: payload && payload.args && payload.args.kind }); },
   'PLAN.RUN_SAVE': function(r){ toast(actName(r.action) + ' が終わりました'); jobReload(r.planId, { action: r.action }); },
   // 所有者がエディタから始めた処理は、知らせて今の画面のまま（管理の画面は外した。2026-10-06 村井さん）。一覧だけ読み直す

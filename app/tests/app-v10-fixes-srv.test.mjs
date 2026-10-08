@@ -294,7 +294,8 @@ const logOf = (env, planId) => env.call('appInputLogRead_(__p)', { __p: planId }
   assert.deepEqual(add.map((r) => [r.change, r.row_key]), [['REMOVE', 'product|鷹野|製品C|' + m(8) + '#2']], '同じ中身の行は見分けない（無くなる印 #2 を外したことにする。CHANGE は足さない）');
   il = view(E, P).inputLog;
   assert.equal(il.rows.product[1].hist[0].change, 'ADD', '残った行の跡は ADD のまま（外した跡を出さない）');
-  // 外した行と同じ印に、ほかの行を変えた（同じ保存で外した跡と変えた跡が同じ印）: 残った行の跡は変えた方が先
+  // 外した行と同じ印に、ほかの行を変えた（同じ保存で外した跡と変えた跡が同じ印）: 残った行の跡は変えた方から、その行自身の前の跡へ
+  // （v0.30.0 の最後の点検の直し 3 の H2: 出どころで組んで印を変えた CHANGE は _key で前の印につなぐ。外した行の REMOVE を付けない）
   loaded = view(E, P).boot.input.product;   // [佐藤 製品B 7 月, 鷹野 製品C 8 月]
   n0 = logOf(E, P).length;
   st = save(E, P, 'product', [Object.assign({}, loaded[1], { person: '佐藤', product: '製品B', ym: m(7), step: '+9%', fromRow: 1 })]);
@@ -302,8 +303,10 @@ const logOf = (env, planId) => env.call('appInputLogRead_(__p)', { __p: planId }
   add = logOf(E, P).slice(n0);
   assert.deepEqual(add.map((r) => [r.change, r.row_key]).sort(), [['CHANGE', 'product|佐藤|製品B|' + m(7)], ['REMOVE', 'product|佐藤|製品B|' + m(7)]].sort());
   il = view(E, P).inputLog;
-  assert.deepEqual(il.rows.product[0].hist.slice(0, 2).map((h) => h.change), ['CHANGE', 'REMOVE'], '同じ保存の中では、外した方を古い方にする');
+  assert.deepEqual(il.rows.product[0].hist.map((h) => h.change), ['CHANGE', 'ADD'], '変えた行の跡は、その行自身の前の跡（鷹野 製品C を足した ADD）。外した行の REMOVE を付けない');
+  assert.equal(il.rows.product[0].n, 2);
   assert.equal(il.rows.product[0].hist[0].before.product, '製品C');
+  assert.equal(il.rows.product[0].hist[1].after.product, '製品C');
   // 入力のハッシュを確かめない保存は、出どころを使わない（前の画面と同じ組み方: 同じ位置）
   const P2 = E.seedPlan(inputBook(E, '組み製薬二', fy, [['鷹野', '製品A', D(fy, 5), '+5%', 'a'], ['佐藤', '製品B', D(fy, 6), '+3%', 'b']]));
   E.call('apiListPlans()');

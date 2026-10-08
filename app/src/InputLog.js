@@ -3,6 +3,7 @@
  * - 入力の 4 つの表（ENG_PRODUCT・ENG_CLIENT・ENG_OPINIONS・ENG_DEV_SPOT）が変わる保存と実行のすべて（入力の保存・売上の取り込み・計画を作る ほか）で、
  *   変わった行だけを前と後で残す（Forecast.js の appChangedOps_ から。本体の保存と同じ控えに入れて一緒に書く）。前の行は書く前のデータ本体から読む。
  * - 行の印 row_key = 種類|担当者|製品|月（スポットは案件名）。同じ印が 2 行あれば 2 つ目から #2・#3（上からの順）。
+ *   欄の値の「%」「|」「#」は %25・%7C・%23 にして書く（案件名「案件#2」と 2 つ目の「案件」を同じ印にしない。appInputLogKey_）。
  *   入力の保存では、画面が保存ごとに fromRows: true を、行ごとに「開いたときの何行目から来たか」（fromRow）を渡す。そのときは前と後をその印で組む
  *   （外した行・足した行・変えた行が、位置がずれても取り違えない。fromRow の無い行は足した行、どの行の出どころにもならなかった行は外した行。
  *   開いたときの行を全部外して足したときも同じ。fromRows の無い前の画面は、どれかの行に fromRow があるときだけ）。
@@ -10,7 +11,9 @@
  *   同じ位置（行の番号）なら「変えた」とみなす（担当者を入れた・月を変えた）。
  * - 同じ印の組（#2・#3…）の行を外すと、下の行の #n が詰まる。出どころで組んだ行の印が #n だけ変わったら、その行の自信と跡は前の印から引き継ぐ:
  *   新しい印に CHANGE（中身は同じ。before_json の _key に前の印。同じ保存で中身も変えた行は、その CHANGE の before_json に _key）を足し、
- *   画面の跡はそこから前の印の跡（その保存より前）をたどる（ほかの行の跡を付けない）。担当者・製品・月が変わった行は今までどおり（たどらない）。
+ *   画面の跡はそこから前の印の跡（その保存より前）をたどる（ほかの行の跡を付けない）。出どころで組んで担当者・製品・月を変えた行も、
+ *   CHANGE の before_json の _key に前の印を入れ、跡はその行の前の印の跡をたどる（前にその印を使ったほかの行・外した行の跡を付けない）。
+ *   _key の無い CHANGE（同じ位置で組んだ保存）で担当者・製品・月が変わったものは、跡をそこで止める（それより前は、その印にいたほかの行のもの）。
  *   新しい印のもとの行と、中身も跡も同じ行（見分けられない行。例: 手を付けていないひな形）なら足さない（見え方が同じなので）。
  *   付け直しだけの行は画面の跡に出さない（中身は変わっていない。自信はその行に付けたまま）。足した行（ADD）が跡の始まり（前に同じ印だった行の跡を付けない）。
  * - 自信（self_conf: 高い・ふつう・低い・空）は製品とメーカー全体の行だけ。入力の画面で選び、この記録にだけ書く（旧来の表には渡さない。計算に使わない）。
@@ -18,9 +21,10 @@
  *   その行の一番新しい自信を引き継ぐ（足した行は空）。比べるのは、その行の前の印の自信（#n が詰まった行でも、その行自身の自信）。
  * - 見せる範囲（appInputLogView_）: 予算策定担当以上（そのメーカーの担当を含む）は全部。ほかの人は、人のつなぎ（PERSON_LINKS）で本人と分かる行だけで、
  *   その中でも担当者の名前と保存した人は送らない。本人の行かは、保存した日に効くつなぎで決める（今日のつなぎで前の行を決めない）。
- *   担当者が変わった行（CHANGE）の前の中身は、前の担当者も本人のときだけ送る。ほかの行は種類ごとの件数だけ（V10.js の appLogViewer_・appLogVisible_）。
+ *   担当者が変わった行（CHANGE）の前の中身は、前の担当者も本人のときだけ送る。跡は今の担当者の間の分だけ送る（担当者を変えた行の跡は
+ *   前の担当者の記録までたどるが、前の担当者だった本人に、今はほかの人の行の跡と自信を出さない）。ほかの行は種類ごとの件数だけ（V10.js の appLogViewer_・appLogVisible_）。
  * - 版 10 の移行の後に 1 回、今の 4 つの表の行を BASELINE として写す（appInputLogBackfill_。前の保存の履歴は残っていないので作れない）。
- *   した人は仕組み（APP_V10_BACKFILL_ACTOR。画面には人として出さない）。
+ *   した人は仕組み（APP_V10_BACKFILL_ACTOR。画面には人として出さない）。行を確かめられない計画は飛ばし、ほかの計画を写す（書きかけの控えを残さない）。
  * 行は消さず、書き換えない。記録は計算に使わない。
  */
 
@@ -74,9 +78,23 @@ function appInputLogRow_(kind, o) {
   return any ? out : null;
 }
 
-/** 行の印（同じ印の 2 つ目からの #n は appInputLogList_ が付ける。ここで返すのは #n の無い印） */
+/**
+ * 行の印（同じ印の 2 つ目からの #n は appInputLogList_ が付ける。ここで返すのは #n の無い印）。
+ * 欄の値の「%」「|」「#」は %25・%7C・%23 にする（appInputLogKeyPart_）。区切りの | と 2 つ目からの #n を、欄の中の文字と取り違えない
+ * （例: 案件名「案件#2」の印は …|案件%232 で、2 つ目の「案件」の …|案件#2 と別。ほかの文字はそのままなので、ふつうの名前の印は読めるまま）
+ */
 function appInputLogKey_(kind, row) {
-  return kind + '|' + APP_INPUT_LOG_KEYS[kind].map(f => String(row[f] === null || row[f] === undefined ? '' : row[f]).trim()).join('|');
+  return kind + '|' + APP_INPUT_LOG_KEYS[kind].map(f => appInputLogKeyPart_(row[f])).join('|');
+}
+
+/** 行の印の 1 つの欄（前後の空白を除き、% | # だけを %25 %7C %23 にする。% も置き換えるので、もとの値と 1 対 1） */
+function appInputLogKeyPart_(v) {
+  return String(v === null || v === undefined ? '' : v).trim().replace(/[%|#]/g, c => (c === '%' ? '%25' : c === '|' ? '%7C' : '%23'));
+}
+
+/** 印から 2 つ目からの #n を除いた印（欄の中の # は %23 にしてあるので、末尾の「#数」だけが組の番号） */
+function appInputLogBaseKey_(key) {
+  return String(key === null || key === undefined ? '' : key).replace(/#\d+$/, '');
 }
 
 /** ENG_ の表の行（計画 1 つ・1 種類）を、行の番号の順に、印つきの記録の形にする（空の行は除く）。返り値 [{ seq, row, key }] */
@@ -167,7 +185,7 @@ function appInputLogDiffFrom_(before, after, from, classOf) {
   return out;
 }
 
-/** その行の跡の、印の付け直しの記録が指す前の印（before_json の _key。付け直しでなければ ''） */
+/** CHANGE の記録が指す、その行の前の印（before_json の _key。#n の付け直しと、出どころで組んで印を変えた行。つなぎが無ければ ''） */
 function appInputLogMovedFrom_(r) {
   if (!r || r.change !== 'CHANGE') return '';
   const b = appInputLogJson_(r.before_json);
@@ -182,6 +200,17 @@ function appInputLogContent_(v) {
   const c = Object.assign({}, x);
   delete c._key;
   return c;
+}
+
+/**
+ * 前の印へのつなぎ（_key）の無い CHANGE で、前の中身の印が、この記録の印（#n を除く）と違うか。
+ * 同じ位置で組んだ保存（前の画面・ほかの操作）で、担当者・製品・月が変わった行。その前のこの印の記録は、前にこの印だったほかの行のもの
+ */
+function appInputLogLeftKey_(r) {
+  if (!r || r.change !== 'CHANGE' || !APP_INPUT_LOG_KEYS[r.kind] || appInputLogMovedFrom_(r)) return false;
+  const b = appInputLogContent_(r.before_json);
+  if (!b || typeof b !== 'object') return false;
+  return appInputLogKey_(r.kind, b) !== appInputLogBaseKey_(r.row_key);
 }
 
 /** 印の付け直しだけの記録（#n が詰まった。中身は同じ）。画面の跡には出さない（自信と跡を引き継ぐための行） */
@@ -199,7 +228,9 @@ function appInputLogRecSig_(r) {
  * 記録（appInputLogRead_ の並び）から、行の跡をたどる道具 trail(印) を作る。返り値の trail は、今その印にある行の跡（新しい順。同じ保存の中は
  * appInputLogHistOrder_ の順）。足した行（ADD）で止める（それより前の同じ印の記録は、前にその印だった別の行のもの。初めの姿 BASELINE は
  * 記録の無い印にだけ写すので、いつも一番古い）。
- * 印の付け直しの記録（appInputLogMovedFrom_）に来たら、前の印の跡のうち、その保存より前のものへ続ける
+ * 前の印へのつなぎ（before_json の _key。appInputLogMovedFrom_: #n だけ詰まった行と、出どころで組んで担当者・製品・月を変えた行）に来たら、
+ * 前の印の跡のうち、その保存より前のものへ続ける（その行自身の前の跡）。つなぎの無い CHANGE で担当者・製品・月が変わったもの
+ * （appInputLogLeftKey_。同じ位置で組んだ前の画面・ほかの操作）でも止める（それより前は、前にその印だったほかの行の跡）
  */
 function appInputLogTrails_(log) {
   const at = new Map(), byKey = {};
@@ -216,6 +247,7 @@ function appInputLogTrails_(log) {
       if (r.change === 'ADD') break;
       const from = appInputLogMovedFrom_(r);
       if (from) { Array.prototype.push.apply(out, trail(from, { i: at.get(r), save: saveOf(r) })); break; }
+      if (appInputLogLeftKey_(r)) break;
     }
     if (!bound) memo[key] = out;
     return out;
@@ -284,6 +316,8 @@ function appInputLogTake_(args, info) {
  * - 自信は前の印の自信と比べる（送らなければ前の印の自信を引き継ぐ。ほかの行の自信と比べて CONF を足さない）
  * - 中身が同じなら、新しい印に CHANGE（before_json = 前の行と _key = 前の印）を足して、自信と跡を新しい印へ引き継ぐ。
  *   ただし新しい印のもとの行と中身も跡も同じ（見分けられない）なら足さない（見え方が同じ）。中身を変えた行は CHANGE の before_json に _key を入れる
+ * 出どころで組んで担当者・製品・月を変えた行（印が変わった CHANGE）も、before_json の _key に前の印を入れる（跡はその行の前の印の跡をたどり、
+ * 前にその印を使ったほかの行の跡を付けない）。同じ位置で組んだ CHANGE には入れない（どの行から来たか確かでないので、跡はそこで止まる）
  */
 function appInputLogOps_(ctx, planId, changed, batchId, info) {
   const o = info || {};
@@ -322,15 +356,16 @@ function appInputLogOps_(ctx, planId, changed, batchId, info) {
       const said = s === null || s === undefined ? null : s;   // 画面が選んだ自信（送らなければ null = 今の自信のまま）
       const own = () => (withConf && d.b ? confOf(d.b.key) : '');   // その行の今の自信（前の印で読む）
       const conf = () => (!withConf ? '' : said !== null ? said : own());   // 自信を送らない保存・ほかの操作: 変えた・外した行は今の自信を引き継ぐ（足した行は空）
-      // 出どころで組んだ行の印が #n だけ変わった（同じ印の組の上の行を外した・足した）
-      const moved = fromMode && d.a && d.b && d.a.key !== d.b.key && appInputLogKey_(kind, d.a.row) === appInputLogKey_(kind, d.b.row);
-      const linked = () => Object.assign({}, d.b.row, { _key: d.b.key });
+      // 出どころで組んだ行の印が変わった（担当者・製品・月を変えた。同じ印の組の上の行を外した・足したときは #n だけ）
+      const relinked = fromMode && d.a && d.b && d.a.key !== d.b.key;
+      const moved = relinked && appInputLogKey_(kind, d.a.row) === appInputLogKey_(kind, d.b.row);   // #n だけ変わった
+      const linked = () => Object.assign({}, d.b.row, { _key: d.b.key });   // 前の印へのつなぎ（跡はその行の前の印の跡をたどる）
       if (d.change === '') {
         if (moved && (!held[d.a.key] || classOf(held[d.a.key]) !== classOf(d.b))) push('CHANGE', d.a, linked(), d.a.row, own());   // 印の付け直し: 自信と跡を引き継ぐ
         if (said !== null && said !== own()) push('CONF', d.a, '', d.a.row, said);
         return;
       }
-      if (d.change === 'CHANGE') push('CHANGE', d.a, moved ? linked() : d.b.row, d.a.row, conf());
+      if (d.change === 'CHANGE') push('CHANGE', d.a, relinked ? linked() : d.b.row, d.a.row, conf());
       else if (d.change === 'ADD') push('ADD', d.a, '', d.a.row, conf());
       else push('REMOVE', d.b, d.b.row, '', conf());
     });
@@ -349,6 +384,19 @@ function appInputLogRead_(planId) {
   try { rows = appReadPlanTable_('INPUT_LOG', planId); } catch (e) { return []; }
   const k = r => [r.saved_at, r.change === 'BASELINE' ? '0' : '1'].join('\u0001');
   return rows.map((r, i) => ({ r: appStripRow_(r), i: i })).sort((a, b) => (k(a.r) < k(b.r) ? -1 : k(a.r) > k(b.r) ? 1 : a.i - b.i)).map(x => x.r);
+}
+
+/**
+ * 行の跡（新しい順）のうち、今の担当者の間の分（先頭から、記録の担当者の欄が一番新しい記録と同じ間）。
+ * 担当者を変えた CHANGE は変えた後の担当者の記録なので入り、その前の担当者の記録から先は入らない
+ */
+function appInputLogSamePerson_(path) {
+  const who = r => String(r.person === null || r.person === undefined ? '' : r.person).trim();
+  const list = path || [];
+  if (!list.length) return list;
+  let i = 0;
+  while (i < list.length && who(list[i]) === who(list[0])) i++;
+  return list.slice(0, i);
 }
 
 /**
@@ -376,8 +424,11 @@ function appInputLogJson_(v) {
 /**
  * 計画の画面に付ける入力の記録（apiPlanView。見る人ごと）。rows[種類][i] は画面の入力の行（boot.input[種類][i]）と同じ並び
  * （同じ ENG_ の表から、同じく空の行を除いて作る）。行ごとに { conf: 一番新しい自信, n: 記録の数, hist: 新しい順の跡 }。記録の無い行は null。
- * 跡は行ごとにたどる（appInputLogTrails_: 足した行で止まり、#n の付け直しは前の印の跡へ続く）。付け直しだけの記録は跡に出さない。
+ * 跡は行ごとにたどる（appInputLogTrails_: 足した行で止まり、前の印へのつなぎ _key（#n の付け直し・出どころで組んで印を変えた行）は前の印の跡へ続き、
+ * つなぎの無い CHANGE で印が変わったものでは止まる）。付け直しだけの記録は跡に出さない。
  * 予算策定担当以上でない人には、本人と分かる行だけを送り、その中の担当者の名前と保存した人は送らない。ほかは種類ごとの件数（counts）だけ。
+ * その人に送る跡は、今の担当者の間の分だけ（appInputLogSamePerson_。担当者を変えた行の跡は前の担当者の記録までたどるが、
+ * 前の担当者だった本人に、今はほかの人の行の跡と自信を出さない）。
  * 版がそろう前・読めないときは null（画面はそのまま出す）
  */
 function appInputLogView_(ctx, plan) {
@@ -411,7 +462,9 @@ function appInputLogView_(ctx, plan) {
     Object.keys(APP_INPUT_LOG_SHEETS).forEach(sheet => {
       const kind = APP_INPUT_LOG_SHEETS[sheet];
       rows[kind] = appInputLogList_(kind, appReadPlanTable_('ENG_' + sheet, plan.plan_id)).map(x => {
-        const all = trail(x.key).filter(r => shown.has(r));
+        // 予算策定担当以上でない人には、今の担当者の間の跡だけ（担当者を変える前の跡は、前の担当者の行として出さない）
+        const path = viewer.full ? trail(x.key) : appInputLogSamePerson_(trail(x.key));
+        const all = path.filter(r => shown.has(r));
         if (!all.length) return null;
         const live = all.filter(r => r.change !== 'REMOVE')[0];   // 自信は付け直しの記録からも読む（その行の自信を引き継いだ行）
         const h = all.filter(r => !appInputLogRenumbered_(r));
@@ -434,7 +487,9 @@ function appInputLogView_(ctx, plan) {
  * 2 つの操作が同時に動かしても二重にならない）。BASELINE がもうある計画は飛ばす。1 回は約 20 秒までで、残りは次の操作で（{ more: true }）。
  * 計画ごとにロックの中で、書きかけの保存を先に書き終えてから（appJournalRecover_）読む（途中の表から写さない）。
  * 記録がもうある行（写しより前に保存した行）には BASELINE を足さない（写しの方が新しくなり、その保存の自信を隠すため。その行の初めの姿は前の記録にある）。
- * した人は仕組み（APP_V10_BACKFILL_ACTOR）。写しを動かした操作の人ではない
+ * した人は仕組み（APP_V10_BACKFILL_ACTOR）。写しを動かした操作の人ではない。
+ * 行を確かめられない計画（同じキーの 2 行など。appLogOps_ が控えを置く前に止める）は、エラーのログに残して飛ばし、ほかの計画を続ける。
+ * 飛ばした計画があれば最後に投げる（済みにしない。appRunBackfills_ が失敗として残し、10 分あけてその計画だけやり直す）
  */
 function appInputLogBackfill_(ctx) {
   if (!appLogReady_()) return { more: true, rows: 0 };
@@ -445,6 +500,7 @@ function appInputLogBackfill_(ctx) {
   log.forEach(r => { if (r.change === 'BASELINE') done[r.plan_id] = true; });
   const plans = appReadTable_('PLANS').filter(p => !done[p.plan_id] && !appYearIsFrozen_(p.fy));
   let rows = 0;
+  const skipped = [];   // 写す行を確かめられなかった計画（控えを置かずに飛ばす）
   for (let i = 0; i < plans.length; i++) {
     if (new Date().getTime() - t0 > APP_INPUT_LOG_BACKFILL_MS) return { more: true, rows: rows };
     const planId = plans[i].plan_id;
@@ -466,9 +522,20 @@ function appInputLogBackfill_(ctx) {
           before_json: '', after_json: x.row, self_conf: '', reason: '', signal_id: '', actor_email: APP_V10_BACKFILL_ACTOR, saved_at: now }));
       });
       if (!list.length) return 0;
-      appJournalRun_(ctx, '入力の記録の初めの姿（' + plan.plan_id + '）', plan.plan_id, appLogOps_('INPUT_LOG', list));
+      let ops;
+      try {
+        ops = appLogOps_('INPUT_LOG', list);   // 行を確かめる（同じキーの 2 行など）。止まったら控えを置かない
+      } catch (e) {
+        skipped.push(plan.plan_id);
+        appLogError_('INPUT_LOG.BACKFILL', new Error('入力の記録の初めの姿を写せないので、この計画を飛ばしました（' + plan.plan_id + '）: ' +
+          String(e && e.message ? e.message : e)), ctx);
+        return 0;
+      }
+      appJournalRun_(ctx, '入力の記録の初めの姿（' + plan.plan_id + '）', plan.plan_id, ops);
       return list.length;
     });
   }
+  // 飛ばした計画があれば、済みにしない（一度だけの写しの失敗として残り、10 分あけてその計画だけやり直す。ほかの計画の写しと保存は止めない）
+  if (skipped.length) throw new Error('入力の記録の初めの姿を写せない計画を飛ばしました（' + skipped.length + ' 計画: ' + skipped.join(', ') + '）。ほかの計画は写しました。');
   return { rows: rows };
 }
