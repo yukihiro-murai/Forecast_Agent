@@ -40,7 +40,8 @@ function appV10WaitRefusal_(kind, payload) {
 /**
  * 記録の表に行を足す控えの書き方（ops の配列。本体の ops に concat して appJournalRun_ に渡す）。行が無ければ [] を返す。
  * 行はここで確かめて形をそろえる（表に無い列・空のキー・plan_id の無い行は止める。数の列は数か空にし、数でなければ止める。
- * 4 万字を超えるセルはハッシュと先頭だけにしてエラーのログに残す）。止めるのは控えを置く前なので、本体も書かない。
+ * 4 万字を超えるセルはハッシュと先頭だけにしてエラーのログに残す。同じキーの行が 2 つあれば止める）。止めるのは控えを置く前なので、本体も書かない
+ * （呼んだ側が投げたままにすれば保存は失敗し、何も書かない。一度だけの写しは、その計画を飛ばす）。
  * キーは控えを作るときに決める（appNewLogId_・appStableLogId_）。書くときに作らない（控えの書き直しで同じ行になるように）。
  * 表の版がまだそろっていない（移行の前・途中）ときは、記録を足さずに [] を返す（本体の保存は止めない。エラーのログに残す）
  */
@@ -50,11 +51,27 @@ function appLogOps_(table, rows) {
   const list = (rows || []).filter(r => r);
   if (!list.length) return [];
   const out = list.map(r => appLogRow_(table, def, r));
+  appLogRequireUnique_(table, out);
   if (!appLogReady_()) {
     appLogError_('LOG.SKIPPED', new Error('表の版がそろう前なので、記録を足しませんでした（' + table + '・' + out.length + ' 行）。'), null);
     return [];
   }
   return [{ table: table, mode: 'append', rows: out }];
+}
+
+/**
+ * 足す行の中に同じキーの行が 2 つ無いかを、控えを置く前に確かめる（あれば止める）。書くときに appAppendLogRows_ が止めると、
+ * 書きかけの控えが残り、控えを書き直すたびに同じところで止まって、ほかの計画の保存まで止めるため（Journal.js の appJournalRequireAppends_ からも呼ぶ）
+ */
+function appLogRequireUnique_(table, rows) {
+  const def = APP_TABLES[table];
+  if (!def) throw new Error('未定義の表: ' + table);
+  const seen = {};
+  (rows || []).forEach(o => {
+    const k = def.key.map(c => String(o[c] === undefined || o[c] === null ? '' : o[c])).join('\u0001');
+    if (seen[k]) throw new Error('同じキーの行が 2 つあるので、記録を足せません（' + table + ' の ' + def.key.join('・') + ': ' + k.replace(/\u0001/g, ' / ') + '）。何も書いていません。');
+    seen[k] = true;
+  });
 }
 
 /** 記録の表を書ける版か（表の版がそろった印。appEnsureTables_ が付ける） */

@@ -495,7 +495,9 @@ function appPlanEdit_(ctx, p) {
     const written = appJournalRun_(ctx, act.label + '（' + actionId + '）', plan.plan_id, ops);
     appScratchMarkAfterSave_(scratch, plan.plan_id, token, act.sheets || null, !!reused, reused && reused.scope,
       build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet));
-    return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: result,
+    // 入力の記録に足した行の数（自信だけ変えた保存は、表が変わらなくても CONF を足す。画面はそれも「保存しました」と知らせる）
+    const inputLogRows = [].concat(written.INPUT_LOG || []).reduce((n, x) => n + (Number(x && x.appended) || 0), 0);
+    return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, inputLogRows: inputLogRows, written: written, result: result,
       build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
       timing: { buildMs: t1 - t0, runMs: t2 - t1, saveMs: new Date().getTime() - t2 },
       audit: { entityId: plan.plan_id, clientId: plan.client_id } };
