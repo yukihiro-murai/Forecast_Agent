@@ -12,6 +12,7 @@
  *                                          … 計画 planId の行（sheets を渡せばそのシートの行だけ）を rows に入れ替える。
  *                                            ほかの計画の行は控えに入れない（控えが小さく、書く行も少ない）。元の行があった場所に置く
  *   { table, mode: 'ensure', rows }        … キーの無い行だけ足す（追記だけの表・記録の表）
+ *   { table, mode: 'append', rows }        … 版 10 の記録の表（appendOnly）に、キーの無い行だけ足す。キーの列だけを読んで確かめる（V10.js の appLogOps_ で作る）
  *   { table, mode: 'patch', key, patch }   … キーの行の列を、この値にする（同じ値なら書かない）
  */
 const APP_JOURNAL_PROP = 'APP_WRITE_JOURNAL';
@@ -80,6 +81,7 @@ function appJournalApply_(ops) {
     if (op.mode === 'replace') res = Object.assign({ replaced: true }, appReplaceWhole_(op.table, op.rows), op.removed !== undefined ? { removed: op.removed } : {});
     else if (op.mode === 'replacePlan') res = Object.assign({ replaced: true }, appReplaceWhole_(op.table, appPlanRowsSwapped_(op)), op.removed !== undefined ? { removed: op.removed } : {});
     else if (op.mode === 'ensure') res = { appended: appEnsureRows_(op.table, op.rows).length };
+    else if (op.mode === 'append') res = { appended: appAppendLogRows_(op.table, op.rows, ops).length };
     else if (op.mode === 'patch') res = { patched: appPatchRow_(op.table, op.key, op.patch, op.actor) ? 1 : 0 };
     else throw new Error('控えの書き方が不明です: ' + op.mode);
     written[op.table] = prev ? [].concat(prev, res) : res;

@@ -111,9 +111,13 @@ function appYearCheck_(fy, ownJobId) {
   const planIds = plans.map(x => x.plan_id);
   const versions = appYearStoredVersions_(planIds);
   if (versions.some(v => v.state === 'SUBMITTED')) throw new Error('承認待ちの公式版があります。承認か却下を済ませてください。');
-  if (plans.some(x => !versions.some(v => v.plan_id === x.plan_id && v.state === 'APPROVED'))) {
+  // 公式版が要るのは予算を立てる計画だけ（測る専用の計画は外す。版 10 の 3-9。V10.js）
+  if (appYearPlansNeedingVersion_(plans).some(x => !versions.some(v => v.plan_id === x.plan_id && v.state === 'APPROVED'))) {
     throw new Error('公式版のない計画があります。年度を締めるには、全部の計画に公式版が要ります。');
   }
+  // 年度の最後の四半期の当たりを数え終えてから締める（締めた後は書けないため。版 10 の 9 章 10。V10.js）
+  const hitsPending = appYearHitsPending_(year, plans);
+  if (hitsPending) throw new Error(hitsPending);
   return { fy: year, closed: false, planIds: planIds, plans: plans };
 }
 
