@@ -250,7 +250,7 @@ function appPlanView_(ctx, planId) {
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
         changed: appParseJsonList_(r.changed_sheets_json) }))
-  }, appPlanViewFor_(ctx, view));
+  }, appPlanViewFor_(ctx, view), { inputLog: appInputLogView_(ctx, plan) });   // 入力の記録は見る人ごと（InputLog.js。覚えておく中身には入れない）
 }
 
 /**
@@ -458,7 +458,8 @@ const APP_EDIT_WRITE_DEADLINE_MS = 4 * 60 * 1000;
 function appPlanEdit_(ctx, p) {
   const act = appPlanAction_(p.action, 'edit');
   const plan = appPlanOf_(p.planId);
-  const args = appPlanCheckArgs_(appJobArgs_(p));
+  const inLog = { action: p.action };
+  const args = appInputLogTake_(appPlanCheckArgs_(appJobArgs_(p)), inLog);   // 自信と保存の理由は入力の記録にだけ書く（旧来の表に渡さない。InputLog.js）
   const t0 = new Date().getTime();
   const actionId = appId_('ACT');
   return appWithLock_(() => {
@@ -482,7 +483,7 @@ function appPlanEdit_(ctx, p) {
     if (new Date().getTime() - t0 > APP_EDIT_WRITE_DEADLINE_MS) {
       throw new Error('時間がかかりすぎたので、保存をやめました（何も書いていません）。もう一度保存してください。');
     }
-    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, actionId);
+    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, actionId, inLog);
     if (act.local === 'appPlanSetPeople_' && names.length) {
       ops.push({ table: 'PLANS', mode: 'patch', key: { plan_id: plan.plan_id }, patch: { people_csv: call.value.peopleCsv }, actor: ctx.actor });
     }
@@ -567,7 +568,7 @@ function appPlanRunSave_(ctx, p) {
     const cap = appCaptureChanged_(appWorkScratch_(plan), plan.plan_id, appStoredHashes_(plan.plan_id), act.sheets);
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
-    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId);
+    const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId, { action: p.action });
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))] });
     const written = appJournalRun_(ctx, act.label + '（' + p.actionId + '）', plan.plan_id, ops);
     appScratchMarkAfterSave_(appWorkScratch_(plan), plan.plan_id, p.build.token, act.sheets || null, !!p.build.reused, p.build.scope, p.build.problems);

@@ -2383,8 +2383,13 @@ function fcChangeWhy(r){
 function fcInputTab(d, v){
   var boot = v.boot, kind = S.fc.inputKind, canPlan = fcCan('plan');
   var rows = fcDraft(kind);
-  var cols = { product: [['person','担当者','people',140],['product','製品','products',200],['ym','対象月','month',128],['step','増減率','step',112],['reason','理由','text']],
-    client: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112],['reason','理由','text']],
+  // 自信（製品とメーカー全体の行だけ）: 動かせる人と、記録の自信が送られてきた人に出す。跡の列は、記録が送られてきた行があるときだけ
+  var logs = (v.inputLog && v.inputLog.rows && v.inputLog.rows[kind]) || [];
+  var showConf = !!FC_CONF_KINDS[kind] && (canPlan || logs.some(function(e){ return e && e.conf; }));
+  var showHist = rows.some(function(r){ return fcInLogTip(fcInLog(kind, r)); });
+  var conf = showConf ? [['selfConf','自信','selfconf',112]] : [];
+  var cols = { product: [['person','担当者','people',140],['product','製品','products',200],['ym','対象月','month',128],['step','増減率','step',112]].concat(conf, [['reason','理由','text']]),
+    client: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112]].concat(conf, [['reason','理由','text']]),
     opinions: [['person','担当者','people',140],['ym','対象月','month',128],['step','増減率','step',112],['conf','確度（0〜1）','conf',112],['note','補足','text']],
     devspot: [['person','担当者','people',140],['ym','対象月','month',128],['project','案件名','text',220],['amount','金額（円）','money',144],['conf','確度（0〜1）','conf',112]] }[kind];
   var opts = function(list, cur){ return [''].concat(list || []).map(function(o){ var val = typeof o === 'string' ? o : o.value, lab = typeof o === 'string' ? o : o.label;
@@ -2397,15 +2402,17 @@ function fcInputTab(d, v){
     if (c[2] === 'products') return '<select class="inp cell" ' + on + '>' + opts(withCur(boot.products, val), val) + '</select>';
     if (c[2] === 'month') return '<select class="inp cell" ' + on + '>' + opts(boot.months, val) + '</select>';
     if (c[2] === 'step') return '<select class="inp cell" ' + on + '>' + opts(withCur(boot.stepOptions, val), val) + '</select>';
+    if (c[2] === 'selfconf') return '<select class="inp cell" ' + on + '>' + opts(FC_CONF_LEVELS, val) + '</select>';
     var num = c[2] === 'conf' || c[2] === 'money';
     return '<input class="inp cell' + (num ? ' num' : '') + '" type="' + (num ? 'number' : 'text') + '"' + (c[2] === 'conf' ? ' min="0" max="1" step="0.1"' : c[2] === 'money' ? ' step="10000"' : '') + ' value="' + esc(val) + '" ' + on + '>';
   };
   var html = '<div class="tabs sub">' + INPUT_KINDS.map(function(k){ return '<button class="tab' + (kind === k[0] ? ' on' : '') + '" onclick="S.fc.inputKind=\'' + k[0] + '\';render()">' + k[1] + (S.fc.inputDirty[k[0]] ? ' ●' : '') + '</button>'; }).join('') + '</div>';
-  html += '<div class="card"><h2>' + esc((INPUT_KINDS.filter(function(k){ return k[0] === kind; })[0] || ['', ''])[1]) + 'の入力' + (canPlan ? '' : tip('入力は予算策定担当ができます。')) + '</h2><div class="tblwrap"><table class="tbl scroll' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (canPlan ? '<col style="width:152px">' : '') + '</colgroup>'
-    + '<thead><tr>' + cols.map(function(c){ return '<th' + (c[2] === 'conf' || c[2] === 'money' || c[2] === 'step' ? ' class="num"' : '') + '>' + c[1] + '</th>'; }).join('') + (canPlan ? '<th></th>' : '') + '</tr></thead><tbody>'
+  html += '<div class="card"><h2>' + esc((INPUT_KINDS.filter(function(k){ return k[0] === kind; })[0] || ['', ''])[1]) + 'の入力' + (canPlan ? '' : tip('入力は予算策定担当ができます。')) + '</h2><div class="tblwrap"><table class="tbl scroll' + (canPlan ? ' edit' : '') + '"><colgroup>' + cols.map(function(c){ return '<col' + (c[3] ? ' style="width:' + c[3] + 'px"' : '') + '>'; }).join('') + (showHist ? '<col style="width:56px">' : '') + (canPlan ? '<col style="width:152px">' : '') + '</colgroup>'
+    + '<thead><tr>' + cols.map(function(c){ return '<th' + (c[2] === 'conf' || c[2] === 'money' || c[2] === 'step' ? ' class="num"' : '') + (c[2] === 'selfconf' ? ' data-tip="' + esc(FC_CONF_TIP) + '"' : '') + '>' + c[1] + '</th>'; }).join('') + (showHist ? '<th></th>' : '') + (canPlan ? '<th></th>' : '') + '</tr></thead><tbody>'
     + (rows.length ? rows.map(function(r, i){ return '<tr>' + cols.map(function(c){ return '<td' + (c[2] === 'conf' || c[2] === 'money' || c[2] === 'step' ? ' class="num"' : '') + '>' + cellHtml(c, r, i) + '</td>'; }).join('')
+      + (showHist ? '<td class="ctr">' + tip(fcInLogTip(fcInLog(kind, r))) + '</td>' : '')
       + (canPlan ? '<td><button class="btn btn-ghost btn-sm" onclick="fcInputDel(' + i + ')" data-tip="この行を入力から外します（保存するまで反映されません）">外す</button></td>' : '') + '</tr>'; }).join('')
-      : '<tr><td colspan="' + (cols.length + (canPlan ? 1 : 0)) + '" class="empty">まだ入力がありません。' + (canPlan ? '「行を追加」で登録できます。' : '') + '</td></tr>')
+      : '<tr><td colspan="' + (cols.length + (showHist ? 1 : 0) + (canPlan ? 1 : 0)) + '" class="empty">まだ入力がありません。' + (canPlan ? '「行を追加」で登録できます。' : '') + '</td></tr>')
     + '</tbody></table></div>'
     + (canPlan ? '<div class="card-foot">' + actBtn(fcSaveBtn('入力を保存', 'fcSaveInput()', S.fc.inputDirty[kind]), '保存すると、この種類の入力をすべて書き換えます。必須の項目が空の行は予測では使いません')
       + actBtn('<button class="btn btn-ghost" onclick="fcInputAdd()">行を追加</button>', '表の下に空の行を足します（保存するまで反映されません）')
@@ -2413,11 +2420,63 @@ function fcInputTab(d, v){
     + '</div>';
   return html;
 }
-function fcDraft(kind){ var dr = S.fc.draft; if (!dr[kind]) dr[kind] = JSON.parse(JSON.stringify((S.fc.view.boot.input || {})[kind] || [])); return dr[kind]; }
+/**
+ * 入力中の行（種類ごと）。開いたときの行には、入力の記録の何行目か（_lk。画面だけの印で、保存では送らない）と、一番新しい自信（製品とメーカー全体）を付ける。
+ * 行を外しても足しても、跡と自信はその行についていく。記録が届かなかった（読めない・移行の前）ときは自信を付けない（送らなければ、サーバーは今の自信のままにする）
+ */
+function fcDraft(kind){
+  var dr = S.fc.draft, logged = !!(S.fc.view && S.fc.view.inputLog);
+  if (!dr[kind]) dr[kind] = JSON.parse(JSON.stringify((S.fc.view.boot.input || {})[kind] || [])).map(function(r, i){
+    var e = fcInLog(kind, { _lk: i });
+    r._lk = i;
+    if (FC_CONF_KINDS[kind] && logged) r.selfConf = e && e.conf ? e.conf : '';
+    return r;
+  });
+  return dr[kind];
+}
 function fcInput(i, k, val){ fcDraft(S.fc.inputKind)[i][k] = val; if (!S.fc.inputDirty[S.fc.inputKind]) { S.fc.inputDirty[S.fc.inputKind] = true; render(); } }
 function fcInputAdd(){ fcDraft(S.fc.inputKind).push({}); S.fc.inputDirty[S.fc.inputKind] = true; render(); }
 function fcInputDel(i){ fcDraft(S.fc.inputKind).splice(i, 1); S.fc.inputDirty[S.fc.inputKind] = true; render(); }
-function fcSaveInput(){ var kind = S.fc.inputKind; fcEdit('INPUT.SAVE', { kind: kind, rows: fcDraft(kind) }); }
+function fcSaveInput(){
+  var kind = S.fc.inputKind;
+  fcEdit('INPUT.SAVE', { kind: kind, rows: fcDraft(kind).map(function(r){ var o = {}; Object.keys(r).forEach(function(k){ if (k !== '_lk') o[k] = r[k]; }); return o; }) });
+}
+/** 自信（入力の記録にだけ残す。予測の計算には使わない。2026-10-08 村井さん承認） */
+var FC_CONF_KINDS = { product: true, client: true };
+var FC_CONF_LEVELS = ['高い', 'ふつう', '低い'];
+var FC_CONF_TIP = 'この行の見立てにどれだけ自信があるか（任意）。記録にだけ残し、予測の計算には使いません';
+/** 入力の行（_lk が記録の何行目か）の、入力の記録（サーバーが見る人に合わせて送る { conf, n, hist }）。無ければ null */
+function fcInLog(kind, r){
+  var l = S.fc.view && S.fc.view.inputLog, list = l && l.rows && l.rows[kind];
+  return list && r && typeof r._lk === 'number' ? list[r._lk] || null : null;
+}
+var FC_INLOG_CHANGE = { ADD: '足した', CHANGE: '変えた', REMOVE: '外した', CONF: '自信を変えた', BASELINE: '記録を始めたときの姿' };
+var FC_INLOG_ACT = { 'PLAN.CREATE': '計画を作る', 'FORECAST.RUN': '予測', 'BASELINE': '' };
+var FC_INLOG_FIELD = [['person','担当者'],['product','製品'],['ym','対象月'],['step','増減率'],['reason','理由'],['conf','確度'],['note','補足'],['project','案件名'],['amount','金額']];
+function fcInLogVal(k, v){
+  if (v === null || v === undefined || v === '') return '—';
+  if (k === 'ym') return String(v).replace('-', '/');
+  return k === 'amount' && isNum(v) ? yenU(v) : String(v);
+}
+/** 行の変わった跡（カーソルで出す。新しい順・5 件まで）。自信は、その前の跡から変わったときだけ書く */
+function fcInLogTip(e){
+  if (!e || !e.hist || !e.hist.length) return '';
+  var str = function(v){ return v === null || v === undefined ? '' : String(v); };
+  var lines = ['変わった跡'];
+  e.hist.forEach(function(h, j){
+    var act = h.action ? (FC_ACTION_SHORT[h.action] || FC_ACTION_FULL[h.action] || FC_INLOG_ACT[h.action] || '') : '';
+    var more = [], prev = e.hist[j + 1];
+    if (h.change === 'CHANGE' && h.before && h.after) FC_INLOG_FIELD.forEach(function(f){
+      if ((f[0] in h.before || f[0] in h.after) && str(h.before[f[0]]) !== str(h.after[f[0]])) more.push(f[1] + ' ' + fcInLogVal(f[0], h.before[f[0]]) + ' → ' + fcInLogVal(f[0], h.after[f[0]]));
+    });
+    if (h.change !== 'REMOVE' && h.conf && (!prev || str(prev.conf) !== str(h.conf))) more.push('自信 ' + h.conf);
+    if (h.change === 'CONF' && !h.conf) more.push('自信 —');
+    if (h.reason) more.push('保存の理由 ' + h.reason);
+    lines.push(fcDate(h.at, true) + ' ' + (FC_INLOG_CHANGE[h.change] || '') + (act ? '（' + act + '）' : '') + (h.by ? '・' + fcWho(h.by) : '') + (more.length ? '\n  ' + more.join('、') : ''));
+  });
+  if (e.n > e.hist.length) lines.push('ほか ' + (e.n - e.hist.length) + ' 件');
+  return lines.join('\n');
+}
 
 // ---- 振り返り（検証と四半期の見直しをまとめた: 精度の天気 → 精度の推移 → 人の記入 → AI の見直し案 → 更新。2026-10-06 村井さん） ----
 function fcLoadLearning(){ var id = S.fc.planId; S.fc.learn = null; load('fcLearn', function(ok, fail){ call('apiLearningView', [{ planId: id }], ok, fail); }, null, function(r){ if (S.fc.planId === id) S.fc.learn = r; }); }
