@@ -3320,9 +3320,9 @@ function lrOpen(planId, tipText){ return actBtn('<button type="button" class="bt
 function lrPeopleView(d){
   var full = d.detail === 'full';
   // 何も無いときは、よみの案内 1 つだけ（空の注記を並べない）。中身の無いカードは出さない
-  if (!((d.lessons || []).length || (d.openActions || []).length || (d.causes || []).length || (d.scoreboard || []).length || (d.decisions || []).length || (d.uplift || []).length))
+  if (!((d.lessons || []).length || (d.openActions || []).length || (d.causes || []).length || (d.scoreboard || []).length || (d.decisions || []).length || (d.uplift || []).length || lrHitAny(d.hits)))
     return guide('guide', '実績が締まって、' + runWhen(['EVAL.REPORT', 'EVAL.INSIGHTS']) + '、大きく外れた月の振り返りと、読みの当たりがここに並びます。');
-  return lrPeopleHero(d) + lrLessonCard(d, full) + lrCauseCard(d) + lrScoreCard(d, full) + lrDecisionCard(d, full) + lrUpliftCard(d);
+  return lrPeopleHero(d) + lrLessonCard(d, full) + lrCauseCard(d) + lrScoreCard(d, full) + lrHitCard(d.hits) + lrDecisionCard(d, full) + lrUpliftCard(d);
 }
 /**
  * よみのまとめ（数だけ。メーカーの名前は出さない）。外れた月の振り返りが無いときは「外れた月はありません」とは言わず、何がまだかと動かし方を言う:
@@ -3501,17 +3501,56 @@ function lrUpliftCard(d){
     '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>', '<span class="meta">確定 ' + done + '・見込み ' + (us.length - done) + '</span>');
 }
 
+// ---- 当たりの記録（版 10 の 3-4。人 × 四半期・AI 調査 1 回 × 四半期で 1 件。サーバーが見る人に合わせて絞る: 名前は予算策定担当以上と本人だけ） ----
+function lrHitAny(h){ return !!h && ((h.people || []).length > 0 || h.hidden > 0); }
+function lrResearchAny(r){ return !!r && ((r.research || []).length > 0 || r.hidden > 0); }
+/** 押しの向き（↑ ↓ と符号。色で向きを分けない） */
+function lrPush(v){ return isNum(v) ? (v > 0 ? '↑ ' : v < 0 ? '↓ ' : '') + lrSPct(v) : '-'; }
+function lrHitWord(h){ return h === 1 ? '当たり' : h === 0 ? '外れ' : '-'; }
+/** 見せない行の件数（閲覧の人には種類ごとの件数だけ）。札の説明に出す */
+function lrHidChip(n, what){ return n > 0 ? '<span class="chip" tabindex="0" data-tip="' + esc(what + ' ' + n + ' 件は、予算策定担当以上の人に出します（本人の分は本人にも）') + '">ほか ' + n + ' 件</span>' : ''; }
+/** 人ごとの当たり: 名前の順（順位は付けない）。件数（当たり / 数えた四半期）と、新しい四半期ほど重く数えた割合 */
+function lrHitCard(h){
+  if (!lrHitAny(h)) return '';
+  var ps = h.people || [], max = 10, shown = S.lr.more.hits ? ps : ps.slice(0, max);
+  var tipOf = function(p){ return p.name + '\n当たり ' + p.hit + ' / ' + p.n + ' 四半期' + (isNum(p.rate) ? '（新しいほど重く ' + lrPct(p.rate) + '）' : '')
+    + '\n' + (p.quarters || []).slice(0, 8).map(function(q){ return lrQ(q.quarter) + ' ' + q.clientName + ' ' + lrPush(q.push) + ' ' + lrHitWord(q.hit); }).join('\n')
+    + ((p.quarters || []).length > 8 ? '\nほか ' + (p.quarters.length - 8) + ' 件' : ''); };
+  var rows = shown.map(function(p){
+    return [{ h: esc(p.name) + (p.own ? ' <span class="chip">自分</span>' : ''), tip: tipOf(p) }, p.hit + ' / ' + p.n, { h: lrPct(p.rate), tip: '新しい四半期ほど重く数えた当たる割合（四半期ごとに 0.8 倍）' }, p.makers];
+  });
+  var cols = [['人', 'wrap colmin'], ['当たり', 'num', 112, '押した向きが当たった四半期 / 数えた四半期'], ['割合', 'num', 96, '新しい四半期ほど重く数えた当たる割合'], ['メーカー', 'num lr-hm', 96, '数えたメーカーの数']];   // スマホはメーカーの数を隠す（カーソルに四半期ごと）
+  var body = ps.length ? '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>' + (ps.length > max ? lrMoreBtn('hits', ps.length - max) : '')
+    : '<p class="meta" tabindex="0" data-tip="人ごとの中身は、予算策定担当以上の人に出します（本人の分は本人にも）">当たりの記録 ' + h.hidden + ' 件</p>';
+  return lrCard('人ごとの当たり', '入力で押した向き（上げる・下げる）が、締まった四半期の実績が過去の売上だけの予測から外れた向きと合っていたかです。1 人を四半期に 1 回だけ数えます。名前の順で、順位は付けません',
+    body, lrHidChip(ps.length ? h.hidden : 0, 'ほかの人の当たり'));
+}
+/** 調査ごとの当たり: AI 調査 1 回ごと（新しい順）。その回を使った予測の押しが、四半期の実績の外れの向きと合っていたか */
+function lrResearchCard(r){
+  if (!lrResearchAny(r)) return '';
+  var xs = r.research || [], max = 10, shown = S.lr.more.research ? xs : xs.slice(0, max);
+  var rows = shown.map(function(x){
+    var t = (x.quarters || []).map(function(q){ return lrQ(q.quarter) + ' ' + lrPush(q.push) + ' ' + lrHitWord(q.hit); }).join('\n');
+    return [lrDate(x.date) || '-', { h: esc(x.clientName) + ' <span class="meta">FY' + esc(x.fy) + '</span>', tip: t }, { h: x.hit + ' / ' + x.n, tip: t }];
+  });
+  var cols = [['調べた日', '', 128], ['メーカー', 'wrap colmin'], ['当たり', 'num', 112, 'AI が押した向きが当たった四半期 / 数えた四半期']];
+  var body = xs.length ? '<div class="tblwrap">' + lrTable(cols, rows, 'lr-fit') + '</div>' + (xs.length > max ? lrMoreBtn('research', xs.length - max) : '')
+    : '<p class="meta" tabindex="0" data-tip="調査ごとの中身は、予算策定担当以上の人に出します">当たりの記録 ' + r.hidden + ' 件</p>';
+  return lrCard('調査ごとの当たり', 'AI 調査 1 回ごとに、その調査を使った予測の押しの向きが、締まった四半期の実績が過去の売上だけの予測から外れた向きと合っていたかです',
+    body, lrHidChip(xs.length ? r.hidden : 0, 'ほかの調査の当たり'));
+}
+
 // ---- AI の学び ----
 function lrAiView(d){
   var curves = (d.curves || []).filter(function(c){ return c && c.prior && (c.quarters || []).length; });
   var sh = d.shrinkage || {}, tl = d.timeline || [], cal = d.calibration || [], pend = d.pending || [];
   // AI の学びは当たり具合の計算から（外れの原因の整理は使わない）。今の年度の比べた月がどれも売上 0 円なら、「まだ」の代わりにそう言う（よみのまとめと同じ）
-  if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length) {
+  if (!curves.length && !(sh.plans || []).length && !tl.length && !cal.length && !pend.length && !lrResearchAny(d.research)) {
     var z = lrZero();
     return z.zero ? guide('explain', esc(zeroSay(z, '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。')))
       : guide('guide', '実績が締まって、' + runWhen() + '、AI が何を学んだか（重み・偏り・外れ幅・補正）がここに出ます。');
   }
-  return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []) + lrLandingCard(d.landing);
+  return lrAiHero(d) + lrPendingCard(pend) + lrCurveCard(curves) + lrResearchCard(d.research) + lrShrinkCard(sh) + lrTimeCard(tl) + lrCalCard(cal, d.health || []) + lrLandingCard(d.landing);
 }
 /** 今の年度（ホームと同じ: サーバーが決めた B.home.fy。無ければ今日の日付から。4 月始まり） */
 function lrFy(){

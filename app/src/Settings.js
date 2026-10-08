@@ -105,6 +105,9 @@ function appSaveSetting_(ctx, input) {
     setting_id: appId_('ST'), key: key, value: String(value), scope: 'GLOBAL', scope_id: '', effective_from: eff,
     note: String(input && input.note || '').slice(0, 500), created_at: appNowIso_(), created_by: ctx.actor
   };
-  appWithLock_(() => appInsertRows_('SETTINGS', [row]));
+  // τ・w の承認は学びの記録にも残す（版 10 の 3-5。LearnLog.js）。そのときは設定の行と同じ控えで書く
+  const log = appLearnSettingOps_(ctx, key, before, value, eff, row.note);
+  appWithLock_(() => (log.length ? appJournalRun_(ctx, '設定の保存（' + key + '）', '', [{ table: 'SETTINGS', mode: 'ensure', rows: [row] }].concat(log))
+    : appInsertRows_('SETTINGS', [row])));
   return { saved: row, before: before, audit: { entityId: key } };
 }
