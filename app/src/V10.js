@@ -194,9 +194,9 @@ function appYearHitsPending_(fy, plans) {
 // 返り値: { rows: 足した行の数 }（済み）・{ more: true, rows }（続きがある。次の操作でまた呼ぶ）・{ skipped: true }（仮のもの。記録しない）。
 // 自分で appWithLock_ の中で appJournalRun_ を使って書く。キーは中身から決める（appStableLogId_）。1 回は数十秒までに収める。
 
-/** 入力の記録の BASELINE（3-1: 今の 4 つの入力の表の行を 1 回だけ写す）。入力の記録を作るときに中身を書く */
+/** 入力の記録の BASELINE（3-1: 今の 4 つの入力の表の行を 1 回だけ写す。InputLog.js） */
 function appV10BackfillInputLog_(ctx) {
-  return { skipped: true };
+  return appInputLogBackfill_(ctx);
 }
 
 /** AI 調査の記録の BASELINE（3-2: 今の AI_RESEARCH_STRUCTURED の 1 回分）。AI 調査の記録を作るときに中身を書く */

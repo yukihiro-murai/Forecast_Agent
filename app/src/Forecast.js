@@ -167,23 +167,26 @@ function appStoredHashes_(planId) {
 
 /**
  * 控えの形にしたシートで、データ本体の計画 planId の行を入れ替える書き方（ops。appJournalRun_ に渡す）。
- * 履歴の表は、前の行がそのままなら足された行だけを書く
+ * 履歴の表は、前の行がそのままなら足された行だけを書く。
+ * 入力の 4 つの表が変わった行（と自信だけ変えた行）は、入力の記録（INPUT_LOG）も同じ控えに足す（InputLog.js。log = { action, reason, conf }）
  */
-function appChangedOps_(ctx, planId, changed, batchId) {
+function appChangedOps_(ctx, planId, changed, batchId, log) {
   const now = appNowIso_();
   const names = changed.map(e => e.sheetRow.sheet);
   const ops = [];
+  const inputLog = appInputLogOps_(ctx, planId, changed, batchId, log);   // 前の行は書く前のデータ本体から読む
   changed.forEach(enc => {
     const name = enc.sheetRow.sheet;
     if (APP_ENGINE_SHEETS[name].mode !== 'table') return;
     const rows = enc.sheetRow.mode === 'table' ? enc.tableRows : [];   // 見出しが違えば ENG_ROWS 側に持つ
     ops.push(appOpReplaceOrAppend_('ENG_' + name, planId, rows));
   });
-  if (!changed.length) return ops;
+  if (!changed.length) return ops.concat(inputLog);
   const segs = [].concat.apply([], changed.map(e => e.rowSegs));
   const fmts = [].concat.apply([], changed.map(e => e.formatRows));
   ops.push(appOpReplacePlan_('ENG_ROWS', planId, names, segs));
   ops.push(appOpReplacePlan_('ENG_FORMATS', planId, names, fmts));
+  inputLog.forEach(op => ops.push(op));
   // シートの大きさとハッシュは最後に書く（途中で止まっても、控えから書き直すまで「入力のハッシュ」は前のまま）
   ops.push(appOpReplacePlan_('ENG_SHEETS', planId, names,
     changed.map(e => Object.assign({}, e.sheetRow, { import_batch_id: batchId, updated_at: now, updated_by: ctx.actor }))));
