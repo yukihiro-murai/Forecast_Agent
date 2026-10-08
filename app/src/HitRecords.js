@@ -8,6 +8,9 @@
  *   FORECAST_SNAPSHOT の base_pred は混合の P50（旧来の計算は人と AI の効きを 0 と書く）なので、統計だけの予測には使わない。
  * - 四半期の印（source_kind QUARTER）: 3 か月が締まった四半期に 1 行（押した人がいなくても数えたことが分かる。年度を締める条件）。
  *   n_months = 実績と予測の回がそろった月の数。3 に足りない四半期は印だけ（months_json に足りない月）で、人と AI の行は作らない。
+ *   足りない月の miss: 'forecast' = その月が始まる前の予測の回が無い。'none' = 今の版の B-2 を動かした後なのに測った行が無い
+ *   （売上の記録が無い月。旧来の B-2 は実績の無い月を測らない。B-2 をやり直しても変わらない）。'actual' = 今の版の B-2 がまだ測っていない
+ *   （移行の写しが、前の版の検証の行しか無い計画から作った印。B-2 の後でなければ、売上が無いのか、まだ測っていないのか分からない）。
  *   整数の列（actual_dir・hit・n_months）は空を持てない（空は 0 と書かれる）ので、印の hit は使わず、actual_dir は n_months が 3 のときだけ読む。
  *   人と AI の行は、向きが決まった四半期（actual_dir が ±1）だけに作るので、hit はいつも 1（当たり）か 0（外れ）。
  * - 書くのは B-2（当たり具合の計算）の保存の中だけ（同じ控えで足す。新しい自動の処理は作らない）。hit_id は計画・種類・情報源・四半期・
@@ -68,9 +71,11 @@ function appHitA4Runs_(planId) {
 /**
  * 計画の当たりの行（キー・時刻・人を入れる前の形）。t = { EVAL_LOG, PROCESS_STATUS, AI_IMPACT_HISTORY, SUBJECTIVE_IMPACT_HISTORY }
  * （見出し → 値の行。計算用ブック（B-2 の後）からでも、データ本体（移行）からでもよい）、a4 = appHitA4Runs_、links = 人のつなぎの行。
+ * measured = t が今の版の B-2 を動かした直後の計算用ブック（appHitEvalOps_）。そのときは、締まった月に測った行が無ければ
+ * 売上の記録が無い月（miss 'none'。採点するものが無い）。データ本体から作る移行の写しは false（miss 'actual'。まだ測っていないかもしれない）。
  * 計画の年度の四半期のうち、3 か月とも締まった四半期だけ（締まっていない月が入る四半期は数えない）
  */
-function appHitRowsOf_(plan, t, a4, links) {
+function appHitRowsOf_(plan, t, a4, links, measured) {
   const cutoff = appLandingCutoff_(t.PROCESS_STATUS || []);
   if (!cutoff) return [];
   const quarters = [1, 2, 3, 4].map(q => 'FY' + Number(plan.fy) + '-Q' + q).filter(q => appHitQuarterMonths_(q)[2] < cutoff);
@@ -121,7 +126,7 @@ function appHitRowsOf_(plan, t, a4, links) {
       dir = Math.abs(diff) < 1e-6 ? 0 : Math.sign(diff);
     }
     out.push(row(q, APP_HIT_KIND.QUARTER, '', '', months.map(ym => (ok.indexOf(ym) >= 0 ? { ym: ym, run: pre[ym].run }
-      : { ym: ym, run: pre[ym] ? pre[ym].run : '', miss: pre[ym] && pre[ym].stat !== null ? 'actual' : 'forecast' })), null, dir, null, ok.length));
+      : { ym: ym, run: pre[ym] ? pre[ym].run : '', miss: !pre[ym] || pre[ym].stat === null ? 'forecast' : measured ? 'none' : 'actual' })), null, dir, null, ok.length));
     if (!dir) return;   // 実績が統計だけの予測とちょうど同じ四半期は、どの向きも当たりと言えないので印だけ
     const hitOf = push => (Math.sign(push) === dir ? 1 : 0);
     // 人: 四半期に押した月の押しの平均（1 人を月の数だけ数えない）
@@ -154,12 +159,25 @@ function appHitRowsOf_(plan, t, a4, links) {
 /**
  * 当たりの行のキー（計画・種類・情報源・四半期・数え方の版。同じ中身なら同じ印）。
  * 四半期の印は、そろわなかった（n_months が 3 でない）ときは月の数も入れる: 後でそろって数えたときは新しい印を足す
- * （読むときは計画・種類・情報源・四半期ごとに一番新しい行を使う。例: 前の版の検証の行しか無いときに移行の写しが作った印）
+ * （読むときは計画・種類・情報源・四半期ごとに一番新しい行を使う。例: 前の版の検証の行しか無いときに移行の写しが作った印）。
+ * 売上の記録が無い月（miss 'none'。今の版の B-2 の後）があれば、その月も入れる: 同じ月の数でも、移行の写しの印（その月が 'actual'）と
+ * 重ならずに足す（重なると、まだ測っていない印のまま年度を締められない）。'none' の無い印の番号は前と同じ
  */
 function appHitId_(r) {
   const parts = [r.plan_id, r.source_kind, r.source_key, r.quarter, APP_HIT_CALC];
-  if (r.source_kind === APP_HIT_KIND.QUARTER && Number(r.n_months) !== 3) parts.push('PARTIAL:' + Number(r.n_months));
+  if (r.source_kind === APP_HIT_KIND.QUARTER && Number(r.n_months) !== 3) {
+    parts.push('PARTIAL:' + Number(r.n_months));
+    const none = (appHitMonthsOf_(r) || []).filter(m => m && m.miss === 'none').map(m => String(m.ym));
+    if (none.length) parts.push('NONE:' + none.join(','));
+  }
   return appStableLogId_(APP_LOG_PREFIX.HIT_RECORDS, parts);
+}
+
+/** 印の months_json（文字でも配列でもよい）。読めなければ null */
+function appHitMonthsOf_(r) {
+  let months = r ? r.months_json : null;
+  if (typeof months === 'string') { try { months = JSON.parse(months || '[]'); } catch (e) { return null; } }
+  return Array.isArray(months) ? months : null;
 }
 
 /** 当たりの行を、まだ無いものだけ控えの書き方にする（appLogOps_）。calc = calc_version、by = computed_by（省くと操作の人）。キーと時刻はここで決める */
@@ -182,7 +200,7 @@ function appHitEvalOps_(ctx, plan, book) {
   try {
     const t = {};
     APP_HIT_TABLES.forEach(n => { t[n] = appPlanSheetRows_(book.getSheetByName(n)); });
-    return appHitOps_(ctx, plan, appHitRowsOf_(plan, t, appHitA4Runs_(plan.plan_id), appPersonLinks_()), APP_HIT_CALC);
+    return appHitOps_(ctx, plan, appHitRowsOf_(plan, t, appHitA4Runs_(plan.plan_id), appPersonLinks_(), true), APP_HIT_CALC);   // 今の版の B-2 の後（測った行の無い月は売上の記録が無い）
   } catch (e) {
     appLogError_('HIT.RECORD', e, ctx);
     return [];
@@ -221,7 +239,8 @@ function appHitBackfill_(ctx) {
         appJournalRecover_(ctx);
         const plan = appPlanOf_(p.plan_id);
         if (appYearIsFrozen_(plan.fy)) return 0;
-        const ops = appHitOps_(ctx, plan, appHitRowsOf_(plan, appEngTableObjects_(plan.plan_id, APP_HIT_TABLES), a4[plan.plan_id] || [], links), APP_HIT_CALC_BACKFILL,
+        // データ本体の検証の行は前の版の B-2 のものかもしれないので、測った行の無い月は「まだ測っていない」（miss 'actual'）のまま
+        const ops = appHitOps_(ctx, plan, appHitRowsOf_(plan, appEngTableObjects_(plan.plan_id, APP_HIT_TABLES), a4[plan.plan_id] || [], links, false), APP_HIT_CALC_BACKFILL,
           APP_V10_BACKFILL_ACTOR);
         if (!ops.length) return 0;
         appJournalRun_(ctx, '当たりの記録の移行（' + plan.plan_id + '）', plan.plan_id, ops);
@@ -237,21 +256,22 @@ function appHitBackfill_(ctx) {
 
 /**
  * 四半期の印（QUARTER）が「数え終えた」印か。3 か月とも、採点した（実績と、その月が始まる前の予測の回がそろった）か、
- * 採点するものが無かった（その月が始まる前の予測の回が無い: months_json の miss = 'forecast'）なら数え終えた。
- * 実績が足りない月（miss = 'actual'。今の版の B-2 がまだ測っていない。例: 前の版の検証の行しか無いときに移行の写しが作った n_months = 0 の印）が
- * 1 つでもあれば、まだ数え終えていない（今の版の B-2 を動かすと、人と AI の行を数えられる）。months_json が読めない印も数え終えていないとみなす
+ * 採点するものが無かった（その月が始まる前の予測の回が無い: miss = 'forecast'。今の版の B-2 の後に売上の記録が無い: miss = 'none'）なら数え終えた。
+ * まだ測っていない月（miss = 'actual'。移行の写しが、前の版の検証の行しか無い計画から作った印。例: n_months = 0）が 1 つでもあれば、
+ * まだ数え終えていない（今の版の B-2 を動かすと、測れる月は採点し、売上の無い月は 'none' の印を足す）。months_json が読めない印も数え終えていないとみなす。
+ * b2Pending = その計画の B-1（実績の取り込み）が最後の B-2 より新しい: 売上の無かった月（'none'）に後から売上が入ったかもしれないので、数え終えていない
  */
-function appHitQuarterCounted_(r) {
+function appHitQuarterCounted_(r, b2Pending) {
   if (Number(r && r.n_months) === 3) return true;
-  let months = r ? r.months_json : null;
-  if (typeof months === 'string') { try { months = JSON.parse(months || '[]'); } catch (e) { return false; } }
-  return Array.isArray(months) && months.length === 3 && months.every(m => m && typeof m === 'object' && m.miss !== 'actual');
+  const months = appHitMonthsOf_(r);
+  if (!months || months.length !== 3 || !months.every(m => m && typeof m === 'object' && m.miss !== 'actual')) return false;
+  return !(b2Pending && months.some(m => m.miss === 'none'));
 }
 
 /**
  * 年度を締める前の見張り（V10.js の appYearHitsPending_）: 年度の最後の四半期（1〜3 月）の当たりを数え終えたか（締めた後は書けないため。9 章 10）。
  * 予算を立てる計画（測る専用は外す）のうち、締まった月がある計画（実績を取り込んだ: B-2 の後でも前でも）に、その四半期の数え終えた印
- * （appHitQuarterCounted_。同じ四半期の印がいくつあっても、どれか 1 つ）が要る。
+ * （appHitQuarterCounted_。同じ四半期の印がいくつあっても、どれか 1 つ）が要る。B-1 の後に B-2 がまだの計画では、売上の無い月（'none'）の印は数えない。
  * 足りなければ理由の文、そろっていれば ''。記録の表がそろう前は、数えたか確かめられないので締めない
  */
 function appHitYearPending_(fy, plans) {
@@ -263,8 +283,9 @@ function appHitYearPending_(fy, plans) {
   const status = appEngAll_('PROCESS_STATUS', need.map(p => p.plan_id));
   const missing = need.filter(p => {
     const st = status[p.plan_id] || [];
-    if (!appLandingCutoff_(st) && !appLandingPendingCutoff_(st)) return false;   // 実績を取り込んでいない計画は数えるものが無い
-    return !appReadPlanTable_('HIT_RECORDS', p.plan_id).some(r => r.quarter === q && r.source_kind === APP_HIT_KIND.QUARTER && appHitQuarterCounted_(r));
+    const pending = !!appLandingPendingCutoff_(st);   // B-1 の後に B-2 がまだ
+    if (!appLandingCutoff_(st) && !pending) return false;   // 実績を取り込んでいない計画は数えるものが無い
+    return !appReadPlanTable_('HIT_RECORDS', p.plan_id).some(r => r.quarter === q && r.source_kind === APP_HIT_KIND.QUARTER && appHitQuarterCounted_(r, pending));
   }).map(p => names[p.client_id] || p.client_label);
   if (!missing.length) return '';
   return 'FY' + Number(fy) + ' の 1〜3 月の当たりをまだ数えていない計画があります（' + missing.slice(0, 5).join('・') + (missing.length > 5 ? ' ほか ' + (missing.length - 5) + ' 計画' : '') +
