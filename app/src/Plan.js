@@ -556,8 +556,8 @@ function appPlanRunCalc_(ctx, p) {
   });
 }
 
-/** 実行（保存・PLAN.RUN_SAVE）: 書き換わったシートを控えの形にし、計算の間にデータ本体が変わっていないことを確かめてから書く */
-function appPlanRunSave_(ctx, p) {
+/** 実行（保存・PLAN.RUN_SAVE）: 書き換わったシートを控えの形にし、計算の間にデータ本体が変わっていないことを確かめてから書く。job = この処理（自動の A-4 か見分ける） */
+function appPlanRunSave_(ctx, p, job) {
   const act = appPlanAction_(p.action, 'run');
   const plan = appPlanOf_(p.planId);
   const t0 = new Date().getTime();
@@ -570,6 +570,7 @@ function appPlanRunSave_(ctx, p) {
     const names = cap.changed.map(e => e.sheetRow.sheet);
     const ops = appChangedOps_(ctx, plan.plan_id, cap.changed, p.actionId, { action: p.action });
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, Object.assign({}, p, { changed: names }))] });
+    appAiResearchLogOps_(ctx, plan, p, cap.changed, job).forEach(op => ops.push(op));   // A-4 の回ごとの記録（AI_RESEARCH_LOG。3-2。AiResearchLog.js）
     const written = appJournalRun_(ctx, act.label + '（' + p.actionId + '）', plan.plan_id, ops);
     appScratchMarkAfterSave_(appWorkScratch_(plan), plan.plan_id, p.build.token, act.sheets || null, !!p.build.reused, p.build.scope, p.build.problems);
     return { actionId: p.actionId, planId: plan.plan_id, action: p.action, changed: names, written: written, result: p.result,

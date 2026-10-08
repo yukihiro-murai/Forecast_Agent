@@ -8,6 +8,7 @@
  *   - 補正（CALIBRATION_STATE・FORECAST_SNAPSHOT の calibration_applied_json）
  *   - AI 調査の根拠（AI_RESEARCH_STRUCTURED: 話題・向き・点数・確からしさ・根拠の文）・Vertex の説明
  *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作・変化のわけ（changeCause。appBasisChangeCause_）
+ *   - 層ごとの効き（LAYER_EFFECTS。版 10）の月の合計を、最新と前の回で（layers。どの層で変わったか。LayerEffects.js の appBasisLayers_）
  * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える。
  * 押したものの、人や話題ごとの内訳（名前と信頼度）は予算策定担当以上の人だけに出す（appBasisFor_。学びと同じ決まり）。
  */
@@ -144,6 +145,7 @@ function appForecastBasis_(ctx, planId) {
     vertex: vertex ? { at: String(vertex.run_at || ''), confidence: appNum_(vertex.confidence), rationale: String(vertex.rationale_ja || '').slice(0, 1200), status: String(vertex.status || '') } : null
   };
   Object.assign(out, appBasisChangeCause_(latest, prev, cur, before, between));   // 前回の予測からの変化のわけ（changeCause・changeCauses・changeVersion）
+  out.layers = appBasisLayers_(plan.plan_id, latest, prev);   // 層ごとの効きの月の合計（最新と前の回。人の名前は入らない。LayerEffects.js）
   try { appJobPutResult_(key, out); } catch (e) { /* 控えられなくても返す */ }
   return appBasisFor_(ctx, out);
 }

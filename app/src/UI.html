@@ -2361,6 +2361,7 @@ function fcBasisTab(d, v){
     var say = chg === null ? '年度の中心の変化は、比べられません' : Math.abs(chg) < 1 ? '年度の中心は、前回から変わっていません' : '年度の中心は前回より ' + yenShort(Math.abs(chg)) + '円 ' + (chg > 0 ? '上がりました' : '下がりました');
     html += '<div class="card"><div class="card-head"><h2>前回の予測からの変化' + tip(fcChangeWhy(r)) + '</h2><span class="meta">' + esc(fcDate(r.prevRunAt)) + ' → ' + esc(fcDate(r.latestRunAt)) + '</span></div>'
       + '<p class="fc-say"' + (isNum(chg) ? ' data-tip="' + esc((chg > 0 ? '+' : '') + yenU(chg)) + '"' : '') + '>' + esc(say) + '</p>'
+      + fcLayerTable(r.layers)
       + ((r.between || []).length ? '<div class="mt12">' + fcOpsTable(r.between) + '</div>' : '') + '</div>';
   }
   return html;
@@ -2377,6 +2378,28 @@ function fcChangeWhy(r){
   var c = r && r.changeCause;
   if (c === 'inputs' || c === 'none') return '';
   return (FC_CHANGE_WHY.hasOwnProperty(c) && FC_CHANGE_WHY[c]) || (r && r.inputChanged ? '' : 'この間に計画への操作はありません。変化は、月が変わったことや計算の版の違いなどによるものです');
+}
+/** 層ごとの効き（サーバーの layers の月の合計）: [キー, 名前, 説明] */
+var FC_LAYERS = [['stat', '過去の売上', '入力・AI を入れない、過去の売上だけの予測'], ['spot', 'スポット案件', '確定しているスポット案件の効き'],
+  ['human', '人の入力', '製品・メーカー全体・見解の効き'], ['ai', 'AI', '市場の調査と AI の見立ての効き'], ['calib', '補正', 'これまでの外れ方による補正の効き'],
+  ['other', 'そのほか', '分け方で合わない分（全部を足すと最終の中心）']];
+var FC_LAYER_TYPES = [['factor_product', '製品'], ['factor_client', '全体'], ['opinion', '見解']];
+/**
+ * 前回の予測と比べて、どの層で変わったか（月の合計の差）。両方の回に層ごとの効きがあるときだけ。どちらの回も 0 円の層は出さない。
+ * 今回と前回の金額・人の入力の種類ごとの内訳はカーソルで（人の名前は無い）
+ */
+function fcLayerTable(L){
+  if (!L || !L.latest || !L.prev) return '';
+  var a = L.latest, b = L.prev, sg = function(n){ return (n > 0 ? '+' : '') + yen(n); }, v = function(o, k){ return isNum(o[k]) ? o[k] : 0; };
+  var rows = FC_LAYERS.filter(function(x){ return Math.abs(v(a, x[0])) >= 0.5 || Math.abs(v(b, x[0])) >= 0.5; });
+  if (!rows.length) return '';
+  var types = function(o){ return FC_LAYER_TYPES.filter(function(t){ return Math.abs((o.byType || {})[t[0]] || 0) >= 0.5; }).map(function(t){ return t[1] + ' ' + sg(o.byType[t[0]]) + ' 円'; }).join('・'); };
+  return '<div class="mt12"><table class="tbl fc-layers"><colgroup><col><col style="width:160px"></colgroup><thead><tr>'
+    + '<th data-tip="予測の中心（月の合計）を、過去の売上・スポット案件・人の入力・AI・補正に分けた目安です（記録した値から割合で分け、合わない分は「そのほか」）">内訳</th>'
+    + '<th class="num" data-tip="前回の予測からの変化（月の合計）">前回から</th></tr></thead><tbody>'
+    + rows.map(function(x){ var d = v(a, x[0]) - v(b, x[0]), ty = x[0] === 'human' ? types(a) : '';
+      return '<tr><td data-tip="' + esc(x[2] + (ty ? '\n今回: ' + ty : '')) + '">' + esc(x[1]) + '</td><td class="num" data-tip="' + esc('今回 ' + yenU(v(a, x[0])) + '・前回 ' + yenU(v(b, x[0]))) + '">' + sg(Math.abs(d) < 0.5 ? 0 : d) + '</td></tr>'; }).join('')
+    + '</tbody></table></div>';
 }
 
 // ---- 入力 ----

@@ -65,8 +65,9 @@ function planBook(client, fy) {
 {
   const env = setUpEnv();
   assert.deepEqual(env.call('APP_V10_BACKFILLS'), ['appV10BackfillInputLog_', 'appV10BackfillAiResearchLog_', 'appV10BackfillHitRecords_']);
-  for (const n of env.call('APP_V10_BACKFILLS').filter((n) => n !== 'appV10BackfillInputLog_')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は今は仮のもの');
-  env.run('appV10BackfillInputLog_ = function(ctx) { return { skipped: true }; };');   // 入力の記録の写しの中身は app-v10-input で確かめる
+  // 写しの中身は各表のテスト（app-v10-input・app-v10-ai-research-log・app-v10-hits）で確かめる。ここでは仮のものに差し替えて、記録の決まりだけを見る
+  for (const n of env.call('APP_V10_BACKFILLS')) env.run(n + ' = function(ctx) { return { skipped: true }; };');
+  for (const n of env.call('APP_V10_BACKFILLS')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は仮のもの');
   env.call('apiListPlans()');
   assert.equal(env.props.APP_BACKFILLS, undefined, '仮のものは記録しない');
   // 何もすることが無い操作ではロックを取らず、表も読まない
