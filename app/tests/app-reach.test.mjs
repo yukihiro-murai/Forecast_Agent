@@ -7,7 +7,7 @@
  *   4. τ・w は業務の設定（所有者だけが書ける・範囲は APP_LANDING と同じ）に書くまで、学んだ値を使わない。書いた値・効き始める日
  *   5. 計画の一覧の scoredMonths（今の決まりで B-2 が測った締まった月の数。実績 0 円の月も数える）
  *   6. 画面: 予測の中心の下に試しの中心、予算のカードに届く見込み、ホームの年間予算の説明に合計の届く見込み、学びに学んだ値（試し）
- *   3b・7. 締まった月がある計画の試しの年度は中心だけ（aligned.k・幅は着地見込みの方）。12 か月締まった・年度を締めた計画は done
+ *   3b・7. 締まった月がある計画の試しの年度は中心だけ（aligned.k・幅は着地見込みの方）。12 か月を数えた計画だけ done（年度を締めても 12 か月に足りなければ見込み）
  *      （aligned.done・reach.done と reach.actual = 実績の合計。届く金額は出さない）。締まった月 0 は今までどおり（2026-10-08 F3）
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
@@ -362,6 +362,9 @@ const port = () => Object.fromEntries(env.call('apiPortfolio()').plans.map((p) =
   assert.deepEqual([cu.aligned.done, cu.reach.done], [false, false], 'ほかの年度は変わらない');
   const l = env.call('apiForecastLatest(__in)', { __in: { planId: idNext } });
   assert.deepEqual([l.shadow.aligned.done, l.shadow.reach.done], [false, false], '予測の画面にも同じ');
+  // ホームの計画の行にも締めた年度の印（メーカーを選ぶ一覧・メーカーの画面が、当たり具合の計算待ちの案内を出さないため）
+  const hp = (env.call('apiHome()').plans || []).find((x) => x.planId === idNext);
+  assert.ok(hp && hp.frozen === true, 'ホームの行に frozen');
 }
 
 console.log('app-reach: all tests passed');

@@ -2117,7 +2117,7 @@ function fcForecastTab(d, v){
   if (!ran || !sec) return cfHtml + runCard + guide(canPlan ? 'explain' : 'observe', canPlan ? '予測を実行すると、年度の見通し（下振れ・中心・上振れ）と、月ごとの予算の欄がここに出ます。' : 'まだ予測がありません。予測の実行は予算策定担当ができます。実行すると、月ごとの見通しと予算がここに出ます。');
   var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, al = sh && sh.aligned;   // 試しの数（年度の見込み・予算に届く見込み。保存している数字は変えない）
   html += '<div class="kpis">' + fcKpi(qName('p10'), annual.p10, false, qTip('p10') + '（年度合計）')
-    + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）', false, al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al, sh.reach) } : null)
+    + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）', false, al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al, sh.reach, !!(d.plan && d.plan.frozen) || !!(v.plan && v.plan.frozen)) } : null)
     + fcKpi(qName('p90'), annual.p90, false, qTip('p90') + '（年度合計）') + fcKpi('最終予算', sec.annual.final, false, '採用予測と上乗せの年度合計') + '</div>';
   html += cfHtml + runCard;
   // 予算（採用予測と上乗せを入れる。最終予算 = 採用予測 + 上乗せ は保存すると計算し直す）
@@ -2134,7 +2134,7 @@ function fcForecastTab(d, v){
     + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num">' + yen(sec.annual.final) + '</td></tr>'
     + '</tbody></table>';
   var foot = canPlan && (S.cv.fcMonthly === 'table' || dirty);
-  // 予算に届く見込み（試し）。年度が締まった（サーバーの reach.done。無ければ締め済みの年度か 12 か月の実績がそろった）ら、見込みではなく届いたかどうか
+  // 予算に届く見込み（試し）。12 か月を数えた（サーバーの reach.done。無ければ 12 か月の実績がそろった）ら、見込みではなく届いたかどうか（年度を締めても 12 か月に足りなければ見込み）
   var rc = sh && sh.reach, rcDone = rc && fcReachDone(rc);
   var reach = !(rc && rc.draft) ? '' : rcDone ? '<span class="meta" data-tip="' + esc(fcReachDoneTip(rc, dirty)) + '">' + esc(fcReachDoneSay(rc)) + '</span>'
     : '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + '（試し）</span>';
@@ -2155,10 +2155,11 @@ function reachAssume(x){ return '年の水準のぶれ ' + landTau(x && x.tau) +
  * 幅は、締まった月が無いとき（サーバーの aligned.k が 0・無い）だけ。年度の途中は着地の推定の幅（rc: 予算に届く見込みの中身。あればその幅を添える）、
  * 12 か月が締まった（aligned.done）ら幅は無い
  */
-function fcAlignedTip(a, rc){
+function fcAlignedTip(a, rc, frozen){
   var band = isNum(a.p10) && isNum(a.p90) && !(a.k > 0) && !a.done;
   var inYear = a.done ? '12 か月の実績がそろったので、幅はありません'
-    : a.pending ? '締まった月を数え直すまで（当たり具合の計算の後）、幅は出しません'
+    : frozen ? '締め済みの年度なので、幅は出しません（実績と比べた結果は振り返りで見ます）'
+    : a.pending ? '実績を取り込んだ後、当たり具合を計算して締まった月を数え直すまで、幅は出しません'
     : '年度の途中の幅は、着地の推定（締まった' + (a.k > 0 ? ' ' + a.k + ' か月' : '月') + 'の実績を入れた見込み）の幅で見ます'
       + (rc && isNum(rc.p10) && isNum(rc.p90) ? ': 80% の幅 ' + yenU(rc.p10) + '〜' + yenU(rc.p90) : '');
   return ['この計画の年度合計（下振れ・中心・上振れ）は、年度の売上を何度も試して出した値です（月の合計とずれることがあり、幅も狭めに出ます）',
@@ -2177,7 +2178,7 @@ function fcReachTip(rc, dirty){
     dirty ? '入力中の予算は、保存すると計算し直します' : '',
     '着地見込みと同じ計算の試しです。保存している数字は変わりません'].filter(Boolean).join('\n');
 }
-/** 年度が締まって、届く見込みではなく届いたかどうかを言うか（サーバーの reach.done か、締め済みの年度。done が無いサーバーでは 12 か月の実績がそろったときも） */
+/** 届く見込みではなく届いたかどうかを言うか（サーバーの reach.done。done が無いサーバーでは 12 か月の実績がそろったとき） */
 function fcReachDone(rc){ return rc.done === true || (rc.done === undefined && rc.k >= 12); }   // 年度を締めても、12 か月を数えるまでは届く見込みのまま
 /** 締まった年度の実績の合計（サーバーの reach.actual。無ければ締まった月の実績の合計） */
 function fcReachActual(rc){ return isNum(rc.actual) ? rc.actual : isNum(rc.actualYtd) ? rc.actualYtd : null; }
@@ -2367,7 +2368,7 @@ function fcBasisTab(d, v){
 
 /**
  * 前回の予測からの変化の理由（見出しの説明）。サーバーの changeCause: inputs（計画への操作。下の表で見せるので説明なし）・none（同じ入力。説明なし）・
- * jitter（前の予測の揺れ）・calendar（月が変わった）・version（計算の版が変わった）。無い・知らない値のときは、操作が無ければ日付を言わない一文
+ * jitter（前の予測の揺れ）・calendar（月が変わった）・version（計算の版が変わった）・other（種が同じなのに数字が違う。版の違いではない）。無い・知らない値のときは、操作が無ければ日付を言わない一文
  */
 var FC_CHANGE_WHY = { jitter: '前の予測は、同じ入力でも実行ごとに少し揺れていました（今の版から、同じ入力なら同じ数字になります）',
   calendar: '月が変わったため（締まった月の扱いが変わります）', version: '計算の版が変わったため',

@@ -120,9 +120,9 @@ function appListPlans_() {
  * prior.learned として返すだけで、着地には使わない（2026-10-08 判断 29）。
  * 計画ごとに足す項目（2026-10-08。どれも影で、保存している数字は変えない）:
  *   aligned      … 年度の見込みの試し（月の P50 の合計を中心に、着地見込みと同じ式の幅。appLandingAligned_。判断 10）。
- *                  締まった月がある（aligned.k > 0）と幅は出さない（年度の途中の幅は着地見込み）。12 か月締まった・年度を締めた計画は aligned.done
+ *                  締まった月がある（aligned.k > 0）・締まった月を数え直している間（aligned.pending）は幅を出さない。12 か月を数えた計画は aligned.done
  *   reach        … 予算に届く見込み（今の予算と承認済みの公式版の予算。届く金額 50〜80%。appLandingReach_。判断 24・25）。
- *                  12 か月締まった・年度を締めた計画は reach.done と reach.actual（実績の合計。届いた／届かなかった。届く金額は出さない）
+ *                  12 か月を数えた計画は reach.done と reach.actual（実績の合計。届いた／届かなかった。届く金額は出さない）。年度を締めても 12 か月に足りなければ見込みのまま
  *   scoredMonths … 今の決まりで B-2 が測った締まった月の数（appPortfolioScored_。実績 0 円の月も数える。数）
  * 返り値: { plans: [計画の要点], prior: { learned: appLandingPrior_ の返り値, used: appLandingApproved_ の返り値 } }
  */
@@ -203,9 +203,10 @@ function appPortfolioData_() {
     const budgetUsed = official !== null ? official : budget;
     const yt = appPlanYtd_(p.fy, cmp[p.plan_id] || {}, cut[p.plan_id]);
     const months = appLandingMonths_(o);
-    const frozen = frozenOf(p.fy);   // 年度を締めた計画（試しの数は「年度は終わった」として出す）
+    const frozen = frozenOf(p.fy);   // 年度を締めた計画（画面の印。年度が終わったかは、数えた締まった月が 12 か月かで決める）
+    const pendingCut = appLandingPendingCutoff_(steps[p.plan_id] || []);   // 実績を取り込んだ後、まだ当たり具合を計算していない（締まった月を数え直している間）
     const sky = appLandingSky_({ fy: p.fy, months: months, actual: yt.actual, cutoffYm: cut[p.plan_id], todayYm: todayYm, budget: budgetUsed,
-      pendingCutoffYm: appLandingPendingCutoff_(steps[p.plan_id] || []), tau: used.tau, w: used.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
+      pendingCutoffYm: pendingCut, tau: used.tau, w: used.w, runs: rs.slice(0, 2).map(r => ({ p50: r.annual_p50, ageDays: appLandingAgeDays_(r.finished_at, today) })) });
     const st = steps[p.plan_id] || [];
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     // 外れ幅は締まった月で、今の決まりで測った月だけ（D4〜D6。精度 appAccuracyOf_ と同じ月。ほかの検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
@@ -227,9 +228,9 @@ function appPortfolioData_() {
       landing: sky.landing, landingSd: sky.landingSd, landingP10: sky.landingP10, landingP90: sky.landingP90, pAbove: sky.pAbove, ratio: sky.ratio,
       sky: sky.sky, skyReason: sky.skyReason, skyDir: sky.skyDir, theta: sky.theta, credibility: sky.credibility, k: sky.k,
       budgetUsed: budgetUsed, budgetSource: official !== null ? 'official' : budget !== null ? 'draft' : '',
-      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, frozen: frozen, pending: sky.skyReason === 'eval_pending' || sky.skyReason === 'stale_actuals' }),
+      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, pending: pendingCut !== '' || sky.skyReason === 'eval_pending' || sky.skyReason === 'stale_actuals' }),
       frozen: !!frozen,
-      reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used, { frozen: frozen }),
+      reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used),
       scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0
     };
   }).sort((x, y) => String(y.fy).localeCompare(String(x.fy)) || String(x.clientName).localeCompare(String(y.clientName), 'ja'));

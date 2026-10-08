@@ -54,7 +54,7 @@ function appHomeData_(ctx) {
       actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, rangeOut: p.rangeOut, rangeN: p.rangeN,
       landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
       sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource,
-      scoredMonths: p.scoredMonths })),
+      scoredMonths: p.scoredMonths, frozen: p.frozen })),
     totals: appHomeTotals_(plans, fy, all.prior && all.prior.used),
     approvals: approvals, mine: mine
   };

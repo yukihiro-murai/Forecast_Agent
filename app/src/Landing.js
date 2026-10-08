@@ -255,11 +255,11 @@ function appLandingPct5_(p) { return typeof p === 'number' && isFinite(p) ? Math
  * 今の年度の P10/P50/P90 は旧来の計算の試行（学んだ補正を入れず、月を別々に足す）なので、月の P50 の合計と違い、幅も狭い。
  * そこで、中心 = 最新の予測の月の P50（OUTPUT の 29〜40 行。補正を入れた値）の 12 か月の合計、幅 = 着地見込みと同じ式で締まった月が無いとき（appLandingDist_）。
  * months: appLandingMonths_ の形、tau・w: appLandingApproved_、budget: 予算以上になる確率を出す予算（無い・0 以下なら pAbove は null）。
- * opts: { k（締まった月の数。着地見込み appLandingSky_ の k）, frozen（年度を締めた計画） }。省けば締まった月なし。
+ * opts: { k（締まった月の数。着地見込み appLandingSky_ の k）, pending（締まった月を数え直している間: 実績を取り込んだ後の当たり具合の計算待ち・実績の遅れ） }。省けば締まった月なし。
  * 締まった月がある（k > 0）ときは、幅を出さない（sd・p10・p90・pAbove は null）: 予測の締まった月は実績が入っているので、年度全体に τ の幅を
  * つけると、ぶれを大きく見せ、着地見込みの幅とも食い違う（年度の途中の幅は着地見込みの方。2026-10-08）。中心はそのまま出す。
- * 12 か月締まった・年度を締めた計画は done（年度は終わった）。done も幅を出さない。
- * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w, k, done }
+ * 12 か月を数えた計画は done（年度は終わった。年度を締めても 12 か月に足りなければ done にしない）。done・pending も幅を出さない。
+ * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w, k, done, pending }
  */
 function appLandingAligned_(fy, months, tau, w, budget, opts) {
   const fc = appLandingFc_(fy, months);
@@ -281,9 +281,8 @@ function appLandingAligned_(fy, months, tau, w, budget, opts) {
  * 予算に届く見込み（判断 24・25 の見せ方。影: 予算も予測も変えない。確率を選んで予算を書く操作は、まだ無い）。
  * sky: その計画の着地見込み（appLandingSky_ の返り値。年度の途中は締まった月の実績を入れた分布、先の年度は締まった月なし）。
  * budgets: { draft（今の予算 = 採用予測 + 上乗せ）, official（承認済みの公式版の最終予算）, officialNo }、prior: appLandingApproved_、
- * opts: { frozen（年度を締めた計画） }。
  * 着地見込みの数字が無い（実績の遅れ・予測が無い）ときは null。
- * 12 か月締まった・年度を締めた計画は done（年度は終わった。2026-10-08）: actual = 締まった月の実績の合計、届く金額（amounts）は空。
+ * 12 か月を数えた計画は done（年度は終わった。2026-10-08。年度を締めても 12 か月に足りなければ見込みのまま）: actual = 締まった月の実績の合計、届く金額（amounts）は空。
  * 画面は確率ではなく、届いた／届かなかったを出す（予算ごとの reached = 実績の合計 ≥ 予算。p・pct は今までどおりの値）。
  * 返り値: { center, sd, p10, p90, k, actualYtd, tau, w, tauSet, wSet, done, actual（done のときだけ数。ほかは null）,
  *          amounts: [{ pct, amount }]（その確率で届く金額。50〜80%。done なら空）,
