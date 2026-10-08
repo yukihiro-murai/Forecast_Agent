@@ -36,7 +36,7 @@ const auditCols = makeEnv().run('APP_LOG_TABLES.AUDIT');
 
 // ==== 1. 入口の一覧（ブラウザから呼べる関数を増やさない） ====
 {
-  for (const n of srcNames) assert.match(n, /^(appsscript\.json|[A-Za-z]+\.(js|html))$/, `src に置けるのは GAS のファイルだけ: ${n}`);
+  for (const n of srcNames) assert.match(n, /^(appsscript\.json|[A-Za-z][A-Za-z0-9]*\.(js|html))$/, `src に置けるのは GAS のファイルだけ: ${n}`);
   assert.deepEqual(srcNames.filter((n) => n.endsWith('.html')), ['UI.html']);
   const declared = [];
   for (const [file, src] of Object.entries(sources)) {

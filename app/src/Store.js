@@ -55,6 +55,7 @@ function appWithLock_(fn) {
   lock.waitLock(APP_LOCK_WAIT_MS);
   APP_LOCK_DEPTH_ = 1;
   appStoreForget_();   // ロックを取る前に読んだ表は、ほかの実行が書き換えたかもしれない
+  appStoreForgetOldHeads_();   // 列を足す前と覚えた表も（ほかの実行が移行したかもしれない）
   try {
     return fn();
   } finally {
@@ -97,15 +98,93 @@ function appTableSheet_(name, create, headLater) {
     return sh;
   }
   if (headLater) { found[name] = sh; return sh; }
-  appCheckTableHead_(name, sh, sh.getRange(1, 1, 1, def.columns.length).getValues()[0]);
+  appCheckTableHead_(name, sh, appReadWide_(sh, 1, 1, def.columns.length)[0]);
   return sh;
 }
 
-/** 読んだ見出し（1 行目）が定義と同じかを確かめる。違えば止める（fail-closed）。同じなら、この実行の間は確かめ直さない */
+/**
+ * 読んだ見出し（1 行目）が定義と同じかを確かめる。違えば止める（fail-closed）。同じなら、この実行の間は確かめ直さない。
+ * 列を足す前の見出し（APP_ADDED_COLUMNS の前の版の並び）なら止めずに、読むだけの表として覚える（足した列は空で読む。書くと止まる: appRequireCurrentHead_）。
+ * 列を足す移行（appMigrateColumns_）ができない間も、画面が開けるようにするため
+ */
 function appCheckTableHead_(name, sh, head) {
   const def = APP_TABLES[name];
-  if (head.map(String).join('|') !== def.columns.join('|')) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
+  const width = APP_STORE_CACHE_.width || (APP_STORE_CACHE_.width = {});
+  delete width[name];
+  if (head.map(String).join('|') !== def.columns.join('|')) {
+    const w = appOldHeadWidth_(name, head);
+    if (!w) throw new Error('表の列が定義と違います（' + name + '）。書き込みを止めました。');
+    width[name] = w;
+  }
   (APP_STORE_CACHE_.sheets || (APP_STORE_CACHE_.sheets = {}))[name] = sh;
+}
+
+/** 表の列の移り変わり（古い順。最後が今の列）。APP_ADDED_COLUMNS の版ごとに、後ろの列を外した並び */
+function appTableStages_(name) {
+  const cols = APP_TABLES[name].columns.slice();
+  const added = APP_ADDED_COLUMNS[name] || [];
+  const out = [cols];
+  let cur = cols;
+  for (let i = added.length - 1; i >= 0; i--) {
+    cur = cur.slice(0, cur.length - added[i].columns.length);
+    out.unshift(cur);
+  }
+  return out;
+}
+
+/** 見出しが列を足す前の並びなら、その列の数（今の並び・どれでもないときは 0）。後ろの空のセルは見ない */
+function appOldHeadWidth_(name, head) {
+  const h = head.map(v => (v === null || v === undefined ? '' : String(v)));
+  while (h.length && h[h.length - 1] === '') h.pop();
+  const stages = appTableStages_(name);
+  for (let i = 0; i < stages.length - 1; i++) if (stages[i].length && stages[i].join('|') === h.join('|')) return stages[i].length;
+  return 0;
+}
+
+/** 表を読む列の数（列を足す前の表は、前の版の列の数） */
+function appTableWidth_(name) {
+  return (APP_STORE_CACHE_.width && APP_STORE_CACHE_.width[name]) || APP_TABLES[name].columns.length;
+}
+
+/**
+ * 列を足す前の表には書かない（移行が終わるまで読むだけ）。書くのはロックの中だけで、ロックを取ったときに
+ * 列を足す前と覚えた表は見出しを確かめ直す（appStoreForgetOldHeads_）ので、ここで見るのは今の見出し
+ */
+function appRequireCurrentHead_(name) {
+  if (APP_STORE_CACHE_.width && APP_STORE_CACHE_.width[name]) {
+    throw new Error('表の列を足す移行がまだです（' + name + '）。書き込みを止めました。少し待ってから、もう一度操作してください。');
+  }
+}
+
+/**
+ * 列を足す前と覚えた表を忘れる（次に読むときに見出しから確かめ直す）。ロックを取ったときに呼ぶ:
+ * ロックを待つ間にほかの実行が移行したら、前の列の数で読んだまま書くと、足した列の値を空で書き戻してしまうため
+ */
+function appStoreForgetOldHeads_() {
+  const w = APP_STORE_CACHE_.width;
+  if (!w) return;
+  Object.keys(w).forEach(n => { if (APP_STORE_CACHE_.sheets) delete APP_STORE_CACHE_.sheets[n]; delete w[n]; });
+}
+
+/**
+ * 行 row から rows 行を n 列ぶん読む。シートの列が n より少ない（列を足す前の表）ときは、ある列だけを読み、足りない列を空にする。
+ * ふだんは今までどおり 1 回で読む（シートの列の数は、読めなかったときだけ確かめる）
+ */
+function appReadWide_(sh, row, rows, n) {
+  try { return sh.getRange(row, 1, rows, n).getValues(); }
+  catch (e) {
+    const m = sh.getMaxColumns();
+    if (m >= n || m < 1) throw e;
+    return sh.getRange(row, 1, rows, m).getValues().map(r => r.concat(new Array(n - m).fill('')));
+  }
+}
+
+/** 読んだ行を、今の列の数にそろえる（列を足す前の表は、足した列を空にする） */
+function appPadRow_(r, w, n) {
+  if (w >= n && r.length === n) return r;
+  const out = r.slice(0, w);
+  while (out.length < n) out.push('');
+  return out;
 }
 
 // ---- 読んだ表の控え（この実行の間だけ。書いた表とロックを取ったときは捨てる）----
@@ -123,14 +202,17 @@ function appRawTable_(name, known) {
   const checked = !!(APP_STORE_CACHE_.sheets && APP_STORE_CACHE_.sheets[name]);
   const sh = known ? known.sh : appTableSheet_(name, false, true);
   const last = known ? known.last : sh.getLastRow();
+  const n = def.columns.length;
   const text = r => r.map(v => (v === null || v === undefined ? '' : String(v)));
   if (checked) {
-    raw[name] = last < 2 ? [] : sh.getRange(2, 1, last - 1, def.columns.length).getValues().map(text);
+    const w = appTableWidth_(name);
+    raw[name] = last < 2 ? [] : sh.getRange(2, 1, last - 1, w).getValues().map(r => appPadRow_(text(r), w, n));
     return raw[name];
   }
-  const vals = sh.getRange(1, 1, Math.max(1, last), def.columns.length).getValues();
+  const vals = appReadWide_(sh, 1, Math.max(1, last), n);
   appCheckTableHead_(name, sh, vals[0]);
-  raw[name] = vals.slice(1).map(text);
+  const w = appTableWidth_(name);
+  raw[name] = vals.slice(1).map(r => appPadRow_(text(r), w, n));
   return raw[name];
 }
 
@@ -247,11 +329,12 @@ function appReadPlanTable_(name, planId) {
     appTableSheet_(name, false);   // 大きい表は見出しだけを先に確かめる（確かめ済みなら読まない）
     const rowsNo = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(planId)).matchEntireCell(true).matchCase(true).findAll().map(r => r.getRow()).sort((a, b) => a - b);
     const out = [];
+    const w = appTableWidth_(name);
     for (let i = 0; i < rowsNo.length;) {
       let j = i;
       while (j + 1 < rowsNo.length && rowsNo[j + 1] === rowsNo[j] + 1) j++;
-      sh.getRange(rowsNo[i], 1, j - i + 1, def.columns.length).getValues().forEach((r, k) => {
-        out.push({ row: rowsNo[i] + k, cells: r.map(v => (v === null || v === undefined ? '' : String(v))) });
+      sh.getRange(rowsNo[i], 1, j - i + 1, w).getValues().forEach((r, k) => {
+        out.push({ row: rowsNo[i] + k, cells: appPadRow_(r.map(v => (v === null || v === undefined ? '' : String(v))), w, def.columns.length) });
       });
       i = j + 1;
     }
@@ -284,10 +367,16 @@ function appOrganizeDataBook_() {
     } catch (e) { Logger.log('表の保護・色: ' + name + ' ' + (e && e.message ? e.message : e)); }
   });
   out.retired = appHideRetiredTables_(ss);
+  appStoreForgetSheets_();
+  return out;
+}
+
+/** 見つけたシートと確かめた見出しの控えを捨てる（表の 1 行目を書いた後など。読んだ表の控えも捨てる） */
+function appStoreForgetSheets_() {
   APP_STORE_CACHE_.sheets = {};
   APP_STORE_CACHE_.found = {};
+  APP_STORE_CACHE_.width = {};
   appStoreForget_();
-  return out;
 }
 
 /** 使わなくなった表（APP_RETIRED_TABLES）のシートを隠す（消さない）。隠したシートの名前を返す */
@@ -369,6 +458,7 @@ function appInsertRows_(name, objs) {
     seen[k] = true;
   });
   const sh = appTableSheet_(name, false);
+  appRequireCurrentHead_(name);
   const rows = objs.map(o => appObjectToRow_(def, o));
   appStoreForget_(name);
   const start = sh.getLastRow() + 1;
@@ -393,6 +483,7 @@ function appReplaceRows_(name, keep, objs) {
 function appReplaceWhole_(name, rows) {
   const def = APP_TABLES[name];
   const sh = appTableSheet_(name, false);
+  appRequireCurrentHead_(name);
   const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
   const seen = {};
   rows.forEach(o => {
@@ -423,6 +514,62 @@ function appEnsureRows_(name, objs) {
   const have = {};
   appReadTable_(name).forEach(o => { have[keyOf(o)] = true; });
   return appInsertRows_(name, objs.filter(o => !have[keyOf(o)]));
+}
+
+/**
+ * 追記だけの表（版 10 の記録の表）に、キーの無い行だけを後ろに足す。重なりはキーの列だけを読んで確かめる（appEnsureRows_ は表を全部読む）。
+ * 何度呼んでも同じ結果（控えの書き直しでも二重にならない）。同じキーの行を 2 つ渡すと止める。ロックの中で呼ぶ（控えの書き方 append から）。
+ * plan_id の列がある表は、締めた年度の計画の行を書かない（ops = 同じ控えの書き込み。その中で作る計画の年度も分かる）。返り値は足した行
+ */
+function appAppendLogRows_(name, objs, ops) {
+  const def = APP_TABLES[name];
+  if (!def) throw new Error('未定義の表: ' + name);
+  if (!objs || !objs.length) return [];
+  const keyOf = o => def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])).join('\u0001');
+  const fresh = {};
+  objs.forEach(o => {
+    if (def.key.some(c => o[c] === undefined || o[c] === null || o[c] === '')) throw new Error('キーが空の行は足せません（' + name + '）。');
+    const k = keyOf(o);
+    if (fresh[k]) throw new Error('同じキーの行が 2 つあります（' + name + '）。');
+    fresh[k] = true;
+  });
+  if (def.columns.indexOf('plan_id') >= 0) {
+    const pids = {};
+    objs.forEach(o => { if (o.plan_id !== undefined && o.plan_id !== null && o.plan_id !== '') pids[String(o.plan_id)] = true; });
+    Object.keys(pids).forEach(pid => appRequireOpenYear_(appYearPlanFyOf_(pid, ops || [])));
+  }
+  const sh = appTableSheet_(name, false);
+  appRequireCurrentHead_(name);
+  const have = appKeySet_(name, sh);
+  const add = objs.filter(o => !have[keyOf(o)]);
+  if (!add.length) return [];
+  const rows = add.map(o => appObjectToRow_(def, o));
+  appStoreForget_(name);
+  const start = sh.getLastRow() + 1;
+  if (start + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), Math.max(1000, rows.length));
+  sh.getRange(start, 1, rows.length, def.columns.length).setNumberFormat('@').setValues(rows);
+  appBumpGen_();
+  return add;
+}
+
+/** 表にあるキーの組（{ キー: true }）。キーの列だけを読む（読んだ表の控えがあれば、それを使う） */
+function appKeySet_(name, sh) {
+  const def = APP_TABLES[name];
+  const keyOf = parts => parts.join('\u0001');
+  const have = {};
+  if (APP_STORE_CACHE_.raw && APP_STORE_CACHE_.raw[name]) {
+    appReadTable_(name).forEach(o => { have[keyOf(def.key.map(k => String(o[k] === undefined || o[k] === null ? '' : o[k])))] = true; });
+    return have;
+  }
+  const last = sh.getLastRow();
+  if (last < 2) return have;
+  const idx = def.key.map(k => def.columns.indexOf(k));
+  const lo = Math.min.apply(null, idx), hi = Math.max.apply(null, idx);
+  sh.getRange(2, lo + 1, last - 1, hi - lo + 1).getValues().forEach(r => {
+    const parts = idx.map(i => { const v = r[i - lo]; return v === null || v === undefined ? '' : String(v); });
+    if (parts.some(p => p !== '')) have[keyOf(parts)] = true;
+  });
+  return have;
 }
 
 /** キーの行の列を patch の値にする。すでに同じ値なら書かない（何度呼んでも同じ結果になる）。返り値は書いたかどうか */
@@ -477,6 +624,7 @@ function appUpdateByKey_(name, keyVals, patch, expectedVersion, actor) {
     updated_at: appNowIso_(), updated_by: actor, row_version: Number(cur.row_version || 0) + 1
   });
   const sh = appTableSheet_(name, false);
+  appRequireCurrentHead_(name);
   appStoreForget_(name);
   sh.getRange(cur._row, 1, 1, def.columns.length).setNumberFormat('@').setValues([appObjectToRow_(def, after)]);
   appBumpGen_();

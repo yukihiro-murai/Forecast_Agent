@@ -383,6 +383,12 @@ function appOwnerHealthBrief_(h) {
   if (hk && hk.ok === false) warnings.push('毎日の手入れに要確認があります');
   if (h.journal) warnings.push('書きかけの保存があります');
   if (h.years && h.years.error) warnings.push('年度の一覧を読めません');
+  const size = h.size || null;
+  if (size && size.error) warnings.push('データ本体の大きさを読めません');
+  else if (size && size.ratio >= APP_CELL_WARN_RATIO) warnings.push('データ本体のセルが上限の ' + Math.round(size.ratio * 100) + '% です（半分を超えたら、締めた年度の行を移すか表を分けるかを決めます）');
+  ((size && size.years) || []).filter(y => y.ratio >= APP_YEAR_WARN_RATIO).forEach(y => warnings.push('FY' + y.fy + ' の年度の控えが上限（8MB）の約 ' + Math.round(y.ratio * 100) + '% です'));
+  const bf = h.backfills || null;
+  if (bf && (bf.error || (bf.failed || []).length)) warnings.push('一度だけの写しに失敗があります');
   return {
     setUp: true,
     ok: !warnings.length,
@@ -396,6 +402,10 @@ function appOwnerHealthBrief_(h) {
     journal: h.journal ? { id: h.journal.id, label: h.journal.label, planId: h.journal.planId, at: h.journal.at } : null,
     jobs: h.jobs,
     years: h.years,
+    // セルの数（cells は上限 limit に数える全部のシートの 行 × 列）と、年度の控えの大きさの目安（年度ごと。計画ごとは全部の結果に）
+    size: size && !size.error ? { cells: size.cells, usedCells: size.usedCells, limit: size.limit, ratio: size.ratio,
+      years: (size.years || []).map(y => ({ fy: y.fy, plans: y.plans.length, bytes: y.bytes, ratio: y.ratio })) } : size,
+    backfills: bf,
     files: h.files
   };
 }

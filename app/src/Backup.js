@@ -58,6 +58,16 @@ function appBackup_(ctx) {
   return res;
 }
 
+/**
+ * 今日（日本時間）のバックアップ（無ければ null）。名前の日付（appBackup_ が付ける）か、作った日で見る。
+ * 表の列を足す移行（Setup.js の appMigrateColumns_）の前に確かめる（ドライブを数える）
+ */
+function appBackupToday_() {
+  const today = appToday_();
+  return appBackupFiles_().filter(f => f.getName().indexOf(APP_FILES.backupPrefix + today) === 0 ||
+    Utilities.formatDate(f.getDateCreated(), APP_TZ, 'yyyy-MM-dd') === today)[0] || null;
+}
+
 /** 毎日のバックアップのトリガーがあるか */
 function appBackupEnabled_() {
   return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'triggerDailyBackup');
