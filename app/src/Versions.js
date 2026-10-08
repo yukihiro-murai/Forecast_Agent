@@ -43,7 +43,7 @@ function appVersionOut_(v) {
     decidedAt: v.decided_at, decidedBy: v.decided_by, decisionNote: v.decision_note, rowVersion: v.row_version };
 }
 
-/** 画面: 計画の版の一覧と、今の数字（出す前に見比べる） */
+/** 画面: 計画の版の一覧と、今の数字（出す前に見比べる）。測る専用の計画（measure）は出せない（can.submit が false） */
 function appVersionList_(ctx, input) {
   const plan = appPlanOf_(input && input.planId);
   const versions = appVersionRows_(plan.plan_id).map(appVersionOut_);
@@ -51,18 +51,20 @@ function appVersionList_(ctx, input) {
   const pending = versions.filter(v => v.state === 'SUBMITTED')[0] || null;
   const inputHash = appPlanInputHash_(plan.plan_id);
   const frozen = appYearIsFrozen_(plan.fy);
-  return { planId: plan.plan_id, frozen: frozen, current: appPlanNumbers_(plan.plan_id), inputHash: inputHash, versions: versions, official: official, pending: pending,
+  const measure = appPlanIsMeasure_(plan);
+  return { planId: plan.plan_id, frozen: frozen, measure: measure, current: appPlanNumbers_(plan.plan_id), inputHash: inputHash, versions: versions, official: official, pending: pending,
     pendingChanged: !!pending && pending.inputHash !== inputHash,
-    can: { submit: appHasRole_(ctx.roles, 'PLANNER', plan.client_id) && !frozen, approve: appHasRole_(ctx.roles, 'APPROVER', plan.client_id) && !frozen }, me: ctx.actor };
+    can: { submit: appHasRole_(ctx.roles, 'PLANNER', plan.client_id) && !frozen && !measure, approve: appHasRole_(ctx.roles, 'APPROVER', plan.client_id) && !frozen }, me: ctx.actor };
 }
 
-/** 今の予測と予算を、公式版として出す（承認待ち）。前の承認待ちは取り下げる */
+/** 今の予測と予算を、公式版として出す（承認待ち）。前の承認待ちは取り下げる。測る専用の計画は出さない（PlanPurpose.js） */
 function appVersionSubmit_(ctx, input) {
   const note = String(input && input.note || '').trim().slice(0, 500);
   appPlanCheckArgs_([note]);
   return appWithLock_(() => {
     if (appJournalPending_()) throw new Error('データ本体の保存が途中で止まっています。予測の画面の「保存の続きを書く」を先に行ってください。');
     const plan = appRequireOpenPlan_(input && input.planId);   // 締めた年度には版を出せない（所有者でも同じ）
+    appMeasureRequireBudgetPlan_(plan);
     const nums = appPlanNumbers_(plan.plan_id);
     if (!nums || nums.annual.p50 === null) throw new Error('予測がまだありません。予測を実行してから出してください。');
     const inputHash = appPlanInputHash_(plan.plan_id);
