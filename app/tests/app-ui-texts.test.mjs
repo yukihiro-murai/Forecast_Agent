@@ -821,8 +821,8 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   assert.deepEqual(notes(c), ['今の値: 年の水準のぶれ 24.7%（承認した値）・幅の倍率 1 倍（決まった値）',
     '全計画から学んだ値（試し）: 年の水準のぶれ 24.7%（承認して使っています）・幅の倍率 1.42 倍（承認すると使います）']);
   assert.match(cardTip(c), /\n今使っている値: 年の水準のぶれ 24\.7%（所有者が承認 2026\/10\/08 から）・幅の倍率 1 倍（決まった値）\n/);
-  // 決まった値と同じ値（1 倍）を学んでも、設定に書いていなければ「承認すると使います」
-  assert.equal(notes(card(L({ tauLearned: false, w: 1 }), U()))[1], '全計画から学んだ値（試し）: 幅の倍率 1 倍（承認すると使います）');
+  // 決まった値と同じ値（1 倍）を学んだ: 承認しても変わらないので「今の値と同じ」
+  assert.equal(notes(card(L({ tauLearned: false, w: 1 }), U()))[1], '全計画から学んだ値（試し）: 幅の倍率 1 倍（今の値と同じ）');
   // 違う日に書いた: 日は値ごと
   assert.match(cardTip(card(L(), U({ tau: 0.247, w: 1.42, tauSet: true, wSet: true, tauFrom: '2026-10-08', wFrom: '2026-10-09' }))),
     /今使っている値: 年の水準のぶれ 24\.7%（所有者が承認 2026\/10\/08 から）・幅の倍率 1\.42 倍（所有者が承認 2026\/10\/09 から）/);
@@ -893,8 +893,9 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   [done, miss].forEach((x) => assert.doesNotMatch(x.say + x.tip.join('\n'), /届く見込み|% の金額|前提|試し/));
   // done が無いサーバー: 12 か月の実績がそろった・締め済みの年度なら同じ（実績の合計は締まった月の合計）
   assert.equal(meta(tab({ reach: reach({ k: 12, actualYtd: 125e6 }) })).say, 'この予算に届きました（実績の合計 1.3億円）');
-  assert.equal(meta(tab({ reach: reach() }, true)).say, 'この予算に届きませんでした（実績の合計 6,012万円）', '締め済みの年度');
-  assert.equal(meta(tab({ reach: reach({ done: false }) }, true)).say, 'この予算に届きませんでした（実績の合計 6,012万円）', '締め済みの年度は done が false でも');
+  // 締め済みの年度でも、12 か月を数えるまでは届く見込みのまま（一部の実績で届いた・届かなかったと言い切らない。2026-10-08 点検）
+  assert.equal(meta(tab({ reach: reach() }, true)).say, 'この予算に届く見込み 約 60%（試し）', '締め済みの年度でも 12 か月に足りなければ見込み');
+  assert.equal(meta(tab({ reach: reach({ done: false }) }, true)).say, 'この予算に届く見込み 約 60%（試し）', '締め済みの年度で done が false');
   // 締まっていない: 今までどおり見込み（done が false なら 12 か月でも）
   assert.equal(meta(tab({ reach: reach({ done: false, k: 12 }) })).say, 'この予算に届く見込み 約 60%（試し）');
   assert.equal(meta(tab({ reach: reach({ k: 11 }) })).say, 'この予算に届く見込み 約 60%（試し）');
@@ -928,7 +929,9 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   // changeCause が無い・知らない値: 操作が無ければ、日付を言わない一文。操作があれば説明なし（今までどおり）
   const NEUTRAL = 'この間に計画への操作はありません。変化は、月が変わったことや計算の版の違いなどによるものです';
   assert.equal(tipOf(basis({}), H), NEUTRAL);
-  assert.equal(tipOf(basis({ changeCause: 'other' }), H), NEUTRAL);
+  assert.equal(tipOf(basis({ changeCause: 'unknown-x' }), H), NEUTRAL);
+  // other: 種が同じ（入力・版が同じ）なのに数字が違う。版の違いとは言わない
+  assert.equal(tipOf(basis({ changeCause: 'other' }), H), '予測が読む入力と計算の版は同じです（AI の点数の流れを使う設定では、調べ直した直後に数字が変わることがあります）');
   assert.ok(basis({ inputChanged: true, between: OPS }).includes('<h2>' + H + '</h2>'));
   assert.doesNotMatch(uiHtml, /2026\/10\/08 より前の予測/);
 }

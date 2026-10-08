@@ -79,8 +79,8 @@ assert.equal(b.research[0].direction, 'up');
 assert.match(b.research[0].evidence, /新薬/);
 assert.equal(b.annual.p50 - b.annual.prevP50, 10);
 assert.equal(b.inputChanged, false, 'この間に計画への操作は無い');
-// テストの予測は、同じ入力・同じ種でも回ごとに数字を変える（本物は変えない）。月も旧来の計算も同じなので、残るわけはアプリの版（記録していない）
-assert.deepEqual([b.changeCause, b.changeCauses, b.changeVersion], ['version', ['version'], { engine: 'same', app: 'unknown' }]);
+// テストの予測は、同じ入力・同じ種でも回ごとに数字を変える（本物は変えない）。種が同じ = 入力・版・地域が同じなので、版の違いとは言わない（other）
+assert.deepEqual([b.changeCause, b.changeCauses, b.changeVersion], ['other', ['other'], { engine: 'same', app: 'unknown' }]);
 
 // ==== 前回の予測からの変化のわけ（changeCause。2026-10-08 F4）: 決まった順で 1 つ選ぶ ====
 {

@@ -114,21 +114,25 @@ const F = months.reduce((s, m) => s + m.p50, 0);
   const a6 = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 6 })', { __m: months });
   assert.deepEqual([a6.k, a6.done, a6.sd, a6.p10, a6.p90, a6.pAbove, a6.budget, a6.tau, a6.w], [6, false, null, null, null, null, 1300, 0.15, 1]);
   near(a6.center, a0.center, 1e-12, '中心は同じ');
-  // 12 か月締まった・年度を締めた: done（幅も出さない）
+  // 12 か月締まった: done（幅も出さない）
   const a12 = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 12 })', { __m: months });
   assert.deepEqual([a12.k, a12.done, a12.p10, a12.p90], [12, true, null, null]);
-  const af = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 0, frozen: true })', { __m: months });
-  assert.deepEqual([af.k, af.done, af.sd, af.p10, af.p90, af.pAbove], [0, true, null, null, null, null], '年度を締めた計画も done');
-  assert.equal(run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 3, frozen: true })', { __m: months }).done, true);
+  // 年度を締めても、数えた月が 12 に足りなければ done ではない（終わったと言い切らない。2026-10-08 点検）
+  const af = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 3, frozen: true })', { __m: months });
+  assert.deepEqual([af.k, af.done, af.p10, af.p90], [3, false, null, null], '締めた年度でも 12 か月に足りなければ done ではない');
+  // 締まった月を数え直している間（当たり具合の計算待ち・実績の遅れ）: 締まった月 0 に戻っても幅を出さない
+  const ap = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 0, pending: true })', { __m: months });
+  assert.deepEqual([ap.k, ap.done, ap.pending, ap.sd, ap.p10, ap.p90, ap.pAbove], [0, false, true, null, null, null, null]);
+  near(ap.center, a0.center, 1e-12, '中心は同じ');
   // 届く見込み: 12 か月締まった年度は done・actual = 実績の合計・届く金額なし・予算ごとに届いたか
   const done = run('appLandingSky_(__in)', { __in: { fy: 2026, months, actual: acts(Array(12).fill(100)), cutoffYm: '2027/04', todayYm: '2027/04', budget: 1150 } });
   const rd = run('appLandingReach_(__s, { draft: 1150, official: 1250, officialNo: 2 }, null)', { __s: done });
   assert.deepEqual([rd.done, rd.actual, rd.amounts, rd.k], [true, 1200, [], 12]);
   assert.deepEqual([rd.draft.reached, rd.draft.p, rd.draft.pct, rd.official.reached, rd.official.p, rd.official.versionNo], [true, 1, 100, false, 0, 2], '届いた／届かなかった');
-  // 年度を締めた計画（締まった月が 12 か月に届かなくても）: done。actual は締まった月の実績の合計
+  // 年度を締めた計画でも、締まった月が 12 か月に届かなければ done ではない（一部の実績で届いた・届かなかったと言い切らない）
   const mid = run('appLandingSky_(__in)', { __in: { fy: 2026, months, actual: acts([80, 85, 90, 95, 100, 105]), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1250 } });
   const rf = run('appLandingReach_(__s, { draft: 1250 }, null, { frozen: true })', { __s: mid });
-  assert.deepEqual([rf.done, rf.actual, rf.amounts, rf.draft.reached], [true, 555, [], false]);
+  assert.deepEqual([rf.done, rf.actual, rf.amounts.length, 'reached' in rf.draft], [false, null, 4, false]);
   // 年度の途中（締めていない）: 今までどおり（done = false・actual = null・届く金額 4 つ・reached なし）
   const rm = run('appLandingReach_(__s, { draft: 1250 }, null)', { __s: mid });
   assert.deepEqual([rm.done, rm.actual, rm.amounts.length, 'reached' in rm.draft], [false, null, 4, false]);
@@ -344,20 +348,20 @@ const port = () => Object.fromEntries(env.call('apiPortfolio()').plans.map((p) =
   assert.ok(lv.includes('着地の幅の学び'), 'AI の学びの最後にカード（承認した値があるので出す）');
 }
 
-// ==== 7. 計画の一覧を通して: 年度を締めた計画は、試しの年度も届く見込みも done（2026-10-08 F3） ====
+// ==== 7. 計画の一覧を通して: 年度を締めても、数えた月が 12 に足りなければ done ではない（2026-10-08 点検。届いた・届かなかったと言い切らない） ====
 {
   const before = port()[idNext];
   assert.deepEqual([before.aligned.done, before.reach.done], [false, false]);
   env.run(`appWithLock_(() => appInsertRows_('YEAR_CLOSURES', [{ fy: '2027', state: 'CLOSED', file_id: 'FILE-TEST', snapshot_sha256: __h,
     plan_count: 1, row_count: 1, bytes: 1, closed_at: appNowIso_(), closed_by: '${OWNER}' }]))`, { __h: 'a'.repeat(64) });
   const nx = port()[idNext];
-  assert.deepEqual([nx.aligned.k, nx.aligned.done, nx.aligned.p10, nx.aligned.p90, nx.aligned.pAbove], [0, true, null, null, null], '締めた年度の試しの年度は幅なし');
-  near(nx.aligned.center, before.aligned.center, 1e-12, '中心はそのまま');
-  assert.deepEqual([nx.reach.done, nx.reach.actual, nx.reach.amounts, nx.reach.draft.reached], [true, 0, [], false], '締めた年度の届く見込みは、届いた／届かなかった');
+  assert.equal(nx.frozen, true, '締めた年度の印');
+  assert.deepEqual(nx.aligned, before.aligned, '締めても数えた月が 0 なら、試しの年度はそのまま');
+  assert.deepEqual([nx.reach.done, nx.reach.actual, nx.reach.amounts.length], [false, null, 4], '締めても 12 か月を数えるまでは届く見込みのまま');
   const cu = port()[idCur];
   assert.deepEqual([cu.aligned.done, cu.reach.done], [false, false], 'ほかの年度は変わらない');
   const l = env.call('apiForecastLatest(__in)', { __in: { planId: idNext } });
-  assert.deepEqual([l.shadow.aligned.done, l.shadow.reach.done], [true, true], '予測の画面にも同じ');
+  assert.deepEqual([l.shadow.aligned.done, l.shadow.reach.done], [false, false], '予測の画面にも同じ');
 }
 
 console.log('app-reach: all tests passed');

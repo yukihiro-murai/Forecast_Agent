@@ -266,12 +266,15 @@ function appLandingAligned_(fy, months, tau, w, budget, opts) {
   if (!fc) return null;
   const o = opts || {};
   const k = Math.max(0, Math.min(12, Math.floor(Number(o.k) || 0)));
-  const done = k >= 12 || !!o.frozen;
+  // 終わったのは 12 か月を数えたときだけ（年度を締めても、数えた月が 12 に足りなければ終わったと言わない）
+  const done = k >= 12;
   const d = appLandingDist_(fc, [], tau, w);
   const B = appLandingBudget_(budget);
-  const band = k === 0 && !done;
+  // 締まった月を数え直している間（当たり具合の計算待ち）・実績の遅れのときは、締まった月があるかもしれないので幅を出さない
+  const pending = !!o.pending;
+  const band = k === 0 && !done && !pending;
   return { center: d.landing, sd: band ? d.sd : null, p10: band ? d.p10 : null, p90: band ? d.p90 : null, budget: B,
-    pAbove: band && B !== null && B > 0 ? appLandingPAbove_(d.landing, d.sd, B) : null, tau: tau, w: w, k: k, done: done };
+    pAbove: band && B !== null && B > 0 ? appLandingPAbove_(d.landing, d.sd, B) : null, tau: tau, w: w, k: k, done: done, pending: pending };
 }
 
 /**
@@ -290,7 +293,7 @@ function appLandingReach_(sky, budgets, prior, opts) {
   const fin = v => typeof v === 'number' && isFinite(v);
   if (!sky || !fin(sky.landing) || !fin(sky.landingSd)) return null;
   const L = sky.landing, sd = sky.landingSd, A = fin(sky.actualYtd) ? sky.actualYtd : 0;
-  const done = (fin(sky.k) && sky.k >= 12) || !!(opts && opts.frozen);
+  const done = fin(sky.k) && sky.k >= 12;   // 年度を締めても、数えた月が 12 に足りなければ届く見込みのまま（届いた・届かなかったと言い切らない）
   const one = b => {
     const B = appLandingBudget_(b);
     if (B === null || !(B > 0)) return null;

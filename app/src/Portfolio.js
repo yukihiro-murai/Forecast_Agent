@@ -227,7 +227,8 @@ function appPortfolioData_() {
       landing: sky.landing, landingSd: sky.landingSd, landingP10: sky.landingP10, landingP90: sky.landingP90, pAbove: sky.pAbove, ratio: sky.ratio,
       sky: sky.sky, skyReason: sky.skyReason, skyDir: sky.skyDir, theta: sky.theta, credibility: sky.credibility, k: sky.k,
       budgetUsed: budgetUsed, budgetSource: official !== null ? 'official' : budget !== null ? 'draft' : '',
-      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, frozen: frozen }),
+      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, frozen: frozen, pending: sky.skyReason === 'eval_pending' || sky.skyReason === 'stale_actuals' }),
+      frozen: !!frozen,
       reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used, { frozen: frozen }),
       scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0
     };

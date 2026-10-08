@@ -190,6 +190,8 @@ function appBasisChangeCause_(latest, prev, cur, before, between) {
   if (calendar) causes.push('calendar');
   if (engine === 'changed') causes.push('version');
   if (jitter) causes.push('jitter');
-  if (causes.indexOf('version') < 0 && (app === 'changed' || !causes.length)) causes.push('version');
+  // 種が同じ（入力・版・地域が同じ）なのに数字が違うのは、版の違いではない（AI の点数の流れを使う設定で、調べ直した直後など）
+  if (!causes.length && seedSame) causes.push('other');
+  if (causes.indexOf('version') < 0 && causes.indexOf('other') < 0 && (app === 'changed' || !causes.length)) causes.push('version');
   return { changeCause: causes[0], changeCauses: causes, changeVersion: changeVersion };
 }
