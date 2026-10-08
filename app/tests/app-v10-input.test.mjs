@@ -295,7 +295,7 @@ let planId;
   const html = render(vo, 'product');
   assert.match(html, /<th data-tip="この行の見立てにどれだけ自信があるか（任意）。記録にだけ残し、予測の計算には使いません">自信<\/th>/);
   assert.match(html, /<option value="低い" selected>低い<\/option>/, '一番新しい自信を選んだ形で出す');
-  assert.match(html, /<col style="width:56px">/, '跡の列（(i) が入る幅）');
+  assert.match(html, /<td><span class="incell"><input class="inp cell" type="text"[^>]*aria-label="理由"><span class="tip"/, '跡の (i) は理由のマスの中（列を足さない。1280px の画面で枠に入れる）');
   const tips = [...html.matchAll(/class="tip"[^>]*data-tip="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(tips.length >= 2 && tips.every((t) => /^変わった跡/.test(t)), tips.join(' | '));
   assert.match(tips[0], /自信を変えた|変えた（入力の保存）・owner/, tips[0]);
