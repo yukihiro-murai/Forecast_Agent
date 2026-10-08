@@ -61,7 +61,7 @@ Trends2Targets_System/
 - 次の2つの処理が続けて動きます（`Forecast.js`）。
   1. 計算: データ本体から計算用ブックを組み立て、旧来の予測（A-9）を動かし、書き換わったシートの控えを取る
   2. 保存: 計算の間にデータ本体が変わっていないことを確かめてから、控えをデータ本体へ戻す
-- 種（乱数）は実行の ID、「今」は実行を始めた時刻です。結果は `FORECAST_RUNS`（1回1行）と `FORECAST_MONTHLY`（月ごと）に残ります。
+- 種（乱数）は、予測が読む入力のシートの中身・計画の地域・旧来の計算の版・アプリの版から決めます（v0.29.0〜。決定 13: 同じ入力なら同じ数字）。v0.28.0 までの記録の種は実行の ID のままです。旧来の計算が作る ID（予測の回の ID など）は、これまでどおり実行ごとに別の値です。「今」は実行を始めた時刻です。結果は `FORECAST_RUNS`（1回1行）と `FORECAST_MONTHLY`（月ごと）に残ります。
 - 旧来の計算が入力の確認（極端な入力値など）を求めたときは、何も保存せずに画面で内容を見せ、続けるときだけもう一度動かします。
 - 履歴の表（`FORECAST_SNAPSHOT` など）は、足された行だけを書きます。
 
@@ -384,6 +384,8 @@ node app/tests/app-year-close.test.mjs
 node app/tests/app-owner-task.test.mjs
 node app/tests/app-calibration.test.mjs
 node app/tests/app-ui-texts.test.mjs
+node app/tests/app-forecast-seed.test.mjs
+node app/tests/app-reach.test.mjs
 ```
 
 GAS のモック（`app/tests/gas-mock.mjs`）の上での契約テストです（GAS 上での動作確認の代わりではありません）。反映は `app/` の中で行います（ルートの `.clasp.json` を拾わないよう `-P .` を付ける）。

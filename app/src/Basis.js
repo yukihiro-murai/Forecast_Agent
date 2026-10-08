@@ -136,7 +136,7 @@ function appForecastBasis_(ctx, planId) {
     planId: plan.plan_id, latestRunAt: latest ? latest.finished_at : '', prevRunAt: prev ? prev.finished_at : '',
     annual: { p50: latest ? latest.annual_p50 : stored && stored.annual.p50, objective: latest ? latest.objective_p50 : stored && stored.objective.p50,
       prevP50: prev ? prev.annual_p50 : null, spot: sum('spot') },
-    monthly: monthly, between: between, inputChanged: between.length > 0,   // 予測の間に計画への操作があったか（無ければ、変化は乱数の揺れ）
+    monthly: monthly, between: between, inputChanged: between.length > 0,   // 予測の間に計画への操作があったか（無ければ、変化は月の変わり目・計算の版の違い。v0.29.0 より前の予測は乱数の揺れも）
     calibration: cal ? { factor: appNum_(cal.bias_correction_factor), aiWeight: appNum_(cal.ai_weight_override), aiMax: appNum_(cal.ai_max_abs_effect_override),
       monthBias: (() => { try { return JSON.parse(String(cal.residual_month_bias_json || '{}')); } catch (e) { return {}; } })(), updatedAt: String(cal.updated_at || ''),
       quarter: String(cal.last_applied_quarter || '') } : null,
