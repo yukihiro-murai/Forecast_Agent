@@ -376,3 +376,24 @@ function appPoolApply_(ctx, p) {
   if (remaining.length) return { __next: { kind: 'LEARN.POOL', payload: { rowsFor: rowsFor, remaining: remaining, done: done } }, audit: { entityId: 'POOL_PRIOR' } };
   return { written: rowsFor, plans: done, audit: { entityId: 'POOL_PRIOR' } };
 }
+
+/**
+ * 学びの画面に出す、着地見込みの τ・w（2026-10-08 村井さん承認の判断 29）。計画の一覧の控え（appPortfolioAll_）から読む。読めなければ null。
+ * learned = 全計画の締まった月から学んだ値（試し。承認されるまで着地見込みには使わない。appLandingPrior_）:
+ *   { tau, w, tauLearned（計画が足りて τ を学べたか）, wLearned（月が足りて w を学べたか）, planCount, monthCount }
+ * used = 今使っている値（所有者が承認して業務の設定 landing.tau・landing.w に書いた値。無ければ 0.15 と 1。appLandingApproved_）:
+ *   { tau, w, tauSet, wSet, tauFrom, wFrom }
+ */
+function appLandingPriorView_() {
+  try {
+    const pr = appPortfolioAll_().prior || {};
+    const l = pr.learned || {}, u = pr.used || {};
+    return {
+      learned: { tau: l.tau, w: l.w, tauLearned: !!l.learned, wLearned: Number(l.months || 0) >= APP_LANDING.W_MIN_MONTHS, planCount: Number(l.plans || 0), monthCount: Number(l.months || 0) },
+      used: { tau: u.tau, w: u.w, tauSet: !!u.tauSet, wSet: !!u.wSet, tauFrom: u.tauFrom || '', wFrom: u.wFrom || '' }
+    };
+  } catch (e) {
+    Logger.log('着地見込みの学び: ' + (e && e.message ? e.message : e));
+    return null;
+  }
+}

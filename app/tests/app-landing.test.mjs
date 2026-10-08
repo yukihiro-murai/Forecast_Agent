@@ -336,7 +336,8 @@ const evalLogSheet = (env, rows) => {
   assert.equal(env.call('apiHome()').plans.filter((p) => p.planId === idA)[0].sky, 'mikakunin', 'ホームの控えも日ごと');
 }
 
-// ==== 5. 全計画から学んだ τ・w を着地に使う（3 計画 × 締まった 6 か月。雪の計画は学びに入れない）。実績の空の締まった月（売上 0）も 0 円として数える ====
+// ==== 5. 全計画から学んだ τ・w（3 計画 × 締まった 6 か月。雪の計画は学びに入れない）は、所有者が承認して業務の設定に書くまで着地に使わない
+//        （2026-10-08 判断 29・11。前は学べたらそのまま使っていた）。実績の空の締まった月（売上 0）も 0 円として数える ====
 {
   const env = makeEnv();
   env.run(`appToday_ = function () { return '2026-10-06'; }`);
@@ -372,16 +373,37 @@ const evalLogSheet = (env, rows) => {
   assert.ok(Math.abs(prior.tau - 0.15) > 0.005 && prior.w > 1.5, JSON.stringify(prior));
   const withSnow = J(pure.run('appLandingPrior_(__in)', { __in: [...Object.values(lv), snow].map(toPrior) }));
   assert.deepEqual(withSnow, prior, '雪の丁を渡しても τ・w は同じ');
-  const port = env.call('apiPortfolio()').plans;
+  let port = env.call('apiPortfolio()').plans;
+  const inpOf = (as) => ({ fy: 2026, months: flat(80, 100, 120), actual: acts(as.map((x) => (x === '' ? 0 : x))), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1200 });
   for (const [k, as] of Object.entries(lv)) {
     const p = port.find((x) => x.planId === ids[k]);
-    const inp = { fy: 2026, months: flat(80, 100, 120), actual: acts(as.map((x) => (x === '' ? 0 : x))), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1200 };
-    const learned = sky(Object.assign({}, inp, { tau: prior.tau, w: prior.w }));
-    const fixed = sky(inp);
-    near(p.landing, learned.landing, 1e-9, k + ' 学んだ τ・w の着地');
-    near(p.landingSd, learned.landingSd, 1e-9, k + ' 学んだ τ・w のばらつき');
-    assert.ok(Math.abs(p.landing - fixed.landing) > 10, `${k}: 学んだ着地 ${p.landing} と τ=0.15・w=1 の着地 ${fixed.landing} は違う`);
+    const learned = sky(Object.assign({}, inpOf(as), { tau: prior.tau, w: prior.w }));
+    const fixed = sky(inpOf(as));
+    near(p.landing, fixed.landing, 1e-9, k + ' 承認するまでは τ=0.15・w=1 の着地');
+    near(p.landingSd, fixed.landingSd, 1e-9, k + ' 承認するまでは τ=0.15・w=1 のばらつき');
+    assert.ok(Math.abs(learned.landing - fixed.landing) > 10, `${k}: 学んだ τ・w の着地 ${learned.landing} は τ=0.15・w=1 の着地 ${fixed.landing} と違う（使っていないことが分かる）`);
   }
+  // 学んだ値は、学びの画面に試しで出すだけ（学べた数と、今使っている値も）
+  const shadow = env.call('apiAiLearning()').landing;
+  near(shadow.learned.tau, prior.tau, 1e-12, '学んだ τ（試し）');
+  near(shadow.learned.w, prior.w, 1e-12, '学んだ w（試し）');
+  assert.deepEqual([shadow.learned.tauLearned, shadow.learned.planCount, shadow.used.tau, shadow.used.w, shadow.used.tauSet, shadow.used.wSet], [true, 3, 0.15, 1, false, false]);
+  // 所有者が承認した値を業務の設定に書くと、その値を使う（管理者の役割だけの人は書けない）
+  env.run(`appToday_ = function () { return '2026-10-06'; }`);
+  env.props.OWNER_TASK = JSON.stringify({ action: 'saveSetting', key: 'landing.tau', value: prior.tau, note: '学んだ値を承認' });
+  env.call('apiOwnerTask()');
+  env.props.OWNER_TASK = JSON.stringify({ action: 'saveSetting', key: 'landing.w', value: prior.w });
+  env.call('apiOwnerTask()');
+  port = env.call('apiPortfolio()').plans;
+  for (const [k, as] of Object.entries(lv)) {
+    const p = port.find((x) => x.planId === ids[k]);
+    const learned = sky(Object.assign({}, inpOf(as), { tau: prior.tau, w: prior.w }));
+    near(p.landing, learned.landing, 1e-9, k + ' 書いた τ・w の着地');
+    near(p.landingSd, learned.landingSd, 1e-9, k + ' 書いた τ・w のばらつき');
+    near(p.reach.tau, prior.tau, 1e-12, k + ' 予算に届く見込みも同じ τ');
+  }
+  const used = env.call('apiAiLearning()').landing.used;
+  assert.deepEqual([used.tauSet, used.wSet, used.tauFrom], [true, true, '2026-10-06']);
   // 売上 0 の締まった月があっても、予実の差（forecastYtd）は消えない（0 円と予測で比べる）
   const z = port.find((x) => x.planId === ids['丙']);
   assert.deepEqual([z.k, z.actualYtd, z.actualMonths, z.forecastYtd, z.rangeN], [6, 530, 6, 600, 5], '実績の空の月は 0 円・予測は数える（幅の外の印は空なので数えない）');
@@ -549,15 +571,18 @@ const evalLogSheet = (env, rows) => {
     assert.equal(p.mapeMonths, 6);
   }
 
-  // (c) 着地の τ・w は、今の版の計画（甲・乙・丙・新）だけから学ぶ（旧を入れると τ が変わる）
+  // (c) 着地の τ・w の学び（試し）は、今の版の計画（甲・乙・丙・新）だけから（旧を入れると τ が変わる）。着地には、承認するまで使わない（判断 29）
   const toPrior = (as) => as.map((x) => ({ f: 100, a: x, p10: 80, p90: 120 }));
   const prior = J(pure.run('appLandingPrior_(__in)', { __in: [lv.甲, lv.乙, lv.丙, newAs].map(toPrior) }));
   const withOld = J(pure.run('appLandingPrior_(__in)', { __in: [lv.甲, lv.乙, lv.丙, newAs, oldAs].map(toPrior) }));
   assert.equal(prior.learned, true);
   assert.ok(Math.abs(prior.tau - withOld.tau) > 0.01, `旧を入れると τ が変わる（${prior.tau} / ${withOld.tau}）`);
+  const shadow = env.call('apiAiLearning()').landing.learned;
+  near(shadow.tau, prior.tau, 1e-12, '試しの τ は旧を除いて学ぶ');
+  near(shadow.w, prior.w, 1e-12, '試しの w も同じ');
   for (const [k, as] of Object.entries(Object.assign({}, lv, { 新: newAs, 旧: oldAs }))) {
-    const want = sky({ actual: acts(as), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1200, tau: prior.tau, w: prior.w });
-    near(port[ids[k]].landing, want.landing, 1e-9, k + ': 旧を除いて学んだ τ・w の着地');
+    const want = sky({ actual: acts(as), cutoffYm: '2026/10', todayYm: '2026/10', budget: 1200 });
+    near(port[ids[k]].landing, want.landing, 1e-9, k + ': 承認するまでは τ=0.15・w=1 の着地');
     near(port[ids[k]].landingSd, want.landingSd, 1e-9, k + ': ばらつき');
   }
 }

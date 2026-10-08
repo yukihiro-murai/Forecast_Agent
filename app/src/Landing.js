@@ -8,7 +8,11 @@
  *   事前分布 θ ~ N(1, τ²)（学んだ偏りの補正は f_m に入っているので 1 を中心にする）。新しい月ほど重い（半減期 4 か月。旧来の B-5 と同じ）
  *   着地 L = 締まった月の実績の合計 + θ̂・残りの月の P50 の合計
  *   ばらつき sd² = 残りの P50 の合計² / 精度（水準のぶれ。残りの月に共通）+ 残りの月の σ² の合計（月ごとのぶれ）
- * τ と w は、全計画の検証の表（EVAL_COMPARE_MONTHLY）から学ぶ（appLandingPrior_。雪の計画は使わない。学べなければ 0.15 と 1）。
+ * τ と w は、業務の設定（landing.tau・landing.w。所有者が承認した値を saveSetting で書く）を使い、書いていなければ 0.15 と 1（Settings.js の appLandingApproved_。設定を読むのは計画の一覧の側）。
+ * 全計画の検証の表（EVAL_COMPARE_MONTHLY）から学んだ値（appLandingPrior_。雪の計画は使わない）は、承認されるまで使わず、学びの画面に「試し」で出すだけ
+ * （2026-10-08 村井さん承認の判断 29・11。前は、計画が 3 つ以上そろうと学んだ値をそのまま使っていた）。
+ * 年度の見込みの試し（appLandingAligned_。判断 10）と予算に届く見込み（appLandingReach_・appLandingReachTotal_。判断 24・25）も同じ分布（appLandingDist_）を使う。
+ * どれも影で、保存している数字（予測の年度の P10/P50/P90・予算）は変えない。
  * 空模様は着地 ÷ 年間予算で分ける。急な変化（天変地異）は、ひと月の大きな外れ・2 か月続いた同じ向きの外れ・予測の前提の大きな変化で拾う。
  *
  * 締まった月（2026-10-07 村井さん承認 D5）: 月末から APP_ACTUAL_CLOSE_LAG_DAYS 日たってから実績を取り込んだ（B-1）月だけ。
@@ -18,7 +22,7 @@
  */
 const APP_ACTUAL_CLOSE_LAG_DAYS = 5;   // 締まった月: 月末からこの日数がたってから取り込んだ月だけ（D5）
 const APP_LANDING = {
-  TAU0: 0.15,              // 今年の水準 θ の事前分布の標準偏差（全計画から学べるまで）
+  TAU0: 0.15,              // 今年の水準 θ の事前分布の標準偏差（所有者が承認した値を設定 landing.tau に書くまで。判断 11）
   TAU_MIN: 0.05, TAU_MAX: 0.35,
   HALF_LIFE: 4,            // 月。APP_BIAS_HALF_LIFE（Learning.js）・旧来の B-5 と同じ
   Z80: 1.2815515655446004, // 標準正規分布の 90% 点（P10〜P90 = ±1.2816σ）
@@ -28,7 +32,9 @@ const APP_LANDING = {
   HOT: 1.5, CLEAR: 1.1, FAIR: 0.9, CLOUD: 0.5,   // 着地 ÷ 予算の境目（猛暑・快晴・晴れのち曇り・曇り。それより下は雨）
   SHOCK_Z: 3, SHIFT_Z: 2, MATERIAL: 0.05,        // 天変地異: ひと月 |z| ≥ 3、2 か月続けて |z| ≥ 2（同じ向き）。着地 ÷ 予算が 0.05 以上動いたときだけ
   PREMISE: 0.3, PREMISE_DAYS: 31, PREMISE_MATERIAL: 0.1,   // 前提の変化: 直近 2 回の予測の年間 P50 が 30% 以上違う（31 日以内・予算の 10% 以上）
-  PRIOR_MIN_PLANS: 3, PRIOR_MIN_MONTHS: 3, W_MIN_MONTHS: 12, W_MAX: 3
+  PRIOR_MIN_PLANS: 3, PRIOR_MIN_MONTHS: 3, W_MIN_MONTHS: 12, W_MAX: 3,
+  // 予算に届く見込み（試し）で、届く金額を出す確率（%）と標準正規分布の点（Φ(z) = 確率）。90% 以上は出さない（判断 24）
+  REACH: [[50, 0], [60, 0.2533471031357997], [70, 0.5244005127080407], [80, 0.8416212335729143]]
 };
 
 /** 標準正規分布の累積分布関数（Abramowitz–Stegun 7.1.26。誤差 1.5e-7 未満） */
@@ -57,12 +63,62 @@ function appLandingPost_(obs, tau2) {
   return { theta: num / P, P: P };
 }
 
+/** 予算の値（数でなければ null。0 以下はそのまま返す。使う側が 0 より大きいかを見る） */
+function appLandingBudget_(v) {
+  const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+  return isFinite(n) ? n : null;
+}
+
+/** θ を 0〜THETA_MAX に収める */
+function appLandingTheta_(x) { return Math.min(APP_LANDING.THETA_MAX, Math.max(0, x)); }
+
+/** 予算 B 以上で着地する確率（着地 L・ばらつき sd。ばらつきが 0 なら届くか届かないか） */
+function appLandingPAbove_(L, sd, B) { return sd > 0 ? appNormCdf_((L - B) / sd) : (L >= B ? 1 : 0); }
+
+/**
+ * 年度の 12 か月の予測（OUTPUT の 29〜40 行。appLandingMonths_）を年度の月の順に並べる。
+ * 12 か月とも P10/P50/P90 がそろい、P50 の合計が 0 より大きいときだけ返す（そうでなければ null = 予測が使えない）
+ */
+function appLandingFc_(fy, months) {
+  const fin = v => typeof v === 'number' && isFinite(v);
+  const byYm = {};
+  (months || []).forEach(m => { if (m && m.ym) byYm[m.ym] = m; });
+  const fc = appLandingFyYms_(fy).map(ym => byYm[ym] || null);
+  const F = fc.reduce((s, m) => s + (m && fin(m.p50) ? Math.max(0, m.p50) : 0), 0);
+  return F > 0 && fc.every(m => m && fin(m.p10) && fin(m.p50) && fin(m.p90)) ? fc : null;
+}
+
+/**
+ * 着地の分布（着地見込み appLandingSky_・年度の見込みの試し appLandingAligned_・予算に届く見込み appLandingReach_ が同じ式を使う。シートは読まない）。
+ * fc: そろった 12 か月の予測（appLandingFc_。null なら予測を使わない = 12 か月締まった年度だけ）、
+ * acts: 締まった月の実績（年度の先頭から古い順。k = acts.length。行の無い月は 0 円）、tau・w: 今年の水準のぶれと幅の倍率。
+ * 返り値: { landing, sd, p10, p90, theta, P, credibility, actualYtd, obs, FR, tau2 }（obs・FR・tau2 は天変地異の判定に使う）
+ */
+function appLandingDist_(fc, acts, tau, w) {
+  const C = APP_LANDING;
+  const F = fc ? fc.reduce((s, m) => s + Math.max(0, m.p50), 0) : 0;
+  const floor = C.FLOOR_REL * F / 12;
+  const sig2 = m => Math.pow(w * Math.max((m.p90 - m.p10) / (2 * C.Z80), floor), 2);
+  const k = acts.length;
+  const A = acts.reduce((s, a) => s + a, 0);
+  const obs = fc ? acts.map((a, i) => ({ f: Math.max(0, fc[i].p50), a: a, s2: sig2(fc[i]) })) : [];
+  const rest = fc ? fc.slice(k) : [];
+  const FR = rest.reduce((s, m) => s + Math.max(0, m.p50), 0);
+  const tau2 = tau * tau;
+  const post = appLandingPost_(obs, tau2);
+  const theta = appLandingTheta_(post.theta);
+  const L = A + theta * FR;
+  const sd = Math.sqrt(FR * FR / post.P + rest.reduce((s, m) => s + sig2(m), 0));
+  return { landing: L, sd: sd, p10: Math.max(A, L - C.Z80 * sd), p90: L + C.Z80 * sd, theta: theta, P: post.P, credibility: 1 - (1 / tau2) / post.P,
+    actualYtd: A, obs: obs, FR: FR, tau2: tau2 };
+}
+
 /**
  * 着地見込みと空模様（計画 1 つ。シートは読まない）。
  * inp: { fy, months: [{ ym, p10, p50, p90 }]（OUTPUT の 29〜40 行）, actual: { 'yyyy/MM': 実績 }（検証の表の actual_total）,
  *        cutoffYm（締まった月の境目。この月より前が締まった月。分からなければ ''）,
  *        todayYm（今日取り込んだとしたときの境目 = appCloseCutoffYm_(今日)。この月より前は、今日までに締まっているはずの月）, budget,
- *        tau・w（全計画から学んだ値。省けば 0.15 と 1）, runs: [{ p50, ageDays }]（直近の予測 2 回。新しい順） }
+ *        tau・w（承認した値 appLandingApproved_。省けば 0.15 と 1）, runs: [{ p50, ageDays }]（直近の予測 2 回。新しい順） }
  * 返り値: { k（締まった月の数）, actualYtd, budget, landing, landingSd, landingP10, landingP90, pAbove（予算以上で着地する確率）, ratio（着地 ÷ 予算）,
  *          theta, credibility（実績の重み 0〜1）, sky, skyReason, skyDir, zLast, dRatio1, dRatio2 }
  * 空模様（先に当てはまったもの）: 霧 mikakunin（no_budget）→ 雪 sekka（zero_sales）→ 霧（no_forecast）→ 霧（stale_actuals）
@@ -76,11 +132,8 @@ function appLandingSky_(inp) {
   const C = APP_LANDING;
   const fin = v => typeof v === 'number' && isFinite(v);
   const yms = appLandingFyYms_(inp.fy);
-  const byYm = {};
-  (inp.months || []).forEach(m => { if (m && m.ym) byYm[m.ym] = m; });
-  const fc = yms.map(ym => byYm[ym] || null);
-  const F = fc.reduce((s, m) => s + (m && fin(m.p50) ? Math.max(0, m.p50) : 0), 0);
-  const fcOk = F > 0 && fc.every(m => m && fin(m.p10) && fin(m.p50) && fin(m.p90));
+  const fc = appLandingFc_(inp.fy, inp.months);   // そろった 12 か月の予測（そろわなければ null）
+  const fcOk = !!fc;
   const cutoff = String(inp.cutoffYm || '');
   const obsYm = cutoff ? yms.filter(ym => ym < cutoff) : [];   // 年度の月は古い順なので、先頭から k か月
   const k = obsYm.length;
@@ -89,29 +142,17 @@ function appLandingSky_(inp) {
   const A = obsYm.reduce((s, ym) => s + aOf(ym), 0);
   const closedByToday = inp.todayYm ? yms.filter(ym => ym < inp.todayYm).length : k;
   const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月（月末から 5 日たった月）のうち、3 か月以上の実績が取り込まれていない
-  const bn = inp.budget === null || inp.budget === undefined || inp.budget === '' ? NaN : Number(inp.budget);
-  const B = isFinite(bn) ? bn : null;
+  const B = appLandingBudget_(inp.budget);
   const out = { k: k, actualYtd: A, budget: B, landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null,
     theta: null, credibility: null, sky: 'mikakunin', skyReason: '', skyDir: '', zLast: null, dRatio1: null, dRatio2: null };
   const usable = fcOk || k >= 12;
   const tau = inp.tau > 0 ? inp.tau : C.TAU0;
-  const tau2 = tau * tau;
   const w = inp.w > 0 ? inp.w : 1;
-  const floor = C.FLOOR_REL * F / 12;
-  const sig2 = m => Math.pow(w * Math.max((m.p90 - m.p10) / (2 * C.Z80), floor), 2);
-  const obs = fcOk ? obsYm.map((ym, i) => ({ f: Math.max(0, fc[i].p50), a: aOf(ym), s2: sig2(fc[i]) })) : [];
-  const clampTheta = x => Math.min(C.THETA_MAX, Math.max(0, x));
-  const rest = fcOk ? fc.slice(k) : [];
-  const FR = rest.reduce((s, m) => s + Math.max(0, m.p50), 0);
-  let post = null;
+  let d = null;
   if (usable && !stale) {   // 実績の取り込みが遅れていれば、どの空模様でも着地の数字は出さない
-    post = appLandingPost_(obs, tau2);
-    const theta = clampTheta(post.theta);
-    const L = A + theta * FR;
-    const sd = Math.sqrt(FR * FR / post.P + rest.reduce((s, m) => s + sig2(m), 0));
-    Object.assign(out, { landing: L, landingSd: sd, landingP10: Math.max(A, L - C.Z80 * sd), landingP90: L + C.Z80 * sd,
-      theta: theta, credibility: 1 - (1 / tau2) / post.P });
-    if (B !== null && B > 0) Object.assign(out, { ratio: L / B, pAbove: sd > 0 ? appNormCdf_((L - B) / sd) : (L >= B ? 1 : 0) });
+    d = appLandingDist_(fc, obsYm.map(aOf), tau, w);
+    Object.assign(out, { landing: d.landing, landingSd: d.sd, landingP10: d.p10, landingP90: d.p90, theta: d.theta, credibility: d.credibility });
+    if (B !== null && B > 0) Object.assign(out, { ratio: d.landing / B, pAbove: appLandingPAbove_(d.landing, d.sd, B) });
   }
   // 1〜4: 霧・雪（数字で分けられない）
   if (!(B !== null && B > 0)) { out.skyReason = 'no_budget'; return out; }
@@ -121,9 +162,10 @@ function appLandingSky_(inp) {
   // 5: 天変地異（月の外れは、その月の前までの実績で立てた見込みと比べる）
   let t1 = false, t2 = false, dir = 0;
   if (fcOk && k >= 1 && k < 12) {
+    const obs = d.obs, tau2 = d.tau2, FR = d.FR;
     const before = n => {   // 先頭の n か月の実績だけで立てた見込み
       const p = appLandingPost_(obs.slice(0, n), tau2);
-      const th = clampTheta(p.theta);
+      const th = appLandingTheta_(p.theta);
       const fMid = obs.slice(n).reduce((s, o) => s + o.f, 0);
       return { theta: th, P: p.P, L: obs.slice(0, n).reduce((s, o) => s + o.a, 0) + th * (fMid + FR) };
     };
@@ -196,6 +238,68 @@ function appLandingPrior_(plans) {
   }
   const w = zs.length >= C.W_MIN_MONTHS ? Math.min(C.W_MAX, Math.max(1, appQuantile_(zs, 0.8) / C.Z80)) : 1;
   return { tau: tau, w: w, plans: per.length, months: zs.length, learned: learned };
+}
+
+/** 確率を 5% 刻みの整数（0〜100）に丸める（予算に届く見込みの見せ方。0 は「5% 未満」・100 は「95% 超」と読む） */
+function appLandingPct5_(p) { return typeof p === 'number' && isFinite(p) ? Math.round(p * 20) * 5 : null; }
+
+/**
+ * 年度の見込みの試し（判断 10。影: 保存している年度の P10/P50/P90 は変えない）。
+ * 今の年度の P10/P50/P90 は旧来の計算の試行（学んだ補正を入れず、月を別々に足す）なので、月の P50 の合計と違い、幅も狭い。
+ * そこで、中心 = 最新の予測の月の P50（OUTPUT の 29〜40 行。補正を入れた値）の 12 か月の合計、幅 = 着地見込みと同じ式で締まった月が無いとき（appLandingDist_）。
+ * months: appLandingMonths_ の形、tau・w: appLandingApproved_、budget: 予算以上になる確率を出す予算（無い・0 以下なら pAbove は null）。
+ * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w }
+ */
+function appLandingAligned_(fy, months, tau, w, budget) {
+  const fc = appLandingFc_(fy, months);
+  if (!fc) return null;
+  const d = appLandingDist_(fc, [], tau, w);
+  const B = appLandingBudget_(budget);
+  return { center: d.landing, sd: d.sd, p10: d.p10, p90: d.p90, budget: B, pAbove: B !== null && B > 0 ? appLandingPAbove_(d.landing, d.sd, B) : null, tau: tau, w: w };
+}
+
+/**
+ * 予算に届く見込み（判断 24・25 の見せ方。影: 予算も予測も変えない。確率を選んで予算を書く操作は、まだ無い）。
+ * sky: その計画の着地見込み（appLandingSky_ の返り値。年度の途中は締まった月の実績を入れた分布、先の年度は締まった月なし）。
+ * budgets: { draft（今の予算 = 採用予測 + 上乗せ）, official（承認済みの公式版の最終予算）, officialNo }、prior: appLandingApproved_。
+ * 着地見込みの数字が無い（実績の遅れ・予測が無い）ときは null。
+ * 返り値: { center, sd, p10, p90, k, actualYtd, tau, w, tauSet, wSet, amounts: [{ pct, amount }]（その確率で届く金額。50〜80%）,
+ *          draft: { budget, p, pct } | null, official: { budget, p, pct, versionNo } | null }
+ */
+function appLandingReach_(sky, budgets, prior) {
+  const fin = v => typeof v === 'number' && isFinite(v);
+  if (!sky || !fin(sky.landing) || !fin(sky.landingSd)) return null;
+  const L = sky.landing, sd = sky.landingSd, A = fin(sky.actualYtd) ? sky.actualYtd : 0;
+  const one = b => {
+    const B = appLandingBudget_(b);
+    if (B === null || !(B > 0)) return null;
+    const p = appLandingPAbove_(L, sd, B);
+    return { budget: B, p: p, pct: appLandingPct5_(p) };
+  };
+  const bs = budgets || {}, pr = prior || {};
+  const official = one(bs.official);
+  if (official) official.versionNo = bs.officialNo || null;
+  return { center: L, sd: sd, p10: sky.landingP10, p90: sky.landingP90, k: sky.k, actualYtd: A,
+    tau: fin(pr.tau) ? pr.tau : APP_LANDING.TAU0, w: fin(pr.w) ? pr.w : 1, tauSet: !!pr.tauSet, wSet: !!pr.wSet,
+    // 届く金額は、締まった月の実績の合計より下にはしない（80% の幅の下と同じ）
+    amounts: APP_LANDING.REACH.map(x => ({ pct: x[0], amount: Math.max(A, L - x[1] * sd) })),
+    draft: one(bs.draft), official: official };
+}
+
+/**
+ * 全部のメーカーの合計の予算に届く見込み（判断 24 の見せ方。影）。rows: [{ landing, sd, budget }]（着地見込みと予算の両方がある計画）。
+ * メーカーどうしが独立に動くとき（ばらつき = √Σsd²）と、全部が同じ向きに動くとき（ばらつき = Σsd）の 2 つ。本当の値はその間のどこか。
+ * 返り値: { plans, budget, landing, independent: { p, pct }, together: { p, pct } }。計画が無ければ null
+ */
+function appLandingReachTotal_(rows) {
+  const fin = v => typeof v === 'number' && isFinite(v);
+  const use = (rows || []).filter(r => r && fin(r.landing) && fin(r.budget) && r.budget > 0);
+  if (!use.length) return null;
+  const L = use.reduce((s, r) => s + r.landing, 0), B = use.reduce((s, r) => s + r.budget, 0);
+  const sdOf = r => (fin(r.sd) && r.sd > 0 ? r.sd : 0);
+  const ind = Math.sqrt(use.reduce((s, r) => s + sdOf(r) * sdOf(r), 0)), tog = use.reduce((s, r) => s + sdOf(r), 0);
+  const pi = appLandingPAbove_(L, ind, B), pt = appLandingPAbove_(L, tog, B);
+  return { plans: use.length, budget: B, landing: L, independent: { p: pi, pct: appLandingPct5_(pi) }, together: { p: pt, pct: appLandingPct5_(pt) } };
 }
 
 /** OUTPUT の 29〜40 行（cells_json の並び）から、月ごとの P10/P50/P90（数でないセルは null） */
