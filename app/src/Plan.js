@@ -5,7 +5,8 @@
  *         計算用ブックを使わないので速い。結果は入力のハッシュごとに 6 時間覚えておく。
  *         人ごとの当たりと外れた月の担当は、予算策定担当以上の人だけに出す（appPlanViewFor_。学びと同じ決まり）。
  *         検証の記入は、予測と実績が今の検証の版の B-2 が測った数字（B-4 が写す形）と違う行と、今の版の B-2 が初めて動く前に書いた行を出さない
- *         （appPlanViewDropStale_。学びの振り返りと同じ決まり）。
+ *         （appPlanViewDropStale_。学びの振り返りと同じ決まり）。ただし、その月に出す行があれば、その月の人が書いた一番新しい行は出す
+ *         （数字・印は出す行のものにする。2026-10-08 村井さん承認）。
  *         予測の注記は、止めている C-1 への案内を除き、所有者が承認した補正の値をそう書く（appPlanViewNotes_）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
@@ -256,6 +257,10 @@ function appPlanView_(ctx, planId) {
  * 今の版の EVAL_LOG の neutral の行を B-4 が写す形（appInsightB4View_。実績が負なら 0 円）と違う行（前の版の予測の数字のまま・
  * 実績を取り込み直して測り直す前の数字のまま）と、その計画で今の版の B-2 が初めて動く前に書いた行（前の版の B-4 の機械の列のまま）を除く
  * （学びの振り返り appInsightLessons_ と同じ決まり（appInsightRowScored_・appEvalPolicySince_）。次の B-4 が書き直すと出る。行は消さない）。
+ * ただし、その月に残す行（使える行）が 1 つでもあれば、その月の人が書いた一番新しい行（appInsightHasHuman_。書いた時刻・行の順で一番新しい）は、
+ * 使える行でなくても残す。数字・見立て・印は、その月の一番新しい使える行のものに置き換え、人の欄と行の番号はそのまま（画面はそこに書く）。
+ * 2026-10-08 村井さん承認: v0.27.2 より前の B-4 で同じ月の行が 2 つ以上でき、人の記入が最後の行に無いと、B-4 は最後の行だけを書き直すので、
+ * 記入がずっと隠れていた（画面は人が書いた行を選んで出す。学びの振り返りも同じ行の記入を出す）。
  * 行の番号（row）は旧来の画面と同じ読むだけのブック（appStoreBook_）のシートの行なので、同じブックの EVAL_INSIGHTS からそのまま引く。
  * 初めの B-2 の時刻も同じブックの EVAL_LOG・RUN_LOG から（旧来の画面と同じ読むだけのブックなので、データ本体を読み直さない）
  */
@@ -271,14 +276,32 @@ function appPlanViewDropStale_(boot, book) {
     scored[appYm_(r.target_month)] = appInsightB4View_(r.pred, r.actual);
   });
   const since = appEvalPolicySince_(ev, appPlanSheetRows_(book.getSheetByName('RUN_LOG')));
-  // 1 列目 evaluated_at・3 列目 target_month・4 列目 actual_total・5 列目 pred_p50（旧来の webParseEval_ と同じ並び）
+  // 1 列目 evaluated_at・3 列目 target_month・4 列目 actual_total・5 列目 pred_p50（旧来の webParseEval_ と同じ並び）。
+  // 人の欄: 15 列目 cause_hypothesis・19 列目 action_type・20 列目 next_cycle_reflection・21 列目 owner・23 列目 status
   const iv = sh.getDataRange().getValues();
-  boot.eval.insights = ins.filter(x => {
+  const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
+  const info = ins.map(x => {
     const r = iv[Number(x.row) - 1];
-    if (!r) return true;
+    if (!r) return { keep: true, x: x };
     const ym = appYm_(r[2]);
-    if (!Object.prototype.hasOwnProperty.call(scored, ym)) return true;   // 今の版の行が無い月は、旧来の画面が出さない
-    return appInsightRowScored_(scored, ym, r[4], r[3], r[0], since);
+    if (!Object.prototype.hasOwnProperty.call(scored, ym)) return { keep: true, x: x };   // 今の版の行が無い月は、旧来の画面が出さない
+    const human = appInsightHasHuman_({ cause_hypothesis: r[14], action_type: r[18], next_cycle_reflection: r[19], owner: r[20], status: r[22] });
+    return { ym: ym, keep: appInsightRowScored_(scored, ym, r[4], r[3], r[0], since), human: human, t: appTimeKey_(r[0]), i: Number(x.row), x: x };
+  });
+  const latest = {};   // 月 → 一番新しい使える行
+  const human = {};    // 月 → 人が書いた一番新しい行（使える行でなくても）
+  info.forEach(o => {
+    if (!o.ym) return;
+    if (o.keep && newer(latest[o.ym], o.t, o.i)) latest[o.ym] = o;
+    if (o.human && newer(human[o.ym], o.t, o.i)) human[o.ym] = o;
+  });
+  // 数字・見立て・印（旧来の webParseEval_ が機械の列から作る項目）は使える行から。人の欄（hypothesis・actionType・reflection・owner・status）と行の番号はそのまま
+  const MACHINE = ['actual', 'pred', 'errRate', 'insight', 'nextAction', 'annualBreach', 'halfBreach', 'overBreach', 'rangeBreach', 'causeBucket'];
+  boot.eval.insights = info.filter(o => o.keep || (o.ym && latest[o.ym] && human[o.ym] === o)).map(o => {
+    if (o.keep || !o.ym) return o.x;
+    const out = Object.assign({}, o.x);
+    MACHINE.forEach(k => { if (Object.prototype.hasOwnProperty.call(latest[o.ym].x, k)) out[k] = latest[o.ym].x[k]; });
+    return out;
   });
 }
 

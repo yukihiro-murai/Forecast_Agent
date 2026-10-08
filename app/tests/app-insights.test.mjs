@@ -210,8 +210,9 @@ const people = env.call('apiPeopleLearning()');
   const may = L[1];
   assert.deepEqual([may.direction, may.range, may.miss, may.statusLabel, may.actionLabel, may.human], ['over', true, true, '未着手', '前提を更新', false]);
   assert.deepEqual([L[2].miss, L[2].direction, L[2].statusLabel], [false, 'exact', '見守り']);
-  // scoredMonths: 今の決まりで B-2 が測った月（甲 5 か月・乙 6 か月）。乙は振り返りの行が無い
-  assert.deepEqual(people.summary, { months: 3, misses: 2, withNotes: 1, duplicatesRemoved: 1, scoredMonths: 11 });
+  // scoredMonths: 今の決まりで B-2 が測った月（甲 5 か月・乙 6 か月）。乙は振り返りの行が無い。
+  // waitingMonths: そのうち出せる振り返りの行がまだ無い月（甲 2025/05（数字の違う行だけ）・2026/07、乙 6 か月。どちらも締めていない年度）
+  assert.deepEqual(people.summary, { months: 3, misses: 2, withNotes: 1, duplicatesRemoved: 1, scoredMonths: 11, waitingMonths: 8 });
   assert.deepEqual(people.openActions.map((x) => [x.ym, x.statusLabel]), [['2026/04', '対応中'], ['2026/05', '未着手']], '済み・見守りは出さない');
   assert.equal(people.causes.reduce((s, c) => s + c.n, 0), 2, '外れた月だけ数える');
   assert.ok(people.causes.some((c) => c.direction === 'under' && c.actionType === '入力を修正' && !c.range));
@@ -443,7 +444,7 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual([x.plans, x.fys, x.market, x.totals.plans, x.totals.budget, x.totals.p50, x.totals.ratioP50], [[], [], [], 0, null, null, null]);
   const p = e3.call('apiPeopleLearning()');
   assert.deepEqual([p.lessons, p.causes, p.openActions, p.repeats, p.scoreboard, p.decisions, p.uplift], [[], [], [], [], [], [], []]);
-  assert.deepEqual(p.summary, { months: 0, misses: 0, withNotes: 0, duplicatesRemoved: 0, scoredMonths: 0 });
+  assert.deepEqual(p.summary, { months: 0, misses: 0, withNotes: 0, duplicatesRemoved: 0, scoredMonths: 0, waitingMonths: 0 });
   const a = e3.call('apiAiLearning()');
   assert.equal(a.curves.length, 5);
   assert.ok(a.curves.every((c) => c.prior.alpha0 === 2 && c.prior.beta0 === 2 && c.prior.from === 'default' && c.quarters.length === 0 && c.n === 0));
@@ -502,7 +503,7 @@ const ai = env.call('apiAiLearning()');
   assert.deepEqual([by['2026/04'].reflection, by['2026/04'].human, by['2026/04'].duplicates], ['単価の前提を見直す', true, 1], '反映の欄だけの記入も、新しい自動の行に負けない');
   assert.deepEqual([by['2026/05'].human, by['2026/05'].actionLabel], [true, '前提を更新']);
   assert.deepEqual([by['2026/06'].human, by['2026/07'].human, by['2026/07'].reflection], [false, false, '現行運用を継続'], '自動の値だけなら人の記入ではない');
-  assert.deepEqual(p.summary, { months: 4, misses: 3, withNotes: 2, duplicatesRemoved: 1, scoredMonths: 4 });
+  assert.deepEqual(p.summary, { months: 4, misses: 3, withNotes: 2, duplicatesRemoved: 1, scoredMonths: 4, waitingMonths: 0 });
   // 自動の update と、人が選んだ「前提を更新」は画面では同じ名前なので 1 行
   assert.equal(p.causes.length, 1);
   const c = p.causes[0];
@@ -852,18 +853,21 @@ const ai = env.call('apiAiLearning()');
     ins(new Date(first - 864e5), '2026/08', 1100, { cause_hypothesis: '前の版の記入', action_type: 'keep', status: 'monitoring', range_breach: 0 }),
     //   ↑ 前の版の B-4 の行（初めの B-2 の前）。数字がたまたま同じでも、機械の列が前の決まりのままなので、人の記入があっても出さない
     ins(new Date(at - 864e5 * 30), '2026/08', 1100, { cause_hypothesis: '受注の前倒し' }),   // 後の B-2（at）より前でも、初めの B-2 の後に書いた行は出す
-    ins(new Date(at - 864e5), '2026/09', 900, { cause_hypothesis: '前の記入' }),   // 数字の違う行は、人の記入があっても使わない
+    ins(new Date(at - 864e5), '2026/09', 900, { cause_hypothesis: '前の記入' }),   // 数字の違う行は、数字には使わない（人の記入は、9 月に使える行があるので使う）
     ins(new Date(at + 3600e3), '2026/09', 1100),                             // 今の数字の行
     ins(new Date(at + 7200e3), '2026/09', ''),                               // 予測が空の行（空は同じとみなさない）
   ];
   const r = lessons(rows, months);
+  // 人の記入は、その月に使える行があれば、その月の人が書いた一番新しい行から（数字・書いた時刻によらない。2026-10-08 村井さん承認）:
+  // 9 月は数字の違う行の記入（その行もまとめた行に数える）。8 月は初めの B-2 の後の行の記入（初めの B-2 の前の行より新しい）
   assert.deepEqual(r.lessons.map((l) => [l.ym, l.pred, l.direction, l.range, l.human, l.hypothesis, l.duplicates]).sort(),
-    [['2026/08', 1100, 'over', true, true, '受注の前倒し', 0], ['2026/09', 1100, 'over', true, false, '', 0]], '7 月と 9 月の数字の違う行・初めの B-2 の前の 8 月の行は使わない');
-  assert.deepEqual([r.summary.months, r.summary.duplicatesRemoved, r.summary.scoredMonths], [2, 0, 3]);
+    [['2026/08', 1100, 'over', true, true, '受注の前倒し', 0], ['2026/09', 1100, 'over', true, true, '前の記入', 1]],
+    '7 月（数字の違う行だけ）は出さない。数字は使える行から');
+  assert.deepEqual([r.summary.months, r.summary.duplicatesRemoved, r.summary.scoredMonths, r.summary.waitingMonths], [2, 1, 3, 1], '7 月は B-4 待ち');
   // 今の版の B-2 の時刻が無い計画（null・渡さない）は、どの行も出さない（測った月の数は数える）
   for (const since of [{ P: null }, {}]) {
     const none = lessons(rows, months, undefined, since);
-    assert.deepEqual([none.lessons, none.summary.months, none.summary.scoredMonths], [[], 0, 3], '初めの B-2 の時刻が無い: ' + JSON.stringify(since));
+    assert.deepEqual([none.lessons, none.summary.months, none.summary.scoredMonths, none.summary.waitingMonths], [[], 0, 3, 3], '初めの B-2 の時刻が無い: ' + JSON.stringify(since));
   }
   // 差は 0.5 円より小さければ同じ。数は文字でも同じ読み方（appNum_）。B-2 の側が空なら同じとみなさない
   const one = (row, m) => lessons([row], [m || ['2026/07', 1100, 1000]]).lessons.map((l) => [l.pred, l.actual]);
@@ -888,6 +892,57 @@ const ai = env.call('apiAiLearning()');
   const rep = lessons({ P1: [ins(new Date(at), '2025/05', 1000, { actual_total: 800 })], P2: [ins(new Date(at), '2026/05', 1000, { actual_total: 900 })] },
     { P1: [['2025/05', 1000, 800]], P2: [['2026/05', 1000, 900]] }, [{ planId: 'P1', clientName: 'γ', fy: '2025' }, { planId: 'P2', clientName: 'γ', fy: '2026' }]);
   assert.deepEqual([rep.repeats, rep.summary.scoredMonths], [[{ clientName: 'γ', month: '05', fys: ['2025', '2026'], n: 2 }], 2]);
+}
+
+// ==== 16. 同じ月の行が 2 つ以上（v0.27.2 より前の B-4 の残り）で、人の記入が最後の行に無い: 記入は人が書いた一番新しい行から、数字は使える行から。
+// 締めていない年度の計画の、B-2 が測ったのに振り返りの行がまだ無い月（waitingMonths）。2026-10-08 村井さん承認 ====
+{
+  const at = Date.parse('2026-10-06T03:00:00Z');
+  const first = at - 864e5 * 40;
+  const ins = (when, ym, pred, o) => Object.assign({ evaluated_at: new Date(when), client: 'γ製薬', target_month: ym, actual_total: 1000, pred_p50: pred, range_breach: 0,
+    action_type: 'keep', status: 'monitoring', next_cycle_reflection: '現行運用を継続' }, o || {});
+  const run = (rows, months, frozen, plans) => J(env.run('appInsightLessons_(__p, __i, false, __m, __s, __f)', {
+    __p: plans || [{ planId: 'P', clientName: 'γ', fy: '2026' }], __i: plans ? rows : { P: rows }, __m: plans ? months : { P: months },
+    __s: plans ? Object.fromEntries(plans.map((p) => [p.planId, first])) : { P: first }, __f: frozen }));
+  const months = [['2026/07', 1100, 1000], ['2026/08', 1100, 1000], ['2026/09', 1100, 1000]];
+  const rows = [
+    // 7 月: 前の B-4 の 2 つの行。人の記入は 1 つ目（数字は前の B-2 の 900・初めの B-2 の前）。最後の行は B-4 が今の数字で書き直した（記入なし）
+    ins(first - 864e5 * 3, '2026/07', 900, { cause_hypothesis: '大口の失注', action_type: '入力を修正', next_cycle_reflection: '見解を見直す', owner: '鷹野', status: 'in_progress', range_breach: 1 }),
+    ins(at, '2026/07', 1100, { range_breach: 1, action_type: 'update', status: 'open', next_cycle_reflection: '次回サイクルで前提更新を反映' }),
+    // 8 月: 人の記入のある行が 2 つ（どちらも使える行でない）。一番新しい方の記入を使う
+    ins(first - 864e5 * 2, '2026/08', 950, { cause_hypothesis: '古い記入', owner: '佐藤' }),
+    ins(first - 864e5, '2026/08', 980, { cause_hypothesis: '新しい記入', owner: '鷹野', status: 'done' }),
+    ins(at, '2026/08', 1100),
+    // 9 月: 使える行が無い（数字の違う行の記入だけ）→ 出さない（B-4 待ち）
+    ins(at - 864e5, '2026/09', 900, { cause_hypothesis: '9 月の記入', owner: '鷹野' }),
+  ];
+  const r = run(rows, months);
+  const by = Object.fromEntries(r.lessons.map((l) => [l.ym, l]));
+  assert.deepEqual(Object.keys(by).sort(), ['2026/07', '2026/08'], '使える行が無い 9 月は出さない（人の記入があっても）');
+  const jul = by['2026/07'];
+  assert.deepEqual([jul.pred, jul.actual, jul.direction, jul.range], [1100, 1000, 'over', true], '7 月の数字・印は使える行（最後の行）から');
+  assert.deepEqual([jul.hypothesis, jul.actionType, jul.reflection, jul.owner, jul.status, jul.statusLabel, jul.human, jul.duplicates],
+    ['大口の失注', '入力を修正', '見解を見直す', '鷹野', 'in_progress', '対応中', true, 1], '7 月の記入は、最後の行でない人の記入の行から');
+  const aug = by['2026/08'];
+  assert.deepEqual([aug.pred, aug.hypothesis, aug.owner, aug.status, aug.human, aug.duplicates], [1100, '新しい記入', '鷹野', 'done', true, 1], '8 月は人が書いた一番新しい行の記入');
+  assert.deepEqual(r.summary, { months: 2, misses: 2, withNotes: 2, duplicatesRemoved: 2, scoredMonths: 3, waitingMonths: 1 }, '9 月は B-4 待ち');
+  assert.deepEqual(r.openActions.map((x) => [x.ym, x.statusLabel]), [['2026/07', '対応中']], '残っている対応も記入の状態から');
+  // 同じ時刻なら後の行
+  const tie = run([ins(first - 864e5, '2026/07', 900, { cause_hypothesis: '前' }), ins(first - 864e5, '2026/07', 900, { cause_hypothesis: '後' }), ins(at, '2026/07', 1100)], months);
+  assert.equal(tie.lessons[0].hypothesis, '後');
+  // waitingMonths: 締めた年度の計画（frozen）は数えない（B-4 を動かせない）。scoredMonths は数える
+  const plans = [{ planId: 'P1', clientName: 'γ', fy: '2025' }, { planId: 'P2', clientName: 'δ', fy: '2026' }];
+  const two = run({ P1: [], P2: [ins(at, '2026/07', 1100)] }, { P1: [['2025/07', 1100, 1000], ['2025/08', 1100, 1000]], P2: months }, { P1: true }, plans);
+  assert.deepEqual([two.summary.scoredMonths, two.summary.waitingMonths, two.summary.months], [5, 2, 1], '締めた年度の P1 の 2 か月は数えない（P2 の 8・9 月だけ）');
+  const open = run({ P1: [], P2: [ins(at, '2026/07', 1100)] }, { P1: [['2025/07', 1100, 1000], ['2025/08', 1100, 1000]], P2: months }, {}, plans);
+  assert.equal(open.summary.waitingMonths, 4, '締めていなければ数える');
+  assert.equal(run(rows, months, undefined).summary.waitingMonths, 1, 'frozen を渡さなければ、どの計画も締めていないものとして数える');
+  // 締めた年度（appInsightFrozen_）: 年度ごとに 1 回だけ確かめる。確かめられない年度は締めたものとして数えない
+  env.run(`(() => { const orig = appYearIsFrozen_; globalThis.__fyAsked = []; appYearIsFrozen_ = fy => { __fyAsked.push(String(fy)); if (String(fy) === '2024') throw new Error('x'); return String(fy) === '2025'; }; globalThis.__restoreFrozen = () => { appYearIsFrozen_ = orig; }; })()`);
+  const fz = J(env.run('appInsightFrozen_(__p)', { __p: [{ planId: 'A', fy: '2025' }, { planId: 'B', fy: '2026' }, { planId: 'C', fy: '2025' }, { planId: 'D', fy: 2024 }] }));
+  assert.deepEqual(fz, { A: true, C: true, D: true });
+  assert.deepEqual(J(env.run('__fyAsked')), ['2025', '2026', '2024'], '年度ごとに 1 回');
+  env.run('__restoreFrozen()');
 }
 
 console.log('app-insights: all tests passed');

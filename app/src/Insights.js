@@ -27,6 +27,9 @@
  * 今の版で測った月でも、EVAL_INSIGHTS の行の予測と実績が、その月の今の版の EVAL_LOG の行を B-4 が写す形（実績が負なら 0 円）と違う行と、
  * その計画で今の版の B-2 が初めて動く前に書いた行は、次の B-4 が書き直すまで読み飛ばす（消さない。appInsightRowScored_。
  * B-2 のたびの時刻では決めない: 旧来の B-2 は測るたびに evaluated_at を書き直すので、初めの B-2 の時刻を RUN_LOG から取る）。
+ * ただし人の記入（原因・対応・次回への反映・担当・状態）は、その月に使える行が 1 つでもあれば、その月の人が書いた一番新しい行から取る
+ * （数字・書いた時刻によらない。2026-10-08 村井さん承認。v0.27.2 より前の B-4 で同じ月の行が 2 つ以上でき、人の記入が最後の行に無いと、
+ * B-4 は最後の行だけを書き直すので、記入がずっと隠れていた）。数字・印は使える行から取る。
  */
 const APP_INSIGHT_REVISIONS = 12;          // 予測の改訂の道すじ（最近の回数）
 const APP_INSIGHT_MISS = 0.1;              // 外れた月: 誤差が 10% 以上か P10〜P90 の外（旧来の B-4 の振り分けと同じ）
@@ -612,9 +615,10 @@ function appCrossMaker_(fy) {
  *                   actionTypes = まとめた action_type（自動の update と人が選んだ「前提を更新」は 1 行）。actionType はその最初のもの）
  *   openActions: [lessons と同じ形]（未着手・対応中。古い月から）
  *   repeats:     [{ clientName, month: 'MM', fys: [...], n }]（同じメーカーで、違う年度の同じ月にまた外れた）
- *   summary:     { months, misses, withNotes, duplicatesRemoved, scoredMonths }（scoredMonths = 今の決まりで B-2 が測った月の数（計画 × 月。
+ *   summary:     { months, misses, withNotes, duplicatesRemoved, scoredMonths, waitingMonths }（scoredMonths = 今の決まりで B-2 が測った月の数（計画 × 月。
  *                   当たりと同じ計画で、締まった月の今の版の neutral の EVAL_LOG の行がある月）。B-2 の後で B-4 がまだなら、
- *                   months（出した振り返りの月）が 0 でも 0 ではない）
+ *                   months（出した振り返りの月）が 0 でも 0 ではない。waitingMonths = そのうち、締めていない年度の計画で、出せる振り返りの行が
+ *                   まだ無い月の数（「外れの原因を整理」（B-4）待ち。締めた年度の計画は B-4 を動かせないので数えない））
  *   scoreboard:  full:    [{ type, label, key, n, hit, hitRate, alpha, beta, postMean, ci80: [下, 上], prior: { alpha0, beta0, from }, appliedR,
  *                            plans: [{ planId, clientName, fy, n, hit, appliedR }] }]（人や話題ごと）
  *                summary: [{ type, label, sources, n, hit, hitRate, alpha, beta, postMean, ci80, prior }]（情報源の種類ごと。sources = まとめた人や話題の数。今の信頼度は出さない）
@@ -639,13 +643,30 @@ function appPeopleLearning_(ctx) {
   const current = {};
   const since = {};
   const evidence = appInsightEvidence_(ids, tab, noPre, current, since);
-  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'), hide, current, since);
+  const l = appInsightLessons_(plans, tab('EVAL_INSIGHTS'), hide, current, since, appInsightFrozen_(plans));
   return Object.assign({ detail: detail }, l, {
     scoreboard: appSourceScoreboard_(plans, evidence, tab('POOL_PRIOR'), tab('SOURCE_RELIABILITY'), hide),
     noPreMonth: appInsightCountMonths_(noPre),
     decisions: appInsightDecisions_(plans, tab('QUARTERLY_REVIEW_LOG'), hide),
     uplift: appInsightUplift_(ids)
   });
+}
+
+/**
+ * 締めた年度の計画（{ 計画の ID: true }）。年度ごとに 1 回だけ確かめる。締めの記録が読めない年度は締めたものとして扱う
+ * （B-4 を動かせるとは言わない。読み取りの画面なので止めない）
+ */
+function appInsightFrozen_(plans) {
+  const byFy = {};
+  const out = {};
+  plans.forEach(p => {
+    const fy = String(p.fy);
+    if (!Object.prototype.hasOwnProperty.call(byFy, fy)) {
+      try { byFy[fy] = appYearIsFrozen_(fy); } catch (e) { Logger.log('年度の締めを確かめられません: ' + fy + ' ' + (e && e.message ? e.message : e)); byFy[fy] = true; }
+    }
+    if (byFy[fy]) out[p.planId] = true;
+  });
+  return out;
 }
 
 /**
@@ -664,41 +685,51 @@ function appInsightHasHuman_(r) {
 
 /**
  * 外れた月の振り返り。B-4 を動かし直すと同じ月の行が増える（月が日付に変わり、旧来の上書きの鍵が合わない）ので、計画 × 月で 1 つにする:
- * 数字（実績・予測・幅の外か）は一番新しい行から、人が書いた欄（原因・対応・次回への反映・担当・状態）は人が書いた一番新しい行から取る。
+ * 数字（実績・予測・幅の外か）は使える行（下の決まり）の一番新しい行から、人が書いた欄（原因・対応・次回への反映・担当・状態）は、
+ * その月の人が書いた一番新しい行から取る（使える行でなくても。数字・書いた時刻によらない。2026-10-08 村井さん承認: 前の B-4 で同じ月の行が
+ * 2 つ以上でき、人の記入が最後の行に無いと、B-4 は最後の行だけを書き直すので、記入がずっと隠れていた）。
  * 今の決まりで測った月（months = { 計画の ID: [[月, 予測, 実績]] }。締まった月で、今の検証の版の EVAL_LOG の neutral の行がある月と、
  * その行の数字を B-4 が写す形にしたもの。appSourceEvidence_）の行だけを使う（D4〜D6。旧来の画面（webParseEval_）が検証の記入を出す月と
  * 同じ決まり。途中の実績や、月が始まった後の予測で書かれた行は消さずに読み飛ばす）。その月でも、行の予測と実績がその数字と違う行（前の版の
  * 予測の数字で向きが逆のもの・実績を取り込み直して測り直す前のもの）と、その計画で今の版の B-2 が初めて動いた時刻（since = { 計画の ID: ミリ秒か null }）
  * より前に書いた行（前の版の B-4 が書いた行）は、次の B-4 が書き直すまで読み飛ばす（消さない。appInsightRowScored_。計画の画面の
  * appPlanViewDropStale_ と同じ決まり）。scoredMonths = months の月の数（plans の計画だけ）。
+ * waitingMonths = そのうち、frozen（{ 計画の ID: true }。締めた年度の計画）でない計画で、出せる行がまだ無い月の数（B-4 待ち）。
+ * duplicates = 1 つにまとめた行の数 − 1（使える行と、使える行でない人の記入の行）。
  * hideNames = true なら担当（人の名前）を出さない
  */
-function appInsightLessons_(plans, insights, hideNames, months, since) {
+function appInsightLessons_(plans, insights, hideNames, months, since, frozen) {
   const all = [];
   let dup = 0;
   let scoredMonths = 0;
+  let waitingMonths = 0;
   const newer = (p, t, i) => !p || t > p.t || (t === p.t && i > p.i);
   plans.forEach(p => {
     const byYm = {};
+    const human = {};    // 月 → 人が書いた一番新しい行（使える行でなくても）
     const scored = {};   // 月 → 今の版の B-2 が測った予測と実績（B-4 が写す形）
     ((months || {})[p.planId] || []).forEach(x => { scored[x[0]] = { pred: x[1], actual: x[2] }; });
     scoredMonths += Object.keys(scored).length;
     const from = since && Object.prototype.hasOwnProperty.call(since, p.planId) ? since[p.planId] : null;
     (insights[p.planId] || []).forEach((r, i) => {
       const ym = appYm_(r.target_month);
-      // 測っていない月・ほかの測り方の数字の行・今の版の B-2 が初めて動く前に書いた行
-      if (!appInsightRowScored_(scored, ym, r.pred_p50, r.actual_total, r.evaluated_at, from)) return;
       const t = appTimeKey_(r.evaluated_at);
-      const o = byYm[ym] = byYm[ym] || { latest: null, human: null, rows: 0 };
+      const scoredRow = appInsightRowScored_(scored, ym, r.pred_p50, r.actual_total, r.evaluated_at, from);
+      if (appInsightHasHuman_(r) && newer(human[ym], t, i)) human[ym] = { r: r, t: t, i: i, scored: scoredRow };
+      // 測っていない月・ほかの測り方の数字の行・今の版の B-2 が初めて動く前に書いた行は、数字と印には使わない
+      if (!scoredRow) return;
+      const o = byYm[ym] = byYm[ym] || { latest: null, rows: 0 };
       o.rows++;
       if (newer(o.latest, t, i)) o.latest = { r: r, t: t, i: i };
-      if (appInsightHasHuman_(r) && newer(o.human, t, i)) o.human = { r: r, t: t, i: i };
     });
+    if (!(frozen && frozen[p.planId])) waitingMonths += Object.keys(scored).filter(ym => !Object.prototype.hasOwnProperty.call(byYm, ym)).length;
     Object.keys(byYm).forEach(ym => {
       const x = byYm[ym];
-      dup += x.rows - 1;
+      const hx = human[ym] || null;
+      const rows = x.rows + (hx && !hx.scored ? 1 : 0);   // 人の記入を、使える行でない行から取ったら、その行もまとめた行に数える
+      dup += rows - 1;
       const m = x.latest.r;
-      const h = x.human ? x.human.r : m;
+      const h = hx ? hx.r : m;
       const pred = appNum_(m.pred_p50), act = appNum_(m.actual_total);
       const err = pred !== null && act !== null && act !== 0 ? (pred - act) / Math.abs(act) : null;
       const range = String(m.range_breach) === '1' || m.range_breach === true;
@@ -710,7 +741,7 @@ function appInsightLessons_(plans, insights, hideNames, months, since) {
         miss: (err !== null && Math.abs(err) >= APP_INSIGHT_MISS) || range,
         hypothesis: String(h.cause_hypothesis || ''), actionType: actionType, actionLabel: APP_INSIGHT_ACTION_LABELS[actionType] || actionType,
         reflection: String(h.next_cycle_reflection || ''), owner: hideNames ? '' : String(h.owner || ''), status: status, statusLabel: APP_INSIGHT_STATUS[status] || status,
-        human: !!x.human, duplicates: x.rows - 1 });
+        human: !!hx, duplicates: rows - 1 });
     });
   });
   const byErr = all.slice().sort((a, b) => (b.absErr === null ? -1 : b.absErr) - (a.absErr === null ? -1 : a.absErr) || a.ym.localeCompare(b.ym));
@@ -738,7 +769,8 @@ function appInsightLessons_(plans, insights, hideNames, months, since) {
       .sort((a, b) => a.ym.localeCompare(b.ym) || String(a.clientName).localeCompare(String(b.clientName), 'ja')).slice(0, APP_INSIGHT_OPEN_MAX),
     repeats: Object.keys(rep).map(k => rep[k]).filter(o => o.fys.length >= 2).map(o => Object.assign(o, { fys: o.fys.sort() }))
       .sort((a, b) => b.n - a.n || a.month.localeCompare(b.month)),
-    summary: { months: all.length, misses: misses.length, withNotes: all.filter(x => x.human).length, duplicatesRemoved: dup, scoredMonths: scoredMonths }
+    summary: { months: all.length, misses: misses.length, withNotes: all.filter(x => x.human).length, duplicatesRemoved: dup, scoredMonths: scoredMonths,
+      waitingMonths: waitingMonths }
   };
 }
 
