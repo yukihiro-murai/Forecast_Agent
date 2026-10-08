@@ -31,6 +31,13 @@
  *  24. 比べた月がどれも売上 0 円（plans[].scoredMonths・accuracy.scoredMonths）: ホームの外れ幅・精度の天気、分析の案内、AI の学びで
  *      「まだ」・動かし方の代わりに振り返りと同じ言い方。まだ比べていないメーカーがあれば、その出し方だけ添える
  *  25. ホームの着地の推定の 80% の幅: 下の端は 0 円で止める
+ *  26. 学び > AI の学び「着地の幅の学び」: 今の値（承認した値・決まった値）と学んだ値（試し）を分けて出す。使っているかは値ごとに、
+ *      設定に書いたか（tauSet・wSet）と見せる丸め（0.1%・0.01 倍）で決める。承認した日は値ごとにカーソルで。学んだ値が無くても今の値は出す
+ *  27. 予測と予算: 見出しの説明は「年度合計（下振れ・中心・上振れ）」。年度の見込みの試しの説明は「この計画の年度合計」・幅は締まった月が無いときだけ・
+ *      金額は円まで。届く見込みの説明は「着地の推定」と円までの金額。年度が締まった（reach.done・締め済み・12 か月）ら届いたかどうかを言う
+ *  28. 比べた月がどれも売上 0 円: 精度の天気の説明の 1 行目は「霧：外れ幅を % で出せる月がまだない」（ホーム・AI の学び）
+ *  29. 根拠「前回の予測からの変化」: 理由は basis の changeCause から（日付は言わない）
+ *  30. 空模様の理由「当たり具合の計算待ち」（skyReason eval_pending）と、その出し方（動かせる人・動かせない人）
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
  *   node app/tests/app-ui-texts.test.mjs
@@ -720,10 +727,11 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   // ホームの精度の天気: 説明と見える短い言い方
   const card = (plans, health) => run('S.lr.ai = { health: __hl, pending: [] }; homeLearnCard(__h, __h.plans)', { __hl: health || [], __h: { fy, plans } });
   const c1 = card([zp]);
-  assert.match(c1, new RegExp('data-tip="霧：比べられる実績がまだない\\n' + ZERO2 + '\\n精度の推移は'));
+  assert.match(c1, new RegExp('data-tip="霧：外れ幅を % で出せる月がまだない\\n' + ZERO2 + '\\n精度の推移は'), '霧の決まりは「比べられる実績がまだない」と言わない（28）');
+  assert.doesNotMatch(c1, /比べられる実績がまだない/);
   assert.match(c1, /<span class="t2">売上 0 円の月だけ<\/span>/);
   assert.doesNotMatch(c1, /当たり具合を計算|比べる実績はまだです/);
-  assert.match(card([zp, np]), new RegExp('\\n' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと出ます\\n'));
+  assert.match(card([zp, np]), new RegExp('data-tip="霧：外れ幅を % で出せる月がまだない\\n' + ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと出ます\\n'));
   const clamp = { planId: 'P1', clientName: 'テスト製薬', fy, key: 'factor_clamp', label: '', value: 0.75 };
   const c2 = card([zp], [clamp]);
   assert.match(c2, new RegExp('data-tip="台風：[^"\\n]*\\n' + ZERO2 + '\\n荒れている印'));
@@ -761,7 +769,8 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
     const h1 = ai([zp]);
     assert.equal(bubbleOf(h1), ZERO2);
     assert.match(h1, /<span class="v">売上 0 円の月だけ<\/span>/);
-    assert.match(h1, new RegExp('data-tip="精度の天気「霧」: 比べられる実績がまだない\\n' + ZERO2 + '\\n荒れている'));
+    assert.match(h1, new RegExp('data-tip="精度の天気「霧」: 外れ幅を % で出せる月がまだない\\n' + ZERO2 + '\\n荒れている'));
+    assert.doesNotMatch(h1, /比べられる実績がまだない/);
     assert.equal(pose(h1), 'explain');
     assert.equal(bubbleOf(ai([zp, np])), ZERO2 + 'ほかのメーカーは、各計画の振り返りで「当たり具合を計算」を動かすと、外れ幅がここに出ます。');
     assert.equal(bubbleOf(ai([zp], { health: [clamp] })), '<span data-tip="補正が限度に張りついていて、外れを補正で追いきれていない状態です。">補正が限度に張りついています（1 メーカー）。' + ZERO2 + '</span>');
@@ -790,6 +799,168 @@ const INS1 = [{ row: 5, month: '2026/04', insight: '外れ', nextAction: '', hyp
   const k = run('homeKpis(__h, __h.plans)', { __h: home });
   assert.doesNotMatch(k, /80% の幅: -/);
   assert.match(k, /80% の幅: 0〜/);
+}
+
+// ==== 26. 学び > AI の学び「着地の幅の学び」: 今の値と学んだ値（試し）を分ける。使っているかは値ごと・見せる丸めで ====
+{
+  const card = (learned, used) => run('lrLandingCard(__x)', { __x: { learned, used } });
+  const notes = (h) => [...h.matchAll(/<p class="note">([^<]*)<\/p>/g)].map((m) => m[1]);
+  const cardTip = (h) => (/<h2>着地の幅の学び<span class="tip"[^>]*data-tip="([^"]*)"/.exec(h) || [])[1];
+  const L = (o) => Object.assign({ tau: 0.2466, w: 1.4237, tauLearned: true, wLearned: true, planCount: 4, monthCount: 24 }, o);
+  const U = (o) => Object.assign({ tau: 0.15, w: 1, tauSet: false, wSet: false, tauFrom: '', wFrom: '' }, o);
+  // (a) まだ承認していない: 今の値は決まった値、学んだ値は「承認すると使います」
+  const a = card(L(), U());
+  assert.deepEqual(notes(a), ['今の値: 年の水準のぶれ 15%・幅の倍率 1 倍（決まった値）', '全計画から学んだ値（試し）: 年の水準のぶれ 24.7%・幅の倍率 1.42 倍（承認すると使います）']);
+  assert.match(cardTip(a), /\n今使っている値: 年の水準のぶれ 15%・幅の倍率 1 倍（決まった値）\n/);
+  // (b) 所有者が見せた丸めの値（24.7%・1.42 倍）を書いた: 生の値（0.2466・1.4237）と違っても「承認して使っています」
+  const b = card(L(), U({ tau: 0.247, w: 1.42, tauSet: true, wSet: true, tauFrom: '2026-10-08', wFrom: '2026-10-08' }));
+  assert.deepEqual(notes(b), ['今の値: 年の水準のぶれ 24.7%・幅の倍率 1.42 倍（承認した値）', '全計画から学んだ値（試し）: 年の水準のぶれ 24.7%・幅の倍率 1.42 倍（承認して使っています）']);
+  assert.match(cardTip(b), /\n今使っている値: 年の水準のぶれ 24\.7%・幅の倍率 1\.42 倍（所有者が承認 2026\/10\/08 から）\n/);
+  // (c) landing.tau だけ書いた: 値ごとに言う（決まった値の幅の倍率を「使っています」と言わない）。承認した日も値ごと
+  const c = card(L(), U({ tau: 0.247, tauSet: true, tauFrom: '2026-10-08' }));
+  assert.deepEqual(notes(c), ['今の値: 年の水準のぶれ 24.7%（承認した値）・幅の倍率 1 倍（決まった値）',
+    '全計画から学んだ値（試し）: 年の水準のぶれ 24.7%（承認して使っています）・幅の倍率 1.42 倍（承認すると使います）']);
+  assert.match(cardTip(c), /\n今使っている値: 年の水準のぶれ 24\.7%（所有者が承認 2026\/10\/08 から）・幅の倍率 1 倍（決まった値）\n/);
+  // 決まった値と同じ値（1 倍）を学んでも、設定に書いていなければ「承認すると使います」
+  assert.equal(notes(card(L({ tauLearned: false, w: 1 }), U()))[1], '全計画から学んだ値（試し）: 幅の倍率 1 倍（承認すると使います）');
+  // 違う日に書いた: 日は値ごと
+  assert.match(cardTip(card(L(), U({ tau: 0.247, w: 1.42, tauSet: true, wSet: true, tauFrom: '2026-10-08', wFrom: '2026-10-09' }))),
+    /今使っている値: 年の水準のぶれ 24\.7%（所有者が承認 2026\/10\/08 から）・幅の倍率 1\.42 倍（所有者が承認 2026\/10\/09 から）/);
+  // (d) 書いた値が見せる丸めで違う: 「承認すると使います」。丸めの境（24.74% は 24.7%・24.76% は 24.8%）
+  assert.equal(notes(card(L({ wLearned: false }), U({ tau: 0.2, tauSet: true, tauFrom: '2026-10-08' })))[1], '全計画から学んだ値（試し）: 年の水準のぶれ 24.7%（承認すると使います）');
+  assert.match(notes(card(L({ wLearned: false }), U({ tau: 0.2474, tauSet: true })))[1], /24\.7%（承認して使っています）$/);
+  assert.match(notes(card(L({ wLearned: false }), U({ tau: 0.2476, tauSet: true })))[1], /24\.7%（承認すると使います）$/);
+  assert.match(notes(card(L({ tauLearned: false }), U({ w: 1.4249, wSet: true })))[1], /1\.42 倍（承認して使っています）$/);
+  // (e) 承認した値はあるが、学べた値が無い: 今の値は出す
+  const e = card(L({ tauLearned: false, wLearned: false, planCount: 1, monthCount: 3 }), U({ tau: 0.2, tauSet: true, tauFrom: '2026-10-08' }));
+  assert.deepEqual(notes(e), ['今の値: 年の水準のぶれ 20%（承認した値）・幅の倍率 1 倍（決まった値）', '全計画から学んだ値（試し）: まだありません']);
+  assert.match(cardTip(e), /今は 1 計画・3 か月/);
+  // 学べた値も承認した値も無ければ、カードごと出さない
+  assert.equal(card(L({ tauLearned: false, wLearned: false }), U()), '');
+  [a, b, c, e].forEach((h) => assert.doesNotMatch(h.replace(/<[^>]*>/g, ' ') + cardTip(h), /τ|\bw\b|tau|undefined|NaN|null/, '中の記号を出さない'));
+}
+
+// ==== 27. 予測と予算: 年度合計の説明・年度の見込みの試し・予算に届く見込み・締まった年度 ====
+{
+  const yms = Array.from({ length: 12 }, (_, i) => { const m = 4 + i; return (m > 12 ? 2027 : 2026) + '/' + String(m > 12 ? m - 12 : m).padStart(2, '0'); });
+  const sec = { annual: { p10: 105e6, p50: 115e6, p90: 125e6, adopted: 120e6, uplift: 0, final: 120e6 },
+    monthly: yms.map((ym, i) => ({ row: 29 + i, month: ym, p10: 8e6, p50: 1e7, p90: 1.2e7, adopted: 1e7, uplift: '', final: 1e7 })) };
+  const latest = { annual_p10: 105e6, annual_p50: 115e6, annual_p90: 125e6, objective_p10: 1e8, objective_p50: 1.1e8, objective_p90: 1.2e8, finished_at: '2026-10-08T10:00:00+09:00', actor_email: OWNER };
+  // 届く金額は、0.1 億の丸めでは同じに見える値（1.2 億前後）
+  const AMT = [[50, 121234567], [60, 120456789], [70, 119678901], [80, 118765432]];
+  const reach = (o) => Object.assign({ center: 121234567, sd: 3e6, p10: 117e6, p90: 125e6, k: 6, actualYtd: 60123456, tau: 0.15, w: 1, tauSet: false, wSet: false,
+    amounts: AMT.map(([pct, amount]) => ({ pct, amount })), draft: { budget: 120e6, p: 0.6, pct: 60 }, official: { budget: 118e6, p: 0.7, pct: 70, versionNo: 2 } }, o);
+  const aligned = (o) => Object.assign({ center: 120e6, sd: 1e7, p10: 107e6, p90: 133e6, budget: 120e6, pAbove: 0.5, tau: 0.15, w: 1 }, o);
+  const tab = (sh, frozen) => {
+    const d = { plan: { planId: 'P1', clientName: 'テスト製薬', fy: 2026, frozen: !!frozen }, latest, runs: [], stored: null, shadow: Object.assign({ planId: 'P1' }, sh) };
+    const v = { plan: d.plan, can: { plan: true, approve: true, admin: true }, inputHash: 'h', actions: [], boot: { output: { sections: [sec] } } };
+    return run(`S.fc.planId = 'P1'; S.fc.view = __v; S.fc.data = __d; S.fc.budget = {}; S.fc.confirm = null; fcForecastTab(__d, __v)`, { __d: d, __v: v });
+  };
+  const midTip = (h) => (/<div class="kpi main" data-tip="([^"]*)"><div class="k">中心<\/div>/.exec(h) || [])[1].split('\n');
+  const meta = (h) => { const m = /<span class="meta" data-tip="([^"]*)">(この予算に[^<]*)<\/span>/.exec(h); return m ? { tip: m[1].split('\n'), say: m[2] } : null; };
+  // (a) 見出しの説明: 年度合計の 3 つ（下振れ・中心・上振れ）が月の合計ではない
+  const base = tab({ aligned: aligned(), reach: reach() });
+  assert.match(tipOf(base, '月ごとの見通しと予算'), /。年度合計（下振れ・中心・上振れ）は月の合計ではなく、年度で計算した値です$/);
+  assert.doesNotMatch(uiHtml, /年度合計の下振れ〜上振れは/);
+  // (b) 年度の見込みの試し: 「この計画の年度合計」・金額は円まで。aligned.k が無い（前のサーバー）・0 なら幅も
+  for (const al of [aligned(), aligned({ k: 0 })]) {
+    const t = midTip(tab({ aligned: al, reach: reach() }));
+    assert.equal(t[2], 'この計画の年度合計（下振れ・中心・上振れ）は、年度の売上を何度も試して出した値です（月の合計とずれることがあり、幅も狭めに出ます）');
+    assert.equal(t[3], '月の合計でそろえると 中心 120,000,000 円・80% の幅 107,000,000 円〜133,000,000 円（試し）');
+    assert.match(t[4], /^月ごとの中心を足し、着地見込みと同じ式（締まった月なし・年の水準のぶれ 15%・幅の倍率 1 倍）で幅をつけた試しの値です。/);
+  }
+  assert.doesNotMatch(midTip(base).join('\n'), /今の年度の|億/);
+  // 年度の途中（k > 0。サーバーは幅を null にする）: 幅は着地の推定で見ると言う（その幅は円まで）
+  const mid = midTip(tab({ aligned: aligned({ k: 6, p10: null, p90: null }), reach: reach() }));
+  assert.equal(mid[3], '月の合計でそろえると 中心 120,000,000 円（試し）');
+  assert.equal(mid[4], '月ごとの中心を足した試しの値です。年度の途中の幅は、着地の推定（締まった 6 か月の実績を入れた見込み）の幅で見ます: 80% の幅 117,000,000 円〜125,000,000 円。保存している数字は変わりません');
+  assert.equal(midTip(tab({ aligned: aligned({ k: 6 }), reach: reach() }))[3], '月の合計でそろえると 中心 120,000,000 円（試し）', '幅が来ても、締まった月があれば出さない');
+  assert.match(midTip(tab({ aligned: aligned({ k: 2, p10: null, p90: null }), reach: null }))[4], /（締まった 2 か月の実績を入れた見込み）の幅で見ます。保存している/, '届く見込みが無ければ幅の金額は添えない');
+  assert.match(midTip(tab({ aligned: aligned({ k: 12, done: true, p10: null, p90: null }), reach: reach({ k: 12 }) }))[4], /^月ごとの中心を足した試しの値です。12 か月の実績がそろったので、幅はありません。/);
+  // (c) 届く見込みの説明: 中心ではなく「着地の推定」・金額は円まで（50・60・70% の金額が同じに見えない）
+  const r = meta(base);
+  assert.equal(r.say, 'この予算に届く見込み 約 60%（試し）');
+  assert.ok(r.tip.includes('届く見込みが 50% の金額 121,234,567 円・60% の金額 120,456,789 円・70% の金額 119,678,901 円・80% の金額 118,765,432 円'), r.tip.join('\n'));
+  assert.ok(r.tip.includes('前提: 着地の推定 121,234,567 円・80% の幅 117,000,000 円〜125,000,000 円・年の水準のぶれ 15%・幅の倍率 1 倍（締まった 6 か月の実績を入れています）'));
+  assert.doesNotMatch(r.tip.join('\n'), /億|前提: 中心/);
+  // (d) 年度が締まった（reach.done）: 届いたかどうかと実績の合計。届く金額・前提・（試し）は言わない
+  const done = meta(tab({ aligned: aligned({ k: 12, done: true, p10: null, p90: null }), reach: reach({ done: true, actual: 121e6, k: 12 }) }));
+  assert.equal(done.say, 'この予算に届きました（実績の合計 1.2億円）');
+  assert.deepEqual(done.tip, ['今の最終予算 120,000,000 円 に届きました', '実績の合計 121,000,000 円（締まった 12 か月）', '承認済みの公式版（v2）の最終予算 118,000,000 円 には届きました']);
+  const miss = meta(tab({ reach: reach({ done: true, actual: 119e6, k: 12 }) }));
+  assert.equal(miss.say, 'この予算に届きませんでした（実績の合計 1.2億円）');
+  assert.deepEqual(miss.tip.slice(0, 3), ['今の最終予算 120,000,000 円 に届きませんでした', '実績の合計 119,000,000 円（締まった 12 か月）', '承認済みの公式版（v2）の最終予算 118,000,000 円 には届きました']);
+  [done, miss].forEach((x) => assert.doesNotMatch(x.say + x.tip.join('\n'), /届く見込み|% の金額|前提|試し/));
+  // done が無いサーバー: 12 か月の実績がそろった・締め済みの年度なら同じ（実績の合計は締まった月の合計）
+  assert.equal(meta(tab({ reach: reach({ k: 12, actualYtd: 125e6 }) })).say, 'この予算に届きました（実績の合計 1.3億円）');
+  assert.equal(meta(tab({ reach: reach() }, true)).say, 'この予算に届きませんでした（実績の合計 6,012万円）', '締め済みの年度');
+  assert.equal(meta(tab({ reach: reach({ done: false }) }, true)).say, 'この予算に届きませんでした（実績の合計 6,012万円）', '締め済みの年度は done が false でも');
+  // 締まっていない: 今までどおり見込み（done が false なら 12 か月でも）
+  assert.equal(meta(tab({ reach: reach({ done: false, k: 12 }) })).say, 'この予算に届く見込み 約 60%（試し）');
+  assert.equal(meta(tab({ reach: reach({ k: 11 }) })).say, 'この予算に届く見込み 約 60%（試し）');
+  // 入力中の予算は、保存すると比べ直す
+  assert.ok(run('fcReachDoneTip(__r, 1)', { __r: reach({ done: true, actual: 121e6, k: 12 }) }).endsWith('\n入力中の予算は、保存すると比べ直します'));
+}
+
+// ==== 28. 比べた月がどれも売上 0 円: 精度の天気の霧の決まり（ホーム・AI の学びの画面での形は 24） ====
+{
+  assert.equal(run(`accRuleZ('mikakunin', true)`), '外れ幅を % で出せる月がまだない');
+  assert.equal(run(`accRuleZ('mikakunin', false)`), '比べられる実績がまだない', '売上 0 円でなければ今までどおり');
+  assert.equal(run(`accRuleZ('taifuu', true)`), run(`accRule('taifuu')`), '霧のほかは今までどおり');
+  // 外れ幅のあるメーカーがあれば、売上 0 円のメーカーがあっても霧にならない（決まりも今までどおり）
+  const fy = '2026', home = { fy, plans: [{ planId: 'P1', clientName: 'テスト製薬', fy, mape: null, scoredMonths: 2 }, { planId: 'P2', clientName: '別の製薬', fy, mape: 0.12, scoredMonths: 3 }] };
+  assert.match(run('S.lr.ai = { health: [], pending: [] }; homeLearnCard(__h, __h.plans)', { __h: home }), /data-tip="晴れのち曇り：外れ幅が 10〜15%\n外れ幅の平均 12\.0%（1 メーカー）/);
+}
+
+// ==== 29. 根拠「前回の予測からの変化」: 理由は changeCause から（日付は言わない） ====
+{
+  const basis = (o) => run(`S.fc.planId = 'P1'; S.fc.view = __v; S.fc.basis = __b; fcBasisTab(S.fc.data, __v)`, { __v: planView(), __b: Object.assign({ planId: 'P1', annual: { p50: 1000, prevP50: 900 },
+    monthly: [], research: [], applied: null, calibration: null, latestRunAt: '2026-10-08T10:00:00+09:00', prevRunAt: '2026-10-01T10:00:00+09:00', inputChanged: false, between: [] }, o) });
+  const H = '前回の予測からの変化', OPS = [{ at: '2026-10-05T10:00:00+09:00', action: 'PLAN.EDIT', actor: OWNER, changed: ['PRODUCT'] }];
+  assert.equal(tipOf(basis({ changeCause: 'jitter' }), H), '前の予測は、同じ入力でも実行ごとに少し揺れていました（今の版から、同じ入力なら同じ数字になります）');
+  assert.equal(tipOf(basis({ changeCause: 'calendar' }), H), '月が変わったため（締まった月の扱いが変わります）');
+  assert.equal(tipOf(basis({ changeCause: 'version' }), H), '計算の版が変わったため');
+  // inputs: 操作の一覧（説明なし）。none: 同じ入力（説明なし）
+  const inp = basis({ changeCause: 'inputs', inputChanged: true, between: OPS });
+  assert.ok(inp.includes('<h2>' + H + '</h2>'));
+  assert.match(inp, /<table class="tbl fc-ops">/);
+  assert.ok(basis({ changeCause: 'none', annual: { p50: 1000, prevP50: 1000 } }).includes('<h2>' + H + '</h2>'));
+  // changeCause が無い・知らない値: 操作が無ければ、日付を言わない一文。操作があれば説明なし（今までどおり）
+  const NEUTRAL = 'この間に計画への操作はありません。変化は、月が変わったことや計算の版の違いなどによるものです';
+  assert.equal(tipOf(basis({}), H), NEUTRAL);
+  assert.equal(tipOf(basis({ changeCause: 'other' }), H), NEUTRAL);
+  assert.ok(basis({ inputChanged: true, between: OPS }).includes('<h2>' + H + '</h2>'));
+  assert.doesNotMatch(uiHtml, /2026\/10\/08 より前の予測/);
+}
+
+// ==== 30. 空模様の理由「当たり具合の計算待ち」（skyReason eval_pending） ====
+{
+  const P = { planId: 'P1', clientName: 'テスト製薬', fy: '2026', sky: 'mikakunin', skyReason: 'eval_pending', landing: null };
+  const HOW = '各計画の振り返りで「当たり具合を計算」を動かすと出ます', HOW_V = '当たり具合が計算されると出ます';
+  assert.equal(run('skyReasonText(__p)', { __p: P }), '当たり具合の計算待ち');
+  assert.match(run(`skyRule('mikakunin')`), /・当たり具合の計算待ち）$/);
+  const kpiTip = (h, k) => (new RegExp('<div class="kpi" data-tip="([^"]*)"><div class="k">' + k + '</div>').exec(h) || [])[1];
+  const check = (how) => {
+    // メーカーの表の空模様・着地の推定のセル
+    assert.match(run('skyCell(__p)', { __p: P }), new RegExp('<span class="skycell" data-tip="霧：[^"\\n]*\\n当たり具合の計算待ち\\n' + how + '">'));
+    assert.equal(run('mkLanding(__p)', { __p: P }), '<td class="num" data-tip="着地を推定できません（当たり具合の計算待ち）\n' + how + '">-</td>');
+    // ホームのよみのセリフ（見える文は短く、出し方は説明に）
+    const says = Array.from(run('yomiSays(__h)', { __h: { fy: '2026', plans: [P, Object.assign({}, P, { planId: 'P2', clientName: '別の製薬', skyReason: 'no_budget' })] } }));
+    const fog = says.filter((x) => /は霧で/.test(x.text))[0];
+    assert.equal(fog.text, '2 メーカーは霧で、着地を推定できません（予算なし 1・当たり具合の計算待ち 1）。');
+    assert.ok(fog.tip.endsWith('\n当たり具合の計算待ちは、' + how), fog.tip);
+    // 分析: メーカーの札の説明・霧の数
+    assert.deepEqual(run('anPlanTip(__p)', { __p: P }).split('\n').slice(0, 3), ['テスト製薬', '霧：当たり具合の計算待ち', how]);
+    assert.ok(kpiTip(run('anTotals({ totals: {} }, __ps)', { __ps: [P] }), '霧の数').endsWith('\nテスト製薬（当たり具合の計算待ち）\n当たり具合の計算待ちは、' + how));
+  };
+  check(HOW);
+  asRoles(VIEWER_ROLES, () => check(HOW_V));
+  // ほかの理由には出し方を添えない
+  const nb = Object.assign({}, P, { skyReason: 'no_budget' });
+  assert.equal(run('skyHow(__p)', { __p: nb }), '');
+  assert.doesNotMatch(run('skyCell(__p)', { __p: nb }) + run('mkLanding(__p)', { __p: nb }), /を動かすと|計算されると/);
+  const one = Array.from(run('yomiSays(__h)', { __h: { fy: '2026', plans: [nb] } })).filter((x) => /は霧で/.test(x.text))[0];
+  assert.equal(one.tip, '霧：' + run(`skyRule('mikakunin')`));
 }
 
 console.log('app-ui-texts: all tests passed');

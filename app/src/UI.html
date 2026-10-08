@@ -922,7 +922,7 @@ var SKY8 = [
   { key: 'ame', name: '雨', rule: '着地の推定が予算の 50% 以下' },
   { key: 'sekka', name: '雪', rule: '予算があるのに売上が 0' },
   { key: 'tenpen', name: '天変地異', rule: '急な変化（1 か月の急変・2 か月続いたずれ・前回の予測から 30% 以上）' },
-  { key: 'mikakunin', name: '霧', rule: '推定できない（予算なし・予測なし・実績の取り込みが 3 か月以上遅れ）' }
+  { key: 'mikakunin', name: '霧', rule: '推定できない（予算なし・予測なし・実績の取り込みが 3 か月以上遅れ・当たり具合の計算待ち）' }
 ];
 /** 精度の天気（月の外れ幅の平均から。学びが荒れているときは台風）。振り返り・学びの進みに使う */
 var ACC_WEATHER = [
@@ -938,8 +938,11 @@ function skyKey(p){ var k = p && p.sky; return k && k !== 'taifuu' && CHAR_NAME[
 function skyName(key){ return CHAR_NAME[key] || '霧'; }
 function skyRule(key){ var s = SKY8.filter(function(x){ return x.key === key; })[0]; return s ? s.rule : ''; }
 function accRule(key){ var s = ACC_WEATHER.filter(function(x){ return x.key === key; })[0]; return s ? s.rule : ''; }
+/** 精度の天気の決まり。zero: 外れ幅が無く、比べた月がどれも売上 0 円のメーカーがある（zeroSales）。そのときの霧は「比べられる実績がまだない」と言わない */
+function accRuleZ(key, zero){ return key === 'mikakunin' && zero ? '外れ幅を % で出せる月がまだない' : accRule(key); }
 var SKY_REASON = { no_budget: '予算がまだありません', zero_sales: '予算があるのに、締まった月の売上が 0 です', no_forecast: '使える予測がまだありません',
-  stale_actuals: '実績の取り込みが 3 か月以上遅れています', shock: '直近の 1 か月で急な変化がありました', shift: '2 か月続けて予測からずれています', premise: '前回の予測から 30% 以上変わりました' };
+  stale_actuals: '実績の取り込みが 3 か月以上遅れています', shock: '直近の 1 か月で急な変化がありました', shift: '2 か月続けて予測からずれています', premise: '前回の予測から 30% 以上変わりました',
+  eval_pending: '当たり具合の計算待ち' };
 /** 空模様の理由（ふつうの言葉。ツールチップに使う） */
 function skyReasonText(p){
   if (!p) return '';
@@ -947,10 +950,14 @@ function skyReasonText(p){
   var t = SKY_REASON[p.skyReason] || '';
   return t && p.skyDir ? t + '（' + (p.skyDir === 'up' ? '上向き' : '下向き') + '）' : t;
 }
+/** 空模様の理由に添える出し方（当たり具合の計算待ちだけ。動かせる人には動かし方、ほかの人には「計算されると出ます」。runWhen）。無ければ '' */
+function skyHow(p){ return p && p.skyReason === 'eval_pending' ? runWhen() + '出ます' : ''; }
+/** 空模様の理由と出し方（説明の行。無いものは省く） */
+function skyWhy(p){ return [skyReasonText(p), skyHow(p)].filter(Boolean).join('\n'); }
 /** 天気のキャラの絵（px 四方。名前は aria-label。見える名前は呼び出し側で並べる） */
 function skyChar(key, px){ px = px || 32; return '<span class="skych" style="--sz:' + px + 'px" role="img" aria-label="' + esc(skyName(key)) + '">' + (CHAR_SVG[key] || '') + '</span>'; }   // 大きさは CSS の --sz（スマホの決まりで幅を変えられる）
 /** 表の中の空模様（キャラ 32px + 名前。説明は名前・決まり・理由）。メーカー・予測の「メーカーを選ぶ」で同じ形 */
-function skyCell(p, px){ var k = skyKey(p), why = skyReasonText(p); return '<span class="skycell" data-tip="' + esc(skyName(k) + '：' + skyRule(k) + (why ? '\n' + why : '')) + '">' + skyChar(k, px || 32) + '<span class="skyn">' + esc(skyName(k)) + '</span></span>'; }
+function skyCell(p, px){ var k = skyKey(p), why = skyWhy(p); return '<span class="skycell" data-tip="' + esc(skyName(k) + '：' + skyRule(k) + (why ? '\n' + why : '')) + '">' + skyChar(k, px || 32) + '<span class="skyn">' + esc(skyName(k)) + '</span></span>'; }
 /** 精度の天気のキー: 外れ幅（MAPE）が 10% 未満 快晴・15% 未満 晴れのち曇り・20% 未満 曇り・30% 未満 雨・それ以上か荒れている 台風・値なし 霧 */
 function accWeather(mape, turbulent){
   if (turbulent) return 'taifuu';
@@ -1643,7 +1650,7 @@ function homeLearnCard(h, plans){
   // まだ比べた月が無いときは、荒れていても（補正が限度に張りついただけでも）出し方を言う（動かせない人には「計算されると出ます」）
   // 比べた月がどれも売上 0 円なら、「まだ」とも動かし方とも言わず、外れ幅を % で出せないと言う（homeNoMape）
   var zero = m.v === null && zeroSales(plans.filter(function(p){ return !isNum(p.mape); })).zero > 0;
-  var wTip = skyName(key) + '：' + accRule(key) + (m.v === null ? '\n' + homeNoMape(plans, !nRough) : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
+  var wTip = skyName(key) + '：' + accRuleZ(key, zero) + (m.v === null ? '\n' + homeNoMape(plans, !nRough) : '\n外れ幅の平均 ' + (m.v * 100).toFixed(1) + '%（' + m.n + ' メーカー）')
     + (nRough ? '\n荒れている印: ' + Object.keys(roughN).map(function(k){ return HOME_ROUGH[k] + ' ' + Object.keys(roughN[k]).length; }).join('・') : '') + '\n精度の推移は、学びの「AI の学び」で見られます';
   // 荒れの印が 1 種類だけなら、その印の名前で言う（補正が限度に張りついただけで「荒れています」とまとめない）
   var kinds = Object.keys(roughN), sub = nRough ? (kinds.length === 1 ? HOME_ROUGH_SHORT[kinds[0]] : '荒れています') + '（' + nRough + ' メーカー）' : m.v === null ? (zero ? '売上 0 円の月だけ' : '比べる実績はまだです') : '外れ幅 ' + (m.v * 100).toFixed(1) + '%';
@@ -1756,8 +1763,9 @@ function yomiSays(h){
     items.map(function(x){ return x[1] + '\n' + x[2]; }).join('\n\n'), null, true);
   var fog = plans.filter(function(p){ return skyKey(p) === 'mikakunin'; });
   if (fog.length) {
-    var kinds = [['no_budget', '予算なし'], ['no_forecast', '予測なし'], ['stale_actuals', '実績の遅れ']].map(function(k){ var c = fog.filter(function(p){ return p.skyReason === k[0]; }).length; return c ? k[1] + ' ' + c : ''; }).filter(Boolean).join('・');
-    add(6, 'info', 'observe', n(fog) + 'は霧で、着地を推定できません' + (kinds ? '（' + kinds + '）' : '') + '。', '霧：' + skyRule('mikakunin'), mk);
+    var kinds = [['no_budget', '予算なし'], ['no_forecast', '予測なし'], ['stale_actuals', '実績の遅れ'], ['eval_pending', '当たり具合の計算待ち']].map(function(k){ var c = fog.filter(function(p){ return p.skyReason === k[0]; }).length; return c ? k[1] + ' ' + c : ''; }).filter(Boolean).join('・');
+    var evalWait = fog.filter(function(p){ return p.skyReason === 'eval_pending'; })[0];   // 当たり具合の計算待ちがあれば、出し方を説明に添える
+    add(6, 'info', 'observe', n(fog) + 'は霧で、着地を推定できません' + (kinds ? '（' + kinds + '）' : '') + '。', '霧：' + skyRule('mikakunin') + (evalWait ? '\n当たり具合の計算待ちは、' + skyHow(evalWait) : ''), mk);
   }
   var noRun = plans.filter(function(p){ return !p.runs && !isNum(p.p50); });
   if (noRun.length) add(7, 'info', 'explain', n(noRun) + 'は、まだ予測がありません。', '予測の画面の「進み」で、売上を取り込む → 月ごとに集計 → 予測 の順に進めます', mk);
@@ -1810,7 +1818,7 @@ function mkProb(v, sd){ return sd === 0 ? Math.round(v * 100) + '%' : v < 0.01 ?
 /** 着地の推定のセル（説明: 80% の幅・予算を超える確率・予算に対する割合。12 か月の実績がそろった年度は、確定した値） */
 function mkLanding(p){
   var l = p.landing;
-  if (!isNum(l)) return '<td class="num" data-tip="' + esc('着地を推定できません' + (skyReasonText(p) ? '（' + skyReasonText(p) + '）' : '')) + '">-</td>';
+  if (!isNum(l)) return '<td class="num" data-tip="' + esc('着地を推定できません' + (skyReasonText(p) ? '（' + skyReasonText(p) + '）' : '') + (skyHow(p) ? '\n' + skyHow(p) : '')) + '">-</td>';
   var t = [], closed = p.actualMonths >= 12 || p.landingSd === 0;
   if (closed) t.push('確定（' + (p.actualMonths || 12) + ' か月の実績）');
   else if (isNum(p.landingP10) && isNum(p.landingP90)) t.push('80% の幅: ' + yen(p.landingP10) + '〜' + yen(p.landingP90) + ' 円');
@@ -2109,7 +2117,7 @@ function fcForecastTab(d, v){
   if (!ran || !sec) return cfHtml + runCard + guide(canPlan ? 'explain' : 'observe', canPlan ? '予測を実行すると、年度の見通し（下振れ・中心・上振れ）と、月ごとの予算の欄がここに出ます。' : 'まだ予測がありません。予測の実行は予算策定担当ができます。実行すると、月ごとの見通しと予算がここに出ます。');
   var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, al = sh && sh.aligned;   // 試しの数（年度の見込み・予算に届く見込み。保存している数字は変えない）
   html += '<div class="kpis">' + fcKpi(qName('p10'), annual.p10, false, qTip('p10') + '（年度合計）')
-    + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）', false, al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al) } : null)
+    + fcKpi(qName('p50'), annual.p50, true, qTip('p50') + '（年度合計）', false, al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al, sh.reach) } : null)
     + fcKpi(qName('p90'), annual.p90, false, qTip('p90') + '（年度合計）') + fcKpi('最終予算', sec.annual.final, false, '採用予測と上乗せの年度合計') + '</div>';
   html += cfHtml + runCard;
   // 予算（採用予測と上乗せを入れる。最終予算 = 採用予測 + 上乗せ は保存すると計算し直す）
@@ -2126,35 +2134,65 @@ function fcForecastTab(d, v){
     + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td><td class="num">' + yen(sec.annual.adopted) + '</td><td class="num">' + yen(sec.annual.uplift) + '</td><td class="num">' + yen(sec.annual.final) + '</td></tr>'
     + '</tbody></table>';
   var foot = canPlan && (S.cv.fcMonthly === 'table' || dirty);
-  var rc = sh && sh.reach, reach = rc && rc.draft ? '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + '（試し）</span>' : '';
-  html += '<div class="card"><div class="card-head"><h2>月ごとの見通しと予算' + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。年度合計の下振れ〜上振れは月の合計ではなく、年度で計算した値です') + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
+  // 予算に届く見込み（試し）。年度が締まった（サーバーの reach.done。無ければ締め済みの年度か 12 か月の実績がそろった）ら、見込みではなく届いたかどうか
+  var rc = sh && sh.reach, rcDone = rc && fcReachDone(rc, !!(d.plan && d.plan.frozen) || !!(v.plan && v.plan.frozen));
+  var reach = !(rc && rc.draft) ? '' : rcDone ? '<span class="meta" data-tip="' + esc(fcReachDoneTip(rc, dirty)) + '">' + esc(fcReachDoneSay(rc)) + '</span>'
+    : '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + '（試し）</span>';
+  html += '<div class="card"><div class="card-head"><h2>月ごとの見通しと予算' + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。年度合計（下振れ・中心・上振れ）は月の合計ではなく、年度で計算した値です') + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
     + chartOrTable('fcMonthly', chart, table)
     + (foot ? '<div class="card-foot">' + actBtn(fcSaveBtn('予算を保存', 'fcSaveBudget()', dirty), '採用予測と上乗せを保存し、最終予算を計算し直します') + (dirty ? '<span class="chip warn">未保存</span>' : '') + '</div>' : '') + '</div>';
   return html;
 }
 /** 試しの確率（サーバーが 5% 刻みに丸めた整数）の言い方: 0 → 5% 未満・100 → 95% 超・ほか → 約 N% */
 function reachPct(pct){ return !isNum(pct) ? '-' : pct <= 0 ? '5% 未満' : pct >= 100 ? '95% 超' : '約 ' + pct + '%'; }
+/** 着地見込みの前提の 2 つの値の見せ方（年の水準のぶれは 0.1%・幅の倍率は 0.01 倍に丸める。学んだ値と使っている値も、この丸めで比べる） */
+function landTau(v){ return isNum(v) ? Math.round(v * 1000) / 10 + '%' : '-'; }
+function landW(v){ return isNum(v) ? Math.round(v * 100) / 100 + ' 倍' : '-'; }
 /** 着地見込みの前提の 2 つの値の言い方（中の記号は出さない）: 年の水準のぶれ 15%・幅の倍率 1 倍 */
-function reachAssume(x){
-  var t = isNum(x && x.tau) ? Math.round(x.tau * 1000) / 10 + '%' : '-', w = isNum(x && x.w) ? Math.round(x.w * 100) / 100 + ' 倍' : '-';
-  return '年の水準のぶれ ' + t + '・幅の倍率 ' + w;
+function reachAssume(x){ return '年の水準のぶれ ' + landTau(x && x.tau) + '・幅の倍率 ' + landW(x && x.w); }
+/**
+ * 年度の見込みの試し（月の合計でそろえた中心と幅）の説明。この計画の年度合計の数字の出どころも言う。金額はほかの数字の箱の説明と同じく円まで（yenU）。
+ * 幅は、締まった月が無いとき（サーバーの aligned.k が 0・無い）だけ。年度の途中は着地の推定の幅（rc: 予算に届く見込みの中身。あればその幅を添える）、
+ * 12 か月が締まった（aligned.done）ら幅は無い
+ */
+function fcAlignedTip(a, rc){
+  var band = isNum(a.p10) && isNum(a.p90) && !(a.k > 0) && !a.done;
+  var inYear = a.done ? '12 か月の実績がそろったので、幅はありません'
+    : '年度の途中の幅は、着地の推定（締まった' + (a.k > 0 ? ' ' + a.k + ' か月' : '月') + 'の実績を入れた見込み）の幅で見ます'
+      + (rc && isNum(rc.p10) && isNum(rc.p90) ? ': 80% の幅 ' + yenU(rc.p10) + '〜' + yenU(rc.p90) : '');
+  return ['この計画の年度合計（下振れ・中心・上振れ）は、年度の売上を何度も試して出した値です（月の合計とずれることがあり、幅も狭めに出ます）',
+    '月の合計でそろえると 中心 ' + yenU(a.center) + (band ? '・80% の幅 ' + yenU(a.p10) + '〜' + yenU(a.p90) : '') + '（試し）',
+    band ? '月ごとの中心を足し、着地見込みと同じ式（締まった月なし・' + reachAssume(a) + '）で幅をつけた試しの値です。保存している数字は変わりません'
+      : '月ごとの中心を足した試しの値です。' + inYear + '。保存している数字は変わりません'].join('\n');
 }
-/** 年度の見込みの試し（月の合計でそろえた中心と幅）の説明。今の年度の数字の出どころも言う */
-function fcAlignedTip(a){
-  return '今の年度の下振れ・中心・上振れは、年度の売上を何度も試して出した値です（月の合計とずれることがあり、幅も狭めに出ます）\n'
-    + '月の合計でそろえると 中心 ' + yenShort(a.center) + '・80% の幅 ' + yenShort(a.p10) + '〜' + yenShort(a.p90) + '（試し）\n'
-    + '月ごとの中心を足し、着地見込みと同じ式（締まった月なし・' + reachAssume(a) + '）で幅をつけた試しの値です。保存している数字は変わりません';
-}
-/** 予算に届く見込み（試し）の説明: 届く金額（50〜80%）・前提・公式版の予算・入力中の予算 */
+/** 予算に届く見込み（試し）の説明: 届く金額（50〜80%）・前提（着地の推定と幅）・公式版の予算・入力中の予算。金額は円まで（50・60・70% の金額が同じに見えないように） */
 function fcReachTip(rc, dirty){
   var d = rc.draft, o = rc.official;
   return ['この予算に届く見込み（試し）: ' + reachPct(d.pct),
     '今の最終予算 ' + yenU(d.budget) + '（採用予測 = 約束、上乗せ = 挑戦）',
-    '届く見込みが ' + (rc.amounts || []).map(function(a){ return a.pct + '% の金額 ' + yenShort(a.amount); }).join('・'),
-    '前提: 中心 ' + yenShort(rc.center) + '・80% の幅 ' + yenShort(rc.p10) + '〜' + yenShort(rc.p90) + '・' + reachAssume(rc) + (rc.k ? '（締まった ' + rc.k + ' か月の実績を入れています）' : '（締まった月はまだありません）'),
+    '届く見込みが ' + (rc.amounts || []).map(function(a){ return a.pct + '% の金額 ' + yenU(a.amount); }).join('・'),
+    '前提: 着地の推定 ' + yenU(rc.center) + '・80% の幅 ' + yenU(rc.p10) + '〜' + yenU(rc.p90) + '・' + reachAssume(rc) + (rc.k ? '（締まった ' + rc.k + ' か月の実績を入れています）' : '（締まった月はまだありません）'),
     o ? '承認済みの公式版' + (o.versionNo ? '（v' + o.versionNo + '）' : '') + 'の最終予算 ' + yenU(o.budget) + ' には ' + reachPct(o.pct) : '',
     dirty ? '入力中の予算は、保存すると計算し直します' : '',
     '着地見込みと同じ計算の試しです。保存している数字は変わりません'].filter(Boolean).join('\n');
+}
+/** 年度が締まって、届く見込みではなく届いたかどうかを言うか（サーバーの reach.done か、締め済みの年度。done が無いサーバーでは 12 か月の実績がそろったときも） */
+function fcReachDone(rc, frozen){ return rc.done === true || frozen || (rc.done === undefined && rc.k >= 12); }
+/** 締まった年度の実績の合計（サーバーの reach.actual。無ければ締まった月の実績の合計） */
+function fcReachActual(rc){ return isNum(rc.actual) ? rc.actual : isNum(rc.actualYtd) ? rc.actualYtd : null; }
+function fcReached(actual, budget){ return isNum(actual) && isNum(budget) && actual >= budget; }
+/** 締まった年度の見える一文: この予算に届きました／届きませんでした（実績の合計 …） */
+function fcReachDoneSay(rc){
+  var A = fcReachActual(rc);
+  return 'この予算に' + (fcReached(A, rc.draft.budget) ? '届きました' : '届きませんでした') + '（実績の合計 ' + (isNum(A) ? yenShort(A) + '円' : '-') + '）';
+}
+/** 締まった年度の説明（届く金額・前提は言わない）: 予算と実績の合計・公式版の予算・入力中の予算 */
+function fcReachDoneTip(rc, dirty){
+  var A = fcReachActual(rc), o = rc.official, said = function(b){ return fcReached(A, b) ? '届きました' : '届きませんでした'; };
+  return ['今の最終予算 ' + yenU(rc.draft.budget) + ' に' + said(rc.draft.budget),
+    '実績の合計 ' + yenU(A) + (isNum(rc.k) && rc.k > 0 ? '（締まった ' + rc.k + ' か月）' : ''),
+    o ? '承認済みの公式版' + (o.versionNo ? '（v' + o.versionNo + '）' : '') + 'の最終予算 ' + yenU(o.budget) + ' には' + said(o.budget) : '',
+    dirty ? '入力中の予算は、保存すると比べ直します' : ''].filter(Boolean).join('\n');
 }
 /** 金額の欄に入れる見せ方（数なら 3 けたごとに区切る。打ちかけの文字はそのまま） */
 function fcYenIn(v){ if (v === null || v === undefined || v === '') return ''; var n = Number(String(v).replace(/[,\s]/g, '')); return String(v).trim() !== '' && isFinite(n) ? Math.round(n).toLocaleString('ja-JP') : String(v); }
@@ -2319,11 +2357,23 @@ function fcBasisTab(d, v){
   // 前回の予測からの変化
   if (hasRun && r.prevRunAt) {
     var say = chg === null ? '年度の中心の変化は、比べられません' : Math.abs(chg) < 1 ? '年度の中心は、前回から変わっていません' : '年度の中心は前回より ' + yenShort(Math.abs(chg)) + '円 ' + (chg > 0 ? '上がりました' : '下がりました');
-    html += '<div class="card"><div class="card-head"><h2>前回の予測からの変化' + (r.inputChanged ? '' : tip('この間に計画への操作はありません。変化は、月が変わったことや計算の版の違いによるものです（2026/10/08 より前の予測は、同じ入力でも実行ごとに少し揺れていました）')) + '</h2><span class="meta">' + esc(fcDate(r.prevRunAt)) + ' → ' + esc(fcDate(r.latestRunAt)) + '</span></div>'
+    html += '<div class="card"><div class="card-head"><h2>前回の予測からの変化' + tip(fcChangeWhy(r)) + '</h2><span class="meta">' + esc(fcDate(r.prevRunAt)) + ' → ' + esc(fcDate(r.latestRunAt)) + '</span></div>'
       + '<p class="fc-say"' + (isNum(chg) ? ' data-tip="' + esc((chg > 0 ? '+' : '') + yenU(chg)) + '"' : '') + '>' + esc(say) + '</p>'
       + ((r.between || []).length ? '<div class="mt12">' + fcOpsTable(r.between) + '</div>' : '') + '</div>';
   }
   return html;
+}
+
+/**
+ * 前回の予測からの変化の理由（見出しの説明）。サーバーの changeCause: inputs（計画への操作。下の表で見せるので説明なし）・none（同じ入力。説明なし）・
+ * jitter（前の予測の揺れ）・calendar（月が変わった）・version（計算の版が変わった）。無い・知らない値のときは、操作が無ければ日付を言わない一文
+ */
+var FC_CHANGE_WHY = { jitter: '前の予測は、同じ入力でも実行ごとに少し揺れていました（今の版から、同じ入力なら同じ数字になります）',
+  calendar: '月が変わったため（締まった月の扱いが変わります）', version: '計算の版が変わったため' };
+function fcChangeWhy(r){
+  var c = r && r.changeCause;
+  if (c === 'inputs' || c === 'none') return '';
+  return (FC_CHANGE_WHY.hasOwnProperty(c) && FC_CHANGE_WHY[c]) || (r && r.inputChanged ? '' : 'この間に計画への操作はありません。変化は、月が変わったことや計算の版の違いなどによるものです');
 }
 
 // ---- 入力 ----
@@ -2774,7 +2824,7 @@ function anWhy(p, need){
 }
 /** メーカーの数字の説明（空模様の札・グラフの印に使う） */
 function anPlanTip(p, more){
-  var k = skyKey(p), b = planBudget(p), lines = [p.clientName, skyName(k) + '：' + (skyReasonText(p) || skyRule(k))];
+  var k = skyKey(p), b = planBudget(p), lines = [p.clientName, skyName(k) + '：' + (skyReasonText(p) || skyRule(k))].concat(skyHow(p) ? [skyHow(p)] : []);
   if (isNum(p.landing)) lines.push('着地の推定 ' + anYen(p.landing) + (isNum(b) && b > 0 ? '（予算 ' + anYen(b) + '）' : ''));
   if (isNum(p.landingP10) && isNum(p.landingP90)) lines.push('80% の幅（' + qName('p10') + '〜' + qName('p90') + '） ' + yenShort(p.landingP10) + '〜' + anYen(p.landingP90));
   if (isNum(p.pAbove)) lines.push('予算を超える確率 ' + anProbP(p));
@@ -2822,7 +2872,8 @@ function anTotals(d, plans){
     + anKpi('着地の推定', isNum(t.landing) ? yenShort(t.landing) : '-', '円', lTip, false, isNum(t.landing) ? [cnt(withL.length), isNum(t.ratioLanding) ? '予算の ' + (t.ratioLanding * 100).toFixed(1) + '%' + (sameN ? '' : '（同じ ' + bothN + '）') : ''] : '')
     + anKpi('予算超えの見込み', String(above.length), 'メーカー', '着地の推定が予算を上回る見込みのメーカー（予算と着地の推定がある ' + withR.length + ' メーカーのうち）'
       + (above.length ? '\n' + above.map(function(p){ return p.clientName + ' ' + Math.round(p.ratio * 100) + '%'; }).join('\n') : ''))
-    + anKpi('霧の数', String(fog.length), 'メーカー', skyRule('mikakunin') + (fog.length ? '\n' + fog.map(function(p){ return p.clientName + '（' + (skyReasonText(p) || '推定できません') + '）'; }).join('\n') : ''))
+    + anKpi('霧の数', String(fog.length), 'メーカー', skyRule('mikakunin') + (fog.length ? '\n' + fog.map(function(p){ return p.clientName + '（' + (skyReasonText(p) || '推定できません') + '）'; }).join('\n') : '')
+      + (fog.filter(skyHow).length ? '\n当たり具合の計算待ちは、' + skyHow(fog.filter(skyHow)[0]) : ''))
     + '</div>';
 }
 function anKpi(label, v, unit, tipText, main, sub){ var subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean); return '<div class="kpi' + (main ? ' main' : '') + '" data-tip="' + esc(tipText) + '"><div class="k">' + esc(label) + '</div><div class="v">' + esc(v) + (v === '-' ? '' : '<span class="u">' + esc(unit) + '</span>') + '</div>' + subs.map(kpiSub).join('') + '</div>'; }
@@ -3383,7 +3434,7 @@ function lrAiHero(d){
     var ft = w[1] + (LR_ROUGH[k.key] ? '（荒れの印）' : '（荒れの印には数えません）') + '\n' + k.items.map(function(h){ var v = flagVal(h); return h.clientName + (v ? '　' + v : ''); }).join('\n');
     return '<span class="chip" tabindex="0" data-tip="' + esc(ft) + '">' + esc(w[0]) + ' ' + k.items.length + '</span>';
   }).join('') + '</div>' : '';
-  var wxTip = '精度の天気「' + skyName(wk) + '」: ' + accRule(wk) + (isNum(m.v) ? '\n外れ幅 ' + pct0(m.v) + ' = ' + m.how : z.zero ? '\n' + zeroSay(z) : '')
+  var wxTip = '精度の天気「' + skyName(wk) + '」: ' + accRuleZ(wk, z.zero > 0) + (isNum(m.v) ? '\n外れ幅 ' + pct0(m.v) + ' = ' + m.how : z.zero ? '\n' + zeroSay(z) : '')
     + '\n荒れている = 今の年度に、補正が限度に張りついた計画か、見通しの幅に収まる割合が 80% より低い計画がある（ホームと同じ決まり）';
   return '<div class="card"><div class="hero lr-hero"><div class="charbox">' + YOMI_POSE[rough ? 'discover' : isNum(m.v) || z.zero ? 'explain' : 'guide'] + '</div>'
     + '<div class="bubble">' + (sayTip ? '<span data-tip="' + esc(sayTip) + '">' + esc(t) + '</span>' : esc(t)) + flags + '</div>'
@@ -3492,25 +3543,35 @@ function lrCalCard(cal, health){
   return lrCard('補正の履歴', 'これまでの外れ方から、予測をどれだけ下げ・上げているかの移り変わりです（0% = 補正なし）。月次の自動学習・承認した見直し案・所有者が承認した値で変わります。表には信頼度の変更も出ます',
     chartOrTable('lrCal', chart, table), now + sel);
 }
+/** [値, 札] の並びを言う: 札が全部同じなら最後に 1 つ（「A・B（札）」）、違えばそれぞれに（「A（札1）・B（札2）」） */
+function tagJoin(items){
+  if (!items.length) return '';
+  var same = items.every(function(x){ return x[1] === items[0][1]; });
+  return same ? items.map(function(x){ return x[0]; }).join('・') + items[0][1] : items.map(function(x){ return x[0] + x[1]; }).join('・');
+}
 /**
- * 着地の幅の学び（試し）: 全計画の締まった月から学んだ年の水準のぶれ・幅の倍率（サーバーの landing.learned）と、今使っている値（landing.used）。
- * 学んだ値は、所有者が承認して設定に書くまで着地見込みには使わない（2026-10-08 判断 29）。学べた値も承認した値も無ければ出さない
+ * 着地の幅の学び（試し）: 今使っている値（サーバーの landing.used。所有者が承認して設定に書いた値か、決まった値 15%・1 倍）と、
+ * 全計画の締まった月から学んだ年の水準のぶれ・幅の倍率（landing.learned。試し）を分けて出す。
+ * 学んだ値は、所有者が承認して設定に書くまで着地見込みには使わない（2026-10-08 判断 29）。値ごとに、設定に書いた値（tauSet・wSet）と
+ * 見せる丸め（0.1%・0.01 倍）で同じなら「承認して使っています」。学べた値も承認した値も無ければ出さない
  */
 function lrLandingCard(x){
   var l = x && x.learned, u = x && x.used;
   if (!l || !u || !(l.tauLearned || l.wLearned || u.tauSet || u.wSet)) return '';
-  var near = function(a, b){ return isNum(a) && isNum(b) && Math.abs(a - b) < 1e-9; };
-  var same = (!l.tauLearned || (u.tauSet && near(u.tau, l.tau))) && (!l.wLearned || (u.wSet && near(u.w, l.w)));
-  var parts = [], one = reachAssume(l).split('・');
-  if (l.tauLearned) parts.push(one[0]);
-  if (l.wLearned) parts.push(one[1]);
-  var line = '全計画から学んだ値（試し）: ' + (parts.length ? parts.join('・') + (same ? '（承認して使っています）' : '（承認すると使います）') : 'まだありません');
-  var from = [u.tauFrom, u.wFrom].filter(Boolean).sort().pop();
+  var T = function(v){ return '年の水準のぶれ ' + landTau(v); }, W = function(v){ return '幅の倍率 ' + landW(v); };
+  var used = function(set, a, b, fmt){ return set && fmt(a) === fmt(b) ? '（承認して使っています）' : '（承認すると使います）'; };
+  var learned = [];
+  if (l.tauLearned) learned.push([T(l.tau), used(u.tauSet, u.tau, l.tau, landTau)]);
+  if (l.wLearned) learned.push([W(l.w), used(u.wSet, u.w, l.w, landW)]);
+  var kind = function(set){ return set ? '（承認した値）' : '（決まった値）'; };
+  var since = function(set, from){ return set ? '（所有者が承認' + (from ? ' ' + fcDate(from) + ' から' : '') + '）' : '（決まった値）'; };
+  var now = '今の値: ' + tagJoin([[T(u.tau), kind(u.tauSet)], [W(u.w), kind(u.wSet)]]);
+  var line = '全計画から学んだ値（試し）: ' + (learned.length ? tagJoin(learned) : 'まだありません');
   var tipText = '着地見込みの幅を決める 2 つの値です。年の水準のぶれ = 1 年の売上の水準が、予測からどれだけずれうるか。幅の倍率 = 月の見通しの幅を何倍に広げるか\n'
-    + '全計画の締まった月から学んだ値です（年の水準のぶれは締まった月が 3 か月以上ある計画が 3 つ以上・幅の倍率は 12 か月以上で学びます。今は ' + (l.planCount || 0) + ' 計画・' + (l.monthCount || 0) + ' か月）。'
-    + '所有者が承認するまで、着地見込み・予算に届く見込みには使いません\n'
-    + '今使っている値: ' + reachAssume(u) + (u.tauSet || u.wSet ? '（所有者が承認' + (from ? ' ' + fcDate(from) + ' から' : '') + '）' : '（決まった値）');
-  return lrCard('着地の幅の学び', tipText, '<p class="note">' + esc(line) + '</p>');
+    + '今使っている値: ' + tagJoin([[T(u.tau), since(u.tauSet, u.tauFrom)], [W(u.w), since(u.wSet, u.wFrom)]]) + '\n'
+    + '学んだ値は、全計画の締まった月から学んだ試しの値です（年の水準のぶれは締まった月が 3 か月以上ある計画が 3 つ以上・幅の倍率は 12 か月以上で学びます。今は ' + (l.planCount || 0) + ' 計画・' + (l.monthCount || 0) + ' か月）。'
+    + '所有者が承認するまで、着地見込み・予算に届く見込みには使いません';
+  return lrCard('着地の幅の学び', tipText, '<p class="note">' + esc(now) + '</p><p class="note">' + esc(line) + '</p>');
 }
 // ==== END REGION: LEARNING ====
 
