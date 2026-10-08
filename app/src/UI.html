@@ -2504,7 +2504,8 @@ function fcInputTab(d, v){
 }
 /**
  * 入力中の行（種類ごと）。開いたときの行には、読んだ行（計画の画面の boot.input のその種類）の何番目か（_lk。入力の記録も同じ番号。画面だけの印で、
- * 保存では fromRow として送る）と、一番新しい自信（製品とメーカー全体）を付ける。行を外しても足しても、跡と自信と元の位置はその行についていく。
+ * 保存では fromRow として送る）と、一番新しい自信（製品とメーカー全体）を付ける。開いたときの自信は _conf0 にも控える（画面だけの印。
+ * 保存で、自信を変えた行かを見分ける）。行を外しても足しても、跡と自信と元の位置はその行についていく。
  * 記録が届かなかった（読めない・移行の前）ときは自信を付けない（送らなければ、サーバーは今の自信のままにする）。
  * 入力中の行は、作った計画（planId）と、もとにした行（src）を持つ（別の計画・読み直す前の入力の行を、今の計画へ保存しない）
  */
@@ -2518,7 +2519,7 @@ function fcDraft(kind){
     dr[kind] = JSON.parse(src).map(function(r, i){
       var e = fcInLog(kind, { _lk: i });
       r._lk = i;
-      if (FC_CONF_KINDS[kind] && logged) r.selfConf = e && e.conf ? e.conf : '';
+      if (FC_CONF_KINDS[kind] && logged) r.selfConf = r._conf0 = e && e.conf ? e.conf : '';
       return r;
     });
     dr[kind].planId = pid; dr[kind].src = src;
@@ -2536,16 +2537,19 @@ function fcInput(i, k, val){ fcDraft(S.fc.inputKind)[i][k] = val; if (!S.fc.inpu
 function fcInputAdd(){ fcDraft(S.fc.inputKind).push({}); S.fc.inputDirty[S.fc.inputKind] = true; render(); }
 function fcInputDel(i){ fcDraft(S.fc.inputKind).splice(i, 1); S.fc.inputDirty[S.fc.inputKind] = true; render(); }
 /**
- * 保存で送る行: 画面だけの印（_lk）は送らない。開いたときの行から来た行には、その行が読んだ行の何番目だったか（fromRow: 0 から。
- * 計画の画面の boot.input のその種類の順）を付ける。足した行と、値をすべて空にした行（旧来の保存が書かない行）には付けない
+ * 保存で送る行: 画面だけの印（_lk・_conf0。_ で始まる）は送らない。開いたときの行から来た行には、その行が読んだ行の何番目だったか（fromRow: 0 から。
+ * 計画の画面の boot.input のその種類の順）を付ける。足した行と、値をすべて空にした行（旧来の保存が書かない行）には付けない。
+ * 自信（selfConf）は、開いたときの自信（_conf0）から変えた行だけ送る（送らない行は、サーバーが今の自信のままにする。開いた後にほかの人が変えた自信を、
+ * この画面の古い値で戻さない）。自信を「—」に戻したら空を送る。開いたときの自信が無い行（足した行・記録が届かなかったとき）は、選んだら送る
  */
 function fcInputOut(r){
   var o = {}, any = false;
   Object.keys(r).forEach(function(k){
-    if (k === '_lk') return;
+    if (k.charAt(0) === '_' || k === 'selfConf') return;
     o[k] = r[k];
-    if (k !== 'selfConf' && String(r[k] || '').trim() !== '') any = true;   // 旧来の webSaveInputs と同じ見分け方（自信は旧来に渡さない）
+    if (String(r[k] || '').trim() !== '') any = true;   // 旧来の webSaveInputs と同じ見分け方（自信は旧来に渡さない）
   });
+  if ('selfConf' in r && !('_conf0' in r && String(r.selfConf || '') === String(r._conf0 || ''))) o.selfConf = r.selfConf;
   if (typeof r._lk === 'number' && any) o.fromRow = r._lk;
   return o;
 }
@@ -2557,7 +2561,9 @@ function fcSaveInput(){
     ask(FC_STALE_MSG, '出し直す', function(){ if (S.fc.draft[kind] === cur) { delete S.fc.draft[kind]; delete S.fc.inputDirty[kind]; } render(); }, true);
     return;
   }
-  fcEdit('INPUT.SAVE', { kind: kind, rows: fcDraft(kind).map(fcInputOut) });
+  // fromRows: この画面の保存は、どの行も開いたときの行の印（fromRow）で前と後を組む（印の無い行は足した行。開いたときの行をすべて外して足しても、
+  // 位置で組んで「変えた」としない）
+  fcEdit('INPUT.SAVE', { kind: kind, fromRows: true, rows: fcDraft(kind).map(fcInputOut) });
 }
 /** 自信（入力の記録にだけ残す。予測の計算には使わない。2026-10-08 村井さん承認） */
 var FC_CONF_KINDS = { product: true, client: true };
