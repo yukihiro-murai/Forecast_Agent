@@ -2,7 +2,9 @@
  * Engine.js — 予測の計算を動かす土台（段階2）。
  * 旧来の計算（Forecast_Agent.js）は書き換えず、新アプリの中の「計算用ブック」の上で動かす。
  * 計算用ブックは「Trends2Targets_System」フォルダに 1 つだけ置き、実行のたびに中身を入れ替える（所有者だけ・人は触らない）。
- * 乱数は実行ごとの種（seed）で固定し、同じ入力と同じ種なら同じ P10/P50/P90 になるようにする（FORECAST_RUNS に種を残す）。
+ * 乱数は種（seed）で固定し、同じ入力と同じ種なら同じ P10/P50/P90 になるようにする（FORECAST_RUNS に種を残す）。
+ * 予測（A-9）の種は、予測が読む表の中身と計算の版から決める（Forecast.js の appForecastSeed_。2026-10-08 村井さん承認 決定 13:
+ * 同じ入力なら同じ数字）。旧来の計算が作る ID（snapshot_id・run_id など）は、実行ごとに違う種（実行の ID）から作る（uuidSeed）。
  */
 
 /** 文字列から 128 ビットの種を作る（cyrb128） */
@@ -237,12 +239,12 @@ function appBlockedService_(name) {
 
 /**
  * 旧来の計算に渡すサービス一式。book = 計算用ブック（旧来の「開いているスプレッドシート」の代わり）。
- * opts: { asOfMs, seed }
+ * opts: { asOfMs, seed, uuidSeed }。ID（Utilities.getUuid）は uuidSeed から（無ければ seed から）作る
  */
 function appLegacyServices_(book, opts) {
   const realSA = SpreadsheetApp;
   const realUtil = Utilities;
-  const uuid = appSeededUuidMaker_(opts.seed);
+  const uuid = appSeededUuidMaker_(opts.uuidSeed !== undefined && opts.uuidSeed !== null && opts.uuidSeed !== '' ? opts.uuidSeed : opts.seed);
   const pass = (real, overrides) => new Proxy({}, {
     get(t, prop) {
       if (Object.prototype.hasOwnProperty.call(overrides, prop)) return overrides[prop];
@@ -294,20 +296,27 @@ function appLegacyServices_(book, opts) {
 }
 
 /**
- * 計算用ブックの上で旧来の予測（A-9 runPhase1Forecast）を動かす。種と「今」を固定する。
- * opts: { asOfMs, seed, confirms: ['extreme', ...] }。返り値: { ok, needConfirm?, version, sourceSha256 }
+ * 計算用ブックの上で旧来の予測（A-9 runPhase1Forecast）を動かす。乱数の種・ID の種・「今」を固定する。
+ * opts: { asOfMs, seed, uuidSeed, confirms: ['extreme', ...], actor }
+ *   seed     … 乱数（Math.random）の種。文字か、旧来の計算の版（{ version, sourceSha256 }）から種を作る関数
+ *               （予測は Forecast.js の appForecastSeed_: 同じ入力・同じ版なら同じ種 = 同じ P10/P50/P90）
+ *   uuidSeed … 旧来の計算が作る ID（FORECAST_SNAPSHOT の snapshot_id・AI_IMPACT_HISTORY の run_id など）の種。実行ごとに違う値（実行の ID）にする。
+ *               乱数と同じ種にすると、同じ入力の 2 回の予測が同じ ID になり、B-2 が回を分けられない（snapshot_id・run_id で分ける）
+ * 返り値: { ok, needConfirm?, version, sourceSha256, seed（使った乱数の種） }
  */
 function appRunLegacyForecast_(book, opts) {
   const svc = appLegacyServices_(book, opts);
-  return appWithSeededRandom_(opts.seed, () => {
-    const eng = appLegacyEngine_(svc);
+  // 包んだ関数を作るだけ（旧来の計算の一番外は定数と関数の定義で、乱数は使わない）。版から種を決めてから、乱数を固定して動かす
+  const eng = appLegacyEngine_(svc);
+  const seed = String(typeof opts.seed === 'function' ? opts.seed({ version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 }) : opts.seed);
+  return appWithSeededRandom_(seed, () => {
     Object.keys(eng.WEB_UI_CONFIRMS_).forEach(k => { delete eng.WEB_UI_CONFIRMS_[k]; });
     (opts.confirms || []).forEach(k => { eng.WEB_UI_CONFIRMS_[String(k)] = true; });
     try {
       eng.runPhase1Forecast();
-      return { ok: true, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 };
+      return { ok: true, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256, seed: seed };
     } catch (e) {
-      if (e && e.webConfirm) return { ok: false, needConfirm: e.webConfirm, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256 };
+      if (e && e.webConfirm) return { ok: false, needConfirm: e.webConfirm, version: eng.VERSION, sourceSha256: eng.SOURCE_SHA256, seed: seed };
       throw e;
     }
   });

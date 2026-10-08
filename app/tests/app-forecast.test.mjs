@@ -3,13 +3,15 @@
  * app-forecast.test.mjs — 新アプリでの予測の実行（段階2-2b）の契約テスト。
  * 旧来の予測の代わり（決まった値を書く）で、計算 → 保存の 2 段の処理・確認が要るときの扱い・書き戻し（足された行だけ）・
  * 予測の記録（FORECAST_RUNS / FORECAST_MONTHLY）・計算の間にデータ本体が変わったときの止め方・権限を確かめる。
+ * 乱数の種は、予測が読む表の中身と計算の版から決まる（同じ入力なら同じ数字。2026-10-08 決定 13）。ID は実行ごとに違う。
+ * 本物の A-9 での確かめは app-forecast-seed.test.mjs。
  * 旧来の予測そのものは本物の GAS の上で確かめる（モックでは動かさない）。
  *
  *   node app/tests/app-forecast.test.mjs
  */
 
 import assert from 'node:assert/strict';
-import { J, MEMBER, OTHER, OWNER, setUpEnv } from './gas-mock.mjs';
+import { J, MEMBER, OTHER, OWNER, setUpEnv, sha } from './gas-mock.mjs';
 
 const D = (y, m, d = 1) => new Date(y, m - 1, d);
 const SNAP_HEADER = ['snapshot_id', 'run_date', 'client', 'target_month', 'scenario', 'base_pred', 'subjective_adj', 'ai_adj', 'deterministic_adj', 'final_pred',
@@ -135,8 +137,14 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
   // 予測の記録
   const runs = env.table('FORECAST_RUNS');
   assert.equal(runs.length, 1);
-  assert.deepEqual([runs[0].run_id, runs[0].plan_id, runs[0].status, runs[0].engine_version, runs[0].seed, runs[0].actor_email],
-    [r.runId, planId, 'DONE', 'stub-1', r.runId, OWNER]);
+  assert.deepEqual([runs[0].run_id, runs[0].plan_id, runs[0].status, runs[0].engine_version, runs[0].actor_email],
+    [r.runId, planId, 'DONE', 'stub-1', OWNER]);
+  // 乱数の種: 予測が読む表の中身（シートごとのハッシュ）・計画の時差と地域・計算の版と中身・アプリの版から（実行の ID ではない）
+  const seedSheets = env.run('APP_FORECAST_SEED_SHEETS');
+  const fih = sha(env.table('ENG_SHEETS').filter((x) => x.plan_id === planId && seedSheets.includes(x.sheet)).map((x) => x.sheet + ':' + x.content_hash).sort().join('|'));
+  const plan = env.table('PLANS').find((x) => x.plan_id === planId);
+  assert.equal(runs[0].seed, sha(['forecast-seed-v1', fih, plan.time_zone, plan.locale, 'stub-1', 'stub', env.run('APP_VERSION')].join('|')), '種の作り方');
+  assert.match(runs[0].seed, /^[a-f0-9]{64}$/);
   assert.equal(JSON.parse(runs[0].confirms_json)[0], 'extreme');
   assert.ok(Number(runs[0].annual_p50) >= 200000 && Number(runs[0].annual_p50) <= 201000);
   assert.equal(Number(runs[0].annual_p50), r.headline.annual.p50);
@@ -169,8 +177,29 @@ const sheetMeta = (env, planId) => Object.fromEntries(env.table('ENG_SHEETS').fi
   assert.equal(engRows(env, 'FORECAST_SNAPSHOT', planId).length, 6);
   assert.equal(env.table('FORECAST_RUNS').length, 2);
   assert.notEqual(st3.result.runId, r.runId);
+  // 同じ入力（予測が書いた OUTPUT・記録の表は種に入れない）: 同じ種・同じ P10/P50/P90。ID（snapshot_id）は回ごとに違う
+  const runs2 = env.table('FORECAST_RUNS');
+  assert.equal(runs2[1].seed, runs2[0].seed, '同じ入力なら同じ種');
+  assert.notEqual(runs2[1].input_hash, runs2[0].input_hash, '前提: データ本体のハッシュ（予測が書いた表も入る）は変わった');
+  assert.deepEqual(st3.result.headline, r.headline, '同じ入力なら同じ数字（年度・月・客観）');
+  const mon = env.table('FORECAST_MONTHLY');
+  const byRun = (id) => mon.filter((m) => m.run_id === id).map((m) => [m.ym, m.p10, m.p50, m.p90, m.obj_p10, m.obj_p50, m.obj_p90]);
+  assert.deepEqual(byRun(st3.result.runId), byRun(r.runId), '月ごとの P10/P50/P90 も同じ');
+  const sids = [...new Set(engRows(env, 'FORECAST_SNAPSHOT', planId).map((x) => x.snapshot_id))];
+  assert.equal(sids.length, 3, 'snapshot_id は回ごとに違う（取り込んだ 1 回 + 予測 2 回）');
+  // 入力を変えると種が変わる（CALIBRATION_STATE は予測が読む表。本物の保存と同じ控えと書き方でデータ本体へ）
+  env.run(`appWithLock_(() => {
+    const plan = appPlanOf_(__p); const scratch = appWorkScratch_(plan); let st = null;
+    do { st = appScratchBuildStep_(scratch, __p, ['CALIBRATION_STATE'], st && st.state, Date.now() + 60000); } while (!st.complete);
+    scratch.getSheetByName('CALIBRATION_STATE').getRange(2, 7).setValue(0.97);
+    const cap = appCaptureChanged_(scratch, __p, appStoredHashes_(__p), ['CALIBRATION_STATE']);
+    appJournalRun_({ actor: 'test', requestId: 'T' }, 'テストの準備', __p, appChangedOps_({ actor: 'test' }, __p, cap.changed, 'T'));
+  })`, { __p: planId });
+  const st4 = env.runJob('FORECAST.RUN', { planId, confirms: ['extreme'] });
+  assert.equal(st4.status, 'DONE', st4.error);
+  assert.notEqual(env.table('FORECAST_RUNS')[2].seed, runs2[0].seed, '入力が変われば種も変わる');
   const l2 = env.call('apiForecastLatest(__in)', { __in: { planId } });
-  assert.equal(l2.runs.length, 2);
+  assert.equal(l2.runs.length, 3);
   assert.equal(env.state.lockHeld, false);
 }
 
