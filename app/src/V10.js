@@ -17,6 +17,23 @@ const APP_MEASURE_PLAN_MAX = 5;
 
 /** 版 10 の一度だけの写し（名前だけ。関数は動かすときに探す）。それぞれの中身は、その記録を作るときに書く */
 const APP_V10_BACKFILLS = ['appV10BackfillInputLog_', 'appV10BackfillAiResearchLog_', 'appV10BackfillHitRecords_'];
+/** 一度だけの写しの行の「した人」（入力の記録の actor_email・当たりの記録の computed_by）。写しを動かした操作の人ではない（画面には人として出さない） */
+const APP_V10_BACKFILL_ACTOR = 'SYSTEM:V10_BACKFILL';
+/** 記録の「した人」が仕組み（人ではない）か（画面に名前として出さない） */
+function appLogSystemActor_(v) {
+  return String(v || '').indexOf('SYSTEM:') === 0;
+}
+
+/**
+ * 表の版 10 の移行（列を足す）が済むまで始めない処理の、断る文（始めてよければ ''）。予測の実行・計画を作る・担当者の保存は、
+ * 列を足す前の表（FORECAST_RUNS・PLANS）に書くので、移行がバックアップを待っている間は、長い計算をする前に断る（Jobs.js の appStartJob_ から）
+ */
+function appV10WaitRefusal_(kind, payload) {
+  const action = String((payload && payload.action) || '');
+  const what = kind === 'FORECAST.RUN' ? '予測の実行' : kind === 'PLAN.CREATE' ? '計画の作成' : kind === 'PLAN.EDIT' && action === 'SETUP.PEOPLE' ? '担当者の保存' : '';
+  if (!what || appLogReady_()) return '';
+  return '表の版 10 の移行（列を足す）がまだ済んでいないので、' + what + 'は始めません。移行の前のバックアップが取れると、次の操作で移行します。少したってから、もう一度操作してください。';
+}
 
 // ---- 記録を足す ----
 
@@ -99,31 +116,47 @@ function appLogTruncatedCells_(table) {
 /**
  * 記録を見る人: full = 予算策定担当以上（そのメーカー単位の担当を含む。clientId で数える）は全部の行と名前。
  * ほかの人（閲覧・情報提供）は、つなぎ（PERSON_LINKS）で本人と分かる自分の行だけ。ほかの行は種類ごとの件数だけ（名前は送らない）。
- * ymd = つなぎが効く日（省くと今日）
+ * 本人の行かは、行ごとにその行の日に効く有効なつなぎで決める（appLogVisible_。今日のつなぎで前の行を決めない: 外したつなぎ・期間の外のつなぎは効かない）。
+ * links = 決めるのに使うつなぎの行（full の人とメールの無い人は空。行は送らない）
  */
-function appLogViewer_(ctx, clientId, ymd) {
+function appLogViewer_(ctx, clientId) {
   const email = String((ctx && ctx.user && ctx.user.email) || '').trim().toLowerCase();
   const full = appHasRole_(ctx && ctx.roles, 'PLANNER', clientId || undefined);
-  return { full: full, email: email, clientId: String(clientId || ''), names: full ? [] : appPersonNamesOf_(email, clientId, ymd) };
+  return { full: full, email: email, clientId: String(clientId || ''), links: full || !email ? [] : appPersonLinks_() };
+}
+
+/** 行の日（'yyyy-MM-dd'。日時の文字の頭 10 字。読めなければ ''） */
+function appLogDay_(v) {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v === null || v === undefined ? '' : v).trim());
+  return m ? m[1] : '';
 }
 
 /**
  * 記録の行を、見る人に合わせて分ける。返り値 { rows: 送る行, counts: 送らない行の種類ごとの件数, hidden: 送らない行の数 }。
- * opts: personOf(r) = 行の担当者の名前（入力の記録は r.person）、emailOf(r) = 行の人のメール（当たりの記録は r.person_email）、
- * typeOf(r) = 件数を数える種類（例: r.kind・r.source_kind）。送る行の中の名前は、そのまま（本人の名前だけ）
+ * opts: personOf(r) = 行の担当者の名前（入力の記録は r.person・当たりの記録は人の行の r.source_key）、
+ * dateOf(r) = 行の日（入力の記録は保存した日・当たりの記録は四半期の終わりの日。読めない行は本人の行にしない。dateOf を省くと今日）、
+ * typeOf(r) = 件数を数える種類（例: r.kind・r.source_kind）。
+ * 本人の行 = その日に効く有効なつなぎで、名前がこの人のメールにつながる行（appPersonEmailOf_。そのメーカーのつなぎが先）。
+ * 行に残したメール（当たりの記録の person_email）は書いたときの控えなので、見せるかどうかには使わない。送る行の中の名前は、そのまま（本人の名前だけ）
  */
 function appLogVisible_(viewer, rows, opts) {
   const o = opts || {};
   const list = rows || [];
   if (viewer && viewer.full) return { rows: list.slice(), counts: {}, hidden: 0 };
-  const names = {};
-  ((viewer && viewer.names) || []).forEach(n => { names[String(n).trim()] = true; });
-  const email = viewer && viewer.email ? viewer.email : '';
+  const email = viewer && viewer.email ? String(viewer.email).trim().toLowerCase() : '';
+  const links = (viewer && viewer.links) || [];
+  const clientId = viewer && viewer.clientId ? String(viewer.clientId) : '';
+  const today = appToday_();
+  const memo = {};
   const own = r => {
-    const e = o.emailOf ? String(o.emailOf(r) || '').trim().toLowerCase() : '';
-    if (email && e && e === email) return true;
+    if (!email) return false;
     const p = o.personOf ? String(o.personOf(r) || '').trim() : '';
-    return !!p && !!names[p];
+    if (!p) return false;
+    const day = o.dateOf ? appLogDay_(o.dateOf(r)) : today;
+    if (!day) return false;
+    const k = p + '\u0001' + day;
+    if (!Object.prototype.hasOwnProperty.call(memo, k)) memo[k] = appPersonEmailOf_(p, clientId, day, links) === email;
+    return memo[k];
   };
   const out = [], counts = {};
   list.forEach(r => {
@@ -157,17 +190,6 @@ function appPersonEmailOf_(name, clientId, ymd, links) {
   const pick = own.length ? own : live.filter(l => !l.client_id);
   const emails = pick.map(l => String(l.email || '').trim().toLowerCase()).filter((v, i, a) => v && a.indexOf(v) === i);
   return emails.length === 1 ? emails[0] : '';
-}
-
-/** メンバーのメールにつながる担当者の名前（そのメーカーで、その日に効くもの） */
-function appPersonNamesOf_(email, clientId, ymd) {
-  const e = String(email || '').trim().toLowerCase();
-  if (!e) return [];
-  const day = ymd || appToday_();
-  const links = appPersonLinks_();
-  const names = {};
-  links.forEach(l => { if (appPersonLinkLive_(l, day) && String(l.email || '').trim().toLowerCase() === e) names[String(l.person_name || '').trim()] = true; });
-  return Object.keys(names).filter(n => n && appPersonEmailOf_(n, clientId, day, links) === e);
 }
 
 // ---- 測る専用の計画（3-9）と年度を締める条件 ----

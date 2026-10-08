@@ -12,9 +12,12 @@
  *   人と AI の行は、向きが決まった四半期（actual_dir が ±1）だけに作るので、hit はいつも 1（当たり）か 0（外れ）。
  * - 書くのは B-2（当たり具合の計算）の保存の中だけ（同じ控えで足す。新しい自動の処理は作らない）。hit_id は計画・種類・情報源・四半期・
  *   数え方の版から決まるので、何度動かしても足さない。移行のときに 1 回、今ある記録から作る（appHitBackfill_）。
- * - 古さの重み（四半期ごとに 0.8 倍）とメーカーをまたいだ 1 人のまとめ（person_email）は、読むときに計算する。記録は計算に使わない。
+ * - 古さの重み（四半期ごとに 0.8 倍）とメーカーをまたいだ 1 人のまとめは、読むときに計算する。記録は計算に使わない。
  * - 見せる範囲（9 章 8）: 予算策定担当以上（そのメーカーの担当を含む）は全部と名前、本人（人のつなぎ）には自分の行、
  *   ほかの人には種類ごとの件数だけ（appLogVisible_）。順位は作らない（名前の順・件数を必ず添える）。
+ * - 本人かどうかと 1 人のまとめは、読むときの有効なつなぎで、その四半期の終わりの日に効くメールで決める（appPersonEmailOf_）。
+ *   行の person_email は書いたときの控え（そのときのつなぎ）で、見せる判定とまとめには使わない（外したつなぎ・期間の外のつなぎが効かないように）。
+ * - 移行の写しの行の computed_by は仕組み（APP_V10_BACKFILL_ACTOR）。写しを動かした操作の人ではない。
  */
 const APP_HIT_CALC = 'HIT-V1';                 // 数え方の版（hit_id に入れる。数え方を変えたら上げて足す）
 const APP_HIT_CALC_BACKFILL = 'HIT-V1+BACKFILL';   // 移行で作った行の calc_version（hit_id は APP_HIT_CALC で作るので、後の B-2 と重ならない）
@@ -159,14 +162,14 @@ function appHitId_(r) {
   return appStableLogId_(APP_LOG_PREFIX.HIT_RECORDS, parts);
 }
 
-/** 当たりの行を、まだ無いものだけ控えの書き方にする（appLogOps_）。calc = calc_version。キーと時刻はここで決める */
-function appHitOps_(ctx, plan, rows, calc) {
+/** 当たりの行を、まだ無いものだけ控えの書き方にする（appLogOps_）。calc = calc_version、by = computed_by（省くと操作の人）。キーと時刻はここで決める */
+function appHitOps_(ctx, plan, rows, calc, by) {
   if (!rows.length) return [];
   const have = {};
   appReadPlanTable_('HIT_RECORDS', plan.plan_id).forEach(r => { have[r.hit_id] = true; });
   const now = appNowIso_();
   const fresh = rows.map(r => Object.assign({ hit_id: appHitId_(r) }, r)).filter(r => !have[r.hit_id]).map(r => Object.assign(r, {
-    policy_version: APP_EVAL_POLICY_VERSION, calc_version: calc, computed_at: now, computed_by: ctx.actor }));
+    policy_version: APP_EVAL_POLICY_VERSION, calc_version: calc, computed_at: now, computed_by: by || ctx.actor }));
   return appLogOps_('HIT_RECORDS', fresh);
 }
 
@@ -218,7 +221,8 @@ function appHitBackfill_(ctx) {
         appJournalRecover_(ctx);
         const plan = appPlanOf_(p.plan_id);
         if (appYearIsFrozen_(plan.fy)) return 0;
-        const ops = appHitOps_(ctx, plan, appHitRowsOf_(plan, appEngTableObjects_(plan.plan_id, APP_HIT_TABLES), a4[plan.plan_id] || [], links), APP_HIT_CALC_BACKFILL);
+        const ops = appHitOps_(ctx, plan, appHitRowsOf_(plan, appEngTableObjects_(plan.plan_id, APP_HIT_TABLES), a4[plan.plan_id] || [], links), APP_HIT_CALC_BACKFILL,
+          APP_V10_BACKFILL_ACTOR);
         if (!ops.length) return 0;
         appJournalRun_(ctx, '当たりの記録の移行（' + plan.plan_id + '）', plan.plan_id, ops);
         return ops[0].rows.length;
@@ -232,8 +236,22 @@ function appHitBackfill_(ctx) {
 }
 
 /**
+ * 四半期の印（QUARTER）が「数え終えた」印か。3 か月とも、採点した（実績と、その月が始まる前の予測の回がそろった）か、
+ * 採点するものが無かった（その月が始まる前の予測の回が無い: months_json の miss = 'forecast'）なら数え終えた。
+ * 実績が足りない月（miss = 'actual'。今の版の B-2 がまだ測っていない。例: 前の版の検証の行しか無いときに移行の写しが作った n_months = 0 の印）が
+ * 1 つでもあれば、まだ数え終えていない（今の版の B-2 を動かすと、人と AI の行を数えられる）。months_json が読めない印も数え終えていないとみなす
+ */
+function appHitQuarterCounted_(r) {
+  if (Number(r && r.n_months) === 3) return true;
+  let months = r ? r.months_json : null;
+  if (typeof months === 'string') { try { months = JSON.parse(months || '[]'); } catch (e) { return false; } }
+  return Array.isArray(months) && months.length === 3 && months.every(m => m && typeof m === 'object' && m.miss !== 'actual');
+}
+
+/**
  * 年度を締める前の見張り（V10.js の appYearHitsPending_）: 年度の最後の四半期（1〜3 月）の当たりを数え終えたか（締めた後は書けないため。9 章 10）。
- * 予算を立てる計画（測る専用は外す）のうち、締まった月がある計画（実績を取り込んだ: B-2 の後でも前でも）に、その四半期の印（QUARTER）が要る。
+ * 予算を立てる計画（測る専用は外す）のうち、締まった月がある計画（実績を取り込んだ: B-2 の後でも前でも）に、その四半期の数え終えた印
+ * （appHitQuarterCounted_。同じ四半期の印がいくつあっても、どれか 1 つ）が要る。
  * 足りなければ理由の文、そろっていれば ''。記録の表がそろう前は、数えたか確かめられないので締めない
  */
 function appHitYearPending_(fy, plans) {
@@ -246,7 +264,7 @@ function appHitYearPending_(fy, plans) {
   const missing = need.filter(p => {
     const st = status[p.plan_id] || [];
     if (!appLandingCutoff_(st) && !appLandingPendingCutoff_(st)) return false;   // 実績を取り込んでいない計画は数えるものが無い
-    return !appReadPlanTable_('HIT_RECORDS', p.plan_id).some(r => r.quarter === q && r.source_kind === APP_HIT_KIND.QUARTER);
+    return !appReadPlanTable_('HIT_RECORDS', p.plan_id).some(r => r.quarter === q && r.source_kind === APP_HIT_KIND.QUARTER && appHitQuarterCounted_(r));
   }).map(p => names[p.client_id] || p.client_label);
   if (!missing.length) return '';
   return 'FY' + Number(fy) + ' の 1〜3 月の当たりをまだ数えていない計画があります（' + missing.slice(0, 5).join('・') + (missing.length > 5 ? ' ほか ' + (missing.length - 5) + ' 計画' : '') +
@@ -280,15 +298,18 @@ function appHitWeight_(q, curIndex) {
   return i === null ? 0 : Math.pow(APP_HIT_DECAY, Math.max(0, curIndex - 1 - i));
 }
 
-/** 行を見る人ごとに分ける（メーカーごとに appLogViewer_。返り値 { rows（見せる行。full = その行を全部見られる人か）, counts（見せない行の種類ごとの件数） }） */
+/**
+ * 行を見る人ごとに分ける（メーカーごとに appLogViewer_。返り値 { rows（見せる行。full = その行を全部見られる人か）, counts（見せない行の種類ごとの件数） }）。
+ * 本人の行 = 人の行で、その四半期の終わりの日に効く有効なつなぎで、名前が見る人のメールにつながる行（行の person_email は使わない）
+ */
 function appHitVisible_(ctx, rows) {
   const byClient = {};
   rows.forEach(r => { (byClient[r.client_id] = byClient[r.client_id] || []).push(r); });
   const shown = [], counts = {};
   Object.keys(byClient).sort().forEach(c => {
     const v = appLogViewer_(ctx, c);
-    const vis = appLogVisible_(v, byClient[c], { personOf: r => (r.source_kind === APP_HIT_KIND.PERSON ? r.source_key : ''), emailOf: r => r.person_email,
-      typeOf: r => r.source_kind });
+    const vis = appLogVisible_(v, byClient[c], { personOf: r => (r.source_kind === APP_HIT_KIND.PERSON ? r.source_key : ''),
+      dateOf: r => appHitQuarterEnd_(r.quarter), typeOf: r => r.source_kind });
     vis.rows.forEach(r => shown.push(Object.assign({ full: v.full }, r)));
     Object.keys(vis.counts).forEach(k => { counts[k] = (counts[k] || 0) + vis.counts[k]; });
   });
@@ -300,14 +321,15 @@ function appHitVisible_(ctx, rows) {
  *   people: [{ name, own（本人の行だけで見せている）, n（数えた四半期）, hit, rate（古さの重みを掛けた当たる割合。数えた四半期が無ければ null）,
  *             makers（メーカーの数）, quarters: [{ quarter, clientName, fy, push, hit }] }]（名前の順。順位は作らない）
  *   hidden: 見せない人の行の数、quarters: 数えた四半期の数（計画 × 四半期。見る人によらない）
- * メーカーをまたいだ 1 人は person_email でまとめる（行に無ければ、今のつなぎでその四半期の終わりに効くメール）。メールは画面に送らない
+ * メーカーをまたいだ 1 人は、読むときの有効なつなぎで、その四半期の終わりの日に効くメールでまとめる（行の person_email は書いたときの控えなので使わない。
+ * つながらない行は名前でまとめる）。メールは画面に送らない
  */
 function appHitPeopleView_(ctx) {
   try { return appCachedRead_('HITPEOPLE\u0001' + appHitViewerKey_(ctx), () => appHitPeopleData_(ctx)); }
   catch (e) { Logger.log('人ごとの当たり: ' + (e && e.message ? e.message : e)); return null; }   // 読めなくても学びの画面は出す
 }
 
-/** 見る人ごとの控えの鍵（見せる行は、人・役割・今日のつなぎで決まる。データ本体が変われば appCachedRead_ が読み直す） */
+/** 見る人ごとの控えの鍵（見せる行は、人・役割・つなぎ（行ごとに四半期の終わりの日に効くもの）で決まる。つなぎを変えるとデータ本体が変わるので appCachedRead_ が読み直す） */
 function appHitViewerKey_(ctx) {
   return [String((ctx && ctx.user && ctx.user.email) || ''), String((ctx && ctx.actor) || ''), appRoleSummary_(ctx && ctx.roles), appToday_()].join('\u0001');
 }
@@ -322,7 +344,7 @@ function appHitPeopleData_(ctx) {
   const cur = appHitQuarterIndex_(appInsightQuarter_(Utilities.formatDate(new Date(), APP_TZ, 'yyyy/MM')));
   const groups = {};
   vis.rows.forEach(r => {
-    const email = r.person_email || appPersonEmailOf_(r.source_key, r.client_id, appHitQuarterEnd_(r.quarter), links);
+    const email = appPersonEmailOf_(r.source_key, r.client_id, appHitQuarterEnd_(r.quarter), links);
     const k = email ? 'e:' + email : 'n:' + r.source_key;
     const g = groups[k] = groups[k] || { names: {}, own: true, rows: [] };
     g.names[r.source_key] = true;

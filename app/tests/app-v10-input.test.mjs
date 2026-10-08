@@ -260,8 +260,8 @@ let planId;
   const st = JSON.parse(e2.props.APP_BACKFILLS);
   assert.equal(st.done.appV10BackfillInputLog_.rows, 4, '済んだ（今の計画の 4 行。空の行は数えない）');
   const base = e2.table('INPUT_LOG');
-  assert.ok(base.every((r) => r.plan_id === cur && r.change === 'BASELINE' && r.action === 'BASELINE' && r.before_json === '' && r.self_conf === '' && r.actor_email === OWNER),
-    '締めた年度の計画は飛ばす');
+  assert.ok(base.every((r) => r.plan_id === cur && r.change === 'BASELINE' && r.action === 'BASELINE' && r.before_json === '' && r.self_conf === '' && r.actor_email === 'SYSTEM:V10_BACKFILL'),
+    '締めた年度の計画は飛ばす（した人は仕組み。写しを動かした操作の人ではない）');
   assert.deepEqual(base.map((r) => r.row_key), ['product|鷹野|製品A|' + fy + '-05', 'product|鷹野|製品A|' + fy + '-05#2', 'client|鷹野|' + fy + '-06', 'devspot|鷹野|' + fy + '-07|案件']);
   assert.ok(base.every((r) => /^INL-[0-9A-F]{24}$/.test(r.log_id)), '番号は計画と印から決まる（2 つの操作が同時に動かしても二重にならない）');
   assert.equal(base[0].log_id, e2.call('appStableLogId_("INL", ["BASELINE", __p, __k])', { __p: cur, __k: base[0].row_key }));

@@ -32,6 +32,7 @@ function appJournalRun_(ctx, label, planId, ops) {
   // 締めた年度の計画・年度を触る書き込みは、書きかけの書き直しより先に止める（新しい控えを置くことも控えの書き直しもしない）
   if (planId) appRequireOpenYear_(appYearPlanFyOf_(planId, ops));
   appRequireOpenJournalOps_(ops);
+  appJournalRequireTables_(ops);   // 書く表がどれも今の列か（列を足す前の表・無い表があれば、控えを置く前に止める。書きかけを残さない）
   appJournalRecover_(ctx);   // 前の書きかけがあれば、先に書き終える
   const id = appId_('JNL');
   const body = JSON.stringify({ id: id, label: label, planId: planId || '', actor: ctx.actor, createdAt: appNowIso_(), ops: ops });
@@ -63,6 +64,22 @@ function appJournalRecover_(ctx) {
   appRunLog_({ requestId: (ctx && ctx.requestId) || '', kind: 'JOURNAL.RECOVER', status: 'OK', durationMs: new Date().getTime() - t0,
     detail: { journalId: p.id, label: p.label, planId: p.planId, startedAt: p.at, written: written } });
   return { id: p.id, label: p.label, planId: p.planId, written: written };
+}
+
+/**
+ * 控えの ops が書く表を、控えを置く前に確かめる（表があり、見出しが今の列）。列を足す前の表（版 10 の移行がバックアップを待っている間の
+ * PLANS・FORECAST_RUNS）に書く ops があれば、何も書かずに止める（ENG_* だけ書いて止まり、書きかけの控えがほかの人の保存まで止めることがないように）。
+ * 行の無い足す書き方（ensure・append）は表に触らないので見ない
+ */
+function appJournalRequireTables_(ops) {
+  const seen = {};
+  (ops || []).forEach(op => {
+    if (!op || !op.table || seen[op.table]) return;
+    if ((op.mode === 'ensure' || op.mode === 'append') && !(op.rows && op.rows.length)) return;
+    seen[op.table] = true;
+    appTableSheet_(op.table, false);
+    appRequireCurrentHead_(op.table);
+  });
 }
 
 function appJournalFinish_(fileId) {

@@ -164,19 +164,26 @@ function planBook(client, fy) {
     [MEMBER, OTHER, MEMBER, '', '', '', '']);
   assert.equal(env.call('appPersonEmailOf_("担当C", __c, "1999-06-01")', { __c: X }), MEMBER, '期間の中の日なら効く');
   const viewer = (email, clientId) => { env.as(email); const v = env.call('(() => { const u = appCurrentUser_(); return appLogViewer_({ user: u, roles: appRolesOf_(u) }, __c); })()', { __c: clientId }); env.as(OWNER); return v; };
-  assert.deepEqual(viewer(OWNER, X), { full: true, email: OWNER, clientId: X, names: [] }, '管理者は全部');
-  assert.deepEqual(viewer(MEMBER, X), { full: false, email: MEMBER, clientId: X, names: ['担当A'] }, '閲覧の人は自分につながる名前だけ');
-  assert.deepEqual(viewer(MEMBER, 'CL-Y').names, [], 'メーカー Y の 担当A はほかの人');
-  assert.deepEqual(viewer(OTHER, 'CL-Y').names, ['担当A']);
+  const brief = (v) => ({ full: v.full, email: v.email, clientId: v.clientId, links: v.links.map((l) => l.link_id).sort() });
+  assert.deepEqual(brief(viewer(OWNER, X)), { full: true, email: OWNER, clientId: X, links: [] }, '管理者は全部（つなぎは使わない）');
+  assert.deepEqual(brief(viewer(MEMBER, X)), { full: false, email: MEMBER, clientId: X, links: ['PLK-1', 'PLK-2', 'PLK-3', 'PLK-4', 'PLK-5', 'PLK-6'] },
+    '閲覧の人は、行ごとに決めるためのつなぎ（外した行も含めて読み、効くかは行の日で決める）');
   env.call('apiGrantRole(__in)', { __in: { email: MEMBER, role: 'PLANNER', scopeType: 'CLIENT', clientId: X } });
   assert.equal(viewer(MEMBER, X).full, true, 'そのメーカーの予算策定担当は全部');
   assert.equal(viewer(MEMBER, 'CL-Y').full, false, 'ほかのメーカーでは自分の行だけ');
-  const rows = [{ person: '担当A', kind: 'product' }, { person: '担当B', kind: 'product' }, { person: '担当B', kind: 'client' }, { person_email: OTHER, kind: 'hit' }];
-  const vis = (v) => env.call('appLogVisible_(__v, __r, { personOf: r => r.person, emailOf: r => r.person_email, typeOf: r => r.kind })', { __v: v, __r: rows });
-  assert.deepEqual(vis({ full: true }), { rows, counts: {}, hidden: 0 });
-  assert.deepEqual(vis({ full: false, email: MEMBER, names: ['担当A'] }), { rows: [rows[0]], counts: { product: 1, client: 1, hit: 1 }, hidden: 3 });
-  assert.deepEqual(vis({ full: false, email: OTHER, names: [] }), { rows: [rows[3]], counts: { product: 2, client: 1 }, hidden: 3 }, 'メールで本人と分かる行');
-  assert.deepEqual(vis({ full: false, email: '', names: [] }).rows, [], 'つなぎの無い人には件数だけ');
+  // 行ごとに、その行の日に効く有効なつなぎで本人か決める（行に残したメールは使わない）
+  const today = env.run('appToday_()');
+  const rows = [{ person: '担当A', kind: 'product', at: today }, { person: '担当B', kind: 'product', at: today }, { person: '担当B', kind: 'client', at: today },
+    { person: '', person_email: OTHER, kind: 'hit', at: today }, { person: '担当C', kind: 'product', at: '1999-06-01T10:00:00+0900' }, { person: '担当C', kind: 'client', at: today },
+    { person: '担当A', kind: 'client', at: '' }];
+  const vis = (v, c) => { env.as(v.email || OWNER); try { return env.call('(() => { const u = appCurrentUser_(); const vw = appLogViewer_({ user: u, roles: appRolesOf_(u) }, __c); return appLogVisible_(vw, __r, { personOf: r => r.person, dateOf: r => r.at, typeOf: r => r.kind }); })()', { __c: c, __r: rows }); } finally { env.as(OWNER); } };
+  assert.deepEqual(vis({ email: OWNER }, X), { rows, counts: {}, hidden: 0 });
+  assert.deepEqual(vis({ email: OTHER }, X).rows, [], 'メーカー X の 担当A は MEMBER（行に OTHER のメールがあっても本人の行にしない）');
+  assert.deepEqual(vis({ email: OTHER }, 'CL-Y').rows, [rows[0]], 'メーカー Y の 担当A は OTHER（メーカーのつなぎが先）');
+  const vm = env.call('appLogVisible_(__v, __r, { personOf: r => r.person, dateOf: r => r.at, typeOf: r => r.kind })', { __v: { full: false, email: MEMBER, clientId: X, links: env.call('appPersonLinks_()') }, __r: rows });
+  assert.deepEqual(vm.rows, [rows[0], rows[4]], '全部のメーカーの 担当A と、期間の中の日の 担当C だけ（外したつなぎ・期間の外・2 人につながる名前・日の読めない行は本人の行にしない）');
+  assert.deepEqual([vm.counts, vm.hidden], [{ product: 1, client: 3, hit: 1 }, 5]);
+  assert.deepEqual(env.call('appLogVisible_(__v, __r, { personOf: r => r.person, dateOf: r => r.at })', { __v: { full: false, email: '', clientId: X, links: [] }, __r: rows }).rows, [], 'メールの無い人には件数だけ');
 }
 
 // ==== 5. 測る専用の計画は、年度を締める条件（公式版）から外す。最後の四半期の当たりの見張りの入口 ====

@@ -275,6 +275,9 @@ function appStartJob_(ctx, input) {
       const paused = appPlanActionPaused_(payload && payload.action) || appMeasureJobRefusal_(kind, payload);
       if (paused) throw new Error(paused);
     }
+    // 表の版 10 の移行がバックアップを待っている間は、列を足す前の表に書く処理（予測の実行・計画を作る・担当者の保存）を始めない（V10.js）
+    const waiting = appV10WaitRefusal_(kind, payload);
+    if (waiting) throw new Error(waiting);
     const job = appEnqueueJob_(kind, appJobStashArgs_(appJobClientPayload_(input && input.payload)), ctx.actor, '');
     return { jobId: job.id, status: job.status };
   });

@@ -14,8 +14,9 @@
  * 本物の月（real_months）: 区切りの前 48 か月のうち、最初に売上があった月から後で、売上の取り込み（A-2）の日に締まっていた月
  * （取引が始まる前の 0 円は本物と数えない。9 章 5 のおすすめ）。点として数える（counted）のは、本物の月が 48・実績が締まった・予測がある点だけ。
  * 動かすのは所有者だけ（apiOwnerTask の runBacktest → 裏の処理 MEASURE.BACKTEST。組み立て → 計算と保存。組み立てが 6 分に収まらなければ続きに分ける）。
- * 分析の画面には、年度の計画ごとに一番新しい回の点だけを方法ごとにまとめて出す（appBacktestCard_。点の数と 95% の幅を必ず添える。
- * 点が 30 より少ない・1 社だけなら「まだ判断できません」）。
+ * 分析の画面には、年度の計画ごとに、その年度の初めを区切りにした回のうち一番新しい回の点だけを方法ごとにまとめて出す（appBacktestCard_。
+ * 点の数と 95% の幅を必ず添える。点が 30 より少ない・1 社だけなら「まだ判断できません」）。前の年度を区切りにした回（cutoffFy）は、
+ * 計画が持つ売上が年度の前の 48 か月だけなので数えられる点が無く、まとめには入れない（数えていない回の数だけ olderRuns に出す）。
  */
 
 /** 物差しの版（数え方を変えたら上げて、新しい行を足す） */
@@ -285,7 +286,8 @@ function appBacktestCalc_(ctx, p) {
     const ops = appLogOps_('BACKTEST', rows);   // 表の版がそろう前は [] （記録を足さない。エラーのログに残る）
     const written = ops.length ? appJournalRun_(ctx, '物差し（FY' + fy + '）', plan.plan_id, ops) : null;
     const pts = rows.filter(r => r.method === 'STAT_ONLY');
-    return { planId: plan.plan_id, btId: p.btId, cutoffYm: cutoffYm, rows: rows.length, written: written ? (written.BACKTEST || {}).appended || 0 : 0,
+    // onCard: 分析の物差しに入る回か（区切りが計画の年度の初めの回だけ。前の年度を区切りにした回は数えられる点が無い）
+    return { planId: plan.plan_id, btId: p.btId, cutoffYm: cutoffYm, onCard: fy === Number(plan.fy), rows: rows.length, written: written ? (written.BACKTEST || {}).appended || 0 : 0,
       skipped: !ops.length, realMonths: pts.length ? pts[0].real_months : 0, counted: pts.filter(r => r.counted).length, seed: stat.seed,
       methods: appBacktestSummary_(rows, {}).methods.map(m => ({ method: m.method, n: m.n, mape: m.mape, bias: m.bias, cover: m.cover })),
       timing: { buildMs: p.buildMs || 0, steps: p.steps || 1, calcMs: t1 - t0, saveMs: new Date().getTime() - t1 },
@@ -349,25 +351,32 @@ function appBacktestSummary_(rows, clientOf) {
 }
 
 /**
- * 分析の画面の物差し（年度 fy の計画。計画ごとに一番新しい回の点だけ）。物差しを動かした計画が無ければ null。
- * 返り値: appBacktestSummary_ の中身 + { fy, plans（物差しのある計画の数）, at（一番新しい回の時刻）}。金額は出さない（割合と点の数だけ）
+ * 分析の画面の物差し（年度 fy の計画。計画ごとに、区切りがその年度の初め（fy/04）の回のうち一番新しい回の点だけ）。
+ * 区切りが前の年度の回は数えない（計画の 48 か月の窓がそろうのは、計画の年度の初めを区切りにした回だけ。新しくても、その計画の数える回を隠さない）。
+ * その年度の初めを区切りにした回のある計画が無ければ null。
+ * 返り値: appBacktestSummary_ の中身 + { fy, plans（物差しのある計画の数）, at（一番新しい回の時刻）, olderRuns（数えていない、前の年度を区切りにした回の数）}。
+ * 金額は出さない（割合と点の数だけ）
  */
 function appBacktestCard_(fy) {
   const plans = appReadTable_('PLANS').filter(p => String(p.fy) === String(fy) && p.state !== 'ARCHIVED');
+  const cut = Number(fy) + '/04';
   const clientOf = {};
   const pts = [];
+  const older = {};
   let at = '';
   try {
     plans.forEach(p => {
       // 計画の行だけを読む（大きくなった表は計画の ID で探す）。一番新しい回 = 時刻が一番新しく、同じ時刻なら後に足した回
       const rows = appReadPlanTable_('BACKTEST', p.plan_id);
-      const last = rows.reduce((b, r) => (!b || String(r.computed_at) > String(b.computed_at) || (String(r.computed_at) === String(b.computed_at) && r._row > b._row) ? r : b), null);
+      const mine = rows.filter(r => String(r.cutoff_ym) === cut);
+      rows.forEach(r => { if (String(r.cutoff_ym) !== cut) older[r.bt_id] = true; });
+      const last = mine.reduce((b, r) => (!b || String(r.computed_at) > String(b.computed_at) || (String(r.computed_at) === String(b.computed_at) && r._row > b._row) ? r : b), null);
       if (!last) return;
       clientOf[p.plan_id] = p.client_id;
-      rows.forEach(r => { if (r.bt_id === last.bt_id) pts.push(r); });
+      mine.forEach(r => { if (r.bt_id === last.bt_id) pts.push(r); });
       if (String(last.computed_at) > at) at = String(last.computed_at);
     });
   } catch (e) { return null; }   // 表の版がそろう前（表が無い）
   const n = Object.keys(clientOf).length;
-  return n ? Object.assign({ fy: String(fy), plans: n, at: at }, appBacktestSummary_(pts, clientOf)) : null;
+  return n ? Object.assign({ fy: String(fy), plans: n, at: at, olderRuns: Object.keys(older).length }, appBacktestSummary_(pts, clientOf)) : null;
 }
