@@ -38,7 +38,15 @@ export const ENGINE_EXPORTS = [
   // 新しい計画を作る（A-1 初期セットアップ setupForecastBook の中身。画面の確認とダイアログは除く）
   'resetWorkbookSheets_', 'clearAllNotesOnSheets_', 'buildGUIDE_', 'buildCONFIG_', 'buildSALES_', 'buildFACTORS_PRODUCT_', 'buildFACTORS_CLIENT_',
   'buildOPINIONS_', 'buildDEV_', 'buildPhase1Sheets_', 'buildOUTPUT_', 'normalizeAllSheetNotes_', 'validateNotesIntegrity_',
-  'applyDefaultAlignmentForAllSheets_', 'clearAllTabColors_', 'hideNonUserSheets_', 'saveInitialSetupSettings', 'getClientCandidatesForSetup_'
+  'applyDefaultAlignmentForAllSheets_', 'clearAllTabColors_', 'hideNonUserSheets_', 'saveInitialSetupSettings', 'getClientCandidatesForSetup_',
+  // 物差し（Backtest.js。表の版 10 の 3-7・決定 9 (b)）: A-9（runForecastFYCore_）の統計の部分を、同じ順で外から呼ぶ。
+  // 未確定の月の補完・傾向と季節の当てはめ・残りの分布・季節加重・混合のシミュレーション（中身は変えない）
+  'N_SIM', 'KNOWN_SPOT_OFFSET_RATE', 'KNOWN_SPOT_BG_SUPPRESS_RATE', 'normalizeClientName_', 'readSales48Months_', 'sumAcrossProducts_',
+  'readModelTuningFromConfig_', 'createDefaultCalibrationState_', 'applyCalibrationToTuning_', 'getForecastContext_', 'adjustForUnclosedMonths_',
+  'fitOpsModelTrendSeason_', 'buildResidualPool_', 'percentile_', 'readDlmEngineMode_', 'computeDlmFyForecast_', 'readDlmPrimarySpotCapBasis_',
+  'forecastByResidualQuantiles_', 'fitSpotRecurringModel_', 'forecastMonteCarloMixed_', 'forecastSeasonalWeighted48_', 'readForecastClosedMonthMode_',
+  // 本番の A-9 の中身そのもの（物差しの「統計だけ」が、人の入力の無い本番と差 0 になることをテストで確かめる。app/tests/app-v10-backtest.test.mjs）
+  'runForecastFYCore_'
 ];
 
 /** 旧来の Web アプリの、新アプリが受け持つ関数（元の宣言は変えず、包んだ中で後から差し替える） */
