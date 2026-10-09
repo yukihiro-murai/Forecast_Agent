@@ -144,7 +144,7 @@ function appForecastRunSave_(ctx, p) {
         annual_p10: num(h.annual.p10), annual_p50: num(h.annual.p50), annual_p90: num(h.annual.p90),
         objective_p10: num(h.objective.p10), objective_p50: num(h.objective.p50), objective_p90: num(h.objective.p90),
         changed_sheets_json: names, confirms_json: p.confirms, started_at: p.startedAt, finished_at: now, actor_email: ctx.actor,
-        app_version: APP_VERSION, seed_rule: APP_FORECAST_SEED_RULE, fixes_json: APP_FORECAST_FIXES }] },
+        app_version: APP_VERSION, seed_rule: APP_FORECAST_SEED_RULE, fixes_json: appForecastFixesOf_(scratch) }] },   // 本番にした回は annual_aligned（Portfolio.js）
       { table: 'FORECAST_MONTHLY', mode: 'ensure', rows: (h.monthly || []).map(m => ({
         run_id: p.runId, plan_id: plan.plan_id, ym: m.month, p10: num(m.p10), p50: num(m.p50), p90: num(m.p90),
         obj_p10: obj[m.month] ? num(obj[m.month].p10) : null, obj_p50: obj[m.month] ? num(obj[m.month].p50) : null, obj_p90: obj[m.month] ? num(obj[m.month].p90) : null })) }

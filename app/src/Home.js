@@ -56,7 +56,9 @@ function appHomeData_(ctx) {
       actualYtd: p.actualYtd, actualMonths: p.actualMonths, forecastYtd: p.forecastYtd, rangeOut: p.rangeOut, rangeN: p.rangeN,
       landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
       sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource,
-      scoredMonths: p.scoredMonths, frozen: p.frozen, measure: !!p.measure })),
+      scoredMonths: p.scoredMonths, frozen: p.frozen, measure: !!p.measure,
+      // 年度の見込みの本番（判断 10・24。2026-10-09）: 本番の計画の p10・p50・p90 は月の合計にそろえた値（計画の一覧と同じ）。旧来の年度合計は legacyAnnual
+      alignedLive: !!p.alignedLive, annualBand: p.annualBand || '', legacyAnnual: p.legacyAnnual || null })),
     totals: appHomeTotals_(plans, fy, all.prior && all.prior.used),
     approvals: approvals, mine: mine
   };
@@ -66,7 +68,8 @@ function appHomeData_(ctx) {
  * 見せる年度の合計（測る専用の計画 measure は入れない。版 10 の 3-9）。予算は空模様と同じ budgetUsed（承認済みの公式版の最終予算、無ければ今の予算）。
  * 着地見込みの無い計画（実績の取り込みの遅れ。空模様が霧（予算が無い）・雪でも同じ。予測が無い など）は、着地の合計にも着地 ÷ 予算にも入れない。入れた計画の数も返す
  * reach は、着地と予算の両方がある計画の合計の予算に届く見込み（試し。メーカーどうしが独立なら / 全部同じ向きなら。appLandingReachTotal_ に
- * 使っている τ・w を足したもの。判断 24）。used = appLandingApproved_ の返り値（省けば τ・w は入れない）
+ * 使っている τ・w を足したもの。判断 24）。used = appLandingApproved_ の返り値（省けば τ・w は入れない）。
+ * reach.live = 入れた計画がどれも年度の見込みを本番にした計画（alignedLive。2026-10-09）。画面は「（試し）」を外す
  * 返り値: { plans, budget, budgetPlans, actualYtd, landing, landingPlans, ratio（着地と予算の両方がある計画だけで）, ratioPlans, reach（両方がある計画があるときだけ） }
  */
 function appHomeTotals_(plans, fy, used) {
@@ -80,6 +83,7 @@ function appHomeTotals_(plans, fy, used) {
   const out = { plans: rows.length, budget: sum(budgeted, 'budgetUsed'), budgetPlans: budgeted.length, actualYtd: sum(rows, 'actualYtd'),
     landing: sum(landed, 'landing'), landingPlans: landed.length, ratio: bb ? sum(both, 'landing') / bb : null, ratioPlans: both.length };
   const reach = appLandingReachTotal_(both.map(p => ({ landing: p.landing, sd: p.landingSd, budget: p.budgetUsed })));
+  if (reach) reach.live = both.every(p => !!p.alignedLive);
   if (reach) out.reach = used ? Object.assign(reach, { tau: used.tau, w: used.w, tauSet: !!used.tauSet, wSet: !!used.wSet }) : reach;   // 着地と予算の両方がある計画が無ければ項目ごと無い
   return out;
 }
