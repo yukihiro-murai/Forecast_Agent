@@ -243,7 +243,11 @@ function appBudgetRestoreOnForecast_(ctx, plan, book) {
 /**
  * 今の下書き（一番新しい予算の保存 = BASELINE を含む、その 12 行）と、作ったときから予測がどれだけ動いたか。下書きが無ければ null（予算は月の真ん中）。
  * centerAtDraft = 下書きの月の真ん中の合計、centerNow = 今の月の真ん中（データ本体の OUTPUT）の合計、drift = (centerNow − centerAtDraft) ÷ centerAtDraft、
- * warn = |drift| が APP_BUDGET_DRIFT_WARN（10%）以上。runAt = 下書きを作ったときの予測の日時。保存した人は返さない
+ * warn = |drift| が APP_BUDGET_DRIFT_WARN（10%）以上。runAt = 下書きを作ったときの予測の日時。保存した人は返さない。
+ * 動き（drift）は、いつも月の真ん中の合計どうしで測る（2026-10-09。予測し直して月の予測が動いたかを見るもの。下書きの行は、そのときの月の真ん中しか残さず、
+ * 見せる年度の中心（本番の計画の年度の途中は着地の推定）は締まった月の実績・日付でも動くので、比べる相手にしない）。
+ * そのため画面は、見せる中心が月の合計でない計画（本番の年度の途中・12 か月の実績・本番でない計画）では、これらを「予測の月ごとの中心の合計」と呼び、
+ * 予測と予算の画面の「中心」と同じ数とは言わない（UI.html の fcBudDraftLine）
  */
 function appBudgetDraftView_(planId) {
   const rows = appBudgetDraftRows_(planId);

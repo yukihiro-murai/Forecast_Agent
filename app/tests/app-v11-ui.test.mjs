@@ -138,7 +138,7 @@ reachOn();
   assert.ok(opts.every((o) => o[2].length <= 8), '名前は 8 文字まで');
   assert.equal(chosen(h), '', '初めは何も選んでいない（初期値は中心）');
   assert.deepEqual(sel[1].split('\n'), ['届く見込みで採用予測を決めます（80% なら 10 回に 8 回は届く額）', '採用予測 = 約束、上乗せ = 挑戦（上乗せはそのまま）',
-    '月への割り振りは過去の平均の形です', '保存するまで、予算は変わりません']);
+    '月への割り振りは過去の平均の形です（過去の売上が 2 年分そろわなければ予測の月の形）', '保存するまで、予算は変わりません']);
   assert.match(h, /<div class="card-foot"><span class="act" data-tip="[^"]*"><select class="inp sm" id="fcProb"[\s\S]*?<\/select><\/span><span class="act" data-tip="[^"]*"><button class="btn" disabled onclick="fcSaveBudget\(\)">予算を保存<\/button><\/span><\/div>/, '保存のボタンの左。入力が無ければ保存は押せない');
   assert.ok(css.includes('.inp.sm{width:var(--w-inp-sm)}') && /--w-inp-sm:var\(--col\)/.test(css) && /--col:160px/.test(css), '選ぶ欄は 1 マス（160px）');
   assert.equal(draftLine(h), null, '下書きが無ければ下書きの 1 行を出さない');
@@ -356,7 +356,8 @@ reachOn();
   assert.equal(p[0].cls, 'note');
   assert.deepEqual(p[0].tip.split('\n'), ['予算の下書き（2026/10/09 10:00 に保存）', '採用予測は、届く見込み 80% の額です（月への割り振りは過去の平均の形）',
     '採用予測 915,800 円・上乗せ 50,000 円（年度）', '予測し直しても、この下書きのまま変わりません（採用予測 = 約束、上乗せ = 挑戦）',
-    '下書きを作ったときの予測（2026/10/08 09:30）の中心 1,000,000 円・今の中心 1,010,000 円']);
+    '下書きを作ったときの予測（2026/10/08 09:30）の月ごとの中心の合計 1,000,000 円・今の月ごとの中心の合計 1,010,000 円'],
+    '本番でない計画の上の中心は旧来の計算の年度合計なので、下書きの値は月ごとの中心の合計と言う（2026-10-09）');
   // 手で直した・前に入れた・中心のまま
   assert.equal(parts(line({ basis: 'MANUAL', alloc: 'MANUAL', savedAt: at, drift: 0 }))[0].text, '予算の下書き: 手で直した額（10/09）');
   assert.equal(parts(line({ basis: 'BASELINE', alloc: 'MANUAL', savedAt: at }))[0].text, '予算の下書き: 前に入れた額（10/09）');
@@ -365,10 +366,10 @@ reachOn();
   p = parts(line(Object.assign({}, srv, { prob: 70, centerNow: 1124000, drift: 0.124, warn: true })));
   assert.deepEqual(p.map((x) => x.text), ['予算の下書き: 70% で決めた額（10/09）', '下書きを作った後に予測が 12% 動きました']);
   assert.equal(p[1].cls, 'note warn-text');
-  assert.deepEqual(p[1].tip.split('\n'), ['下書きを作ったときから、予測の中心が +12.4% 動きました', '1,000,000 円 → 1,124,000 円', '予算の下書きは、予測し直しても変わりません', '今の予測に合わせるときは、確率で選び直して保存します']);
+  assert.deepEqual(p[1].tip.split('\n'), ['下書きを作ったときから、予測の月ごとの中心の合計が +12.4% 動きました', '1,000,000 円 → 1,124,000 円', '予算の下書きは、予測し直しても変わりません', '今の予測に合わせるときは、確率で選び直して保存します']);
   p = parts(line({ basis: 'MANUAL', alloc: 'MANUAL', savedAt: at, centerAtDraft: 1000000, centerNow: 880000, drift: -0.12, warn: true }));
   assert.equal(p[1].text, '下書きを作った後に予測が 12% 動きました', '下がったときも');
-  assert.match(p[1].tip, /予測の中心が -12\.0% 動きました[\s\S]*採用予測を見直して保存します$/);
+  assert.match(p[1].tip, /予測の月ごとの中心の合計が -12\.0% 動きました[\s\S]*採用予測を見直して保存します$/);
   // 知らせるかはサーバー（warn）が決める。warn の無いサーバーでは driftLimit（無ければ 10%）以上
   assert.equal(parts(line(Object.assign({}, srv, { drift: 0.3, warn: false }))).length, 1, 'サーバーが知らせないと決めた');
   assert.equal(parts(line(Object.assign({}, srv, { drift: 0.02, warn: true })))[1].text, '下書きを作った後に予測が 2% 動きました', 'サーバーが知らせると決めた');

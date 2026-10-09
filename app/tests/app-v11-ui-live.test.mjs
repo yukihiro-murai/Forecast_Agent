@@ -9,7 +9,8 @@
  *   V3. 公式版: 今の中心・承認待ちのカードの中心は予測と予算の画面と同じ中心（current.shown・出したときの shownCenter）。
  *       版の一覧と比べの表の中心も shownCenter（無い版は記録の年度合計の中心）。記録の年度合計の中心はカーソルで。届く見込みの前提は「着地の推定」
  *   V4. 分析「予測の見直しの流れ」: 各回の中心は p50Shown（無ければ p50）。本番の回（月の合計など）と前の回（旧来の計算）をカーソルで分ける。
- *       最新の中心は、本番の計画なら計画の一覧の中心（予測と予算の画面と同じ）
+ *       最新の中心は、本番の計画なら計画の一覧の中心（予測と予算の画面と同じ）。前回からは同じ作り方の値どうしで、比べられなければ
+ *       「計算のしかたが違います」と添える（2026-10-09。くわしくは app-v11-fix2.test.mjs）
  * 確かめる形: 本番（締まった月なし）・本番（締まった月あり）・前のサーバーの本番（basis なし・年度の途中）・本番でない・12 か月の実績。
  * サーバーの basis・monthSum・current.shown・shownCenter・p50Shown は同じ回の別の作業で足すので、ここでは決めた形の応答で確かめる（サーバーは通さない）。
  * 名前と数字はテスト用の架空のもの。モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
@@ -163,9 +164,11 @@ const verTab = ({ shown, pending, official, versions }) => {
   return h;
 };
 const verRows = (h) => Object.fromEntries([...h.matchAll(/<tr><td>v(\d+)<\/td><td>[\s\S]*?<\/td><td class="num">[\s\S]*?<\/td><td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td>/g)].map((m) => [m[1], [m[4], m[3] === undefined ? null : unesc(m[3])]]));
-const cmpRow = (h) => { const m = /<tr><td( data-tip="([^"]*)")?>中心（年度）<\/td><td class="num">([^<]*)<\/td><td class="num">([^<]*)<\/td><td class="num">([^<]*)<\/td><\/tr>/.exec(h); return { tip: m[2] === undefined ? null : unesc(m[2]), now: m[3], off: m[4], diff: m[5] }; };
-const monthTotal = (h) => { const m = /<tr class="total"><td>年度<\/td>(?:<td class="num">[^<]*<\/td>){3}<td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><td class="num">([^<]*)<\/td><\/tr>/.exec(h);
-  return { ver: m[3], verTip: m[2] === undefined ? null : unesc(m[2]), now: m[6], nowTip: m[5] === undefined ? null : unesc(m[5]), diff: m[7] }; };
+// 差の欄の説明（diffTip）は、今と版の中心の計算のしかたが違うときだけ（2026-10-09。app-v11-fix2.test.mjs）
+const cmpRow = (h) => { const m = /<tr><td( data-tip="([^"]*)")?>中心（年度）<\/td><td class="num">([^<]*)<\/td><td class="num">([^<]*)<\/td><td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><\/tr>/.exec(h);
+  return { tip: m[2] === undefined ? null : unesc(m[2]), now: m[3], off: m[4], diff: m[7], diffTip: m[6] === undefined ? null : unesc(m[6]) }; };
+const monthTotal = (h) => { const m = /<tr class="total"><td>年度<\/td>(?:<td class="num">[^<]*<\/td>){3}<td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><td class="num"( data-tip="([^"]*)")?>([^<]*)<\/td><\/tr>/.exec(h);
+  return { ver: m[3], verTip: m[2] === undefined ? null : unesc(m[2]), now: m[6], nowTip: m[5] === undefined ? null : unesc(m[5]), diff: m[9], diffTip: m[8] === undefined ? null : unesc(m[8]) }; };
 const pendLine = (h) => /<div class="card caution"><div class="card-head"><h2>承認待ち[\s\S]*?<p>最終予算 [^・]*・([\s\S]*?)　出した人/.exec(h)[1];
 const REACH = { final: 0.52, adopted: 0.71, center: 123.6e6, sd: 9e6, tau: 0.123, w: 1.25, closedMonths: 4, mode: 'LIVE' };
 {
@@ -210,7 +213,9 @@ const REACH = { final: 0.52, adopted: 0.71, center: 123.6e6, sd: 9e6, tau: 0.123
   assert.deepEqual(tipsOf(pl)[0].split('\n'), ['今の予測の中心です（予測と予算の画面と同じ）', '年度合計（下振れ・中心・上振れ）は着地の推定（締まった月の実績＋残りの月）です',
     'この版の記録の 旧来の計算の年度合計の中心 110,000,000 円（記録に残しています）']);
   assert.equal(kpiTip(h, '公式版の中心')[0], MID + '（承認済みの公式版・年度合計）', 'shownCenter の無い前の公式版は今までどおり');
-  assert.deepEqual(Object.values(cmpRow(h)).slice(1), ['123,600,000', '100,000,000', '+23,600,000']);
+  const cb = cmpRow(h);
+  assert.deepEqual([cb.now, cb.off, cb.diff], ['123,600,000', '100,000,000', '+23,600,000']);
+  assert.equal(cb.diffTip, '今 − 公式版\n公式版の中心は本番の計算に切り替える前の旧来の計算の値で、今の中心とは計算のしかたが違います', '本番の前の公式版との差');
   noCodes(h, '公式版（本番・着地の推定）');
 }
 {
@@ -230,8 +235,8 @@ const REACH = { final: 0.52, adopted: 0.71, center: 123.6e6, sd: 9e6, tau: 0.123
     assert.equal(kpiVal(h, '今の中心'), ys(110e6));
     assert.deepEqual(kpiTip(h, '今の中心'), [MID + '（今の予測・年度合計）', yu(110e6)]);
     assert.equal(pendLine(h), '中心 110,000,000 円', '説明なし');
-    assert.deepEqual(Object.values(cmpRow(h)), [null, '110,000,000', '100,000,000', '+10,000,000']);
-    assert.deepEqual(monthTotal(h), { ver: '100,000,000', verTip: null, now: '110,000,000', nowTip: null, diff: '+10,000,000' });
+    assert.deepEqual(Object.values(cmpRow(h)), [null, '110,000,000', '100,000,000', '+10,000,000', null]);
+    assert.deepEqual(monthTotal(h), { ver: '100,000,000', verTip: null, now: '110,000,000', nowTip: null, diff: '+10,000,000', diffTip: null });
     assert.doesNotMatch(tipsOf(h).join('\n'), /旧来の計算/);
   }
 }
@@ -257,14 +262,16 @@ const cellsOf = (row) => [...row.matchAll(/<td class="num"( data-tip="([^"]*)")?
   // A: 前回から = 1 億 800 万（旧来の計算）→ 1 億 2,120 万（月の合計）
   let c = cellsOf(revRow(h, 'A製薬'));
   assert.deepEqual(c.map((x) => x.text), ['+12.2%', ys(MONTH_SUM) + '円', '2 回']);
-  assert.deepEqual(c[0].tip.split('\n'), ['前回 2026/09/01 1.1億円（旧来の計算）', '今回 2026/10/01 1.2億円（月の合計）'], '本番の回と前の回を分ける');
+  assert.deepEqual(c[0].tip.split('\n'), ['前回 2026/09/01 1.1億円（旧来の計算）', '今回 2026/10/01 1.2億円（月の合計）', '前回と今回は計算のしかたが違います'],
+    '本番の回と前の回を分ける。前の回に月の合計が無ければ、計算のしかたが違う値どうしと添える（2026-10-09）');
   assert.equal(c[1].tip, '今の中心 121,200,000 円（予測と予算の画面と同じ）', '最新の回と同じなら、その回は重ねて言わない');
   const spark = tipsOf(revRow(h, 'A製薬')).find((t) => t.startsWith('A製薬 の見直し'));
-  assert.equal(spark, 'A製薬 の見直し（年間の中心）\n2026/09/01 1.1億円（旧来の計算）\n2026/10/01 1.2億円（月の合計）');
+  assert.equal(spark, 'A製薬 の見直し\n2026/09/01 1.1億円（旧来の計算）\n2026/10/01 1.2億円（月の合計）\n旧来の計算と月の合計の回は、計算のしかたが違います',
+    '本番の回のある流れは「年間の中心」と言わない（本番の回は月の合計）');
   // B: 着地の推定の回。最新の中心は今の中心（最新の回の値はカーソル）
   c = cellsOf(revRow(h, 'B製薬'));
   assert.deepEqual(c.map((x) => x.text), ['+1.7%', ys(123.6e6) + '円', '2 回']);
-  assert.deepEqual(c[0].tip.split('\n'), ['前回 2026/09/01 1.2億円（月の合計）', '今回 2026/10/01 1.2億円（着地の推定）']);
+  assert.deepEqual(c[0].tip.split('\n'), ['前回 2026/09/01 1.2億円（月の合計）', '今回 2026/10/01 1.2億円（着地の推定）', '前回と今回は計算のしかたが違います']);
   assert.deepEqual(c[1].tip.split('\n'), ['今の中心 123,600,000 円（予測と予算の画面と同じ）', '最新の予測 2026/10/01 1.2億円（着地の推定）']);
   // C: 本番でない計画は今までどおり（印なし・最新の中心は最新の回）
   c = cellsOf(revRow(h, 'C製薬'));
@@ -284,7 +291,7 @@ const cellsOf = (row) => [...row.matchAll(/<td class="num"( data-tip="([^"]*)")?
   // 表で見る: 流れの金額は各回の中心（p50Shown）、カーソルで印
   const t = revCard(plans, 'table');
   const ra = revRow(t, 'A製薬');
-  assert.match(ra, /<td class="wrap" data-tip="2026\/09\/01 1\.1億円（旧来の計算）\n2026\/10\/01 1\.2億円（月の合計）">1\.1億 → 1\.2億<\/td>/);
+  assert.match(ra, /<td class="wrap" data-tip="2026\/09\/01 1\.1億円（旧来の計算）\n2026\/10\/01 1\.2億円（月の合計）\n旧来の計算と月の合計の回は、計算のしかたが違います">1\.1億 → 1\.2億<\/td>/);
   assert.match(revRow(t, 'B製薬'), />1\.2億 → 1\.2億<\/td>/);
   noCodes(t, '見直しの流れ（表）');
   // 中心の値が無い回は除く（p50Shown も p50 も無い）

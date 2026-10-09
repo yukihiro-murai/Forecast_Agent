@@ -200,7 +200,7 @@ part('F4 公式版と見直しの流れ', () => {
   const rm = rev(idMid);
   assert.deepEqual(rm.map((r) => [r.p50, r.live, r.p50Shown, r.basis]), [[11400, false, 11400, 'legacy'], [11500, true, 12066, 'monthsum']],
     '本番の回は、その回の月の P50 の合計（1000〜1011 の 12 か月）');
-  assert.deepEqual(Object.keys(rm[0]).sort(), ['at', 'basis', 'live', 'p10', 'p50', 'p50Shown', 'p90']);
+  assert.deepEqual(Object.keys(rm[0]).sort(), ['at', 'basis', 'live', 'monthSum', 'p10', 'p50', 'p50Shown', 'p90']);
   assert.deepEqual(rev(idNext).map((r) => [r.live, r.p50Shown, r.basis]), [[true, 11500, 'legacy']], '月が 12 そろわない回は旧来の年度合計');
 });
 

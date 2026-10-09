@@ -9,8 +9,9 @@
  *   - AI 調査の根拠（AI_RESEARCH_STRUCTURED: 話題・向き・点数・確からしさ・根拠の文）・Vertex の説明
  *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作・変化のわけ（changeCause。appBasisChangeCause_）
  *   - 層ごとの効き（LAYER_EFFECTS。版 10）の月の合計を、最新と前の回で（layers。どの層で変わったか。LayerEffects.js の appBasisLayers_）
- *   - 年度の見込みを本番にした計画（2026-10-09。判断 10・24）は、年度の中心を月の合計にそろえる（appBasisAnnualLive_。旧来の年度合計は annual.legacy）
- * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える。
+ *   - 年度の見込みを本番にした計画（2026-10-09。判断 10・24）は、年度の値を月の合計にそろえ（appBasisAnnualLive_。旧来の年度合計は annual.legacy）、
+ *     最終の中心は予測の画面と同じ見せる中心にする（appBasisShown_。月の合計は annual.monthSum）
+ * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える（見せる中心は控えの外で毎回のせる: 日付・着地の τ・w で動き、入力のハッシュに入らないため）。
  * 押したものの、人や話題ごとの内訳（名前と信頼度）は予算策定担当以上の人だけに出す（appBasisFor_。学びと同じ決まり）。
  */
 const APP_BASIS_SHEETS = ['FORECAST_SNAPSHOT', 'AI_IMPACT_HISTORY', 'SUBJECTIVE_IMPACT_HISTORY', 'AI_RESEARCH_STRUCTURED', 'AI_SCORE_HISTORY',
@@ -70,7 +71,7 @@ function appForecastBasis_(ctx, planId) {
   const inputHash = appPlanInputHash_(plan.plan_id);
   const key = 'BASIS_' + appSha256Hex_([plan.plan_id, inputHash, APP_VERSION].join('|')).slice(0, 32);
   const cached = appJobGetResult_(key);
-  if (cached.found) return appBasisFor_(ctx, cached.value);
+  if (cached.found) return appBasisFor_(ctx, appBasisShown_(cached.value, plan));
   const t = appEngTableObjects_(plan.plan_id, APP_BASIS_SHEETS);
   // 新アプリで動かした予測（新しい順）と、その月ごとの P50
   const runs = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id && r.status === 'DONE')
@@ -145,16 +146,19 @@ function appForecastBasis_(ctx, planId) {
     applied: applied, research: research,
     vertex: vertex ? { at: String(vertex.run_at || ''), confidence: appNum_(vertex.confidence), rationale: String(vertex.rationale_ja || '').slice(0, 1200), status: String(vertex.status || '') } : null
   };
-  appBasisAnnualLive_(out, plan);   // 年度の見込みの本番（判断 10・24）: 年度の中心を月の合計にそろえる（旧来の年度合計は annual.legacy）
+  appBasisAnnualLive_(out, plan);   // 年度の見込みの本番（判断 10・24）: 年度の値を月の合計にそろえる（旧来の年度合計は annual.legacy。見せる中心は控えの後で appBasisShown_）
   Object.assign(out, appBasisChangeCause_(latest, prev, cur, before, between));   // 前回の予測からの変化のわけ（changeCause・changeCauses・changeVersion）
   out.layers = appBasisLayers_(plan.plan_id, latest, prev);   // 層ごとの効きの月の合計（最新と前の回。人の名前は入らない。LayerEffects.js）
   try { appJobPutResult_(key, out); } catch (e) { /* 控えられなくても返す */ }
-  return appBasisFor_(ctx, out);
+  return appBasisFor_(ctx, appBasisShown_(out, plan));
 }
 
 /**
- * 年度の見込みを本番にした計画（appPlanAlignedLive_。判断 10・24。2026-10-09 村井さん承認）の根拠の年度: 最終の中心（annual.p50）・過去の売上だけ
- * （annual.objective）・前回の中心（annual.prevP50）を、月ごとの値の 12 か月の合計にする（予測の画面の年度の中心と同じ・月ごとの内訳の合計と同じ）。
+ * 年度の見込みを本番にした計画（appPlanAlignedLive_。判断 10・24。2026-10-09 村井さん承認）の根拠の年度（控える部分）: 過去の売上だけ
+ * （annual.objective）・前回（annual.prevP50）・月ごとの中心の合計（annual.monthSum）を、月ごとの値の 12 か月の合計にする（月ごとの内訳の合計と同じ）。
+ * 最終の中心（annual.p50）もいったん月の合計（basis 'monthsum'）にし、控えの後で appBasisShown_ が予測の画面と同じ見せる中心にする。
+ * 月の合計どうしで比べる値（過去の売上からの差・前回から）は、画面が monthSum から出す（月ごとの内訳と同じ足し方。見せる中心は締まった月の実績を入れるので、
+ * 過去の売上だけ・前回の予測の月の合計とは比べない）。
  * 月が 12 そろわない値は null。旧来の計算の年度合計は annual.legacy = { p50, objective, prevP50 } に残し、annual.live = true。
  * 本番でない・月の中心が 12 そろわなければ何も変えない（今までどおり旧来の計算の年度合計）。out は appForecastBasis_ の返り値（書き換える）
  */
@@ -164,8 +168,25 @@ function appBasisAnnualLive_(out, plan) {
   const p50 = all('p50');
   if (p50 === null || !appPlanAlignedLive_(plan)) return;
   const a = out.annual;
-  out.annual = Object.assign({}, a, { p50: p50, objective: all('objective'), prevP50: all('prevP50'), live: true,
+  out.annual = Object.assign({}, a, { p50: p50, objective: all('objective'), prevP50: all('prevP50'), monthSum: p50, basis: 'monthsum', live: true,
     legacy: { p50: a.p50 === undefined ? null : a.p50, objective: a.objective === undefined ? null : a.objective, prevP50: a.prevP50 === undefined ? null : a.prevP50 } });
+}
+
+/**
+ * 根拠の最終の中心を、予測の画面と同じ見せる中心にする（2026-10-09。控えの外で毎回: 見せる中心は今日の日付・着地の τ・w でも動く）。
+ * annual.live（appBasisAnnualLive_）の計画だけ、計画の一覧の控えの見せる年度の値（appPlanShadow_ の annual。予測の画面の shadow.annual と同じもの）から
+ * annual.p50 = その中心・annual.basis = 作り方（'monthsum' 締まった月なし・'landing' 年度の途中は着地の推定・'actual' 12 か月の実績の合計）・annual.k を出す。
+ * annual.monthSum（月ごとの中心の合計）はそのまま。読めない・本番でなければ月の合計のまま（basis 'monthsum'）。
+ * basis = 控えから読んだ値か、組み立てた値（書き換えない。変えるときは写しを返す）
+ */
+function appBasisShown_(basis, plan) {
+  const a = basis && basis.annual;
+  if (!a || a.live !== true) return basis;
+  const sh = appPlanShadow_(plan.plan_id);
+  const s = sh && sh.live ? sh.annual : null;
+  if (!s || typeof s.p50 !== 'number' || !isFinite(s.p50)) return basis;
+  return Object.assign({}, basis, { annual: Object.assign({}, a, { p50: s.p50, basis: s.basis || 'monthsum', k: typeof s.k === 'number' ? s.k : null,
+    monthSum: typeof a.monthSum === 'number' ? a.monthSum : a.p50 }) });
 }
 
 /**
