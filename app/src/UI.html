@@ -376,6 +376,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s);table-layout
 .incell > .ell{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .incell > .tipsp{flex:0 0 22px}
 .fc-run > .card-head:last-child{margin-bottom:0}
+.fc-bud{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s4);margin:0 0 var(--s3)}   /* 予算の下書きの 1 行と、予測が動いた知らせ（狭い画面では折り返す） */
+.tbl.fc-vers td.num > .note{display:block}   /* 版の一覧: 出したときの届く見込みは、最終予算の下の行に（1 マスの列に入る） */
 /* 精度の天気: キャラ・名前・数字 3 つ（数字は 1 マス 160px の格子） */
 .fc-wx{display:flex;align-items:center;flex-wrap:wrap;gap:var(--s4) var(--s5)}
 .fc-wxch{display:block;width:96px;height:96px;flex:0 0 96px}
@@ -637,7 +639,7 @@ function busy(delta){
   S.pending = Math.max(0, S.pending + delta);
 }
 /** 読むだけの入口（同時に呼んでよい。load() に渡せるのもこれだけ）。それ以外は書き込みで、終わるまで次の書き込みを受け付けない */
-var READS = { apiHome: 1, apiPortfolio: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiForecastBasis: 1, apiVersionList: 1, apiLearningView: 1, apiJobStatus: 1, apiCrossMaker: 1, apiPeopleLearning: 1, apiAiLearning: 1 };
+var READS = { apiHome: 1, apiPortfolio: 1, apiListPlans: 1, apiForecastLatest: 1, apiPlanView: 1, apiForecastBasis: 1, apiVersionList: 1, apiLearningView: 1, apiJobStatus: 1, apiCrossMaker: 1, apiPeopleLearning: 1, apiAiLearning: 1, apiBudgetProposal: 1 };
 /**
  * サーバーの api* を呼ぶ。失敗は通知に出す（入力は消さない）。
  * fail が false を返したときは通知を出さない（読み込みの失敗は、その場所に理由と「もう一度読み込む」を出す: load()）
@@ -1913,7 +1915,7 @@ function loadForecast(planId, force, saved){
     var w = saved && FC_DRAFT_OF[saved.action];
     if (w === 'input' && saved.kind) { delete f.draft[saved.kind]; delete f.inputDirty[saved.kind]; }
     else if (w === 'input') { f.draft = {}; f.inputDirty = {}; }
-    else if (w === 'budget') f.budget = {};
+    else if (w === 'budget') { f.budget = {}; f.budBasis = null; }
     else if (w === 'ins') f.ins = {};
   }
   fcTabData(f.tab);
@@ -1933,7 +1935,7 @@ function fcRetry(){
 }
 /** 保存していない入力（予算・入力・人の記入・見直し案の判断）があるか */
 function fcDirty(){ var f = S.fc; return Object.keys(f.inputDirty || {}).some(function(k){ return f.inputDirty[k]; }) || Object.keys(f.budget || {}).length > 0 || Object.keys(f.ins || {}).length > 0 || Object.keys(f.dec || {}).length > 0; }
-function fcDropDrafts(){ var f = S.fc; f.draft = {}; f.inputDirty = {}; f.budget = {}; f.ins = {}; f.dec = {}; }
+function fcDropDrafts(){ var f = S.fc; f.draft = {}; f.inputDirty = {}; f.budget = {}; f.budBasis = null; f.budProb = null; f.ins = {}; f.dec = {}; }
 /** 読んである計画: 計画の画面の中身の計画。まだ読めていない（読み直しの途中など）ときは、入力中の値を読んだ計画 */
 function fcLoadedPlan(){ var v = S.fc.view; return v && v.plan && v.plan.planId ? v.plan.planId : S.fc.draftPlan; }
 /**
@@ -2168,6 +2170,7 @@ function fcForecastTab(d, v){
   // 予算（採用予測と上乗せを入れる。最終予算 = 採用予測 + 上乗せ は保存すると計算し直す）
   var bd = S.fc.budget, dirty = Object.keys(bd).length;
   var canBudget = canPlan && !measure;   // 測る専用の計画は予算を立てない（入れる欄・保存・届く見込みを出さない）
+  var closed = !!(d.plan && d.plan.frozen) || !!(v.plan && v.plan.frozen);   // 締め済みの年度は、確率で決める欄を出さず、予測が動いた知らせも出さない
   if (canBudget && !S.cv.fcMonthly) S.cv.fcMonthly = 'table';   // 予算策定担当は入力の表から（グラフに切り替えられる）
   // 金額の欄は 3 けたごとに区切って見せる（入力中は区切りを外す。保存するときは数に直す）
   var cell = function(m, k){ var x = bd[m.row]; var val = x && x[k] !== undefined ? x[k] : m[k];
@@ -2187,8 +2190,8 @@ function fcForecastTab(d, v){
   var reach = !(rc && rc.draft) ? '' : rcDone ? '<span class="meta" data-tip="' + esc(fcReachDoneTip(rc, dirty)) + '">' + esc(fcReachDoneSay(rc)) + '</span>'
     : '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + '（試し）</span>';
   html += '<div class="card"><div class="card-head"><h2>' + (measure ? '月ごとの見通し' : '月ごとの見通しと予算') + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。' + (measure ? '測る専用の計画なので、予算は立てません。' : '最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。') + '年度合計（下振れ・中心・上振れ）は月の合計ではなく、年度で計算した値です') + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
-    + chartOrTable('fcMonthly', chart, table)
-    + (foot ? '<div class="card-foot">' + actBtn(fcSaveBtn('予算を保存', 'fcSaveBudget()', dirty), '採用予測と上乗せを保存し、最終予算を計算し直します') + (dirty ? '<span class="chip warn">未保存</span>' : '') + '</div>' : '') + '</div>';
+    + (measure ? '' : fcBudDraftLine(closed)) + chartOrTable('fcMonthly', chart, table)
+    + (foot ? '<div class="card-foot">' + (closed ? '' : fcProbSel(d)) + actBtn(fcSaveBtn('予算を保存', 'fcSaveBudget()', dirty && !S.fc.budProb), '採用予測と上乗せを保存し、最終予算を計算し直します') + (dirty ? '<span class="chip warn">未保存</span>' : '') + '</div>' : '') + '</div>';
   return html;
 }
 /** 試しの確率（サーバーが 5% 刻みに丸めた整数）の言い方: 0 → 5% 未満・100 → 95% 超・ほか → 約 N% */
@@ -2249,14 +2252,153 @@ function fcYenIn(v){ if (v === null || v === undefined || v === '') return ''; v
 function fcNumFocus(el){ el.value = String(el.value || '').replace(/[,\s]/g, ''); }
 function fcNumBlur(el){ el.value = fcYenIn(el.value); }
 function fcConfirmRun(){ var c = S.fc.confirm; S.fc.confirm = null; startJob('FORECAST.RUN', { planId: c.planId, confirms: c.confirms.concat([c.key]) }); }
-function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = String(val == null ? '' : val).replace(/[,\s]/g, ''); fcMarkDirty('fcSaveBudget()'); }
+function fcBudget(row, k, val){ var b = S.fc.budget; b[row] = b[row] || {}; b[row][k] = String(val == null ? '' : val).replace(/[,\s]/g, ''); if (k === 'adopted') fcBudManual(); fcMarkDirty('fcSaveBudget()'); }
+/** 予算を保存する。採用予測の決め方（basis・prob・alloc。fcBudArgs）も送る（表の版 11 の下書きに残す。前のサーバーは rows だけを使う） */
 function fcSaveBudget(){
   var sec = S.fc.view.boot.output.sections[0], bd = S.fc.budget;
   var bad = Object.keys(bd).some(function(r){ return ['adopted', 'uplift'].some(function(k){ var x = bd[r][k]; return x !== undefined && x !== '' && !isFinite(Number(x)); }); });
   if (bad) { toast('採用予測と上乗せは、数で入れてください（例: 22,610,000）', true); return; }
   var rows = sec.monthly.filter(function(m){ return bd[m.row]; }).map(function(m){ var x = bd[m.row];
     return { row: m.row, adopted: x.adopted !== undefined ? fcNum(x.adopted) : fcNum(m.adopted), uplift: x.uplift !== undefined ? fcNum(x.uplift) : fcNum(m.uplift) }; });
-  fcEdit('BUDGET.SAVE', { rows: rows });
+  var a = fcBudArgs(), args = { rows: rows, basis: a.basis, alloc: a.alloc };
+  if (a.basis === 'PROB') args.prob = a.prob;
+  fcEdit('BUDGET.SAVE', args);
+}
+
+// ---- 予算の下書き（表の版 11・決定 25〜27）: 届く見込みで採用予測を決める欄と、今の下書きの 1 行 ----
+/** 確率で決める: 届く見込み 50・60・70・80%（90% 以上は選ばない） */
+var BUD_PROBS = [50, 60, 70, 80];
+/** 月への割り振り（下書きの alloc）の言い方。既定は過去の平均の形 */
+var BUD_ALLOC = { PAST_SHAPE: '過去の平均の形', FORECAST_SHAPE: '予測の月の形', MANUAL: '手で直した形' };
+/** 予測が動いた知らせの目安（年度の中心の動き 10%。サーバーの APP_BUDGET_DRIFT_WARN と同じ。サーバーが warn・driftLimit を返すときはそちらを使う） */
+var BUD_DRIFT = 0.1;
+/**
+ * 今の予算の下書き（サーバーの boot.budgetDraft: { basis, prob, alloc, runId, runAt, savedAt, centerAtDraft, centerNow, drift, driftLimit, warn, adopted, uplift }）。
+ * 無ければ null（前のサーバー・下書きの無い計画）
+ */
+function fcBudDraft(){ var v = S.fc.view, x = v && v.boot && v.boot.budgetDraft; return x && typeof x === 'object' && x.basis ? x : null; }
+/** この画面で決めた採用予測の決め方（PROB: 確率で決めた・MANUAL: 手で直した）。入力中の予算が無ければ無い */
+function fcBudBasis(){ var b = S.fc.budBasis; return b && b.planId === S.fc.planId && Object.keys(S.fc.budget || {}).length ? b : null; }
+/**
+ * 保存で送る決め方 { basis, prob（PROB のときだけ）, alloc }。確率で決めた → PROB・その後に採用予測を手で直した → MANUAL。
+ * 採用予測に触れていない（上乗せだけ直した）ときは今の下書きの決め方のまま。下書きが無ければ予測の中心のまま（CENTER）
+ */
+function fcBudArgs(){
+  var b = fcBudBasis(), dd = fcBudDraft();
+  if (b && b.basis === 'PROB') return { basis: 'PROB', prob: b.prob, alloc: b.alloc };
+  if (b) return { basis: 'MANUAL', alloc: 'MANUAL' };
+  if (dd && dd.basis === 'PROB' && BUD_PROBS.indexOf(Number(dd.prob)) >= 0) return { basis: 'PROB', prob: Number(dd.prob), alloc: BUD_ALLOC[dd.alloc] ? dd.alloc : 'PAST_SHAPE' };
+  if (dd && (dd.basis === 'MANUAL' || dd.basis === 'BASELINE')) return { basis: 'MANUAL', alloc: 'MANUAL' };
+  return { basis: 'CENTER', alloc: 'FORECAST_SHAPE' };
+}
+/** 採用予測を手で直した。描き直さずに（打っている欄を消さずに）、選ぶ欄を「確率で決める」に戻す */
+function fcBudManual(){
+  S.fc.budBasis = { planId: S.fc.planId, basis: 'MANUAL' };
+  var s = $('fcProb'), a = s && s.parentNode;
+  if (s) s.value = '';
+  if (a && a.setAttribute) a.setAttribute('data-tip', fcProbTip());
+}
+/**
+ * 確率で決められるか: 予算に届く見込み（予測の記録の shadow.reach。確率で決める額と同じ分布）があり、年度が終わっていない。
+ * 届く見込みが無いときは、予算のカードに届く見込みの話を何も出さない（届く見込みの 1 行と同じ）。shadow を返さない前のサーバーは決めてよい（わけはサーバーの答えで知らせる）
+ */
+function fcProbOk(d){
+  if (!d || !('shadow' in d)) return true;
+  var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, rc = sh && sh.reach;
+  return !!rc && !fcReachDone(rc);
+}
+/** 確率で決める欄（予算のカードの下。予算策定担当だけ。測る専用の計画・締め済みの年度・届く見込みの無いときは出さない） */
+function fcProbSel(d){
+  if (!fcProbOk(d)) return '';
+  var b = fcBudBasis(), wait = !!S.fc.budProb, cur = b && b.basis === 'PROB' && !wait ? b.prob : 0;
+  return '<span class="act" data-tip="' + esc(fcProbTip()) + '"><select class="inp sm" id="fcProb" aria-label="届く見込みで採用予測を決める"' + (fcBusy() || wait ? ' disabled' : '') + ' onchange="fcBudProb(this.value)">'
+    + '<option value=""' + (cur ? '' : ' selected') + '>' + (wait ? '計算しています' : '確率で決める') + '</option>'
+    + BUD_PROBS.map(function(p){ return '<option value="' + p + '"' + (cur === p ? ' selected' : '') + '>' + p + '% で決める</option>'; }).join('') + '</select></span>';
+}
+function fcProbTip(){
+  var b = fcBudBasis(), p = b && b.basis === 'PROB' ? b : null;
+  return ['届く見込みで採用予測を決めます（80% なら 10 回に 8 回は届く額）',
+    '採用予測 = 約束、上乗せ = 挑戦（上乗せはそのまま）',
+    '月への割り振りは' + BUD_ALLOC[p ? p.alloc : 'PAST_SHAPE'] + 'です',
+    p ? '選んだ額: 届く見込み ' + p.prob + '%' + (isNum(p.annual) ? '・年度 ' + yenU(p.annual) : '') + (p.trial ? '（試し）' : '') : '',
+    p && p.basisText ? plainMsg(p.basisText) : '',
+    '保存するまで、予算は変わりません'].filter(Boolean).join('\n');
+}
+/**
+ * 確率を選んだ: サーバー（apiBudgetProposal）に、その確率で届く額を月に割り振った採用予測を尋ね、採用予測の欄に入れる（保存はまだ）。
+ * 手で直した採用予測があれば、置き換えてよいか先に確かめる。答えが来る前に別の計画に移ったら捨てる
+ */
+function fcBudProb(val){
+  var prob = Number(val), planId = S.fc.planId;
+  if (BUD_PROBS.indexOf(prob) < 0 || S.fc.budProb) return;
+  var go = function(){
+    var t = S.fc.budProb = { planId: planId, prob: prob };
+    render();
+    // 入口の無いサーバー（版 11 より前）でも、尋ねている途中のまま止まらない
+    try {
+      call('apiBudgetProposal', [{ planId: planId, prob: prob }], function(r){
+        if (S.fc.budProb !== t) return;
+        S.fc.budProb = null;
+        if (S.fc.planId === planId && S.fc.view && fcLoadedPlan() === planId) fcBudFill(r || {}, prob);
+      }, function(){ if (S.fc.budProb === t) S.fc.budProb = null; });
+    } catch (e) { busy(-1); if (S.fc.budProb === t) S.fc.budProb = null; toast('今は確率からは選べません。画面を読み直してください', true); }
+  };
+  var b = fcBudBasis();
+  if (b && b.basis === 'MANUAL') { render(); ask('入力中の採用予測を、届く見込み ' + prob + '% の額に置き換えますか？（上乗せはそのまま）', '置き換える', go); }
+  else go();
+}
+/**
+ * 届く見込みの額を採用予測の欄に入れる（月は ym で合わせる。締まった月は実績のまま。上乗せはそのまま）。
+ * サーバーが選べないと答えた（ok: false。着地見込みがまだ無い・年度が終わった）ときは、そのわけを知らせる。入れられる月が無いときも知らせる
+ */
+function fcBudFill(r, prob){
+  var o = S.fc.view && S.fc.view.boot && S.fc.view.boot.output, sec = o && o.sections && o.sections[0];
+  var by = {}, n = 0, bd = S.fc.budget;
+  if (r.ok === false || !(r.months || []).length) { toast(plainMsg(r.basisText || '') || '確率からは選べませんでした', true); return; }
+  r.months.forEach(function(x){ var k = fcYm(x && x.ym); if (k && isNum(x.adopted)) by[k] = x.adopted; });
+  ((sec && sec.monthly) || []).forEach(function(m){ var a = by[fcYm(m.month)]; if (!isNum(a)) return; bd[m.row] = bd[m.row] || {}; bd[m.row].adopted = String(Math.round(a)); n++; });
+  if (!n) { toast('届く見込みの額を、月に割り振れませんでした', true); return; }
+  S.fc.budBasis = { planId: S.fc.planId, basis: 'PROB', prob: BUD_PROBS.indexOf(Number(r.prob)) >= 0 ? Number(r.prob) : prob, alloc: BUD_ALLOC[r.alloc] ? r.alloc : 'PAST_SHAPE',
+    annual: isNum(r.annual) ? r.annual : null, basisText: String(r.basisText || ''), trial: r.mode === 'SHADOW' };
+  S.cv.fcMonthly = 'table';   // 入れた額が見えるように表で
+}
+/** 月の印をそろえる（2026/04・2026-04・2026-04-01 → 2026-04） */
+function fcYm(s){ var m = /(\d{4})\D(\d{1,2})/.exec(String(s || '')); return m ? m[1] + '-' + (m[2].length < 2 ? '0' : '') + m[2] : ''; }
+/** 下書きの決め方の言い方（見える短い言葉 say と、説明 tip） */
+function fcBudHow(dd){
+  var al = BUD_ALLOC[dd.alloc];
+  if (dd.basis === 'PROB' && BUD_PROBS.indexOf(Number(dd.prob)) >= 0) return { say: Number(dd.prob) + '% で決めた額', tip: '採用予測は、届く見込み ' + Number(dd.prob) + '% の額です' + (al ? '（月への割り振りは' + al + '）' : '') };
+  if (dd.basis === 'MANUAL') return { say: '手で直した額', tip: '採用予測は、手で直した額です' };
+  if (dd.basis === 'BASELINE') return { say: '前に入れた額', tip: '採用予測は、下書きを残し始める前に入れてあった額です' };
+  return { say: '予測の中心のまま', tip: '採用予測は、下書きを作ったときの予測の中心です' };
+}
+/**
+ * 下書きを作った後の予測の動き（サーバーの drift = (今の中心 − 下書きのときの中心) ÷ 下書きのときの中心）。知らせるときだけ値を返し、ほかは null。
+ * 知らせるかはサーバーが決める（warn。|drift| が driftLimit 以上）。warn の無いサーバーでは driftLimit（無ければ BUD_DRIFT）以上のとき
+ */
+function fcBudDrift(dd){
+  if (!isNum(dd.drift)) return null;
+  if (typeof dd.warn === 'boolean') return dd.warn ? dd.drift : null;
+  return Math.abs(dd.drift) >= (isNum(dd.driftLimit) ? dd.driftLimit : BUD_DRIFT) ? dd.drift : null;
+}
+/**
+ * 予算の下書きの 1 行（予算のカードの見出しの下）: 「予算の下書き: 80% で決めた額（10/09）」。下書きが無ければ何も出さない。
+ * 下書きを作った後に予測が目安より動いたら「下書きを作った後に予測が N% 動きました」も（締め済みの年度は出さない）。くわしくはカーソルで
+ */
+function fcBudDraftLine(closed){
+  var dd = fcBudDraft();
+  if (!dd) return '';
+  var how = fcBudHow(dd), day = fcDate(dd.savedAt).slice(5), dr = closed ? null : fcBudDrift(dd);
+  var t1 = ['予算の下書き' + (dd.savedAt ? '（' + fcDate(dd.savedAt, true) + ' に保存）' : ''), how.tip,
+    isNum(dd.adopted) ? '採用予測 ' + yenU(dd.adopted) + (isNum(dd.uplift) ? '・上乗せ ' + yenU(dd.uplift) : '') + '（年度）' : '',
+    '予測し直しても、この下書きのまま変わりません（採用予測 = 約束、上乗せ = 挑戦）',
+    isNum(dd.centerAtDraft) ? '下書きを作ったときの予測' + (dd.runAt ? '（' + fcDate(dd.runAt, true) + '）' : '') + 'の中心 ' + yenU(dd.centerAtDraft) + (isNum(dd.centerNow) ? '・今の中心 ' + yenU(dd.centerNow) : '') : ''].filter(Boolean).join('\n');
+  var t2 = dr === null ? '' : ['下書きを作ったときから、予測の中心が ' + pct1(dr) + ' 動きました',
+    isNum(dd.centerAtDraft) && isNum(dd.centerNow) ? yenU(dd.centerAtDraft) + ' → ' + yenU(dd.centerNow) : '',
+    '予算の下書きは、予測し直しても変わりません',
+    !fcCan('plan') ? '合わせるかどうかは、予算策定担当が決めます' : dd.basis === 'PROB' ? '今の予測に合わせるときは、確率で選び直して保存します' : '今の予測に合わせるときは、採用予測を見直して保存します'].filter(Boolean).join('\n');
+  return '<div class="fc-bud"><span class="note" tabindex="0" data-tip="' + esc(t1) + '">予算の下書き: ' + esc(how.say) + (day ? '（' + esc(day) + '）' : '') + '</span>'
+    + (t2 ? '<span class="note warn-text" tabindex="0" data-tip="' + esc(t2) + '">下書きを作った後に予測が ' + Math.round(Math.abs(dr) * 100) + '% 動きました</span>' : '') + '</div>';
 }
 
 // ---- 根拠（何が予測を押したか。中の言葉は出さない: 話題・向き・種類・AI の見立て） ----
@@ -2814,6 +2956,35 @@ function verChip(st){ var x = VER_STATE[st] || ['-', 'off']; return '<span class
 function fcLoadVersions(){ var id = S.fc.planId; S.fc.ver = null; load('fcVer', function(ok, fail){ call('apiVersionList', [{ planId: id }], ok, fail); }, null, function(r){ if (S.fc.planId === id) S.fc.ver = r; }); }
 function verWho(email, at){ return email ? esc(fcWho(email)) + '<div class="note">' + esc(fcDate(at, true).slice(5)) + '</div>' : '-'; }
 function verDiff(a, b){ return !isNum(a) || !isNum(b) ? '-' : (a - b > 0 ? '+' : '') + yen(a - b); }
+/**
+ * 版を出したときの届く見込み（サーバーの versions[].reach: { final, adopted（0〜1）, center, sd, tau, w, closedMonths, mode }）。
+ * 表の版 11 より前に出した版には無い（null）。出したときに着地見込みが無かった版は、数が空（verReachNone）
+ */
+function verReach(x){ var r = x && x.reach; return r && typeof r === 'object' && (r.mode || isNum(r.final) || isNum(r.adopted)) ? r : null; }
+function verReachNone(rc){ return !isNum(rc.final) && !isNum(rc.adopted); }
+var VER_REACH_NONE = '出したときは着地見込みがまだ無かったので、届く見込みはありません';
+/** 届く見込み（0〜1）の言い方。予算のカードと同じく 5% 刻みに丸める（約 70%・5% 未満・95% 超） */
+function verPct(p){ return isNum(p) ? reachPct(Math.round(p * 20) * 5) : '-'; }
+/** 本番（LIVE）でなければ試し */
+function verTrial(rc){ return rc.mode !== 'LIVE'; }
+/** 届く見込みの説明: 最終予算・採用予測それぞれの見込みと、出したときの前提（中心・幅・年の水準のぶれ・幅の倍率・締まった月の数） */
+function verReachTip(x, rc){
+  var b = x.budget || {}, k = Number(rc.closedMonths);
+  if (verReachNone(rc)) return VER_REACH_NONE;
+  return ['出したときの届く見込み' + (verTrial(rc) ? '（試し）' : ''),
+    '最終予算 ' + yenU(b.final) + ' に ' + verPct(rc.final),
+    '採用予測 ' + yenU(b.adopted) + ' に ' + verPct(rc.adopted),
+    '前提: 中心 ' + yenU(isNum(rc.center) ? rc.center : null) + '・幅（標準偏差）' + yenU(isNum(rc.sd) ? rc.sd : null) + '・' + reachAssume(rc) + '・' + (k > 0 ? '締まった月 ' + k + ' か月' : '締まった月なし'),
+    verTrial(rc) ? '本番の計算に切り替える前の試しの値です' : '',
+    '出したときの値のまま、後から変えません'].filter(Boolean).join('\n');
+}
+/** 版の一覧の最終予算の下の段: 出したときに最終予算に届く見込み（試しは札）。前の版は空 */
+function verReachCell(x){
+  var rc = verReach(x);
+  return rc ? '<span class="note" tabindex="0" data-tip="' + esc(verReachTip(x, rc)) + '">' + esc(verPct(rc.final)) + (verTrial(rc) && !verReachNone(rc) ? ' <span class="chip fc-act">試し</span>' : '') + '</span>' : '';
+}
+/** 承認待ちのカードの 1 行（承認する人が見て決める）: 届く見込み: 最終予算に 約 70%・採用予測に 約 85%（試し） */
+function verReachSay(x, rc){ return verReachNone(rc) ? '届く見込み: -' : '届く見込み: 最終予算に ' + verPct(rc.final) + '・採用予測に ' + verPct(rc.adopted) + (verTrial(rc) ? '（試し）' : ''); }
 function fcVersionTab(d, v){
   var r = S.fc.ver;
   if (!r || r.planId !== S.fc.planId) return slot('fcVer', '公式版を読み込んでいます', 'fcLoadVersions()') || loading('公式版を読み込んでいます');
@@ -2829,9 +3000,11 @@ function fcVersionTab(d, v){
     + fcKpi('今の最終予算', cur ? cur.budget.final : null, false, '今の計画の、最終予算の年度合計') + fcKpi('今の中心', cur ? cur.annual.p50 : null, false, qTip('p50') + '（今の予測・年度合計）') + '</div>';
   // 承認待ち
   if (pend) {
-    var mine = pend.submittedBy === r.me && !B.user.isOwner;
+    var mine = pend.submittedBy === r.me && !B.user.isOwner, prc = verReach(pend);
     html += '<div class="card caution"><div class="card-head"><h2>承認待ち（v' + pend.no + '）</h2>' + verChip('SUBMITTED') + '</div>'
       + '<p>最終予算 ' + yenU(pend.budget.final) + '・中心 ' + yenU(pend.annual.p50) + '　出した人: ' + esc(fcWho(pend.submittedBy)) + '（' + esc(fcDate(pend.submittedAt, true)) + '）</p>'
+      // 承認する人が見て決める: 出したときの届く見込み（最終予算・採用予測）。前提はカーソルで
+      + (prc ? '<p class="mt4" tabindex="0" data-tip="' + esc(verReachTip(pend, prc)) + '">' + esc(verReachSay(pend, prc)) + '</p>' : '')
       + (pend.note ? '<p class="note mt4">メモ: ' + esc(pend.note) + '</p>' : '')
       + (r.pendingChanged ? '<p class="warn-text mt8">出した後に計画が変わっています。承認するのは、出した時点の数字です。</p>' : '')
       + (r.can.approve && !mine ? '<div class="field mt12"><label for="ver_note">判断のメモ（却下のときは理由を書く）</label><input class="inp lg" id="ver_note" aria-describedby="ver_note_hint"><span class="note warn-text" id="ver_note_hint" role="status"></span></div>'
@@ -2853,8 +3026,8 @@ function fcVersionTab(d, v){
   }
   // 版の一覧
   html += '<div class="card"><h2>版の一覧</h2>' + (r.versions.length ? '<div class="tblwrap"><table class="tbl fc-vers"><colgroup><col style="width:56px"><col style="width:120px"><col style="width:128px"><col style="width:128px"><col style="width:112px"><col style="width:112px"><col><col style="width:152px"></colgroup>'
-    + '<thead><tr><th>版</th><th>状態</th><th class="num">最終予算</th>' + qTh('p50') + '<th>出した人</th><th>判断した人</th><th class="colmin" style="--colmin:64px">メモ</th><th></th></tr></thead><tbody>'
-    + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
+    + '<thead><tr><th>版</th><th>状態</th><th class="num" data-tip="最終予算の年度合計。下の段は、出したときにこの最終予算に届く見込み（前の版には無い）">最終予算</th>' + qTh('p50') + '<th>出した人</th><th>判断した人</th><th class="colmin" style="--colmin:64px">メモ</th><th></th></tr></thead><tbody>'
+    + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + verReachCell(x) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
       + '<td data-tip="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" data-tip="この版と今の数字を、月ごとに比べます" onclick="S.fc.verCmp=\'' + esc(x.versionId) + '\';render()">今と比べる</button></td></tr>'; }).join('')
     + '</tbody></table></div>' : '<p class="note">まだ版がありません。</p>') + '</div>';
