@@ -4,6 +4,9 @@
  * 予算策定担当が、今の計画の予測と予算を「公式版」として出す（承認待ち）。承認者が承認すると公式版になり、前の公式版は置き換わる。
  * 出した版の数字（年度と月ごとの P10/P50/P90・採用予測・上乗せ・最終予算）は、出した時点のまま変えない。
  * 計画はその後も直せる（次の版を出す）。版どうしの差は画面で比べる。
+ * 版 11（4-2・決定 28）: 出したときに、最終予算と採用予測に届く見込みと、その前提（着地の分布の中心と幅・τ・w・締まった月の数・試しか本番か・
+ * 式の版と締まった月の実績の合計と使った予測の回）を同じ行に書く（appVersionReachCols_）。出した後は変えない（承認・却下・取り下げは状態だけ変える）。
+ * 前の版の行は空のまま（出したときの前提を後から作ると、出したときと違う値になるため）。一覧は版ごとに reach で返す（承認する人が見て判断する）。
  */
 const APP_VERSION_STATES = ['SUBMITTED', 'APPROVED', 'REJECTED', 'SUPERSEDED', 'WITHDRAWN'];
 
@@ -40,7 +43,45 @@ function appVersionOut_(v) {
   return { versionId: v.version_id, no: v.version_no, state: v.state, inputHash: v.input_hash, runId: v.forecast_run_id,
     annual: { p10: v.annual_p10, p50: v.annual_p50, p90: v.annual_p90 }, budget: { adopted: v.budget_adopted, uplift: v.budget_uplift, final: v.budget_final },
     monthly: appParseJsonList_(v.monthly_json), note: v.note, submittedAt: v.submitted_at, submittedBy: v.submitted_by,
-    decidedAt: v.decided_at, decidedBy: v.decided_by, decisionNote: v.decision_note, rowVersion: v.row_version };
+    decidedAt: v.decided_at, decidedBy: v.decided_by, decisionNote: v.decision_note, rowVersion: v.row_version, reach: appVersionReachOut_(v) };
+}
+
+/**
+ * 版の届く見込み（版 11 の列）。{ final, adopted, center, sd, tau, w, closedMonths, mode }（mode = SHADOW 試し・LIVE 本番）。
+ * 版 11 より前に出した版（列が空）は null。着地見込みが無かった版は、mode だけで数は null
+ */
+function appVersionReachOut_(v) {
+  const n = x => (typeof x === 'number' && isFinite(x) ? x : null);
+  if (!v || !v.prob_mode) return null;
+  return { final: n(v.reach_final), adopted: n(v.reach_adopted), center: n(v.center), sd: n(v.sd), tau: n(v.tau), w: n(v.w),
+    closedMonths: n(v.closed_months), mode: String(v.prob_mode) };
+}
+
+/**
+ * 出すときの届く見込みの列（4-2）。着地見込みと同じ分布（計画の一覧の控えの予算に届く見込み appPlanShadow_ の reach: Landing.js の appLandingDist_）で、
+ * 最終予算・採用予測それぞれ以上で着地する確率を、Landing.js の appLandingReach_ で出す（今の予算と同じ計算）。
+ * center・sd は、その確率を出した分布の中心と幅（締まった月が無ければ center = 月の真ん中の合計 = 決定 10 の年度の見込み。年度の途中は
+ * 締まった月の実績 + 今年の水準 × 残りの月の真ん中。どちらも center・sd から確率を出し直せる）。月の真ん中の合計は prob_basis_json の monthCenterSum。
+ * prob_mode: 計画の試しの数が本番になっていれば（appPlanAlignedLive_。BudgetDrafts.js の appBudgetProbLive_）LIVE、ほかは SHADOW。
+ * 着地見込みが無い（実績の遅れ・予測が無い）ときは数を空にし、prob_basis_json.missing にそう書く
+ */
+function appVersionReachCols_(plan, nums, run) {
+  const fin = x => typeof x === 'number' && isFinite(x);
+  const monthCenterSum = nums.monthly.reduce((s, m) => (m.p50 === null ? s : (s === null ? 0 : s) + m.p50), null);
+  const basis = { formula: APP_BUDGET_PROB_FORMULA, runId: run ? run.run_id : '', actualClosed: null, monthCenterSum: monthCenterSum };
+  const cols = { reach_final: null, reach_adopted: null, center: null, sd: null, tau: null, w: null, closed_months: null,
+    prob_mode: appBudgetProbLive_(plan) ? 'LIVE' : 'SHADOW', prob_basis_json: basis };
+  const shadow = appPlanShadow_(plan.plan_id);
+  const rc = shadow && shadow.reach;
+  if (!rc || !fin(rc.center) || !fin(rc.sd)) { basis.missing = 'no_landing'; return cols; }
+  const sky = { landing: rc.center, landingSd: rc.sd, landingP10: rc.p10, landingP90: rc.p90, actualYtd: rc.actualYtd, k: rc.k };
+  const prior = { tau: rc.tau, w: rc.w, tauSet: rc.tauSet, wSet: rc.wSet };
+  const pOf = b => { const r = appLandingReach_(sky, { draft: b }, prior); return r && r.draft && fin(r.draft.p) ? r.draft.p : null; };
+  basis.actualClosed = fin(rc.actualYtd) ? rc.actualYtd : null;
+  basis.tauSet = !!rc.tauSet;
+  basis.wSet = !!rc.wSet;
+  return Object.assign(cols, { reach_final: pOf(nums.budget.final), reach_adopted: pOf(nums.budget.adopted), center: rc.center, sd: rc.sd,
+    tau: fin(rc.tau) ? rc.tau : null, w: fin(rc.w) ? rc.w : null, closed_months: fin(rc.k) ? rc.k : null });
 }
 
 /** 画面: 計画の版の一覧と、今の数字（出す前に見比べる）。測る専用の計画（measure）は出せない（can.submit が false） */
@@ -71,15 +112,21 @@ function appVersionSubmit_(ctx, input) {
     if (input && input.inputHash && input.inputHash !== inputHash) throw new Error('画面を開いた後に計画が変わりました。読み直してから出してください。');
     const versions = appVersionRows_(plan.plan_id);
     const now = appNowIso_();
+    const run = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id && r.status === 'DONE')
+      .sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row)[0];
+    // 届く見込みと前提（版 11 の 4-2。出した後は変えない）は、前の承認待ちを取り下げる前に出す（出せなくても版は出す: 数を空にして理由を残す）
+    let reach;
+    try { reach = appVersionReachCols_(plan, nums, run); } catch (e) {
+      appLogError_('VERSION.REACH', e, ctx);
+      reach = { prob_mode: appBudgetProbLive_(plan) ? 'LIVE' : 'SHADOW', prob_basis_json: { formula: APP_BUDGET_PROB_FORMULA, runId: run ? run.run_id : '', missing: 'error' } };
+    }
     const withdrawn = versions.filter(v => v.state === 'SUBMITTED');
     withdrawn.forEach(v => appUpdateByKey_('PLAN_VERSIONS', { version_id: v.version_id }, { state: 'WITHDRAWN', decided_at: now, decided_by: ctx.actor,
       decision_note: '新しい版を出したため取り下げ' }, v.row_version, ctx.actor));
-    const run = appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === plan.plan_id && r.status === 'DONE')
-      .sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row)[0];
-    const row = { version_id: appId_('VER'), plan_id: plan.plan_id, version_no: (versions.length ? versions[0].version_no : 0) + 1, state: 'SUBMITTED',
+    const row = Object.assign({ version_id: appId_('VER'), plan_id: plan.plan_id, version_no: (versions.length ? versions[0].version_no : 0) + 1, state: 'SUBMITTED',
       input_hash: inputHash, forecast_run_id: run ? run.run_id : '', annual_p10: nums.annual.p10, annual_p50: nums.annual.p50, annual_p90: nums.annual.p90,
       budget_adopted: nums.budget.adopted, budget_uplift: nums.budget.uplift, budget_final: nums.budget.final, monthly_json: nums.monthly, note: note,
-      submitted_at: now, submitted_by: ctx.actor, decided_at: '', decided_by: '', decision_note: '', updated_at: now, updated_by: ctx.actor, row_version: 1 };
+      submitted_at: now, submitted_by: ctx.actor, decided_at: '', decided_by: '', decision_note: '', updated_at: now, updated_by: ctx.actor, row_version: 1 }, reach);
     appInsertRows_('PLAN_VERSIONS', [row]);
     return { version: appVersionOut_(row), withdrawn: withdrawn.map(v => v.version_no), audit: { entityId: row.version_id, clientId: plan.client_id } };
   });

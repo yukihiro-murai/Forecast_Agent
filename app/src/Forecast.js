@@ -9,6 +9,7 @@
  *   計算（FORECAST.RUN_CALC）: 旧来の予測を動かす（データ本体には書かない）
  *   保存（FORECAST.RUN_SAVE）: 書き換わったシートを控えの形にし、計算の間にデータ本体が変わっていないことを確かめてから書く
  * 計算用ブックは処理の印（APP_SCRATCH_OWNER）で、組み立てたままかを確かめる。書くときは保存の控え（Journal.js）を置く。
+ * 保存の段で、旧来の予測が真ん中に書き直した予算の欄（OUTPUT の採用予測・上乗せ）を、予算の下書きで書き直してから戻す（版 11。BudgetDrafts.js）。
  */
 
 function appPlanOf_(planId) {
@@ -124,6 +125,10 @@ function appForecastRunSave_(ctx, p) {
     if (!p.build || !appScratchOwnedBy_(p.build.token)) throw new Error('計算用ブックがほかの処理で使われました。もう一度実行してください。');
     if (appPlanInputHash_(plan.plan_id) !== p.inputHash) throw new Error('予測を計算している間にデータ本体が変わりました。もう一度実行してください。');
     const scratch = appWorkScratch_(plan);
+    // 予算の下書きを戻す（版 11 の 4-1）: 旧来の予測が採用予測を月の真ん中に・上乗せを空に書き直したので、控えの形にする前に、
+    // 計算用ブックの OUTPUT の採用予測と上乗せを、月ごとの一番新しい下書きで書き直す（下書きが無ければ旧来のとおり。BudgetDrafts.js）。
+    // そのためデータ本体に残る OUTPUT の予算の欄は、旧来の計算だけの結果と違う（予測の数字・種は変えない）
+    const budget = appBudgetRestoreOnForecast_(ctx, plan, scratch);
     const cap = appCaptureChanged_(scratch, plan.plan_id, appStoredHashes_(plan.plan_id));
     const t1 = new Date().getTime();
     const names = cap.changed.map(e => e.sheetRow.sheet);
@@ -143,10 +148,11 @@ function appForecastRunSave_(ctx, p) {
       { table: 'FORECAST_MONTHLY', mode: 'ensure', rows: (h.monthly || []).map(m => ({
         run_id: p.runId, plan_id: plan.plan_id, ym: m.month, p10: num(m.p10), p50: num(m.p50), p90: num(m.p90),
         obj_p10: obj[m.month] ? num(obj[m.month].p10) : null, obj_p50: obj[m.month] ? num(obj[m.month].p50) : null, obj_p90: obj[m.month] ? num(obj[m.month].p90) : null })) }
-    ], appLayerEffectsOps_(ctx, plan, p, h, scratch));   // 層ごとの効き 12 行（LAYER_EFFECTS。3-3）を同じ控えで足す
+    ], appLayerEffectsOps_(ctx, plan, p, h, scratch), budget.ops);   // 層ごとの効き 12 行（LAYER_EFFECTS。3-3）と、写す前の予算の BASELINE（版 11）を同じ控えで足す
     const written = appJournalRun_(ctx, '予測の保存（' + p.runId + '）', plan.plan_id, ops);
     appScratchMarkSynced_(plan.plan_id, p.build.token, null, p.build.problems);   // 次の予測は組み立て直さずに使える
     return { runId: p.runId, planId: plan.plan_id, changed: names, written: written, headline: h, unknown: cap.unknown,
+      budgetRestored: budget.restored,
       build: (p.build && p.build.problems) || [],
       timing: { buildMs: p.buildMs || 0, runMs: p.runMs || 0, captureMs: t1 - t0, saveMs: new Date().getTime() - t1 },
       audit: { entityId: p.runId, clientId: plan.client_id } };

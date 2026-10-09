@@ -10,6 +10,8 @@
  *         予測の注記は、止めている C-1 への案内を除き、所有者が承認した補正の値をそう書く（appPlanViewNotes_）。
  * - 保存（入力・予算・インサイトの記入・四半期レビューの承認）: 使うシートだけを計算用ブックに組み立て、
  *         旧来の webSave* をそのまま動かし、変わったシートをデータ本体へ戻す（1 つの裏の処理）。
+ *         予算の保存は、保存した後の 12 か月を予算の下書き（BUDGET_DRAFTS。版 11）にも同じ控えで足す（決め方・確率・割り振りは下書きにだけ使う。
+ *         BudgetDrafts.js）。画面の中身には今の下書き（boot.budgetDraft）を、覚えておく中身の外で足す。
  * - 実行（A-3・B-2〜B-5・C-1・C-3）: 予測の実行と同じく、全部のシートを組み立てて旧来の webRun* を動かし、
  *         計算 → 保存の 2 つの裏の処理で戻す（計算の間にデータ本体が変わっていないことを確かめる）。
  * 記録は PLAN_ACTIONS（1 回 1 行）と監査ログ。旧来の webAudited_（旧来のログ）は使わない（LegacyEngine.js で差し替え）。
@@ -235,6 +237,7 @@ function appPlanView_(ctx, planId) {
     try { appJobPutResult_(key, view); } catch (e) { Logger.log('画面の中身を覚えておけません: ' + (e && e.message ? e.message : e)); }
     if (view.builtMs > 20000) appRunLog_({ requestId: ctx.requestId, kind: 'PLAN.VIEW', status: 'SLOW', durationMs: view.builtMs, detail: { planId: plan.plan_id } });
   }
+  const shown = appPlanViewFor_(ctx, view);
   return Object.assign({
     plan: { planId: plan.plan_id, clientName: clients[plan.client_id] || plan.client_label, fy: plan.fy, frozen: frozen, measure: appPlanIsMeasure_(plan) },
     inputHash: inputHash,
@@ -251,7 +254,19 @@ function appPlanView_(ctx, planId) {
       .sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)).slice(0, 10)
       .map(r => ({ action: r.action, label: (APP_PLAN_ACTIONS[r.action] || {}).label || r.action, finishedAt: r.finished_at, actor: r.actor_email,
         changed: appParseJsonList_(r.changed_sheets_json) }))
-  }, appPlanViewFor_(ctx, view), { inputLog: appInputLogView_(ctx, plan) });   // 入力の記録は見る人ごと（InputLog.js。覚えておく中身には入れない）
+  }, shown, { boot: appPlanViewBudgetDraft_(shown && shown.boot, plan) },
+  { inputLog: appInputLogView_(ctx, plan) });   // 入力の記録は見る人ごと（InputLog.js。覚えておく中身には入れない）
+}
+
+/**
+ * 画面の中身（boot）に、今の予算の下書き（boot.budgetDraft。版 11 の 4-1。BudgetDrafts.js の appBudgetDraftView_）を足した写し。
+ * 下書きは予算の保存で変わる（予算の値が同じでも決め方だけ変わることがある）ので、覚えておく中身には入れず、開くたびに読む。読めなければ null（画面はそのまま出す）
+ */
+function appPlanViewBudgetDraft_(boot, plan) {
+  if (!boot) return boot === undefined ? null : boot;
+  let draft = null;
+  try { draft = appBudgetDraftView_(plan.plan_id); } catch (e) { Logger.log('予算の下書き: ' + (e && e.message ? e.message : e)); }
+  return Object.assign({}, boot, { budgetDraft: draft });
 }
 
 /**
@@ -462,6 +477,8 @@ function appPlanEdit_(ctx, p) {
   // hashChecked: 画面が開いたときの入力のハッシュを渡した保存（下で一致を確かめる）。行の出どころ（fromRow）は、そのときだけ使う
   const inLog = { action: p.action, hashChecked: !!p.inputHash };
   const args = appInputLogTake_(appPlanCheckArgs_(appJobArgs_(p)), inLog);   // 自信・行の出どころ・保存の理由は入力の記録にだけ使う（旧来の表に渡さない。InputLog.js）
+  // 予算の決め方・確率・割り振り（版 11 の下書きにだけ使う。旧来の webSaveBudget には rows だけを渡す）。だめな値なら何も書かずに止める
+  const draftArgs = p.action === 'BUDGET.SAVE' ? appBudgetDraftArgs_(args) : null;
   const t0 = new Date().getTime();
   const actionId = appId_('ACT');
   return appWithLock_(() => {
@@ -490,6 +507,9 @@ function appPlanEdit_(ctx, p) {
       ops.push({ table: 'PLANS', mode: 'patch', key: { plan_id: plan.plan_id }, patch: { people_csv: call.value.peopleCsv }, actor: ctx.actor });
     }
     ops.push.apply(ops, appLearnEditOps_(ctx, plan, p.action, actionId, call.value, scratch, args));   // 学びの記録（補正の書き込み・四半期の判断。版 10 の 3-5。LearnLog.js）
+    // 予算の下書き 12 行（版 11 の 4-1。保存した後の 12 か月の値。予測し直しても戻す。BudgetDrafts.js）
+    const draft = draftArgs ? appBudgetDraftOps_(ctx, plan, actionId, scratch, draftArgs) : null;
+    if (draft) ops.push.apply(ops, draft.ops);
     ops.push({ table: 'PLAN_ACTIONS', mode: 'ensure', rows: [appPlanActionRow_(ctx, plan, p.action, { actionId: actionId, engine: call, seed: actionId, asOfMs: t0,
       inputHash: inputHash, changed: names, result: result, startedAt: Utilities.formatDate(new Date(t0), APP_TZ, "yyyy-MM-dd'T'HH:mm:ssZ") })] });
     const written = appJournalRun_(ctx, act.label + '（' + actionId + '）', plan.plan_id, ops);
@@ -498,6 +518,7 @@ function appPlanEdit_(ctx, p) {
     // 入力の記録に足した行の数（自信だけ変えた保存は、表が変わらなくても CONF を足す。画面はそれも「保存しました」と知らせる）
     const inputLogRows = [].concat(written.INPUT_LOG || []).reduce((n, x) => n + (Number(x && x.appended) || 0), 0);
     return { actionId: actionId, planId: plan.plan_id, action: p.action, changed: names, inputLogRows: inputLogRows, written: written, result: result,
+      draft: draft ? draft.draft : null,
       build: build.filter(x => x.mismatch || x.forcedText || x.formatMismatches).map(x => x.sheet),
       timing: { buildMs: t1 - t0, runMs: t2 - t1, saveMs: new Date().getTime() - t2 },
       audit: { entityId: plan.plan_id, clientId: plan.client_id } };

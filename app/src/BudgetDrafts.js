@@ -1,0 +1,402 @@
+/**
+ * BudgetDrafts.js — 予算の下書き（表の版 11。SCHEMA_PLAN_v10-12_JA.md の 4-1・決定 25・26・27。2026-10-09 村井さん承認「推奨する対応を継続」）。
+ *
+ * 予算（計算用の表 OUTPUT の 29〜40 行: H = 採用予測（約束）・I = 上乗せ（挑戦）・J = 最終予算 = H + I の数式）は、旧来の予測（A-9）が
+ * 動くたびに H を月の真ん中（P50）に、I を空に書き直す。そこで、予算の保存のたびに 12 か月分を下書き（BUDGET_DRAFTS）に足し、
+ * 予測し直したときは、旧来の計算の後・データ本体へ戻す前に、計算用ブックの H・I を月ごとの一番新しい下書きで書き直す（appBudgetRestoreOnForecast_）。
+ *   - 下書きが無い計画は旧来のとおり（月の真ん中のまま = 初期値は中心）。
+ *   - そのため、予測し直した後にデータ本体に残る OUTPUT の H・I は、旧来の計算だけの結果と違う（入力のハッシュも変わる）。P10/P50/P90 と乱数の種は変えない
+ *     （OUTPUT は種の表に入っていない: Forecast.js の APP_FORECAST_SEED_SHEETS）。
+ *   - 下書きは「保存したときの値」をそのまま戻す。決め方が CENTER（真ん中のまま）でも、そのときの真ん中の値に戻る（新しい真ん中には動かない）。
+ *     予測が大きく動いたら、計画の画面が知らせる（boot.budgetDraft の drift・warn。APP_BUDGET_DRIFT_WARN）。
+ * 確率で選ぶ（決定 25・27）: 着地見込みと同じ分布（Landing.js の appLandingDist_ を使う appLandingReach_ の届く金額。計画の一覧の控え appPlanShadow_ から読む）で、
+ *   50・60・70・80% の見込みで届く年間の金額を出し、月へ割り振る（appBudgetProposal_）。画面はそれを、ふつうの予算の保存（BUDGET.SAVE）で
+ *   basis = PROB・prob・alloc を添えて保存する。採用予測 = 約束、上乗せ = 挑戦（確率で選ぶのは採用予測だけ。上乗せは変えない）。
+ * 下書きの表は追記だけ（行は消さず書き換えない。足すのは本体の保存と同じ控え: V10.js の appLogOps_ → 控えの書き方 append）。締めた年度の行は書けない。
+ * 新しい自動の処理とメールは足さない。保存している予測の数字は変えない。
+ */
+
+/** 予算の決め方（画面から渡せるもの。BASELINE は版 11 の移行の写しだけ） */
+const APP_BUDGET_BASES = ['CENTER', 'PROB', 'MANUAL'];
+/** 確率で選べる値（%。90% 以上は出さない: Landing.js の APP_LANDING.REACH と同じ） */
+const APP_BUDGET_PROBS = [50, 60, 70, 80];
+/** 月への割り振り */
+const APP_BUDGET_ALLOCS = ['PAST_SHAPE', 'FORECAST_SHAPE', 'MANUAL'];
+/** 下書きの番号の頭（appStableLogId_。予算の保存の番号と月から決まる: 控えを書き直しても二重にならない） */
+const APP_BUDGET_DRAFT_PREFIX = 'BDR';
+/** 予算の表の月の行（旧来の OUTPUT の混合のセクション。Forecast.js の appStoredHeadline_・Versions.js の appPlanNumbers_ と同じ位置）と列 */
+const APP_BUDGET_ROW_FIRST = 29;
+const APP_BUDGET_COL_ADOPTED = 8;   // H = 採用予測（I = 上乗せは次の列）
+/** 採用予測が真ん中と同じとみなす差（円。1 円未満の違いは同じ） */
+const APP_BUDGET_SAME_YEN = 0.5;
+/** 下書きを作ったときから、年度の真ん中（月の真ん中の合計）がこれだけ動いたら知らせる（10%。空模様の「晴れのち曇り」「快晴」の境目 0.9・1.1 と同じ幅） */
+const APP_BUDGET_DRIFT_WARN = 0.1;
+/** 過去の平均の形に使う、まるごとの年度の数の下限（足りなければ予測の月の形で割り振り、そう書く）と、見る年度の数（A-2 が取り込む前の 4 年） */
+const APP_BUDGET_SHAPE_MIN_YEARS = 2;
+const APP_BUDGET_SHAPE_YEARS = 4;
+/** 届く見込みの式の版（PLAN_VERSIONS.prob_basis_json・確率で選んだ案に残す。Landing.js の分布の式を変えたら上げる） */
+const APP_BUDGET_PROB_FORMULA = 'LANDING_DIST_V1';
+
+// ---- 共通 ----
+
+/** 予算のセルの値を数にする（空・数でないものは null） */
+function appBudgetNum_(v) {
+  if (v === '' || v === null || v === undefined || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return isFinite(n) ? n : null;
+}
+
+/** 月の見出し（'yyyy/MM' の文字・日付）を 'yyyy/MM' に（読めなければ ''） */
+function appBudgetYmOf_(v) {
+  const ym = appYm_(v);
+  return /^\d{4}\/\d{2}$/.test(ym) ? ym : '';
+}
+
+/** 12 か月がそろい、月が重ならないか */
+function appBudgetMonthsOk_(ms) {
+  const seen = {};
+  return ms.length === 12 && ms.every(m => { if (!m.ym || seen[m.ym]) return false; seen[m.ym] = true; return true; });
+}
+
+/** 2 つの金額が同じとみなせるか（どちらかが空なら違う） */
+function appBudgetSame_(a, b) {
+  return a !== null && b !== null && Math.abs(a - b) <= APP_BUDGET_SAME_YEN;
+}
+
+/** 計算用ブックの OUTPUT の 12 か月（[{ ym, center, adopted, uplift }]）。形が読めなければ [] */
+function appBudgetBookMonths_(book) {
+  const sh = book && book.getSheetByName('OUTPUT');
+  if (!sh || sh.getLastRow() < APP_BUDGET_ROW_FIRST + 11) return [];
+  const out = sh.getRange(APP_BUDGET_ROW_FIRST, 1, 12, APP_BUDGET_COL_ADOPTED + 1).getValues().map(r => ({
+    ym: appBudgetYmOf_(r[0]), center: appBudgetNum_(r[2]), adopted: appBudgetNum_(r[APP_BUDGET_COL_ADOPTED - 1]), uplift: appBudgetNum_(r[APP_BUDGET_COL_ADOPTED]) }));
+  return appBudgetMonthsOk_(out) ? out : [];
+}
+
+/** データ本体の OUTPUT の 12 か月（appPlanNumbers_ から。[{ ym, center, adopted, uplift }]）。読めなければ [] */
+function appBudgetStoredMonths_(planId) {
+  const nums = appPlanNumbers_(planId);
+  if (!nums) return [];
+  const out = nums.monthly.map(m => ({ ym: appBudgetYmOf_(m.month), center: m.p50, adopted: m.adopted, uplift: m.uplift }));
+  return appBudgetMonthsOk_(out) ? out : [];
+}
+
+/**
+ * 予算に手で直した跡があるか（採用予測に数が入っていて月の真ん中と違う・上乗せが空でない月が 1 つでもある）。
+ * 採用予測が空の月は跡に数えない（旧来の予測は必ず真ん中を書くので、空は予算の欄の無い前の形。写すと予測し直しても空のまま戻ってしまう）
+ */
+function appBudgetEdited_(months) {
+  return months.some(m => m.uplift !== null || (m.adopted !== null && !appBudgetSame_(m.adopted, m.center)));
+}
+
+/** 計画の一番新しい予測の回（FORECAST_RUNS。公式版と同じ選び方。無ければ null） */
+function appBudgetLatestRun_(planId) {
+  return appReadTable_('FORECAST_RUNS').filter(r => r.plan_id === planId && r.status === 'DONE')
+    .sort((a, b) => String(b.finished_at).localeCompare(String(a.finished_at)) || b._row - a._row)[0] || null;
+}
+
+/** 確率で選んだ値を本番として扱うか（決定 4・7 の後。appPlanAlignedLive_ はほかの担当が作る。無い・真でなければ試し） */
+function appBudgetProbLive_(plan) {
+  try { return typeof appPlanAlignedLive_ === 'function' && appPlanAlignedLive_(plan) === true; } catch (e) { return false; }
+}
+
+// ---- 予算の保存（BUDGET.SAVE）: 下書きを足す ----
+
+/**
+ * 予算の保存の引数の、下書きの項目を確かめる（旧来の webSaveBudget には rows だけを渡す。Plan.js の APP_PLAN_ACTIONS）。
+ * basis = CENTER・PROB・MANUAL（省くと、保存した後の値から決める）、prob = 50・60・70・80（PROB のときは必ず）、
+ * alloc = PAST_SHAPE・FORECAST_SHAPE・MANUAL（省くと決め方から決める）。だめな値なら、何も書かずに止める。返り値 { basis, prob, alloc }（省いた項目は '' / null）
+ */
+function appBudgetDraftArgs_(args) {
+  const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+  const s = v => (v === undefined || v === null ? '' : String(v).trim().toUpperCase());
+  const basis = s(a.basis), alloc = s(a.alloc);
+  if (basis && APP_BUDGET_BASES.indexOf(basis) < 0) throw new Error('予算の決め方は「真ん中のまま」「確率で選ぶ」「手で直す」のどれかにしてください。');
+  if (alloc && APP_BUDGET_ALLOCS.indexOf(alloc) < 0) throw new Error('月への割り振りは「過去の平均の形」「予測の月の形」「手で直す」のどれかにしてください。');
+  return { basis: basis, prob: appBudgetProbOf_(a.prob, basis === 'PROB'), alloc: alloc };
+}
+
+/** 確率（50・60・70・80）。空なら null（required なら止める）。ほかの値なら止める */
+function appBudgetProbOf_(v, required) {
+  if (v === undefined || v === null || v === '') {
+    if (required) throw new Error('確率（50・60・70・80%）を選んでください。');
+    return null;
+  }
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (APP_BUDGET_PROBS.indexOf(n) < 0) throw new Error('確率は 50・60・70・80% のどれかにしてください。');
+  return n;
+}
+
+/**
+ * 下書きの決め方を、保存した後の 12 か月の値から決める（画面の申告より、保存した値を信じる）:
+ *   - 省いた: 採用予測がどの月も真ん中と同じなら CENTER、ほかは MANUAL
+ *   - CENTER と申告しても、真ん中と違う月があれば MANUAL（手で直した）
+ *   - 確率（prob）は PROB のときだけ残す（ほかの決め方では空）
+ *   - 割り振り: CENTER は FORECAST_SHAPE（月の真ん中そのもの）。ほかは申告のまま、省けば PROB は PAST_SHAPE・MANUAL は MANUAL
+ */
+function appBudgetResolve_(a, months) {
+  const isCenter = months.every(m => appBudgetSame_(m.adopted, m.center));
+  let basis = a.basis || (isCenter ? 'CENTER' : 'MANUAL');
+  if (basis === 'CENTER' && !isCenter) basis = 'MANUAL';
+  const prob = basis === 'PROB' ? a.prob : null;
+  const alloc = basis === 'CENTER' ? 'FORECAST_SHAPE' : (a.alloc || (basis === 'PROB' ? 'PAST_SHAPE' : 'MANUAL'));
+  return { basis: basis, prob: prob, alloc: alloc };
+}
+
+/**
+ * 予算の保存（Plan.js の appPlanEdit_）で、旧来の webSaveBudget を動かした後の計算用ブックから、12 か月分の下書きの行を作り、
+ * 本体と同じ控えに足す書き方（ops）にする。画面が送った行（変えた月だけのこともある）ではなく、保存した後の 12 か月の値を写す。
+ * a = appBudgetDraftArgs_ の返り値。center = 保存したときの月の真ん中（P50）、run_id = そのときの一番新しい予測の回。
+ * 予算の表の 12 か月が読めなければ、下書きを足さずにエラーのログに残す（保存は止めない）。返り値 { ops, draft: { basis, prob, alloc, months } | null }
+ */
+function appBudgetDraftOps_(ctx, plan, actionId, book, a) {
+  const months = appBudgetBookMonths_(book);
+  if (!months.length) {
+    appLogError_('BUDGET_DRAFTS.SKIPPED', new Error('予算の表の 12 か月が読めないので、下書きを足しませんでした（' + plan.plan_id + '）。'), ctx);
+    return { ops: [], draft: null };
+  }
+  const r = appBudgetResolve_(a || { basis: '', prob: null, alloc: '' }, months);
+  const run = appBudgetLatestRun_(plan.plan_id);
+  const now = appNowIso_();
+  const rows = months.map(m => ({ plan_id: plan.plan_id, draft_id: appStableLogId_(APP_BUDGET_DRAFT_PREFIX, [actionId, m.ym]), action_id: actionId, ym: m.ym,
+    adopted: m.adopted, uplift: m.uplift, basis: r.basis, prob: r.prob, alloc: r.alloc, run_id: run ? run.run_id : '', center: m.center,
+    actor_email: ctx.actor, saved_at: now }));
+  const ops = appLogOps_('BUDGET_DRAFTS', rows);
+  return { ops: ops, draft: ops.length ? { basis: r.basis, prob: r.prob, alloc: r.alloc, months: rows.length } : null };
+}
+
+/**
+ * 今のデータ本体の予算を BASELINE の下書きにする行（版 11 の移行の写し V11.js と、写す前に予測し直したとき appBudgetRestoreOnForecast_ が使う）。
+ * 手で直した跡（appBudgetEdited_）が無い・12 か月が読めない計画は []。番号は計画と月から決まる（2 回動かしても二重にならない）
+ */
+function appBudgetBaselineRows_(plan, actor) {
+  const months = appBudgetStoredMonths_(plan.plan_id);
+  if (!months.length || !appBudgetEdited_(months)) return [];
+  const run = appBudgetLatestRun_(plan.plan_id);
+  const now = appNowIso_();
+  return months.map(m => ({ plan_id: plan.plan_id, draft_id: appStableLogId_(APP_BUDGET_DRAFT_PREFIX, ['BASELINE', plan.plan_id, m.ym]), action_id: 'BASELINE',
+    ym: m.ym, adopted: m.adopted, uplift: m.uplift, basis: 'BASELINE', prob: null, alloc: '', run_id: run ? run.run_id : '', center: m.center,
+    actor_email: actor, saved_at: now }));
+}
+
+// ---- 下書きを読む ----
+
+/** 計画の下書きの行（表がまだ無い = 版 11 の移行の前なら []。ほかの読めないときは止める） */
+function appBudgetDraftRows_(planId) {
+  try { return appReadPlanTable_('BUDGET_DRAFTS', planId); } catch (e) { if (/表がありません/.test(String(e && e.message))) return []; throw e; }
+}
+
+/** 行 a が行 b より新しいか（保存した時刻、同じなら表の後ろの行） */
+function appBudgetNewer_(a, b) {
+  return !b || String(a.saved_at) > String(b.saved_at) || (String(a.saved_at) === String(b.saved_at) && Number(a._row) > Number(b._row));
+}
+
+/** 月ごとの一番新しい下書き（{ 'yyyy/MM': 行 }） */
+function appBudgetLatestDrafts_(planId) {
+  const best = {};
+  appBudgetDraftRows_(planId).forEach(r => { if (r.ym && appBudgetNewer_(r, best[r.ym])) best[r.ym] = r; });
+  return best;
+}
+
+// ---- 予測し直したとき（Forecast.js の appForecastRunSave_）: 下書きを戻す ----
+
+/**
+ * 旧来の予測（A-9）の後、データ本体へ戻す前（控えの形にする前）に、計算用ブックの OUTPUT の採用予測（H）と上乗せ（I）を、
+ * 月ごとの一番新しい下書きで書き直す（J の数式と年度の合計の SUM はそのまま）。下書きの無い月は旧来のとおり（真ん中・空）。
+ * 下書きが 1 行も無く、予測で上書きする前のデータ本体の予算に手で直した跡があれば、それを BASELINE として同じ控えに足してから戻す
+ * （版 11 の一度だけの写しより先に予測し直しても、直した予算を失わない。測る専用の計画は写さない）。表の版がそろう前（移行の前・途中）は何もしない（旧来のとおり）。
+ * 予算の表の形が読めなければ戻さず、エラーのログに残す（下書きは残るので、次に予測し直したときに戻る）。
+ * 返り値 { ops（BASELINE を足す書き方。無ければ []）, restored（戻した月の数）, baseline（足した BASELINE の行の数） }
+ */
+function appBudgetRestoreOnForecast_(ctx, plan, book) {
+  if (!appLogReady_()) return { ops: [], restored: 0, baseline: 0 };
+  let latest = appBudgetLatestDrafts_(plan.plan_id);
+  let ops = [];
+  let baseline = 0;
+  if (!Object.keys(latest).length && !appPlanIsMeasure_(plan)) {   // 測る専用の計画は予算を立てないので写さない（一度だけの写しと同じ）
+    const base = appBudgetBaselineRows_(plan, APP_V11_BACKFILL_ACTOR);
+    if (base.length) ops = appLogOps_('BUDGET_DRAFTS', base);
+    if (ops.length) { baseline = base.length; latest = {}; base.forEach(r => { latest[r.ym] = r; }); }
+  }
+  if (!Object.keys(latest).length) return { ops: ops, restored: 0, baseline: baseline };
+  const months = appBudgetBookMonths_(book);
+  if (!months.length) {
+    appLogError_('BUDGET_DRAFTS.RESTORE', new Error('予測の後の予算の表の 12 か月が読めないので、下書きを戻しませんでした（' + plan.plan_id + '）。'), ctx);
+    return { ops: ops, restored: 0, baseline: baseline };
+  }
+  const sh = book.getSheetByName('OUTPUT');
+  const range = sh.getRange(APP_BUDGET_ROW_FIRST, APP_BUDGET_COL_ADOPTED, 12, 2);
+  const cur = range.getValues();
+  const cell = v => (v === null || v === undefined || v === '' ? '' : Number(v));
+  let n = 0;
+  const next = months.map((m, i) => {
+    const d = latest[m.ym];
+    if (!d) return cur[i];
+    n++;
+    return [cell(d.adopted), cell(d.uplift)];
+  });
+  if (n) range.setValues(next);
+  return { ops: ops, restored: n, baseline: baseline };
+}
+
+// ---- 計画の画面（boot.budgetDraft） ----
+
+/**
+ * 今の下書き（一番新しい予算の保存 = BASELINE を含む、その 12 行）と、作ったときから予測がどれだけ動いたか。下書きが無ければ null（予算は月の真ん中）。
+ * centerAtDraft = 下書きの月の真ん中の合計、centerNow = 今の月の真ん中（データ本体の OUTPUT）の合計、drift = (centerNow − centerAtDraft) ÷ centerAtDraft、
+ * warn = |drift| が APP_BUDGET_DRIFT_WARN（10%）以上。runAt = 下書きを作ったときの予測の日時。保存した人は返さない
+ */
+function appBudgetDraftView_(planId) {
+  const rows = appBudgetDraftRows_(planId);
+  if (!rows.length) return null;
+  let last = null;
+  rows.forEach(r => { if (appBudgetNewer_(r, last)) last = r; });
+  const mine = rows.filter(r => r.action_id === last.action_id);
+  const sum = (list, k) => list.reduce((s, r) => (typeof r[k] === 'number' && isFinite(r[k]) ? (s === null ? 0 : s) + r[k] : s), null);
+  const centerAtDraft = sum(mine, 'center');
+  const now = appBudgetStoredMonths_(planId);
+  const centerNow = now.length ? sum(now, 'center') : null;
+  const drift = centerAtDraft !== null && centerAtDraft > 0 && centerNow !== null ? (centerNow - centerAtDraft) / centerAtDraft : null;
+  const run = last.run_id ? appReadTable_('FORECAST_RUNS').filter(r => r.run_id === last.run_id)[0] : null;
+  return { basis: last.basis, prob: last.prob, alloc: last.alloc, runId: last.run_id, runAt: run ? run.finished_at : '', savedAt: last.saved_at,
+    centerAtDraft: centerAtDraft, centerNow: centerNow, drift: drift, driftLimit: APP_BUDGET_DRIFT_WARN,
+    warn: drift !== null && Math.abs(drift) >= APP_BUDGET_DRIFT_WARN, adopted: sum(mine, 'adopted'), uplift: sum(mine, 'uplift'), months: mine.length };
+}
+
+// ---- 確率で選ぶ（apiBudgetProposal。決定 25・27） ----
+
+/**
+ * 過去の平均の形（PAST_SHAPE）: 計画が持つ過去の売上（SALES_INPUT。A-2 が取り込む、計画の年度の前の 4 年。BASE・SPOT の行。旧来の A-3 と同じ見分け方）の、
+ * まるごとの年度ごとの月の割合（4 月〜翌 3 月）の平均。まるごとの年度 = 最初に売上のある月が、その年度の 4 月以前（取引が始まる前の 0 円の月を含まない）で、
+ * 合計が 0 より大きい年度。月の売上が負なら 0 として割合を出す（戻りで割り振りが負にならないように）。行の無い月は 0 円。
+ * 返り値 { years: 使った年度の数, fys: [年度], shares: [12 か月の割合] | null }（APP_BUDGET_SHAPE_MIN_YEARS に足りなければ shares は null）
+ */
+function appBudgetPastShape_(plan) {
+  const rows = appEngAll_('SALES_INPUT', [plan.plan_id], true)[plan.plan_id] || [];
+  const byYm = {};
+  let first = '';
+  rows.forEach(r => {
+    const t = String(r.service_type === undefined || r.service_type === null ? '' : r.service_type).trim();
+    if (t !== 'BASE' && t !== 'SPOT') return;
+    const ym = appBudgetYmOf_(r.target_month);
+    const a = appBudgetNum_(r.input_amount);
+    if (!ym || a === null) return;
+    byYm[ym] = (byYm[ym] || 0) + a;
+    if (a !== 0 && (!first || ym < first)) first = ym;
+  });
+  const fy = Number(plan.fy);
+  const years = [];
+  for (let y = fy - APP_BUDGET_SHAPE_YEARS; y < fy; y++) {
+    const yms = appLandingFyYms_(y);
+    if (!first || yms[0] < first) continue;
+    const v = yms.map(ym => Math.max(0, byYm[ym] || 0));
+    const tot = v.reduce((s, x) => s + x, 0);
+    if (!(tot > 0)) continue;
+    years.push({ fy: y, shares: v.map(x => x / tot) });
+  }
+  const shares = years.length >= APP_BUDGET_SHAPE_MIN_YEARS
+    ? Array.from({ length: 12 }, (_, i) => years.reduce((s, y) => s + y.shares[i], 0) / years.length) : null;
+  return { years: years.length, fys: years.map(y => y.fy), shares: shares };
+}
+
+/** 締まった月の実績（{ 'yyyy/MM': 円 }。着地見込みと同じ検証の表 EVAL_COMPARE_MONTHLY の実績。行の無い・空の月は 0 円） */
+function appBudgetClosedActuals_(planId, yms) {
+  const got = {};
+  (appEngAll_('EVAL_COMPARE_MONTHLY', [planId], true)[planId] || []).forEach(r => {
+    const ym = appBudgetYmOf_(r.target_month);
+    const a = appBudgetNum_(r.actual_total);
+    if (ym && a !== null) got[ym] = a;
+  });
+  const out = {};
+  yms.forEach(ym => { out[ym] = got[ym] || 0; });
+  return out;
+}
+
+/**
+ * 確率で選ぶ予算の案（読むだけ。書かない）。input: { planId, prob（50・60・70・80）, alloc（PAST_SHAPE 既定・FORECAST_SHAPE） }。
+ * annual = その確率で届く年間の金額（予算に届く見込みの届く金額 = max(締まった月の実績の合計, 着地 − z・幅)。appPlanShadow_ の reach.amounts。円に丸める）。
+ * 年度の途中（締まった月が k か月）: 締まった月の採用予測は実績のまま（確率の計算に入れない。着地見込みと同じ）、annual − 締まった月の実績の合計を
+ * 残りの月に割り振る。割り振りの重み: PAST_SHAPE = 過去の平均の形の残りの月の分（まるごとの年度が足りなければ予測の月の形にし、そう書く）・
+ * FORECAST_SHAPE = 今の予測の月の真ん中（負は 0）。重みが全部 0 なら等分。月は円に丸め、端数は重みの一番大きい月に入れる（月の合計 = annual）。
+ * 着地見込みが無い（実績の遅れ・予測が無い）・年度が終わったときは annual = null・months = [] で、理由を basisText に書く。
+ * 返り値 { planId, prob, annual, months: [{ ym, adopted, closed }], alloc（使った割り振り）, basisText, ok, mode（SHADOW 試し・LIVE）,
+ *          closedMonths, actualClosed, center（今の月の真ん中の合計）, shapeYears, fallback（過去の平均の形から予測の月の形に替えた） }
+ */
+function appBudgetProposal_(input) {
+  const prob = appBudgetProbOf_(input && input.prob, true);
+  const want = String(input && input.alloc || 'PAST_SHAPE').trim().toUpperCase();
+  if (want !== 'PAST_SHAPE' && want !== 'FORECAST_SHAPE') throw new Error('月への割り振りは「過去の平均の形」か「予測の月の形」にしてください。');
+  const plan = appPlanOf_(input && input.planId);
+  if (appPlanIsMeasure_(plan)) throw new Error(APP_MEASURE_REFUSED['BUDGET.SAVE']);
+  const live = appBudgetProbLive_(plan);
+  const trial = live ? '' : '試しの計算です。';
+  const months = appBudgetStoredMonths_(plan.plan_id);
+  const center = months.length ? months.reduce((s, m) => s + (m.center === null ? 0 : m.center), 0) : null;
+  const out = { planId: plan.plan_id, prob: prob, annual: null, months: [], alloc: want, basisText: '', ok: false, mode: live ? 'LIVE' : 'SHADOW',
+    closedMonths: null, actualClosed: null, center: center, shapeYears: 0, fallback: false };
+  const shadow = appPlanShadow_(plan.plan_id);
+  const rc = shadow && shadow.reach;
+  if (!months.length || !rc) {
+    out.basisText = '着地見込みがまだ出ていないので、確率からは選べません（予測と実績の取り込みの後に使えます）。';
+    return out;
+  }
+  if (rc.done) {
+    out.basisText = '年度が終わったので、確率からは選べません。';
+    return out;
+  }
+  const amt = (rc.amounts || []).filter(a => a.pct === prob)[0];
+  if (!amt || !isFinite(amt.amount)) {
+    out.basisText = '着地見込みがまだ出ていないので、確率からは選べません（予測と実績の取り込みの後に使えます）。';
+    return out;
+  }
+  // 月は年度の順（4 月〜翌 3 月）。予算の表の月が計画の年度の 12 か月とそろわなければ選べない
+  const fyYms = appLandingFyYms_(plan.fy);
+  const byYm = {};
+  months.forEach(m => { byYm[m.ym] = m; });
+  if (!fyYms.every(ym => byYm[ym])) {
+    out.basisText = '予算の表の月が年度の 12 か月とそろわないので、確率からは選べません。';
+    return out;
+  }
+  const k = Math.max(0, Math.min(12, Math.floor(Number(rc.k) || 0)));
+  const closedYms = fyYms.slice(0, k);
+  const act = k ? appBudgetClosedActuals_(plan.plan_id, closedYms) : {};
+  const closedAdopted = closedYms.map(ym => Math.round(act[ym]));
+  const closedSum = closedAdopted.reduce((s, x) => s + x, 0);
+  const annual = Math.max(closedSum, Math.round(amt.amount));
+  const open = fyYms.slice(k).map(ym => byYm[ym]);
+  // 重み
+  let alloc = want, fallback = false, shapeYears = 0;
+  let wts = null;
+  if (want === 'PAST_SHAPE') {
+    const ps = appBudgetPastShape_(plan);
+    shapeYears = ps.years;
+    if (ps.shares) {
+      wts = fyYms.slice(k).map(ym => ps.shares[fyYms.indexOf(ym)]);
+      if (!(wts.reduce((s, x) => s + x, 0) > 0)) wts = null;
+    }
+    if (!wts) { alloc = 'FORECAST_SHAPE'; fallback = true; }
+  }
+  if (!wts) wts = open.map(m => Math.max(0, m.center === null ? 0 : m.center));
+  let W = wts.reduce((s, x) => s + x, 0);
+  if (!(W > 0)) { wts = open.map(() => 1); W = open.length; }
+  const rest = annual - closedSum;
+  const openAdopted = wts.map(x => Math.round(rest * x / W));
+  if (open.length) {
+    let big = 0;
+    wts.forEach((x, i) => { if (x > wts[big]) big = i; });
+    openAdopted[big] += rest - openAdopted.reduce((s, x) => s + x, 0);
+  }
+  out.annual = annual;
+  out.months = closedYms.map((ym, i) => ({ ym: ym, adopted: closedAdopted[i], closed: true }))
+    .concat(open.map((m, i) => ({ ym: m.ym, adopted: openAdopted[i], closed: false })));
+  out.alloc = alloc;
+  out.ok = true;
+  out.closedMonths = k;
+  out.actualClosed = closedSum;
+  out.shapeYears = shapeYears;
+  out.fallback = fallback;
+  const how = alloc === 'PAST_SHAPE' ? '月へは、過去 ' + shapeYears + ' 年の売上の月の形の平均で割り振りました。'
+    : fallback ? '過去の売上が ' + APP_BUDGET_SHAPE_MIN_YEARS + ' 年分そろわないので、予測の月の形で割り振りました。' : '月へは、予測の月の形で割り振りました。';
+  out.basisText = trial + prob + '% の見込みで届く年間の金額です（着地見込みと同じ計算）。' +
+    (k ? '締まった ' + k + ' か月は実績のまま、残りの ' + (12 - k) + ' か月に割り振りました。' : '') + how + '上乗せはそのままです。';
+  return out;
+}

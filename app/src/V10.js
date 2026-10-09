@@ -25,14 +25,15 @@ function appLogSystemActor_(v) {
 }
 
 /**
- * 表の版 10 の移行（列を足す）が済むまで始めない処理の、断る文（始めてよければ ''）。予測の実行・計画を作る・担当者の保存は、
- * 列を足す前の表（FORECAST_RUNS・PLANS）に書くので、移行がバックアップを待っている間は、長い計算をする前に断る（Jobs.js の appStartJob_ から）
+ * 表の版の移行（列を足す。版 10・11）が済むまで始めない処理の、断る文（始めてよければ ''）。予測の実行・計画を作る・担当者の保存は、
+ * 列を足す前の表（版 10 の FORECAST_RUNS・PLANS）に書くので、移行がバックアップを待っている間は、長い計算をする前に断る（Jobs.js の appStartJob_ から）。
+ * 版 11 で列を足す公式版（PLAN_VERSIONS）は短い保存なので、書くところ（appRequireCurrentHead_）で止まる
  */
 function appV10WaitRefusal_(kind, payload) {
   const action = String((payload && payload.action) || '');
   const what = kind === 'FORECAST.RUN' ? '予測の実行' : kind === 'PLAN.CREATE' ? '計画の作成' : kind === 'PLAN.EDIT' && action === 'SETUP.PEOPLE' ? '担当者の保存' : '';
   if (!what || appLogReady_()) return '';
-  return '表の版 10 の移行（列を足す）がまだ済んでいないので、' + what + 'は始めません。移行の前のバックアップが取れると、次の操作で移行します。少したってから、もう一度操作してください。';
+  return '表の版 ' + APP_SCHEMA_VERSION + ' の移行（列を足す）がまだ済んでいないので、' + what + 'は始めません。移行の前のバックアップが取れると、次の操作で移行します。少したってから、もう一度操作してください。';
 }
 
 // ---- 記録を足す ----

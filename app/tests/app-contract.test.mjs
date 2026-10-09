@@ -23,6 +23,7 @@ const PUBLIC = ['doGet', 'apiBootstrap', 'apiSetup', 'apiListDirectory', 'apiSav
   'apiSaveClient', 'apiListSettings', 'apiSaveSetting', 'apiListAudit', 'apiHealth', 'apiEnableBackup', 'apiRunBackup',
   'apiStartJob', 'apiJobStatus', 'apiListPlans', 'apiAuthorizeAi', 'apiPortfolio', 'apiHome', 'apiPlanCandidates', 'apiVersionList', 'apiVersionSubmit', 'apiVersionDecide', 'apiSaveClientName', 'apiVerifyAudit', 'apiRunHousekeeping', 'apiForecastBasis', 'apiLearningView', 'apiPoolPreview', 'apiForecastLatest', 'apiPlanView', 'apiYearPreview', 'triggerDailyBackup', 'triggerRunJob',
   'apiCrossMaker', 'apiPeopleLearning', 'apiAiLearning',
+  'apiBudgetProposal',
   'triggerAutoResearch',
   'apiOwnerTask'];
 /** 旧来の計算をそのまま包んだ自動生成のファイル（中の関数は外から呼べない。中身は app-engine.test.mjs が確かめる） */

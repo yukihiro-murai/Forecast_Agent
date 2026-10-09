@@ -223,6 +223,32 @@ Trends2Targets_System/
 - **見せる範囲**: 入力の記録と当たりの記録は、予算策定担当以上（そのメーカーの担当を含む）に全部、ほかの人には人のつなぎで本人と分かる自分の行だけを送ります（ほかは種類ごとの件数だけ。`appLogViewer_`・`appLogVisible_`）。本人の行かは、行ごとにその行の日（入力の記録は保存した日・当たりの記録は四半期の終わりの日）に効く有効なつなぎで決めます（そのメーカーのつなぎが先・無ければ全部のメーカーのつなぎ）。外したつなぎと期間の外のつなぎは効かず、同じ名前を後から別の人が使っても、前の人の行は出ません。
 - **大きさ**: `health` の `size` に、データ本体のセルの数（`cells`。上限 1000 万に対する `ratio`。半分を超えたら要確認）と、年度の控えの大きさの目安（`years`。8MB の 75% を超えたら要確認）を出します。
 
+## 表の版 11（2026-10-09 村井さん承認「推奨する対応を継続してください」・未公開）
+
+中身は `SCHEMA_PLAN_v10-12_JA.md` の 4 章です。予算の下書きの表 `BUDGET_DRAFTS` を足し、公式版 `PLAN_VERSIONS` の後ろに 9 列を足しました（`Schema.js` の `APP_ADDED_COLUMNS`）。移行は版 10 と同じ仕組みです（`Setup.js` の `appMigrateColumns_`。その日のバックアップを確かめてから表の後ろに列の名前を書く・前の値は動かさない・途中で止まっても続きから終わる・`_SCHEMA` と監査 `SCHEMA.MIGRATE`）。版 9 のデータ本体からも 1 回で版 11 まで移します。画面（`UI.html`）は別の担当が作ります。
+
+- **予算の下書き `BUDGET_DRAFTS`**（4-1。追記だけ。1 列目が `plan_id` なので締めた年度の行は書けず、年度の控えに入る。`BudgetDrafts.js`）:
+  - 列: `plan_id`・`draft_id`（キー）・`action_id`（予算の保存の番号。写しは `BASELINE`）・`ym`・`adopted`（採用予測 = 約束）・`uplift`（上乗せ = 挑戦）・`basis`（CENTER・PROB・MANUAL・BASELINE）・`prob`（50・60・70・80）・`alloc`（PAST_SHAPE・FORECAST_SHAPE・MANUAL）・`run_id`（そのときの一番新しい予測の回）・`center`（そのときの月の真ん中）・`actor_email`・`saved_at`。今の下書き = 計画 × 月の一番新しい行。
+  - 書くとき: 予算の保存（`BUDGET.SAVE`）のたびに 12 行を本体と同じ控えで足します（`Plan.js` の `appPlanEdit_`）。写すのは保存した後の 12 か月の値です（画面が送った月だけではない）。番号は保存の番号と月から決まるので、控えを書き直しても二重になりません。
+  - 予算の保存の引数: `rows` に加えて `basis`・`prob`・`alloc`（どれも省ける。旧来の `webSaveBudget` には今までどおり `rows` だけを渡す）。だめな値（決め方・割り振りが一覧に無い、確率が 50・60・70・80 でない、`basis: 'PROB'` で確率が無い）は、何も書かずに止めます。決め方は保存した値を信じます: 省くと、どの月も採用予測が真ん中と 1 円未満の差なら CENTER、ほかは MANUAL。CENTER と送っても真ん中と違う月があれば MANUAL。確率は PROB のときだけ残します。割り振りは CENTER なら FORECAST_SHAPE、省けば PROB は PAST_SHAPE・MANUAL は MANUAL。
+  - **予測し直したとき**（`Forecast.js` の `appForecastRunSave_`）: 旧来の予測の後・データ本体へ戻す前に、計算用ブックの OUTPUT の採用予測（H 列）と上乗せ（I 列）を、月ごとの一番新しい下書きで書き直します（29〜40 行。J 列の `=H+I` と年度の合計の `SUM` はそのまま）。下書きの無い計画は旧来のとおり月の真ん中のままです（初期値は中心）。
+  - **動きの変化**: 予測し直しても予算が真ん中に戻らなくなります。データ本体に残る OUTPUT の予算の欄は、旧来の計算だけの結果と違い、入力のハッシュも変わります。予測の数字（P10/P50/P90）と乱数の種は変わりません（OUTPUT は種の表 `APP_FORECAST_SEED_SHEETS` に入らない）。CENTER の下書きも、保存したときの真ん中の値に戻ります（新しい真ん中には動かない。大きく動いたら下の `warn` で知らせる）。
+  - **計画の画面** `boot.budgetDraft`（下書きが無ければ `null`）: `{ basis, prob, alloc, runId, runAt, savedAt, centerAtDraft, centerNow, drift, driftLimit, warn, adopted, uplift, months }`。今の下書き = 一番新しい保存の 12 行。`centerAtDraft` = その行の月の真ん中の合計、`centerNow` = 今の OUTPUT の月の真ん中の合計、`drift` = (`centerNow` − `centerAtDraft`) ÷ `centerAtDraft`、`warn` = |`drift`| が 10% 以上（`APP_BUDGET_DRIFT_WARN`。空模様の「晴れのち曇り」「快晴」の境目 0.9・1.1 と同じ幅）。覚えておく画面の中身の外で、開くたびに読みます（決め方だけ変えた保存もすぐ出る）。保存した人は返しません。
+  - **一度だけの写し**（`V11.js` の `appV11BackfillBudgetDrafts_`。版 10 の写しの後）: 移行の後に 1 回、今の OUTPUT の採用予測が月の真ん中と違う（数の入った月）・上乗せが空でない月が 1 つでもある計画だけ、12 か月分を BASELINE として写します（`action_id` も `BASELINE`、した人は `SYSTEM:V11_BACKFILL`）。下書きのある計画・測る専用の計画・締めた年度の計画は飛ばします。採用予測が空の月は跡に数えません（旧来の予測は必ず真ん中を書くので、空は予算の欄の無い前の形。写すと予測し直しても空のまま戻ってしまう）。写しより先に予測し直した計画は、予測で上書きする前のデータ本体の予算を、同じ BASELINE として予測の保存と同じ控えに足してから戻します（直した予算を失わない）。
+- **確率で選ぶ**（決定 25・27）: `apiBudgetProposal({ planId, prob, alloc })`（読むだけ。閲覧は社内全員。控えは日ごと）→ `{ planId, prob, annual, months: [{ ym, adopted, closed }], alloc, basisText, ok, mode, closedMonths, actualClosed, center, shapeYears, fallback }`。
+  - 年間（`annual`）= その確率で届く金額を円に丸めたもの。予算に届く見込みの届く金額（`reach.amounts`。着地見込みと同じ分布 `Landing.js` の `appLandingDist_`。計画の一覧の控え `Portfolio.js` の `appPlanShadow_` から読む。画面の「届く見込み」と同じ数）。
+  - 月への割り振り: `PAST_SHAPE`（既定。過去の平均の形）= 計画の過去の売上（`SALES_INPUT` の BASE・SPOT。A-2 が取り込む計画の年度の前の 4 年）の、まるごとの年度ごとの月の割合の平均。まるごとの年度 = 最初に売上のある月がその年度の 4 月以前（取引が始まる前の 0 円の月を含まない）で、合計が 0 より大きい年度。負の月は 0 として割合を出します。まるごとの年度が 2 年（`APP_BUDGET_SHAPE_MIN_YEARS`）に足りなければ予測の月の形にし、`fallback: true` と `basisText` にそう書きます。`FORECAST_SHAPE` = 今の月の真ん中の形。月は円に丸め、端数は重みの一番大きい月に入れます（月の合計 = 年間）。
+  - **年度の途中**: 締まった月（`reach.k` か月。着地見込みと同じ境目）の採用予測は、検証の表の実績のまま（`closed: true`。確率の計算に入れない）。年間 − 締まった月の実績の合計を、残りの月に割り振ります（年間は締まった月の実績の合計より下にしない。届く金額も同じ）。
+  - 着地見込みが無い（実績の遅れ・予測が無い）・年度が終わったときは `ok: false`・`annual: null`・`months: []` で、理由を `basisText` に書きます。測る専用の計画は断ります。
+  - **試し**: 計画の試しの数が本番になるまで（`appPlanAlignedLive_(plan)` が真になるまで。決定 4・7 の後。関数はほかの担当が作る）`mode: 'SHADOW'` で、`basisText` の頭に「試しの計算です。」を付けます。
+  - 画面は案の月の値を、ふつうの予算の保存で `basis: 'PROB'`・`prob`・`alloc` を添えて保存します。上乗せ（挑戦）は変えません。
+- **公式版の列**（4-2・決定 28。`Versions.js` の `appVersionSubmit_`）: 出すときに `reach_final`・`reach_adopted`（最終予算・採用予測以上で着地する確率 0〜1。今の予算と同じ計算 `appLandingReach_`）・`center`・`sd`（その確率を出した分布の中心と幅）・`tau`・`w`・`closed_months`・`prob_mode`（SHADOW・LIVE）・`prob_basis_json`（`{ formula: 'LANDING_DIST_V1', runId, actualClosed, monthCenterSum, tauSet, wSet }`）を書き、後から変えません（承認・却下・取り下げは状態だけ変える）。
+  - `center` は、締まった月が無ければ月の真ん中の合計（決定 10 の年度の見込み）です。年度の途中は「締まった月の実績 + 今年の水準 × 残りの月の真ん中」（着地見込みの中心）で、`center`・`sd` から確率を出し直せます。月の真ん中の合計は `monthCenterSum` に残します。
+  - 着地見込みが無いときも版は出せます（数は空・`prob_basis_json.missing = 'no_landing'`）。前の版の行は空のままです（後から作らない）。
+  - 一覧（`apiVersionList`）は版ごとに `reach = { final, adopted, center, sd, tau, w, closedMonths, mode }`（前の版は `null`）を返します（承認する人が見込みと前提を見て判断する）。
+- **移行がバックアップを待っている間**: 予算の保存は通ります（下書きはまだ足さない）。公式版を出すのは「表の列を足す移行がまだです（PLAN_VERSIONS）」で止まります。予測の実行・計画を作る・担当者の保存は、版 10 と同じく始める前に断ります（文は「表の版 11 の移行…」）。
+- テスト: `app/tests/app-v11-drafts.test.mjs`（保存・予測し直し・確率で選ぶ・公式版の列）・`app/tests/app-v11-drafts-migrate.test.mjs`（版 10・版 9 からの移行・写し・止まったときの続き）。
+
 ## 市場の動きの自動収集（A-4 AI 調査を週 1 回。2026-10-06 村井さん承認「週1回自動」・v0.27.0・@61 公開）
 
 - **計画ごとに週 1 回**: 進行中・今年度か来年度・年度を締めていない計画のうち、最後の A-4 から 7 日を過ぎた（一度も無い）計画を、古い順に集め直します。画面から A-4 を動かした計画は、そこから 7 日たつまで自動では動かしません。A-4 以外の操作（取り込み・予測・学習の反映など）は、今までどおり手で動かします。
