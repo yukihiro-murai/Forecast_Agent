@@ -2158,19 +2158,20 @@ function fcForecastTab(d, v){
     + '<div class="pre">' + esc(plainMsg(cf.message)) + '</div>'
     + '<div class="card-foot"><button class="btn" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="fcConfirmRun()">このまま実行</button>'
     + actBtn('<button class="btn btn-ghost" onclick="S.fc.confirm=null;render()">やめる</button>', '入力を直す場合は「やめる」を押し、「入力」タブで直してから実行します') + '</div></div>' : '';
-  var runInfo = '過去の売上だけの予測（年度合計）: ' + qName('p10') + ' ' + yen(obj.p10) + '・' + qName('p50') + ' ' + yen(obj.p50) + '・' + qName('p90') + ' ' + yenU(obj.p90)
-    + (d.runs && d.runs.length > 1 ? '\nこれまでの実行: ' + d.runs.map(function(r){ return fcDate(r.finishedAt, true).slice(5) + ' ' + qName('p50') + ' ' + yenShort(r.p50); }).join('、') : '');
+  var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, al = sh && sh.aligned;   // 試しの数（年度の見込み・予算に届く見込み。保存している数字は変えない）
+  // 本番の計画（判断 10・24。所有者が承認した補正で予測し直した計画。サーバーの shadow.live）: 年度の下振れ・中心・上振れは画面に出す年度の値（shadow.annual。
+  // 作り方は basis: 月の合計・着地の推定・実績の合計）で、旧来の計算の年度合計は説明に出す（記録はそのまま）。本番でなければ今までどおり（中心の下に試しの中心）
+  var lv = sh && sh.live && sh.annual ? sh.annual : null, ka = lv || annual, lvBand = lv ? fcLiveBandTip(lv, al) : '';
+  // 本番の計画では、過去の売上だけの予測とこれまでの実行の中心は旧来の計算の年度合計（記録の値）なので、そう言う
+  var runInfo = '過去の売上だけの予測（' + (lv ? '旧来の計算の年度合計' : '年度合計') + '）: ' + qName('p10') + ' ' + yen(obj.p10) + '・' + qName('p50') + ' ' + yen(obj.p50) + '・' + qName('p90') + ' ' + yenU(obj.p90)
+    + (d.runs && d.runs.length > 1 ? '\nこれまでの実行' + (lv ? '（旧来の計算の中心）' : '') + ': ' + d.runs.map(function(r){ return fcDate(r.finishedAt, true).slice(5) + ' ' + qName('p50') + ' ' + yenShort(r.p50); }).join('、') : '');
   var meta = '<span class="meta" data-tip="' + esc(runInfo + (canPlan ? '' : '\n予測の実行は予算策定担当ができます')) + '">' + (l ? '最新 ' + esc(fcDate(l.finished_at, true)) + '・' + esc(fcWho(l.actor_email)) : '予測の記録なし') + '</span>';
   // 予測の実行は予算策定担当だけ（見るだけの人には、中身の無いカードを出さない。最新の日時は下の表の見出しの右に）
   var runCard = canPlan ? '<div class="card fc-run"><div class="card-head"><h2>予測の実行</h2>' + meta + '</div><div class="btngrid">'
     + actBtn('<button class="btn" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="fcForecastRun()">予測を実行</button>', 'データ本体の内容で予測を計算し、結果を残します（4〜6 分ほど。続けて実行するときは速くなります）') + '</div></div>' : '';
   if (!ran || !sec) return cfHtml + runCard + guide(canPlan ? 'explain' : 'observe', canPlan ? '予測を実行すると、年度の見通し（下振れ・中心・上振れ）と、月ごとの' + (measure ? '見通し' : '予算の欄') + 'がここに出ます。' : 'まだ予測がありません。予測の実行は予算策定担当ができます。実行すると、月ごとの見通し' + (measure ? '' : 'と予算') + 'がここに出ます。');
-  var sh = d.shadow && d.shadow.planId === S.fc.planId ? d.shadow : null, al = sh && sh.aligned;   // 試しの数（年度の見込み・予算に届く見込み。保存している数字は変えない）
-  // 本番の計画（判断 10・24。所有者が承認した補正で予測し直した計画。サーバーの shadow.live）: 年度の下振れ・中心・上振れは月の合計にそろえた値で、
-  // 旧来の計算の年度合計は説明に出す（記録はそのまま）。本番でなければ今までどおり（中心の下に試しの中心）
-  var lv = sh && sh.live && sh.annual ? sh.annual : null, ka = lv || annual, lvBand = lv ? fcLiveBandTip(lv, al) : '';
   html += '<div class="kpis">' + fcKpi(qName('p10'), ka.p10, false, qTip('p10') + '（年度合計）', false, lv ? { after: lvBand } : null)
-    + fcKpi(qName('p50'), ka.p50, true, qTip('p50') + '（年度合計）', false, lv ? { after: fcLiveTip(lv, annual, lvBand) }
+    + fcKpi(qName('p50'), ka.p50, true, (lv ? fcLiveMidHead(lv) : qTip('p50')) + '（年度合計）', false, lv ? { after: fcLiveTip(lv, annual, lvBand) }
       : al ? { sub: '月の合計 ' + yenShort(al.center) + '（試し）', after: fcAlignedTip(al, sh.reach, !!(d.plan && d.plan.frozen) || !!(v.plan && v.plan.frozen)) } : null)
     + fcKpi(qName('p90'), ka.p90, false, qTip('p90') + '（年度合計）', false, lv ? { after: lvBand } : null) + (measure ? '' : fcKpi('最終予算', sec.annual.final, false, '採用予測と上乗せの年度合計')) + '</div>';
   html += cfHtml + runCard;
@@ -2189,14 +2190,15 @@ function fcForecastTab(d, v){
   var table = '<table class="tbl scroll' + (canBudget ? ' edit' : '') + '"><colgroup><col style="width:96px"><col><col><col>' + (measure ? '' : '<col style="width:150px"><col style="width:150px"><col>') + '</colgroup>'
     + '<thead><tr><th>月</th>' + qTh('p10') + qTh('p50') + qTh('p90') + (measure ? '' : '<th class="num" data-tip="予算のもとにする予測（月ごと）">採用予測</th><th class="num" data-tip="採用予測に足す分（マイナスもできます）">上乗せ</th><th class="num" data-tip="採用予測 + 上乗せ">最終予算</th>') + '</tr></thead><tbody>'
     + ms.map(function(m){ return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(m.p10) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + yen(m.p90) + '</td>' + bud(m) + '</tr>'; }).join('')
-    + '<tr class="total"><td>年度合計</td><td class="num">' + yen(sec.annual.p10) + '</td><td class="num">' + yen(sec.annual.p50) + '</td><td class="num">' + yen(sec.annual.p90) + '</td>' + bud(sec.annual, true) + '</tr>'
+    // 年度合計の行の下振れ・中心・上振れ: 本番の計画は上の数字の箱と同じ値（旧来の計算の年度合計はカーソルで）。本番でなければ今までどおり
+    + '<tr class="total"><td>年度合計</td>' + ['p10', 'p50', 'p90'].map(function(k){ return '<td class="num"' + (lv ? ' data-tip="' + esc(fcLiveRowTip(lv, annual)) + '"' : '') + '>' + yen((lv || sec.annual)[k]) + '</td>'; }).join('') + bud(sec.annual, true) + '</tr>'
     + '</tbody></table>';
   var foot = canBudget && (S.cv.fcMonthly === 'table' || dirty);
   // 予算に届く見込み（試し）。12 か月を数えた（サーバーの reach.done。無ければ 12 か月の実績がそろった）ら、見込みではなく届いたかどうか（年度を締めても 12 か月に足りなければ見込み）
   var rc = sh && !measure && sh.reach, rcDone = rc && fcReachDone(rc);
   var reach = !(rc && rc.draft) ? '' : rcDone ? '<span class="meta" data-tip="' + esc(fcReachDoneTip(rc, dirty)) + '">' + esc(fcReachDoneSay(rc)) + '</span>'
     : '<span class="meta" data-tip="' + esc(fcReachTip(rc, dirty)) + '">この予算に届く見込み ' + esc(reachPct(rc.draft.pct)) + (rc.live ? '' : '（試し）') + '</span>';   // 本番の計画は「（試し）」を外す
-  html += '<div class="card"><div class="card-head"><h2>' + (measure ? '月ごとの見通し' : '月ごとの見通しと予算') + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。' + (measure ? '測る専用の計画なので、予算は立てません。' : '最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。') + '年度合計（下振れ・中心・上振れ）は月の合計ではなく、年度で計算した値です') + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
+  html += '<div class="card"><div class="card-head"><h2>' + (measure ? '月ごとの見通し' : '月ごとの見通しと予算') + tip('単位: 円。帯は 下振れ〜上振れ（10 回に 8 回はこの中に入る見込み）。' + (measure ? '測る専用の計画なので、予算は立てません。' : '最終予算 = 採用予測 + 上乗せ（保存すると計算し直します）。') + fcAnnualHeadTip(lv)) + '</h2>' + reach + (canPlan ? '' : meta) + '</div>'
     + (measure ? '' : fcBudDraftLine(closed)) + chartOrTable('fcMonthly', chart, table)
     + (foot ? '<div class="card-foot">' + (closed ? '' : fcProbSel(d)) + actBtn(fcSaveBtn('予算を保存', 'fcSaveBudget()', dirty && !S.fc.budProb), '採用予測と上乗せを保存し、最終予算を計算し直します') + (dirty ? '<span class="chip warn">未保存</span>' : '') + '</div>' : '') + '</div>';
   return html;
@@ -2226,19 +2228,47 @@ function fcAlignedTip(a, rc, frozen){
       : '月ごとの中心を足した試しの値です。' + inYear + '。保存している数字は変わりません'].join('\n');
 }
 /**
- * 年度の見込みを本番にした計画の、年度の数字の説明（サーバーの shadow.annual）。中心の出どころ・幅の出どころ（band）・旧来の計算の年度合計（legacy。
+ * 本番の年度の数字の作り方（サーバーの shadow.annual.basis・current.shown.basis・revisions[].basis）: monthsum = 月ごとの中心の合計・
+ * landing = 着地の推定（締まった月の実績＋残りの月）・actual = 12 か月の実績の合計。basis の無い前のサーバーは、いつも月ごとの中心の合計
+ */
+function fcLiveBasis(lv){ var b = lv && lv.basis; return b === 'landing' || b === 'actual' ? b : 'monthsum'; }
+/** 作り方の言い方（見出しの説明・年度合計の行・公式版の今の中心） */
+var FC_LIVE_HOW = { monthsum: '月の合計', landing: '着地の推定（締まった月の実績＋残りの月）', actual: '実績の合計' };
+/** 中心が幅と同じ見込みの真ん中か（「上下に半々」と言えるのは、着地の推定と、締まった月が無いときの月の合計だけ） */
+function fcLiveMid(lv){ var b = fcLiveBasis(lv); return b === 'landing' || (b === 'monthsum' && !(lv.k > 0)); }
+/** 本番の中心の数字の箱の説明の 1 行目（後ろに「（年度合計）」）。真ん中と言えない中心は、何を足した値かを言う */
+function fcLiveMidHead(lv){ return fcLiveMid(lv) ? qTip('p50') : fcLiveBasis(lv) === 'actual' ? '12 か月の実績の合計' : '月ごとの中心の合計'; }
+/** 年度合計の作り方の一文 */
+function fcLiveHowSay(lv){ var b = fcLiveBasis(lv); return b === 'landing' ? '年度合計（下振れ・中心・上振れ）は' + FC_LIVE_HOW.landing + 'です' : '年度合計の中心は' + FC_LIVE_HOW[b] + 'です'; }
+/** 旧来の計算の年度合計の 1 行（記録に残している値。本番の計画では説明だけに出す） */
+function fcLegacyLine(L){ L = L || {}; return '旧来の計算の年度合計 ' + qName('p10') + ' ' + yenU(L.p10) + '・' + qName('p50') + ' ' + yenU(L.p50) + '・' + qName('p90') + ' ' + yenU(L.p90) + '（年度の売上を何度も試して出した値。記録に残しています）'; }
+/** 月ごとの見通しのカードの見出しの説明の終わり: 年度合計の下振れ・中心・上振れの出どころ（本番の計画は作り方。旧来の計算の年度合計は年度合計の行のカーソルで） */
+function fcAnnualHeadTip(lv){ return lv ? fcLiveHowSay(lv) + '。旧来の計算の年度合計は、年度合計の行のカーソルで見ます' : '年度合計（下振れ・中心・上振れ）は月の合計ではなく、年度で計算した値です'; }
+/** 本番の計画の、表の年度合計の行（下振れ・中心・上振れ）の説明: 作り方・月ごとの予測の中心の合計（月の合計でないとき）・旧来の計算の年度合計 */
+function fcLiveRowTip(lv, annual){
+  var b = fcLiveBasis(lv);
+  return [fcLiveHowSay(lv) + '（上の数字の箱と同じ）', b !== 'monthsum' && isNum(lv.monthSum) ? '月ごとの予測の中心の合計 ' + yenU(lv.monthSum) : '', fcLegacyLine(lv.legacy || annual)].filter(Boolean).join('\n');
+}
+/**
+ * 年度の見込みを本番にした計画の、中心の説明（サーバーの shadow.annual）。中心の作り方（basis）・幅の出どころ（band）・
+ * 中心が幅の真ん中でないときはそのこと・月ごとの予測の中心の合計（monthSum。作り方が月の合計でないとき）・旧来の計算の年度合計（legacy。
  * 無ければ画面の年度合計 annual）。金額は円まで（yenU）
  */
 function fcLiveTip(lv, annual, bandTip){
-  var L = lv.legacy || annual || {};
-  return ['月ごとの中心を足した値です（補正を入れた値）', bandTip,
-    '旧来の計算の年度合計 ' + qName('p10') + ' ' + yenU(L.p10) + '・' + qName('p50') + ' ' + yenU(L.p50) + '・' + qName('p90') + ' ' + yenU(L.p90) + '（年度の売上を何度も試して出した値。記録に残しています）'].filter(Boolean).join('\n');
+  var b = fcLiveBasis(lv), k = lv.k > 0 ? ' ' + lv.k + ' か月' : '月';
+  var how = b === 'landing' ? '着地の推定です（締まった' + k + 'の実績＋残りの月の予測。補正を入れた値）'
+    : b === 'actual' ? '12 か月の実績を足した値です'
+    : '月ごとの中心を足した値です（補正を入れた値' + (lv.k > 0 ? '。締まった月も予測の値のまま' : '') + '）';
+  return [how, bandTip,
+    b === 'monthsum' && lv.band === 'landing' ? '幅の真ん中は着地の推定（締まった月の実績＋残りの月）なので、中心とはずれます' : '',
+    b !== 'monthsum' && isNum(lv.monthSum) ? '月ごとの予測の中心の合計 ' + yenU(lv.monthSum) : '',
+    fcLegacyLine(lv.legacy || annual)].filter(Boolean).join('\n');
 }
 /** 本番の年度の幅の出どころ（band: aligned = 締まった月なしの幅・landing = 着地の推定の幅・空 = 幅なし。そのわけ） */
 function fcLiveBandTip(lv, al){
   return lv.band === 'aligned' ? '80% の幅は、着地見込みと同じ式（締まった月なし・' + reachAssume(al || lv) + '）でつけています'
     : lv.band === 'landing' ? '80% の幅は、着地の推定（締まった ' + lv.k + ' か月の実績を入れた見込み）の幅です'
-    : lv.done ? '12 か月の実績がそろったので、幅はありません'
+    : lv.done || fcLiveBasis(lv) === 'actual' ? '12 か月の実績がそろったので、幅はありません'
     : lv.pending ? '実績を取り込んだ後、当たり具合を計算するまで、幅は出しません' : '幅はまだ出せません';
 }
 /** 予算に届く見込み（試し）の説明: 届く金額（50〜80%）・前提（着地の推定と幅）・公式版の予算・入力中の予算。金額は円まで（50・60・70% の金額が同じに見えないように）。本番の計画（rc.live）は「試し」と言わない */
@@ -2990,14 +3020,14 @@ var VER_REACH_NONE = '出したときは着地見込みがまだ無かったの�
 function verPct(p){ return isNum(p) ? reachPct(Math.round(p * 20) * 5) : '-'; }
 /** 本番（LIVE）でなければ試し */
 function verTrial(rc){ return rc.mode !== 'LIVE'; }
-/** 届く見込みの説明: 最終予算・採用予測それぞれの見込みと、出したときの前提（中心・幅・年の水準のぶれ・幅の倍率・締まった月の数） */
+/** 届く見込みの説明: 最終予算・採用予測それぞれの見込みと、出したときの前提（着地の推定・幅・年の水準のぶれ・幅の倍率・締まった月の数。予測と予算の画面と同じ言い方） */
 function verReachTip(x, rc){
   var b = x.budget || {}, k = Number(rc.closedMonths);
   if (verReachNone(rc)) return VER_REACH_NONE;
   return ['出したときの届く見込み' + (verTrial(rc) ? '（試し）' : ''),
     '最終予算 ' + yenU(b.final) + ' に ' + verPct(rc.final),
     '採用予測 ' + yenU(b.adopted) + ' に ' + verPct(rc.adopted),
-    '前提: 中心 ' + yenU(isNum(rc.center) ? rc.center : null) + '・幅（標準偏差）' + yenU(isNum(rc.sd) ? rc.sd : null) + '・' + reachAssume(rc) + '・' + (k > 0 ? '締まった月 ' + k + ' か月' : '締まった月なし'),
+    '前提: 着地の推定 ' + yenU(isNum(rc.center) ? rc.center : null) + '・幅（標準偏差）' + yenU(isNum(rc.sd) ? rc.sd : null) + '・' + reachAssume(rc) + '・' + (k > 0 ? '締まった月 ' + k + ' か月' : '締まった月なし'),
     verTrial(rc) ? '本番の計算に切り替える前の試しの値です' : '',
     '出したときの値のまま、後から変えません'].filter(Boolean).join('\n');
 }
@@ -3008,6 +3038,32 @@ function verReachCell(x){
 }
 /** 承認待ちのカードの 1 行（承認する人が見て決める）: 届く見込み: 最終予算に 約 70%・採用予測に 約 85%（試し） */
 function verReachSay(x, rc){ return verReachNone(rc) ? '届く見込み: -' : '届く見込み: 最終予算に ' + verPct(rc.final) + '・採用予測に ' + verPct(rc.adopted) + (verTrial(rc) ? '（試し）' : ''); }
+/**
+ * 中心の見せ方（予測と予算の画面と同じ中心にそろえる。記録の年度合計の中心は旧来の計算の値として説明に出す）。
+ *   今の中心: 本番の計画はサーバーの current.shown（{ p50, basis, live }）の p50。ほかは今の年度合計の中心（current.annual.p50）
+ *   版の中心: 出したときに画面に出していた中心（サーバーの versions[].shownCenter）。無い版は記録の年度合計の中心（そのときの画面の中心）
+ */
+function verShown(cur){ var s = cur && cur.shown; return s && s.live && isNum(s.p50) ? s : null; }
+function verCurMid(cur){ var s = verShown(cur); return s ? s.p50 : cur && cur.annual ? cur.annual.p50 : null; }
+function verMid(x){ return x && isNum(x.shownCenter) ? x.shownCenter : x && x.annual ? x.annual.p50 : null; }
+/** 記録の年度合計の中心（旧来の計算）を、見せている中心と円で違うときだけ言う */
+function verLegacyMid(shown, legacy, who){ return isNum(shown) && isNum(legacy) && Math.round(shown) !== Math.round(legacy) ? (who || '') + '旧来の計算の年度合計の中心 ' + yenU(legacy) + '（記録に残しています）' : ''; }
+/** 今の中心の説明（本番の計画だけ）: 予測と予算の画面と同じ中心・作り方・旧来の計算の年度合計の中心 */
+function verCurMidTip(cur){ var s = verShown(cur); return s ? ['今の予測の中心です（予測と予算の画面と同じ）', fcLiveHowSay(s), verLegacyMid(s.p50, cur.annual && cur.annual.p50)].filter(Boolean).join('\n') : ''; }
+/** 版の中心の説明（画面に出していた中心が記録の年度合計の中心と違う版だけ） */
+function verMidTip(x){ var l = verLegacyMid(verMid(x), x && x.annual && x.annual.p50); return l ? '出したときに画面に出していた中心です\n' + l : ''; }
+/**
+ * 承認待ちのカードの中心（承認する人が見て決める。同じカードの最終予算と同じく、出したときの値）: 出したときに画面に出していた中心。
+ * それが無い版で、計画が本番なら今の中心（予測と予算の画面と同じ）。ほかは記録の年度合計の中心。返り値: { v, tip }
+ */
+function verPendMid(pend, cur){
+  if (isNum(pend.shownCenter)) return { v: pend.shownCenter, tip: verMidTip(pend) };
+  var s = verShown(cur);
+  if (s) return { v: s.p50, tip: ['今の予測の中心です（予測と予算の画面と同じ）', fcLiveHowSay(s), verLegacyMid(s.p50, pend.annual && pend.annual.p50, 'この版の記録の ')].filter(Boolean).join('\n') };
+  return { v: pend.annual && pend.annual.p50, tip: '' };
+}
+/** 説明のある値（カーソル・フォーカスで説明。説明が無ければ値だけ） */
+function verTipped(text, tipText){ return tipText ? '<span tabindex="0" data-tip="' + esc(tipText) + '">' + text + '</span>' : text; }
 function fcVersionTab(d, v){
   var r = S.fc.ver;
   if (!r || r.planId !== S.fc.planId) return slot('fcVer', '公式版を読み込んでいます', 'fcLoadVersions()') || loading('公式版を読み込んでいます');
@@ -3019,13 +3075,17 @@ function fcVersionTab(d, v){
   var ready = !!(cur && cur.annual && isNum(cur.annual.p50));
   if (!off && !pend && !ready && !(r.versions || []).length) return guide('explain', r.can.submit ? '予測がまだありません。予測を実行してから、公式版として出してください。' : 'まだ公式版はありません。予算策定担当が予測を実行して公式版を出すと、ここに出ます。');
   // いまの公式版
-  html += '<div class="kpis">' + fcKpi('公式版の最終予算', off ? off.budget.final : null, true, '承認済みの公式版' + (off ? '（v' + off.no + '）' : '') + 'の、最終予算の年度合計') + fcKpi('公式版の中心', off ? off.annual.p50 : null, false, qTip('p50') + '（承認済みの公式版・年度合計）')
-    + fcKpi('今の最終予算', cur ? cur.budget.final : null, false, '今の計画の、最終予算の年度合計') + fcKpi('今の中心', cur ? cur.annual.p50 : null, false, qTip('p50') + '（今の予測・年度合計）') + '</div>';
+  // 中心は予測と予算の画面と同じ値（今 = current.shown・版 = 出したときに画面に出していた中心）。記録の年度合計の中心は説明に
+  var offTip = off ? verMidTip(off) : '', curTip = verCurMidTip(cur), rest = function(t){ return { after: t.split('\n').slice(1).join('\n') }; };
+  html += '<div class="kpis">' + fcKpi('公式版の最終予算', off ? off.budget.final : null, true, '承認済みの公式版' + (off ? '（v' + off.no + '）' : '') + 'の、最終予算の年度合計')
+    + fcKpi('公式版の中心', off ? verMid(off) : null, false, offTip ? '出したときの予測の中心（承認済みの公式版・年度合計）' : qTip('p50') + '（承認済みの公式版・年度合計）', false, offTip ? rest(offTip) : null)
+    + fcKpi('今の最終予算', cur ? cur.budget.final : null, false, '今の計画の、最終予算の年度合計')
+    + fcKpi('今の中心', cur ? verCurMid(cur) : null, false, curTip ? '今の予測の中心（年度合計。予測と予算の画面と同じ）' : qTip('p50') + '（今の予測・年度合計）', false, curTip ? rest(curTip) : null) + '</div>';
   // 承認待ち
   if (pend) {
-    var mine = pend.submittedBy === r.me && !B.user.isOwner, prc = verReach(pend);
+    var mine = pend.submittedBy === r.me && !B.user.isOwner, prc = verReach(pend), pm = verPendMid(pend, cur);
     html += '<div class="card caution"><div class="card-head"><h2>承認待ち（v' + pend.no + '）</h2>' + verChip('SUBMITTED') + '</div>'
-      + '<p>最終予算 ' + yenU(pend.budget.final) + '・中心 ' + yenU(pend.annual.p50) + '　出した人: ' + esc(fcWho(pend.submittedBy)) + '（' + esc(fcDate(pend.submittedAt, true)) + '）</p>'
+      + '<p>最終予算 ' + yenU(pend.budget.final) + '・' + verTipped('中心 ' + yenU(pm.v), pm.tip) + '　出した人: ' + esc(fcWho(pend.submittedBy)) + '（' + esc(fcDate(pend.submittedAt, true)) + '）</p>'
       // 承認する人が見て決める: 出したときの届く見込み（最終予算・採用予測）。前提はカーソルで
       + (prc ? '<p class="mt4" tabindex="0" data-tip="' + esc(verReachTip(pend, prc)) + '">' + esc(verReachSay(pend, prc)) + '</p>' : '')
       + (pend.note ? '<p class="note mt4">メモ: ' + esc(pend.note) + '</p>' : '')
@@ -3041,8 +3101,9 @@ function fcVersionTab(d, v){
     var base = off || null;
     html += '<div class="card"><div class="card-head"><h2>今の内容を公式版として出す' + tip('今の予測と予算の数字を、そのまま残して承認待ちにします' + (pend ? '。承認待ちの v' + pend.no + ' は取り下げます' : '')) + '</h2><span class="meta">' + (base ? 'v' + base.no + ' との差' : '公式版なし') + '</span></div>'
       + (cur ? '<div class="tblwrap"><table class="tbl fc-cmp"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup><thead><tr><th></th><th class="num">今</th><th class="num">公式版</th><th class="num" data-tip="今 − 公式版">差</th></tr></thead><tbody>'
-        + [['最終予算', cur.budget.final, base && base.budget.final], ['採用予測', cur.budget.adopted, base && base.budget.adopted], ['上乗せ', cur.budget.uplift, base && base.budget.uplift], [qName('p50') + '（年度）', cur.annual.p50, base && base.annual.p50]]
-          .map(function(x){ return '<tr><td>' + x[0] + '</td><td class="num">' + yen(x[1]) + '</td><td class="num">' + (base ? yen(x[2]) : '-') + '</td><td class="num">' + (base ? verDiff(x[1], x[2]) : '-') + '</td></tr>'; }).join('')
+        + [['最終予算', cur.budget.final, base && base.budget.final], ['採用予測', cur.budget.adopted, base && base.budget.adopted], ['上乗せ', cur.budget.uplift, base && base.budget.uplift],
+          [qName('p50') + '（年度）', verCurMid(cur), base && verMid(base), [curTip ? '今: ' + curTip.split('\n').join('・') : '', base && verMidTip(base) ? '公式版: ' + verMidTip(base).split('\n').join('・') : ''].filter(Boolean).join('\n')]]
+          .map(function(x){ return '<tr><td' + (x[3] ? ' data-tip="' + esc(x[3]) + '"' : '') + '>' + x[0] + '</td><td class="num">' + yen(x[1]) + '</td><td class="num">' + (base ? yen(x[2]) : '-') + '</td><td class="num">' + (base ? verDiff(x[1], x[2]) : '-') + '</td></tr>'; }).join('')
         + '</tbody></table></div>' : '<p class="note">予測がまだありません。予測を実行してから出してください。</p>')
       + '<div class="field mt12"><label for="ver_submit_note">メモ（何を見直したか）</label><input class="inp lg" id="ver_submit_note"></div>'
       + '<div class="card-foot">' + actBtn('<button class="btn" ' + (fcBusy() ? 'disabled ' : '') + 'onclick="verSubmit()">公式版として出す</button>', '今の数字のまま残し、承認者の確認を待ちます' + (pend ? '。承認待ちの v' + pend.no + ' は取り下げになります' : '')) + '</div></div>';
@@ -3050,7 +3111,7 @@ function fcVersionTab(d, v){
   // 版の一覧
   html += '<div class="card"><h2>版の一覧</h2>' + (r.versions.length ? '<div class="tblwrap"><table class="tbl fc-vers"><colgroup><col style="width:56px"><col style="width:120px"><col style="width:128px"><col style="width:128px"><col style="width:112px"><col style="width:112px"><col><col style="width:152px"></colgroup>'
     + '<thead><tr><th>版</th><th>状態</th><th class="num" data-tip="最終予算の年度合計。下の段は、出したときにこの最終予算に届く見込み（前の版には無い）">最終予算</th>' + qTh('p50') + '<th>出した人</th><th>判断した人</th><th class="colmin" style="--colmin:64px">メモ</th><th></th></tr></thead><tbody>'
-    + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + verReachCell(x) + '</td><td class="num">' + yen(x.annual.p50) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
+    + r.versions.map(function(x){ return '<tr><td>v' + x.no + '</td><td>' + verChip(x.state) + '</td><td class="num">' + yen(x.budget.final) + verReachCell(x) + '</td><td class="num"' + (verMidTip(x) ? ' data-tip="' + esc(verMidTip(x)) + '"' : '') + '>' + yen(verMid(x)) + '</td><td>' + verWho(x.submittedBy, x.submittedAt) + '</td><td>' + verWho(x.decidedBy, x.decidedAt) + '</td>'
       + '<td data-tip="' + esc((x.note || '') + (x.decisionNote ? ' / ' + x.decisionNote : '')) + '">' + esc(x.note || '') + (x.decisionNote ? '<div class="note">' + esc(x.decisionNote) + '</div>' : '') + '</td>'
       + '<td><button class="btn btn-ghost btn-sm" data-tip="この版と今の数字を、月ごとに比べます" onclick="S.fc.verCmp=\'' + esc(x.versionId) + '\';render()">今と比べる</button></td></tr>'; }).join('')
     + '</tbody></table></div>' : '<p class="note">まだ版がありません。</p>') + '</div>';
@@ -3060,7 +3121,7 @@ function fcVersionTab(d, v){
     html += '<div class="card"><div class="card-head"><h2>v' + cmp.no + ' と今の比べ（月ごと）</h2><button class="btn btn-ghost btn-sm" onclick="S.fc.verCmp=null;render()">閉じる</button></div>'
       + '<div class="tblwrap"><table class="tbl scroll"><colgroup><col style="width:96px"><col><col><col><col><col><col></colgroup><thead><tr><th>月</th><th class="num">最終予算 v' + cmp.no + '</th><th class="num">最終予算 今</th><th class="num">差</th><th class="num">' + qName('p50') + ' v' + cmp.no + '</th><th class="num">' + qName('p50') + ' 今</th><th class="num">差</th></tr></thead><tbody>'
       + cur.monthly.map(function(m, i){ var o = cmp.monthly[i] || {}; return '<tr><td>' + esc(m.month) + '</td><td class="num">' + yen(o.final) + '</td><td class="num">' + yen(m.final) + '</td><td class="num">' + verDiff(m.final, o.final) + '</td><td class="num">' + yen(o.p50) + '</td><td class="num">' + yen(m.p50) + '</td><td class="num">' + verDiff(m.p50, o.p50) + '</td></tr>'; }).join('')
-      + '<tr class="total"><td>年度</td><td class="num">' + yen(cmp.budget.final) + '</td><td class="num">' + yen(cur.budget.final) + '</td><td class="num">' + verDiff(cur.budget.final, cmp.budget.final) + '</td><td class="num">' + yen(cmp.annual.p50) + '</td><td class="num">' + yen(cur.annual.p50) + '</td><td class="num">' + verDiff(cur.annual.p50, cmp.annual.p50) + '</td></tr>'
+      + '<tr class="total"><td>年度</td><td class="num">' + yen(cmp.budget.final) + '</td><td class="num">' + yen(cur.budget.final) + '</td><td class="num">' + verDiff(cur.budget.final, cmp.budget.final) + '</td><td class="num"' + (verMidTip(cmp) ? ' data-tip="' + esc(verMidTip(cmp)) + '"' : '') + '>' + yen(verMid(cmp)) + '</td><td class="num"' + (curTip ? ' data-tip="' + esc(curTip) + '"' : '') + '>' + yen(verCurMid(cur)) + '</td><td class="num">' + verDiff(verCurMid(cur), verMid(cmp)) + '</td></tr>'
       + '</tbody></table></div></div>';
   }
   return html;
@@ -3371,31 +3432,46 @@ function anBiasCard(plans){
   return anCard('読みのクセ', '予測の中心が実績よりどちらに外れやすいか（新しい月ほど重く平均）。プラスは強気（予測が実績より高め・橙）、マイナスは弱気（予測が実績より低め・紺）。強気の大きい順',
     anCot('an.bias', svg, tbl) + anOut(out));
 }
-/** 予測の見直しの流れ（このアプリで動かした予測の、年間の中心。古い順に最近の 12 回）。名前順 */
+/**
+ * 見直しの流れの 1 回の中心: そのときに画面に出していた中心（サーバーの revisions[].p50Shown）。無ければ記録の年度合計の中心（p50）。
+ * 本番の回（revisions[].live）は作り方（basis: 月の合計・着地の推定・実績の合計）、前の回は旧来の計算の印をカーソルで添える（本番の回がある計画だけ）
+ */
+function anRevMid(r){ return r && isNum(r.p50Shown) ? r.p50Shown : r ? r.p50 : null; }
+var AN_REV_HOW = { monthsum: '月の合計', landing: '着地の推定', actual: '実績の合計' };
+function anRevMark(r){ return r.live ? AN_REV_HOW[fcLiveBasis(r)] : '旧来の計算'; }
+/** 予測の見直しの流れ（このアプリで動かした予測の、年間の中心。古い順に最近の 12 回）。名前順。最新の中心は、本番の計画なら予測と予算の画面と同じ中心（計画の一覧の p50） */
 function anRevCard(plans){
   var use = [], out = [];
-  plans.forEach(function(p){ var rs = (p.revisions || []).filter(function(r){ return r && isNum(r.p50); }); if (rs.length) use.push([p, rs]); else out.push([p.clientName, anWhy(p, 'revisions')]); });
+  plans.forEach(function(p){ var rs = (p.revisions || []).filter(function(r){ return r && isNum(anRevMid(r)); }); if (rs.length) use.push([p, rs]); else out.push([p.clientName, anWhy(p, 'revisions')]); });
   if (!use.length) return '';
   use.sort(function(a, b){ return anByName(a[0], b[0]); });
+  var marked = function(rs){ return rs.some(function(r){ return r.live; }); };
+  var one = function(r, mk){ return anDay(r.at) + ' ' + anYen(anRevMid(r)) + (mk ? '（' + anRevMark(r) + '）' : ''); };
   var chg = function(rs){
-    if (rs.length < 2 || !(rs[rs.length - 2].p50 > 0)) return '<td class="num">-</td>';
-    var a = rs[rs.length - 2], b = rs[rs.length - 1];
-    return '<td class="num" data-tip="' + esc('前回 ' + anDay(a.at) + ' ' + anYen(a.p50) + '\n今回 ' + anDay(b.at) + ' ' + anYen(b.p50)) + '">' + pct1(b.p50 / a.p50 - 1) + '</td>';
+    if (rs.length < 2 || !(anRevMid(rs[rs.length - 2]) > 0)) return '<td class="num">-</td>';
+    var a = rs[rs.length - 2], b = rs[rs.length - 1], mk = marked(rs);
+    return '<td class="num" data-tip="' + esc('前回 ' + one(a, mk) + '\n今回 ' + one(b, mk)) + '">' + pct1(anRevMid(b) / anRevMid(a) - 1) + '</td>';
   };
-  var list = function(rs){ return rs.map(function(r){ return anDay(r.at) + ' ' + anYen(r.p50); }).join('\n'); };
+  var list = function(rs){ var mk = marked(rs); return rs.map(function(r){ return one(r, mk); }).join('\n'); };
+  // 最新の中心: 本番の計画は予測と予算の画面と同じ中心（締まった月の実績で動く。最新の回の中心と違えば、その回の値をカーソルで）
+  var latest = function(p, rs){
+    var r = rs[rs.length - 1], v = anRevMid(r);
+    if (!(p.alignedLive && isNum(p.p50))) return '<td class="num">' + anYen(v) + '</td>';
+    return '<td class="num" data-tip="' + esc(['今の中心 ' + yenU(p.p50) + '（予測と予算の画面と同じ）', Math.round(p.p50) !== Math.round(v) ? '最新の予測 ' + one(r, marked(rs)) : ''].filter(Boolean).join('\n')) + '">' + anYen(p.p50) + '</td>';
+  };
   // 流れは、どのメーカーも同じ縦の範囲で描く（最初の予測からの変わり方の割合。±2% と ±40% が同じ高さに見えないように）
-  var rel = function(rs){ var b = rs[0].p50; return rs.map(function(r){ return b > 0 ? r.p50 / b - 1 : null; }); };
+  var rel = function(rs){ var b = anRevMid(rs[0]); return rs.map(function(r){ return b > 0 ? anRevMid(r) / b - 1 : null; }); };
   var all = []; use.forEach(function(x){ rel(x[1]).forEach(function(v){ if (isNum(v)) all.push(v); }); });
   var smin = Math.min(-0.05, Math.min.apply(null, all.concat([0]))), smax = Math.max(0.05, Math.max.apply(null, all.concat([0])));
   // 列は 流れ → 前回から を先に（スマホでも横に送らずに見える）。最新の中心・回数は後ろ
   var chgTh = '<th class="num" data-tip="直近の 2 回の予測の、年間の中心の変わり方">前回から</th>';
-  var withSpark = anTable(['', 152, 112, 152, 112], '<th>メーカー</th><th data-tip="古い順。右の点が最新。どのメーカーも同じ縦の範囲（最初の予測からの変わり方）で描いています">流れ</th>' + chgTh + '<th class="num" data-tip="最新の予測の年間の中心">最新の中心</th><th class="num" data-tip="このアプリで動かした予測の回数（最近の 12 回まで）">回数</th>',
+  var withSpark = anTable(['', 152, 112, 152, 112], '<th>メーカー</th><th data-tip="古い順。右の点が最新。どのメーカーも同じ縦の範囲（最初の予測からの変わり方）で描いています">流れ</th>' + chgTh + '<th class="num" data-tip="最新の予測の年間の中心（予測と予算の画面と同じ）">最新の中心</th><th class="num" data-tip="このアプリで動かした予測の回数（最近の 12 回まで）">回数</th>',
     use.map(function(x){ var p = x[0], rs = x[1];
       return '<tr>' + anNameTd(p) + '<td>' + chartSpark(rel(rs), { w: 120, h: 32, min: smin, max: smax, tip: p.clientName + ' の見直し（年間の中心）\n' + list(rs), label: p.clientName + ' の見直しの流れ' }) + '</td>'
-        + chg(rs) + '<td class="num">' + anYen(rs[rs.length - 1].p50) + '</td><td class="num">' + rs.length + ' 回</td></tr>'; }).join(''));
+        + chg(rs) + latest(p, rs) + '<td class="num">' + rs.length + ' 回</td></tr>'; }).join(''));
   var asText = anTable(['', 332, 112, 112], '<th>メーカー</th><th data-tip="古い順の年間の中心。日付はカーソルで">中心の流れ</th>' + chgTh + '<th class="num">回数</th>',
     use.map(function(x){ var p = x[0], rs = x[1];
-      return '<tr>' + anNameTd(p) + '<td class="wrap" data-tip="' + esc(list(rs)) + '">' + esc(rs.map(function(r){ return yenShort(r.p50); }).join(' → ')) + '</td>' + chg(rs) + '<td class="num">' + rs.length + ' 回</td></tr>'; }).join(''));
+      return '<tr>' + anNameTd(p) + '<td class="wrap" data-tip="' + esc(list(rs)) + '">' + esc(rs.map(function(r){ return yenShort(anRevMid(r)); }).join(' → ')) + '</td>' + chg(rs) + '<td class="num">' + rs.length + ' 回</td></tr>'; }).join(''));
   return anCard('予測の見直しの流れ', 'このアプリで動かした予測の、年間の中心の移り変わりです（古い順に最近の 12 回）。「前回から」は直近の 2 回の差',
     anCot('an.rev', '<div class="tblwrap">' + withSpark + '</div>', asText) + anOut(out));
 }
