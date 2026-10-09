@@ -2423,12 +2423,14 @@ function fcBudFill(r, prob){
 /** 月の印をそろえる（2026/04・2026-04・2026-04-01 → 2026-04） */
 function fcYm(s){ var m = /(\d{4})\D(\d{1,2})/.exec(String(s || '')); return m ? m[1] + '-' + (m[2].length < 2 ? '0' : '') + m[2] : ''; }
 /** 下書きの決め方の言い方（見える短い言葉 say と、説明 tip） */
-function fcBudHow(dd){
+function fcBudHow(dd, monthWord){
   var al = BUD_ALLOC[dd.alloc];
   if (dd.basis === 'PROB' && BUD_PROBS.indexOf(Number(dd.prob)) >= 0) return { say: Number(dd.prob) + '% で決めた額', tip: '採用予測は、届く見込み ' + Number(dd.prob) + '% の額です' + (al ? '（月への割り振りは' + al + '）' : '') };
   if (dd.basis === 'MANUAL') return { say: '手で直した額', tip: '採用予測は、手で直した額です' };
   if (dd.basis === 'BASELINE') return { say: '前に入れた額', tip: '採用予測は、下書きを残し始める前に入れてあった額です' };
-  return { say: '予測の中心のまま', tip: '採用予測は、下書きを作ったときの予測の中心です' };
+  // 上の中心の箱が月の合計でないとき（monthWord）は、月ごとの値だと分かる言い方にする（上の中心と取り違えないように）
+  return monthWord ? { say: '月ごとの予測の中心のまま', tip: '採用予測は、下書きを作ったときの月ごとの予測の中心です' }
+    : { say: '予測の中心のまま', tip: '採用予測は、下書きを作ったときの予測の中心です' };
 }
 /**
  * 下書きを作った後の予測の動き（サーバーの drift = (今の中心 − 下書きのときの中心) ÷ 下書きのときの中心）。知らせるときだけ値を返し、ほかは null。
@@ -2449,8 +2451,8 @@ function fcBudDrift(dd){
 function fcBudDraftLine(closed, lv){
   var dd = fcBudDraft();
   if (!dd) return '';
-  var how = fcBudHow(dd), day = fcDate(dd.savedAt).slice(5), dr = closed ? null : fcBudDrift(dd);
   var mid = !!lv && fcLiveBasis(lv) === 'monthsum', w = mid ? '中心' : '月ごとの中心の合計', b = lv ? fcLiveBasis(lv) : '';
+  var how = fcBudHow(dd, !!lv && !mid), day = fcDate(dd.savedAt).slice(5), dr = closed ? null : fcBudDrift(dd);
   var t1 = ['予算の下書き' + (dd.savedAt ? '（' + fcDate(dd.savedAt, true) + ' に保存）' : ''), how.tip,
     isNum(dd.adopted) ? '採用予測 ' + yenU(dd.adopted) + (isNum(dd.uplift) ? '・上乗せ ' + yenU(dd.uplift) : '') + '（年度）' : '',
     '予測し直しても、この下書きのまま変わりません（採用予測 = 約束、上乗せ = 挑戦）',
@@ -3516,7 +3518,11 @@ function anRevCard(plans){
   // 最新の中心: 本番の計画は予測と予算の画面と同じ中心（締まった月の実績で動く。作り方を添え、最新の回の値と違えば、その回の値をカーソルで）
   var latest = function(p, rs){
     var r = rs[rs.length - 1], v = anRevMid(r), sb = p.annualShown && p.annualShown.basis ? AN_REV_HOW[fcLiveBasis(p.annualShown)] : '';
-    if (!(p.alignedLive && isNum(p.p50))) return '<td class="num">' + anYen(v) + '</td>';
+    // 本番でない計画: 計画の一覧の中心（予測と予算の画面と同じ旧来の年度合計）。最新の回が本番だったとき（補正を変えて予測し直す前）は、その回の月の合計をカーソルで添える
+    if (!p.alignedLive) {
+      if (!isNum(p.p50)) return '<td class="num">' + anYen(v) + '</td>';
+      return '<td class="num"' + (r.live && Math.round(p.p50) !== Math.round(v) ? ' data-tip="' + esc('今の中心 ' + yenU(p.p50) + '（予測と予算の画面と同じ）\n最新の予測 ' + one(r, true)) + '"' : '') + '>' + anYen(p.p50) + '</td>';
+    }
     return '<td class="num" data-tip="' + esc(['今の中心 ' + yenU(p.p50) + '（予測と予算の画面と同じ' + (sb ? '・' + sb : '') + '）', Math.round(p.p50) !== Math.round(v) ? '最新の予測 ' + one(r, marked(rs)) : ''].filter(Boolean).join('\n')) + '">' + anYen(p.p50) + '</td>';
   };
   // 流れは、どのメーカーも同じ縦の範囲で描く（最初の予測からの変わり方の割合。±2% と ±40% が同じ高さに見えないように）

@@ -316,6 +316,23 @@ part('D4 確率で決める前の割り振り', () => {
   assert.ok(lines(`S.fc.budBasis = { planId: 'P1', basis: 'PROB', prob: 60, alloc: 'PAST_SHAPE' }`).includes('月への割り振りは過去の平均の形です'));
 });
 
+// ==== D6. 本番でない計画の見直しの流れの最新の中心・中心のままの下書きの言い方（2026-10-09 最後の点検） ====
+part('D6 本番でない計画の最新の中心と、中心のままの下書き', () => {
+  // 補正を変えて本番でなくなった計画（最新の回は本番の回で、月の合計 12,000・計画の一覧の中心 8,000）
+  const rh = R(`S.cv['an.rev'] = 'chart'; anRevCard(__p)`, { __p: [{ planId: 'P1', clientName: 'A製薬', alignedLive: false, p50: 8000, revisions: [
+    { at: '2026-09-01T10:00:00+09:00', p50: 8000, live: false, p50Shown: 8000, basis: 'legacy' },
+    { at: '2026-10-02T10:00:00+09:00', p50: 8000, live: true, p50Shown: 12000, monthSum: 12000, basis: 'monthsum' }] }] });
+  noCodes(rh, '見直しの流れ');
+  assert.ok(visible(rh).includes(ay(8000)), '最新の中心は予測と予算の画面と同じ（計画の一覧の中心）');
+  assert.ok(tipsOf(rh).some((t) => /今の中心 .*（予測と予算の画面と同じ）/.test(t) && /月の合計/.test(t)), '最新の回の月の合計はカーソルで');
+  // 年度の途中の本番の計画で、中心のままの下書き: 上の中心（着地の推定）と取り違えない言い方
+  const dd = { basis: 'CENTER', alloc: 'FORECAST_SHAPE', savedAt: '2026-10-09T10:00:00+09:00', adopted: 12000, centerAtDraft: 12000, centerNow: 12000, drift: 0, warn: false };
+  const say = (lv) => visible(R(`S.fc.planId = 'P1'; S.fc.view = { can: { plan: true }, boot: { budgetDraft: __d } }; fcBudDraftLine(false, __lv)`, { __d: dd, __lv: lv }));
+  assert.match(say({ basis: 'landing', k: 6, p50: 9852 }), /月ごとの予測の中心のまま/);
+  assert.match(say({ basis: 'monthsum', k: 0, p50: 12000 }), /予測の中心のまま/);
+  assert.doesNotMatch(say({ basis: 'monthsum', k: 0, p50: 12000 }), /月ごとの予測の中心のまま/);
+});
+
 if (failed.length) {
   console.error('app-v11-fix2: failed: ' + failed.join(' / '));
   process.exit(1);
