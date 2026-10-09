@@ -129,6 +129,13 @@ function appListPlans_() {
  *                  12 か月を数えた計画は reach.done と reach.actual（実績の合計。届いた／届かなかった。届く金額は出さない）。年度を締めても 12 か月に足りなければ見込みのまま
  *   scoredMonths … 今の決まりで B-2 が測った締まった月の数（appPortfolioScored_。実績 0 円の月も数える。数）
  *   measure      … 測る専用の計画（PLANS.purpose。版 10 の 3-9）。着地の τ・w の学びに入れず、ホームと分析の合計にも入れない
+ * 年度の見込みの本番（2026-10-09 村井さん承認。判断 10・24 を、決定 4・7 が済んだ計画から本番に）:
+ *   alignedLive  … 補正を所有者が承認した値にして予測し直した計画（appPortfolioLive_ = appLandingLiveOf_）で、月の予測がそろっている（aligned がある）。真偽
+ *   p10・p50・p90 … alignedLive なら月の合計にそろえた年度の値（appLandingAnnualShown_。中心 = 月の P50 の合計・幅は締まった月なしの試しの幅か、
+ *                  年度の途中は着地の推定の幅。幅が無ければ null）。そうでなければ今までどおり旧来の計算の年度合計
+ *   annualBand   … alignedLive のときの幅の出どころ（'aligned' / 'landing' / ''。そうでなければ ''）
+ *   legacyAnnual … 旧来の計算の年度合計 { p10, p50, p90 }（最新の予測の記録、無ければ OUTPUT の 26 行。いつも。記録は変えない）
+ *   aligned.live・reach.live … alignedLive と同じ（画面が「（試し）」を外す）。prevP50 と前提の変化（premise）は、これまでどおり記録の年度合計で比べる
  * 返り値: { plans: [計画の要点], prior: { learned: appLandingPrior_ の返り値, used: appLandingApproved_ の返り値 } }
  */
 function appPortfolioData_() {
@@ -138,16 +145,24 @@ function appPortfolioData_() {
   const runs = {};
   appReadTable_('FORECAST_RUNS').filter(r => r.status === 'DONE').forEach(r => { (runs[r.plan_id] = runs[r.plan_id] || []).push(r); });
   const outRows = {};
-  appReadTable_('ENG_ROWS').filter(r => r.sheet === 'OUTPUT' && Number(r.col_from) === 1).forEach(s => {
+  const clientOf = {};   // CONFIG!B2（計画のメーカーの名前。補正の行を選ぶ。同じ読み込みで）
+  appReadTable_('ENG_ROWS').filter(r => (r.sheet === 'OUTPUT' || r.sheet === 'CONFIG') && Number(r.col_from) === 1).forEach(s => {
     const n = Number(s.row_no);
+    if (s.sheet === 'CONFIG') {
+      if (n === 2) { const x = (JSON.parse(s.cells_json) || [])[1]; clientOf[s.plan_id] = x ? String(appCellDecode_(x.charAt(0) === 'f' ? 'e' : x.charAt(0), x.slice(1))).trim() : ''; }
+      return;
+    }
     if (n === 1 || n === 26 || (n >= 29 && n <= 40)) { (outRows[s.plan_id] = outRows[s.plan_id] || {})[n] = JSON.parse(s.cells_json); }
   });
   const steps = {};
   appReadTable_('ENG_PROCESS_STATUS').forEach(r => { (steps[r.plan_id] = steps[r.plan_id] || []).push(r); });
   const plans = appReadTable_('PLANS').filter(p => p.state !== 'ARCHIVED');
-  // 締まった月の境目（B-1 → B-2 の順に動いた取り込み）と、今の決まりで測った月（EVAL_LOG を全計画の分 1 回で読む）
+  // 締まった月の境目（B-1 → B-2 の順に動いた取り込み）と、今の決まりで測った月（EVAL_LOG を全計画の分 1 回で読む）。
+  // B-1 の後に B-2 がまだの計画は、最後に成功した B-2 の前の B-1 の境目（消さずに足す記録から。2026-10-09 村井さん承認）
+  const hist = appPortfolioStepHist_(plans.filter(p => appLandingPendingCutoff_(steps[p.plan_id] || []) !== '').map(p => p.plan_id));
   const cut = {};
-  plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || []); });
+  plans.forEach(p => { cut[p.plan_id] = appLandingCutoff_(steps[p.plan_id] || [], hist[p.plan_id] || []); });
+  const live = appPortfolioLive_(plans.map(p => p.plan_id), clientOf);   // 年度の見込みを本番にした計画（判断 10・24。appLandingLiveOf_）
   const scored = appPortfolioScored_(plans.map(p => p.plan_id), cut);
   const ape = {};   // 計画ごとの [{ ym, v }]（外れ幅は、締まった月で今の決まりで測った月の分だけを後で平均する）
   const cmp = {};   // 月ごとの実績と P10/P50/P90（検証の表）。暫定実績・着地見込み・予実の差・全計画の学びに使う（読むだけ。計算は変えない）
@@ -202,6 +217,10 @@ function appPortfolioData_() {
     const stored = o[26] ? { p10: num(o[26][1]), p50: num(o[26][2]), p90: num(o[26][3]) } : {};
     const latest = rs[0] || null;
     const prev = rs[1] || null;
+    // 旧来の計算の年度合計（最新の予測の記録、無ければ OUTPUT の 26 行）。本番の計画でも記録はこのまま
+    const legacy = { p10: latest ? latest.annual_p10 : stored.p10 === undefined ? null : stored.p10,
+      p50: latest ? latest.annual_p50 : stored.p50 === undefined ? null : stored.p50,
+      p90: latest ? latest.annual_p90 : stored.p90 === undefined ? null : stored.p90 };
     const v = ver[p.plan_id] || {};
     const budget = adopted === null && uplift === null ? null : (adopted || 0) + (uplift || 0);
     // 空模様の予算: 承認済みの公式版の最終予算、無ければ今の予算（採用予測 + 上乗せ。予測し直すと採用予測は P50 に戻る）
@@ -217,11 +236,18 @@ function appPortfolioData_() {
     const errors = st.filter(s => String(s.status).toLowerCase() === 'error').map(s => s.step_key);
     // 外れ幅は締まった月で、今の決まりで測った月だけ（D4〜D6。精度 appAccuracyOf_ と同じ月。ほかの検証の行は消さずに読み飛ばす。境目が分からなければ数えない）
     const a = (ape[p.plan_id] || []).filter(x => cut[p.plan_id] && x.ym && x.ym < cut[p.plan_id]).map(x => x.v);
+    // 年度の見込みの試し。締まった月を数え直している間（初めての取り込みの後の計算待ち）・実績の遅れは幅を出さない（sky.wait。
+    // 2026-10-09: B-1 の後に B-2 がまだでも、前の B-1 → B-2 の組の境目で数えている間は数え直していない）
+    const aligned = appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, pending: sky.wait !== '' });
+    const reach = appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used);
+    // 本番（判断 10・24）: 補正を所有者が承認した値にして予測し直した計画は、年度の数字を月の合計にそろえた値で見せる（旧来の年度合計は legacyAnnual）
+    const shown = live[p.plan_id] ? appLandingAnnualShown_(aligned, sky) : null;
+    if (aligned) aligned.live = !!shown;
+    if (reach) reach.live = !!shown;
     return {
       planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy,
-      p10: latest ? latest.annual_p10 : stored.p10 === undefined ? null : stored.p10,
-      p50: latest ? latest.annual_p50 : stored.p50 === undefined ? null : stored.p50,
-      p90: latest ? latest.annual_p90 : stored.p90 === undefined ? null : stored.p90,
+      p10: shown ? shown.p10 : legacy.p10, p50: shown ? shown.p50 : legacy.p50, p90: shown ? shown.p90 : legacy.p90,
+      alignedLive: !!shown, annualBand: shown ? shown.band : '', legacyAnnual: legacy,
       prevP50: prev ? prev.annual_p50 : null,
       lastRunAt: latest ? latest.finished_at : '', runs: rs.length,
       budget: budget,
@@ -234,9 +260,9 @@ function appPortfolioData_() {
       landing: sky.landing, landingSd: sky.landingSd, landingP10: sky.landingP10, landingP90: sky.landingP90, pAbove: sky.pAbove, ratio: sky.ratio,
       sky: sky.sky, skyReason: sky.skyReason, skyDir: sky.skyDir, theta: sky.theta, credibility: sky.credibility, k: sky.k,
       budgetUsed: budgetUsed, budgetSource: official !== null ? 'official' : budget !== null ? 'draft' : '',
-      aligned: appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, pending: pendingCut !== '' || sky.skyReason === 'eval_pending' || sky.skyReason === 'stale_actuals' }),
+      aligned: aligned,
       frozen: !!frozen,
-      reach: appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used),
+      reach: reach,
       scoredMonths: scored[p.plan_id] ? Object.keys(scored[p.plan_id].months).length : 0,
       measure: appPlanIsMeasure_(p)
     };
@@ -246,16 +272,111 @@ function appPortfolioData_() {
 
 /**
  * 予測の画面に出す、計画 1 つの試しの数（年度の見込みの試し・予算に届く見込み。計画の一覧の控え appPortfolioAll_ から。表は読み直さない）。
- * 読めないときは null（予測の画面はそのまま出す）。返り値: { planId, aligned, reach, scoredMonths } | null
+ * 読めないときは null（予測の画面はそのまま出す）。返り値: { planId, aligned, reach, scoredMonths, live, annual } | null。
+ * live = 年度の見込みを本番にした計画（計画の一覧の alignedLive）。annual = live のときの年度の値
+ * { p10, p50, p90, band, k, done, pending, legacy: 旧来の計算の年度合計 { p10, p50, p90 } }（live でなければ null）
  */
 function appPlanShadow_(planId) {
   try {
     const p = appPortfolioAll_().plans.filter(x => x.planId === String(planId || ''))[0];
-    return p ? { planId: p.planId, aligned: p.aligned || null, reach: p.reach || null, scoredMonths: p.scoredMonths } : null;
+    if (!p) return null;
+    const a = p.aligned || null;
+    return { planId: p.planId, aligned: a, reach: p.reach || null, scoredMonths: p.scoredMonths, live: !!p.alignedLive,
+      annual: p.alignedLive ? { p10: p.p10, p50: p.p50, p90: p.p90, band: p.annualBand || '', k: a ? a.k : 0, done: !!(a && a.done), pending: !!(a && a.pending),
+        legacy: p.legacyAnnual || null } : null };
   } catch (e) {
     Logger.log('試しの数: ' + (e && e.message ? e.message : e));
     return null;
   }
+}
+
+/**
+ * 計画ごとの B-1・B-2 の成功の時刻（消さずに足す記録から。appLandingCutoff_ の hist。2026-10-09 村井さん承認）。
+ * ids = B-1 の後に B-2 がまだの計画（PROCESS_STATUS は最後の回しか残さないので、その前の B-1 → B-2 の組を探す）。返り値: { 計画の ID: [{ step, t }] }
+ *   PLAN_ACTIONS の IMPORT.ACTUALS・EVAL.REPORT（新アプリで動かして保存できた回。as_of = 旧来の計算の「今」= PROCESS_STATUS の時刻）
+ *   旧来の RUN_LOG の importActualEvalMonthly・updatePhase1EvaluationReport の success（計画を旧来のブックから写す前の回も入る）
+ * 読むのは ids があるときだけ（RUN_LOG は ids の計画の行だけ）
+ */
+function appPortfolioStepHist_(ids) {
+  const out = {};
+  if (!ids || !ids.length) return out;
+  const want = appInsightSet_(ids);
+  const push = (id, step, t) => { if (t !== null && isFinite(t)) (out[id] = out[id] || []).push({ step: step, t: t }); };
+  const timeOf = v => (appIsDate_(v) ? v.getTime() : appLandingTime_('', v));
+  appReadTable_('PLAN_ACTIONS').forEach(r => {
+    if (!want[r.plan_id] || String(r.status) !== 'DONE') return;
+    const step = r.action === 'IMPORT.ACTUALS' ? 'b1' : r.action === 'EVAL.REPORT' ? 'b2' : '';
+    if (step) push(r.plan_id, step, timeOf(r.as_of));
+  });
+  let logs = {};
+  try { logs = appEngAll_('RUN_LOG', ids, true); } catch (e) { Logger.log('RUN_LOG を読めません: ' + (e && e.message ? e.message : e)); logs = {}; }
+  Object.keys(logs).forEach(id => (logs[id] || []).forEach(r => {
+    if (String(r.status).toLowerCase() !== 'success') return;
+    const fn = String(r.function_name || '');
+    const step = fn === 'importActualEvalMonthly' ? 'b1' : fn === 'updatePhase1EvaluationReport' ? 'b2' : '';
+    if (step) push(id, step, timeOf(r.run_at));
+  }));
+  return out;
+}
+
+/**
+ * 年度の見込みを本番にした計画（{ 計画の ID: true }。判断 10・24。appLandingLiveOf_）。clientOf = { 計画の ID: CONFIG!B2 }。
+ * CALIBRATION_STATE は全計画の分を 1 回で読み、補正が所有者の承認した値の計画（appLandingOwnerSet_）だけ FORECAST_SNAPSHOT を読む（その計画の行だけ）。
+ * 読めなければ本番にしない（今までどおりの見せ方）
+ */
+function appPortfolioLive_(ids, clientOf) {
+  const out = {};
+  if (!ids || !ids.length) return out;
+  try {
+    const cal = appEngAll_('CALIBRATION_STATE', ids);
+    const rowOf = {};
+    const cand = ids.filter(id => { rowOf[id] = appLandingCalRow_(cal[id] || [], (clientOf || {})[id]); return appLandingOwnerSet_(rowOf[id]); });
+    if (!cand.length) return out;
+    const snap = appEngAll_('FORECAST_SNAPSHOT', cand, true);
+    cand.forEach(id => { if (appLandingLiveOf_(rowOf[id], appLandingLastApplied_(snap[id] || []))) out[id] = true; });
+  } catch (e) {
+    Logger.log('年度の見込みの本番を確かめられません: ' + (e && e.message ? e.message : e));
+  }
+  return out;
+}
+
+/**
+ * 計画の年度の見込みを本番にするか（判断 10・24。2026-10-09 村井さん承認。ほかの処理からも使う: 公式版の prob_mode など）。
+ * plan = PLANS の行（plan_id）か計画の ID。補正が所有者の承認した値（auto_update_enabled = 0・note が owner-approved で始まる）で、
+ * 最後の予測（見せている予測）がその値で動いた（係数と月ごとの補正が同じ）とき true。データ本体のその計画の行だけを読む。
+ * 月の予測がそろっているかは見ない（計画の一覧の alignedLive は、それも見る）。読めなければ false
+ */
+function appPlanAlignedLive_(plan) {
+  const id = String(typeof plan === 'string' ? plan : (plan && (plan.plan_id || plan.planId)) || '');
+  if (!id) return false;
+  try {
+    const s = appEngLoadPlanSheets_(id, ['CONFIG', 'CALIBRATION_STATE'], true);
+    const client = s.CONFIG && s.CONFIG.values[1] ? String(s.CONFIG.values[1][1] === null || s.CONFIG.values[1][1] === undefined ? '' : s.CONFIG.values[1][1]).trim() : '';
+    const cal = appLandingCalRow_(s.CALIBRATION_STATE ? appLandingSheetObjects_(s.CALIBRATION_STATE.values) : [], client);
+    if (!appLandingOwnerSet_(cal)) return false;
+    return appLandingLiveOf_(cal, appLandingLastApplied_(appEngTableObjects_(id, ['FORECAST_SNAPSHOT']).FORECAST_SNAPSHOT));
+  } catch (e) {
+    Logger.log('年度の見込みの本番を確かめられません: ' + (e && e.message ? e.message : e));
+    return false;
+  }
+}
+
+/**
+ * 予測の保存（appForecastRunSave_）で FORECAST_RUNS.fixes_json に書く直しの名前。計算用ブック book（この回の予測を動かした後）で、
+ * 計画が本番（appLandingLiveOf_: 補正が所有者の承認した値で、この回の予測がその値で動いた）なら APP_FIX_ANNUAL_ALIGNED を足す。
+ * 読めなければ足さない（APP_FORECAST_FIXES のまま）
+ */
+function appForecastFixesOf_(book) {
+  const base = APP_FORECAST_FIXES.slice();
+  try {
+    const rows = name => { const sh = book.getSheetByName(name); return sh && sh.getLastRow() >= 2 ? appLandingSheetObjects_(sh.getDataRange().getValues()) : []; };
+    const cfg = book.getSheetByName('CONFIG');
+    const cal = appLandingCalRow_(rows('CALIBRATION_STATE'), cfg ? String(cfg.getRange('B2').getValue() || '').trim() : '');
+    if (appLandingOwnerSet_(cal) && appLandingLiveOf_(cal, appLandingLastApplied_(rows('FORECAST_SNAPSHOT')))) base.push(APP_FIX_ANNUAL_ALIGNED);
+  } catch (e) {
+    Logger.log('予測の直しの印を決められません: ' + (e && e.message ? e.message : e));
+  }
+  return base;
 }
 
 /**

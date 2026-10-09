@@ -9,6 +9,7 @@
  *   - AI 調査の根拠（AI_RESEARCH_STRUCTURED: 話題・向き・点数・確からしさ・根拠の文）・Vertex の説明
  *   - 前回の予測からの変化（月ごとの P50）と、その間にあった操作・変化のわけ（changeCause。appBasisChangeCause_）
  *   - 層ごとの効き（LAYER_EFFECTS。版 10）の月の合計を、最新と前の回で（layers。どの層で変わったか。LayerEffects.js の appBasisLayers_）
+ *   - 年度の見込みを本番にした計画（2026-10-09。判断 10・24）は、年度の中心を月の合計にそろえる（appBasisAnnualLive_。旧来の年度合計は annual.legacy）
  * 入力のハッシュが同じなら、組み立てた結果を 6 時間控える。
  * 押したものの、人や話題ごとの内訳（名前と信頼度）は予算策定担当以上の人だけに出す（appBasisFor_。学びと同じ決まり）。
  */
@@ -144,10 +145,27 @@ function appForecastBasis_(ctx, planId) {
     applied: applied, research: research,
     vertex: vertex ? { at: String(vertex.run_at || ''), confidence: appNum_(vertex.confidence), rationale: String(vertex.rationale_ja || '').slice(0, 1200), status: String(vertex.status || '') } : null
   };
+  appBasisAnnualLive_(out, plan);   // 年度の見込みの本番（判断 10・24）: 年度の中心を月の合計にそろえる（旧来の年度合計は annual.legacy）
   Object.assign(out, appBasisChangeCause_(latest, prev, cur, before, between));   // 前回の予測からの変化のわけ（changeCause・changeCauses・changeVersion）
   out.layers = appBasisLayers_(plan.plan_id, latest, prev);   // 層ごとの効きの月の合計（最新と前の回。人の名前は入らない。LayerEffects.js）
   try { appJobPutResult_(key, out); } catch (e) { /* 控えられなくても返す */ }
   return appBasisFor_(ctx, out);
+}
+
+/**
+ * 年度の見込みを本番にした計画（appPlanAlignedLive_。判断 10・24。2026-10-09 村井さん承認）の根拠の年度: 最終の中心（annual.p50）・過去の売上だけ
+ * （annual.objective）・前回の中心（annual.prevP50）を、月ごとの値の 12 か月の合計にする（予測の画面の年度の中心と同じ・月ごとの内訳の合計と同じ）。
+ * 月が 12 そろわない値は null。旧来の計算の年度合計は annual.legacy = { p50, objective, prevP50 } に残し、annual.live = true。
+ * 本番でない・月の中心が 12 そろわなければ何も変えない（今までどおり旧来の計算の年度合計）。out は appForecastBasis_ の返り値（書き換える）
+ */
+function appBasisAnnualLive_(out, plan) {
+  const ms = out.monthly || [];
+  const all = k => (ms.length === 12 && ms.every(m => m[k] !== null && m[k] !== undefined) ? ms.reduce((s, m) => s + m[k], 0) : null);
+  const p50 = all('p50');
+  if (p50 === null || !appPlanAlignedLive_(plan)) return;
+  const a = out.annual;
+  out.annual = Object.assign({}, a, { p50: p50, objective: all('objective'), prevP50: all('prevP50'), live: true,
+    legacy: { p50: a.p50 === undefined ? null : a.p50, objective: a.objective === undefined ? null : a.objective, prevP50: a.prevP50 === undefined ? null : a.prevP50 } });
 }
 
 /**

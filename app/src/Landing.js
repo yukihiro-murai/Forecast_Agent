@@ -13,12 +13,19 @@
  * （2026-10-08 村井さん承認の判断 29・11。前は、計画が 3 つ以上そろうと学んだ値をそのまま使っていた）。
  * 年度の見込みの試し（appLandingAligned_。判断 10）と予算に届く見込み（appLandingReach_・appLandingReachTotal_。判断 24・25）も同じ分布（appLandingDist_）を使う。
  * どれも影で、保存している数字（予測の年度の P10/P50/P90・予算）は変えない。
+ * 本番（2026-10-09 村井さん承認。決定 4・7 が済んだ計画から）: 計画の補正が自動の学びの値でなくなり（CALIBRATION_STATE の auto_update_enabled = 0・
+ * note が owner-approved で始まる = 所有者が setCalibration で書いた）、見せている予測がその補正で動いた（最後の予測の FORECAST_SNAPSHOT.calibration_applied_json の
+ * 係数と月ごとの補正が今の値と同じ）計画は、年度の下振れ・中心・上振れを月の合計にそろえた値で見せ、予算に届く見込みも本番にする（appLandingLiveOf_・
+ * appLandingAnnualShown_。表を読むのは Portfolio.js の appPlanAlignedLive_）。旧来の計算の年度合計は記録（FORECAST_RUNS・OUTPUT の 26 行）にそのまま残す。
  * 空模様は着地 ÷ 年間予算で分ける。急な変化（天変地異）は、ひと月の大きな外れ・2 か月続いた同じ向きの外れ・予測の前提の大きな変化で拾う。
  *
  * 締まった月（2026-10-07 村井さん承認 D5）: 月末から APP_ACTUAL_CLOSE_LAG_DAYS 日たってから実績を取り込んだ（B-1）月だけ。
  * 月末 + 5 日 <= 取り込んだ日（日本の暦）。例: 10/03 の取り込みでは 9 月は途中の月、10/06 の取り込みなら 9 月は締まった月。
  * 旧来の計算と同じ決まり（数は旧来の側の定数と同じにする。旧来の側に定数があれば app/tests が照合する）。精度・学び・振り返り（Learning.js・Portfolio.js・Insights.js）も、
  * この境目（appLandingCutoff_）より前の月だけを使う（D4。締まっていない月の検証の行は消さずに読み飛ばす）
+ * B-1 の後に B-2 がまだの間（2026-10-09 村井さん承認）: 着地見込みは、最後に成功した B-2 の前の、最後の B-1 の境目で数え続ける
+ * （検証の表はその B-1 を映しているため。PROCESS_STATUS は最後の回しか残さないので、消さずに足す記録から探す: appLandingCutoff_ の hist）。
+ * その組が無い（初めての取り込み）ときだけ、当たり具合の計算待ち（eval_pending）にする
  */
 const APP_ACTUAL_CLOSE_LAG_DAYS = 5;   // 締まった月: 月末からこの日数がたってから取り込んだ月だけ（D5）
 const APP_LANDING = {
@@ -121,7 +128,8 @@ function appLandingDist_(fc, acts, tau, w) {
  *        pendingCutoffYm（B-1 の後に B-2 がまだのとき、その B-1 の取り込みの境目 = appLandingPendingCutoff_。B-2 が済んでいれば ''）,
  *        tau・w（承認した値 appLandingApproved_。省けば 0.15 と 1）, runs: [{ p50, ageDays }]（直近の予測 2 回。新しい順） }
  * 返り値: { k（締まった月の数）, actualYtd, budget, landing, landingSd, landingP10, landingP90, pAbove（予算以上で着地する確率）, ratio（着地 ÷ 予算）,
- *          theta, credibility（実績の重み 0〜1）, sky, skyReason, skyDir, zLast, dRatio1, dRatio2 }
+ *          theta, credibility（実績の重み 0〜1）, sky, skyReason, skyDir, zLast, dRatio1, dRatio2,
+ *          wait（着地の数字を出さないわけ。空模様によらない: 'eval_pending' / 'stale_actuals' / ''。2026-10-09） }
  * 空模様（先に当てはまったもの）: 霧 mikakunin（no_budget）→ 雪 sekka（zero_sales）→ 霧（no_forecast）→ 霧（eval_pending / stale_actuals）
  *   → 天変地異 tenpen（shock / shift / premise。skyDir = up / down）→ 着地 ÷ 予算（ratio）: 猛暑 mousho ≥ 1.5・快晴 kaisei ≥ 1.1・
  *   晴れのち曇り harenochi > 0.9・曇り kumori > 0.5・雨 ame ≤ 0.5。
@@ -130,6 +138,9 @@ function appLandingDist_(fc, acts, tau, w) {
  * 実績は取り込んだ（B-1）が当たり具合の計算（B-2）がまだで、締まった月が数えられないだけのとき（B-1 の取り込みの境目で数えれば遅れていない）は、
  * 霧の理由を eval_pending（当たり具合の計算待ち）にする。数字を出さないのは stale_actuals と同じ（2026-10-08。前は「実績の遅れ」と出ていた）。
  * B-1 の取り込みの境目で数えても 3 か月以上遅れていれば、stale_actuals のまま
+ * 初めての取り込みの後（B-1 の後に B-2 がまだで、その前の B-1 → B-2 の組が無い = cutoffYm が '' で pendingCutoffYm がある）は、
+ * その B-1 がこの年度の締まった月を足すなら、遅れていなくても数字を出さずに eval_pending（2026-10-09。前は締まった月 0 として数字を出していた。
+ * 前の組があれば、appLandingCutoff_ がその境目を返すので、これまでどおりその月で数える）
  * 前提の変化（premise）は、締まっていない月があるときだけ（12 か月締まった年度の着地は実績の合計で動かない）
  */
 function appLandingSky_(inp) {
@@ -146,17 +157,22 @@ function appLandingSky_(inp) {
   const A = obsYm.reduce((s, ym) => s + aOf(ym), 0);
   const closedByToday = inp.todayYm ? yms.filter(ym => ym < inp.todayYm).length : k;
   const stale = closedByToday - k >= C.STALE_MONTHS;   // 今日までに締まっているはずの月（月末から 5 日たった月）のうち、3 か月以上の実績が取り込まれていない
-  // B-2 待ち: B-1 の取り込みの境目で数えれば遅れていない（遅れて見えるのは、B-2 がまだで締まった月を数えられないため）
   const pend = String(inp.pendingCutoffYm || '');
-  const evalPending = stale && !!pend && closedByToday - Math.max(k, yms.filter(ym => ym < pend).length) < C.STALE_MONTHS;
+  const pendK = pend ? yms.filter(ym => ym < pend).length : 0;   // B-2 が済めば数える締まった月の数
+  // 初めての取り込みの後: 前の B-1 → B-2 の組が無く（境目が ''）、B-2 待ちの B-1 がこの年度の締まった月を足す（2026-10-09）
+  const firstWait = !cutoff && pendK > k;
+  const hold = stale || firstWait;   // 着地の数字を出さない
+  // B-2 待ち: B-1 の取り込みの境目で数えれば遅れていない（遅れて見えるのは、B-2 がまだで締まった月を数えられないため）
+  const evalPending = hold && !!pend && closedByToday - Math.max(k, pendK) < C.STALE_MONTHS;
   const B = appLandingBudget_(inp.budget);
   const out = { k: k, actualYtd: A, budget: B, landing: null, landingSd: null, landingP10: null, landingP90: null, pAbove: null, ratio: null,
-    theta: null, credibility: null, sky: 'mikakunin', skyReason: '', skyDir: '', zLast: null, dRatio1: null, dRatio2: null };
+    theta: null, credibility: null, sky: 'mikakunin', skyReason: '', skyDir: '', zLast: null, dRatio1: null, dRatio2: null,
+    wait: hold ? (evalPending ? 'eval_pending' : 'stale_actuals') : '' };
   const usable = fcOk || k >= 12;
   const tau = inp.tau > 0 ? inp.tau : C.TAU0;
   const w = inp.w > 0 ? inp.w : 1;
   let d = null;
-  if (usable && !stale) {   // 実績の取り込みが遅れていれば、どの空模様でも着地の数字は出さない
+  if (usable && !hold) {   // 実績の取り込みが遅れている・初めての取り込みの計算待ちなら、どの空模様でも着地の数字は出さない
     d = appLandingDist_(fc, obsYm.map(aOf), tau, w);
     Object.assign(out, { landing: d.landing, landingSd: d.sd, landingP10: d.p10, landingP90: d.p90, theta: d.theta, credibility: d.credibility });
     if (B !== null && B > 0) Object.assign(out, { ratio: d.landing / B, pAbove: appLandingPAbove_(d.landing, d.sd, B) });
@@ -165,7 +181,7 @@ function appLandingSky_(inp) {
   if (!(B !== null && B > 0)) { out.skyReason = 'no_budget'; return out; }
   if (k >= 1 && Math.abs(A) < 1) { out.sky = 'sekka'; out.skyReason = 'zero_sales'; return out; }
   if (!usable) { out.skyReason = 'no_forecast'; return out; }
-  if (stale) { out.skyReason = evalPending ? 'eval_pending' : 'stale_actuals'; return out; }
+  if (hold) { out.skyReason = out.wait; return out; }
   // 5: 天変地異（月の外れは、その月の前までの実績で立てた見込みと比べる）
   let t1 = false, t2 = false, dir = 0;
   if (fcOk && k >= 1 && k < 12) {
@@ -386,12 +402,36 @@ function appMonthStartMs_(ym) {
  * B-2（検証 = step5）が成功していれば、検証の表はちょうどその取り込みを映している（B-1 は実績を丸ごと入れ替える）。
  * 締まった月は、B-1 を動かした日（日本の暦）から appCloseCutoffYm_ で決める（月末から 5 日たってから取り込んだ月だけ。D5）。
  * どちらかが成功していない・B-2 の方が古いときは ''（締まった月は数えない。空模様は霧になる）。
+ * hist（省ける。2026-10-09 村井さん承認）: 消さずに足す記録から集めた B-1・B-2 の成功の時刻 [{ step: 'b1' | 'b2', t: ミリ秒 }]
+ * （Portfolio.js の appPortfolioStepHist_: PLAN_ACTIONS の IMPORT.ACTUALS・EVAL.REPORT と、旧来の RUN_LOG）。渡すと、B-1 の後に B-2 がまだの間は
+ * 最後に成功した B-2 の前の、最後の B-1 の境目を返す（appLandingPairCutoff_。その組が無ければ ''）。渡さなければ前と同じ（その間は ''）。
  * stRows は、データ本体の行（値は文字のまま・型の並び _types つき）でも、読み戻した行（日時は日時の型）でもよい
  */
-function appLandingCutoff_(stRows) {
+function appLandingCutoff_(stRows, hist) {
   const st = appLandingSteps_(stRows);
-  if (st.t1 === null || st.t2 === null || st.t2 < st.t1) return '';
-  return appCloseCutoffYm_(Utilities.formatDate(new Date(st.t1), APP_TZ, 'yyyy-MM-dd'));   // 取り込んだ時刻の、日本の暦の日（文字の ISO 時刻も時差を見る）
+  if (st.t1 === null) return '';
+  if (st.t2 === null || st.t2 < st.t1) return hist ? appLandingPairCutoff_(st, hist) : '';
+  return appLandingDayCutoff_(st.t1);
+}
+
+/** 取り込んだ時刻（ミリ秒）の締まった月の境目（日本の暦の日で決める。文字の ISO 時刻も時差を見る） */
+function appLandingDayCutoff_(ms) {
+  return appCloseCutoffYm_(Utilities.formatDate(new Date(ms), APP_TZ, 'yyyy-MM-dd'));
+}
+
+/**
+ * B-1 の後に B-2 がまだの間の境目（2026-10-09 村井さん承認）: 最後に成功した B-2（PROCESS_STATUS の B-2 の成功。無ければ記録の B-2 のうち、
+ * 今の B-1 より前で一番新しいもの）の時刻までの、最後の B-1 の取り込みの境目。検証の表（EVAL_COMPARE_MONTHLY・EVAL_LOG）は B-2 が書くので、
+ * その間もその B-1 の実績を映している。st = appLandingSteps_ の返り値、hist = appLandingCutoff_ の hist。組が無ければ ''
+ */
+function appLandingPairCutoff_(st, hist) {
+  const fin = x => typeof x === 'number' && isFinite(x);
+  const times = step => (hist || []).filter(h => h && h.step === step && fin(h.t)).map(h => h.t);
+  const latest = xs => xs.reduce((m, t) => (m === null || t > m ? t : m), null);
+  const b2 = st.t2 !== null ? st.t2 : latest(times('b2').filter(t => t < st.t1));
+  if (b2 === null) return '';
+  const b1 = latest(times('b1').filter(t => t <= b2));
+  return b1 === null ? '' : appLandingDayCutoff_(b1);
 }
 
 /**
@@ -422,4 +462,88 @@ function appLandingAgeDays_(finishedAt, today) {
   if (ms === null || !today) return null;
   const day = Utilities.formatDate(new Date(ms), APP_TZ, 'yyyy-MM-dd');
   return Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(day + 'T00:00:00Z')) / 864e5);
+}
+
+// ---- 年度の見込みを本番にする（判断 10・24。2026-10-09 村井さん承認） ----
+
+/** 本番にした予測の回の印（FORECAST_RUNS.fixes_json に入れる直しの名前。年度を月の合計にそろえた） */
+const APP_FIX_ANNUAL_ALIGNED = 'annual_aligned';
+/** 所有者が承認した補正の印（Calibration.js の setCalibration が CALIBRATION_STATE の note の頭に書く） */
+const APP_LANDING_OWNER_NOTE = 'owner-approved';
+
+/**
+ * 計画の補正が、自動の学びの値でなくなったか（計算だけ）: CALIBRATION_STATE の行 cal（見出し → 値）の auto_update_enabled が 0（旧来と同じ読み方。
+ * 空は 1）で、note が owner-approved で始まる（所有者が setCalibration で書いた。決定 7 = 補正を所有者が承認した値に戻す）
+ */
+function appLandingOwnerSet_(cal) {
+  if (!cal) return false;
+  return appCalibrationNorm_('auto_update_enabled', cal.auto_update_enabled) === 0
+    && String(cal.note === null || cal.note === undefined ? '' : cal.note).trim().indexOf(APP_LANDING_OWNER_NOTE) === 0;
+}
+
+/**
+ * 年度の見込みを本番にするか（計算だけ）: 補正が所有者の承認した値で（appLandingOwnerSet_）、見せている予測がその値で動いた
+ * （applied = 最後の予測の FORECAST_SNAPSHOT.calibration_applied_json。文字でもオブジェクトでもよい。係数と月ごとの補正が今の値と同じ。読み方は旧来と同じ）。
+ * setCalibration の後に予測し直すまでは false（前の補正の予測を見せているため）
+ */
+function appLandingLiveOf_(cal, applied) {
+  if (!appLandingOwnerSet_(cal)) return false;
+  let a = applied;
+  if (typeof a === 'string') { try { a = JSON.parse(a); } catch (e) { a = null; } }
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return false;
+  const f0 = appCalibrationNorm_('bias_correction_factor', cal.bias_correction_factor);
+  const f1 = appCalibrationNorm_('bias_correction_factor', a.bias_correction_factor);
+  return Math.abs(f0 - f1) <= 1e-9
+    && appCalibrationNorm_('residual_month_bias_json', cal.residual_month_bias_json) === appCalibrationNorm_('residual_month_bias_json', a.residual_month_bias_json);
+}
+
+/** CALIBRATION_STATE の行（見出し → 値の並び）から、計画のメーカー client の行（無ければ、行が 1 つだけならその行。Calibration.js と同じ選び方）。無ければ null */
+function appLandingCalRow_(rows, client) {
+  const use = (rows || []).filter(r => r && Object.keys(r).some(k => r[k] !== '' && r[k] !== null && r[k] !== undefined));
+  const c = String(client || '').trim();
+  return (c && use.filter(r => String(r.client === undefined || r.client === null ? '' : r.client).trim() === c)[0]) || (use.length === 1 ? use[0] : null);
+}
+
+/**
+ * 最後の予測に掛かっていた補正（FORECAST_SNAPSHOT の行（見出し → 値）のうち、run_date が一番新しい回の calibration_applied_json。
+ * 同じ時刻なら後の行。旧来の A-9 は 1 回の予測のどの行にも同じ値を書く）。行が無ければ null
+ */
+function appLandingLastApplied_(rows) {
+  let best = null, bt = -Infinity;
+  (rows || []).forEach(r => {
+    if (!r) return;
+    const t = appTimeKey_(r.run_date);
+    if (t >= bt) { bt = t; best = r; }
+  });
+  return best ? best.calibration_applied_json : null;
+}
+
+/** 見出しつきの値（getValues の形）を、見出し → 値の行にする（すべて空の行は除く。同じ見出しが 2 つあれば前の列） */
+function appLandingSheetObjects_(values) {
+  if (!values || values.length < 2) return [];
+  const head = values[0].map(h => String(h === null || h === undefined ? '' : h).trim());
+  return values.slice(1).filter(r => r.some(v => v !== '' && v !== null && v !== undefined)).map(r => {
+    const o = {};
+    head.forEach((h, i) => { if (h && !Object.prototype.hasOwnProperty.call(o, h)) o[h] = r[i]; });
+    return o;
+  });
+}
+
+/**
+ * 本番の計画の、年度の下振れ・中心・上振れ（見せる値。計算だけ）。aligned = appLandingAligned_ の返り値、sky = appLandingSky_ の返り値。
+ * 中心 = 月の P50 の合計（補正を入れた値）。幅:
+ *   締まった月が無い（aligned.k = 0）… 着地見込みと同じ式・締まった月なしの 80% の幅（aligned.p10・p90。band = 'aligned'）
+ *   年度の途中（0 < k < 12）       … 着地の推定（締まった月の実績を入れた見込み）の 80% の幅（sky.landingP10・P90。band = 'landing'）
+ *   12 か月を数えた（done）・締まった月を数え直している間（pending）・着地の推定が無い … 幅なし（null。band = ''）
+ * 返り値: { p10, p50, p90, band, k, done, pending }。aligned が無ければ null
+ */
+function appLandingAnnualShown_(aligned, sky) {
+  const fin = v => typeof v === 'number' && isFinite(v);
+  if (!aligned || !fin(aligned.center)) return null;
+  let p10 = null, p90 = null, band = '';
+  if (!aligned.done && !aligned.pending) {
+    if (!(aligned.k > 0) && fin(aligned.p10) && fin(aligned.p90)) { p10 = aligned.p10; p90 = aligned.p90; band = 'aligned'; }
+    else if (aligned.k > 0 && sky && fin(sky.landingP10) && fin(sky.landingP90)) { p10 = sky.landingP10; p90 = sky.landingP90; band = 'landing'; }
+  }
+  return { p10: p10, p50: aligned.center, p90: p90, band: band, k: aligned.k || 0, done: !!aligned.done, pending: !!aligned.pending };
 }
