@@ -5,9 +5,11 @@
  *   2. 本物の A-1〜A-3・A-9 をモックで動かす: setCalibration の前は本番でない → setCalibration だけでは本番でない（予測が前の補正のまま）
  *      → A-9 をもう一度動かすと本番。本番で保存した予測の回だけ FORECAST_RUNS.fixes_json に annual_aligned（前の回は書き換えない）
  *   3. 本番の計画: 計画の一覧・ホーム・分析・予測の画面の年度の下振れ・中心・上振れは月の合計にそろえた値。旧来の計算の年度合計は記録に残り
- *      （legacyAnnual・FORECAST_RUNS・OUTPUT の 26 行）、説明に出す。根拠の年度の中心も月の合計。届く見込みの「（試し）」を外す
+ *      （legacyAnnual・FORECAST_RUNS・OUTPUT の 26 行）、説明に出す。根拠の最終の中心は予測の画面と同じ見せる中心（締まった月なしは月の合計）、
+ *      過去の売上だけ・前回・月ごとの中心の合計（monthSum）は月の合計。届く見込みの「（試し）」を外す
  *   4. 補正を書き直すと（係数 1.05・自動の学びを戻す）、予測し直すまで / 旗が 1 の間は本番でない
- *   5. 年度の途中（締まった月がある）本番の計画: 中心と幅 = 着地の推定（同じ分布。2026-10-09。月の合計は monthSum）。ホームの中心と合計の届く見込みも本番
+ *   5. 年度の途中（締まった月がある）本番の計画: 中心と幅 = 着地の推定（同じ分布。2026-10-09。月の合計は monthSum）。ホームの中心と合計の届く見込みも本番。
+ *      根拠の最終の中心も着地の推定（月の合計は monthSum。2026-10-09）
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
  *   node app/tests/app-v11-live.test.mjs
@@ -277,11 +279,13 @@ let r1, r2;
   const hr = R('homeReachTip(__r)', { __r: home.totals.reach });
   assert.match(hr, /^\nこの予算に届く見込み: /);
   assert.doesNotMatch(hr, /試し|保存している数字は変わりません/);
-  // 根拠: 年度の中心・過去の売上だけ・前回の中心を月の合計に（旧来の年度合計は annual.legacy）
+  // 根拠: 最終の中心は予測の画面と同じ見せる中心（締まった月なしは月の合計）。過去の売上だけ・前回・月ごとの中心の合計は月の合計（旧来の年度合計は annual.legacy）
   const basis = env.call('apiForecastBasis(__in)', { __in: { planId } });
   assert.equal(basis.annual.live, true);
-  near(basis.annual.p50, center, 1e-6, '根拠の最終の中心も月の合計');
-  near(basis.annual.p50, basis.monthly.reduce((s, m) => s + m.p50, 0), 1e-6, '月ごとの内訳の合計と同じ');
+  assert.deepEqual([basis.annual.p50, basis.annual.basis, basis.annual.k], [sh.annual.p50, 'monthsum', 0], '根拠の最終の中心は予測の画面と同じ（締まった月なし = 月の合計）');
+  near(basis.annual.p50, center, 1e-6, '締まった月なしの見せる中心は月の合計');
+  near(basis.annual.monthSum, basis.monthly.reduce((s, m) => s + m.p50, 0), 1e-6, '月ごとの中心の合計は月ごとの内訳の合計と同じ');
+  near(basis.annual.monthSum, center, 1e-6);
   near(basis.annual.prevP50, monthlySum(r1.runId), 1e-6, '前回の中心も月の合計');
   near(basis.annual.objective, basis.monthly.reduce((s, m) => s + m.objective, 0), 1e-6, '過去の売上だけも月の合計');
   assert.deepEqual([basis.annual.legacy.p50, basis.annual.legacy.prevP50, basis.annual.legacy.objective],
@@ -364,6 +368,13 @@ let r1, r2;
   const only = e.call('apiHome()').plans.filter((x) => x.planId === idLive);
   const tot = J(e.run('appHomeTotals_(__p, "2026", null)', { __p: only }));
   assert.equal(tot.reach.live, true);
+  // 根拠の最終の中心も予測の画面と同じ着地の推定（月の合計は monthSum。過去の売上からの差・前回からは月の合計どうし。2026-10-09）
+  const bs = e.call('apiForecastBasis(__in)', { __in: { planId: idLive } });
+  assert.deepEqual([bs.annual.live, bs.annual.basis, bs.annual.k], [true, 'landing', 6]);
+  near(bs.annual.p50, L.p50, 1e-9, '根拠の最終の中心 = 予測の画面の中心（着地の推定）');
+  near(bs.annual.monthSum, F, 1e-9, '月ごとの中心の合計（月ごとの内訳の合計）');
+  near(bs.annual.monthSum, bs.monthly.reduce((s, m) => s + m.p50, 0), 1e-9);
+  assert.equal(e.call('apiForecastBasis(__in)', { __in: { planId: idAuto } }).annual.live, undefined, '本番でない計画は今までどおり');
 }
 
 console.log('app-v11-live: all tests passed');
