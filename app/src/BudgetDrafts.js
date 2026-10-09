@@ -265,13 +265,42 @@ function appBudgetDraftView_(planId) {
 // ---- 確率で選ぶ（apiBudgetProposal。決定 25・27） ----
 
 /**
+ * 過去の売上の月が締まっているか（ym → 真偽の関数。過去の平均の形の「まるごとの年度」に使う。2026-10-09）。いちばん厳しい読み方で、次のすべてを満たす月だけ:
+ *   a) 今日の境目より前（appCloseCutoffYm_(今日)。月末から 5 日たった月。着地見込みの締まった月と同じ決まり。いつでも分かる）
+ *   b) 取り込んだときの境目より前（SALES_INPUT の source_updated_at の一番新しい日時 = A-2 の取り込みの日時。取り込みは表を丸ごと書き直すので、
+ *      どの行も同じ日時。取り込んだ後に締まった月の売上は、取り込み直すまで足りないまま。行の無い 0 円の月もこれで見る）。日時が読めなければ見ない
+ *   c) その月の行の status に、closed でない印（open など）が無い（A-2 が月ごとに付ける締まりの印。空の印は見ない）
+ * rows = SALES_INPUT の行（appEngAll_ の形。サービスの種類は問わない）
+ */
+function appBudgetSalesClosed_(rows) {
+  const todayCut = appCloseCutoffYm_(appToday_());
+  const open = {};
+  let importMs = null;
+  (rows || []).forEach(r => {
+    const ym = appBudgetYmOf_(r.target_month);
+    const s = String(r.status === undefined || r.status === null ? '' : r.status).trim().toLowerCase();
+    if (ym && s && s !== 'closed') open[ym] = true;
+    const v = r.source_updated_at;
+    const ms = appIsDate_(v) ? v.getTime() : appLandingTime_('', v);
+    if (ms !== null && isFinite(ms) && (importMs === null || ms > importMs)) importMs = ms;
+  });
+  const importCut = importMs !== null ? appLandingDayCutoff_(importMs) : '';
+  return ym => !!todayCut && ym < todayCut && (!importCut || ym < importCut) && !open[ym];
+}
+
+/**
  * 過去の平均の形（PAST_SHAPE）: 計画が持つ過去の売上（SALES_INPUT。A-2 が取り込む、計画の年度の前の 4 年。BASE・SPOT の行。旧来の A-3 と同じ見分け方）の、
- * まるごとの年度ごとの月の割合（4 月〜翌 3 月）の平均。まるごとの年度 = 最初に売上のある月が、その年度の 4 月以前（取引が始まる前の 0 円の月を含まない）で、
- * 合計が 0 より大きい年度。月の売上が負なら 0 として割合を出す（戻りで割り振りが負にならないように）。行の無い月は 0 円。
+ * まるごとの年度ごとの月の割合（4 月〜翌 3 月）の平均。まるごとの年度 = 次の 3 つがそろう年度:
+ *   1) 12 か月とも締まっている（appBudgetSalesClosed_。A-2 は計画の年度の前月（fy/03）まで取り込むので、来年度の計画を今の年度の途中に作ると、
+ *      今の年度の残りの月は 0 円のまま入っている。それを数えると、割り振りがもう売上のある月に寄るため。2026-10-09）
+ *   2) 最初に売上のある月が、その年度の 4 月以前（取引が始まる前の 0 円の月を含まない）
+ *   3) 合計が 0 より大きい
+ * 月の売上が負なら 0 として割合を出す（戻りで割り振りが負にならないように）。行の無い月は 0 円。
  * 返り値 { years: 使った年度の数, fys: [年度], shares: [12 か月の割合] | null }（APP_BUDGET_SHAPE_MIN_YEARS に足りなければ shares は null）
  */
 function appBudgetPastShape_(plan) {
   const rows = appEngAll_('SALES_INPUT', [plan.plan_id], true)[plan.plan_id] || [];
+  const closed = appBudgetSalesClosed_(rows);
   const byYm = {};
   let first = '';
   rows.forEach(r => {
@@ -287,6 +316,7 @@ function appBudgetPastShape_(plan) {
   const years = [];
   for (let y = fy - APP_BUDGET_SHAPE_YEARS; y < fy; y++) {
     const yms = appLandingFyYms_(y);
+    if (!yms.every(closed)) continue;   // 終わっていない（締まっていない月がある）年度は数えない
     if (!first || yms[0] < first) continue;
     const v = yms.map(ym => Math.max(0, byYm[ym] || 0));
     const tot = v.reduce((s, x) => s + x, 0);

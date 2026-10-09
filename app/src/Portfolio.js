@@ -131,8 +131,12 @@ function appListPlans_() {
  *   measure      … 測る専用の計画（PLANS.purpose。版 10 の 3-9）。着地の τ・w の学びに入れず、ホームと分析の合計にも入れない
  * 年度の見込みの本番（2026-10-09 村井さん承認。判断 10・24 を、決定 4・7 が済んだ計画から本番に）:
  *   alignedLive  … 補正を所有者が承認した値にして予測し直した計画（appPortfolioLive_ = appLandingLiveOf_）で、月の予測がそろっている（aligned がある）。真偽
- *   p10・p50・p90 … alignedLive なら月の合計にそろえた年度の値（appLandingAnnualShown_。中心 = 月の P50 の合計・幅は締まった月なしの試しの幅か、
- *                  年度の途中は着地の推定の幅。幅が無ければ null）。そうでなければ今までどおり旧来の計算の年度合計
+ *   p10・p50・p90 … alignedLive なら見せる年度の値（annualShown の p10・p50・p90）。そうでなければ今までどおり旧来の計算の年度合計
+ *   annualShown  … alignedLive のときの見せる年度の値（appLandingAnnualShown_。2026-10-09）
+ *                  { p10, p50, p90, band, k, basis, monthSum, done, pending, legacy }。中心と幅は同じ分布から:
+ *                  締まった月なし = 月の P50 の合計と試しの幅（basis 'monthsum'）・年度の途中 = 着地の推定とその幅（basis 'landing'。予算に届く見込みと同じ中心）・
+ *                  12 か月を数えた = 実績の合計で幅なし（basis 'actual'）・数え直し中 = 月の P50 の合計で幅なし。monthSum = 月の P50 の合計（いつも）。
+ *                  alignedLive でなければ null
  *   annualBand   … alignedLive のときの幅の出どころ（'aligned' / 'landing' / ''。そうでなければ ''）
  *   legacyAnnual … 旧来の計算の年度合計 { p10, p50, p90 }（最新の予測の記録、無ければ OUTPUT の 26 行。いつも。記録は変えない）
  *   aligned.live・reach.live … alignedLive と同じ（画面が「（試し）」を外す）。prevP50 と前提の変化（premise）は、これまでどおり記録の年度合計で比べる
@@ -241,13 +245,13 @@ function appPortfolioData_() {
     const aligned = appLandingAligned_(p.fy, months, used.tau, used.w, budgetUsed, { k: sky.k, pending: sky.wait !== '' });
     const reach = appLandingReach_(sky, { draft: budget, official: official, officialNo: v.officialNo || null }, used);
     // 本番（判断 10・24）: 補正を所有者が承認した値にして予測し直した計画は、年度の数字を月の合計にそろえた値で見せる（旧来の年度合計は legacyAnnual）
-    const shown = live[p.plan_id] ? appLandingAnnualShown_(aligned, sky) : null;
+    const shown = live[p.plan_id] ? appLandingAnnualShown_(aligned, sky, legacy) : null;
     if (aligned) aligned.live = !!shown;
     if (reach) reach.live = !!shown;
     return {
       planId: p.plan_id, clientName: clients[p.client_id] || p.client_label, fy: p.fy,
       p10: shown ? shown.p10 : legacy.p10, p50: shown ? shown.p50 : legacy.p50, p90: shown ? shown.p90 : legacy.p90,
-      alignedLive: !!shown, annualBand: shown ? shown.band : '', legacyAnnual: legacy,
+      alignedLive: !!shown, annualBand: shown ? shown.band : '', legacyAnnual: legacy, annualShown: shown,
       prevP50: prev ? prev.annual_p50 : null,
       lastRunAt: latest ? latest.finished_at : '', runs: rs.length,
       budget: budget,
@@ -273,8 +277,8 @@ function appPortfolioData_() {
 /**
  * 予測の画面に出す、計画 1 つの試しの数（年度の見込みの試し・予算に届く見込み。計画の一覧の控え appPortfolioAll_ から。表は読み直さない）。
  * 読めないときは null（予測の画面はそのまま出す）。返り値: { planId, aligned, reach, scoredMonths, live, annual } | null。
- * live = 年度の見込みを本番にした計画（計画の一覧の alignedLive）。annual = live のときの年度の値
- * { p10, p50, p90, band, k, done, pending, legacy: 旧来の計算の年度合計 { p10, p50, p90 } }（live でなければ null）
+ * live = 年度の見込みを本番にした計画（計画の一覧の alignedLive）。annual = live のときの見せる年度の値（計画の一覧の annualShown と同じもの:
+ * { p10, p50, p90, band, k, basis: 'monthsum' | 'landing' | 'actual', monthSum, done, pending, legacy: 旧来の計算の年度合計 { p10, p50, p90 } }）。live でなければ null
  */
 function appPlanShadow_(planId) {
   try {
@@ -282,8 +286,7 @@ function appPlanShadow_(planId) {
     if (!p) return null;
     const a = p.aligned || null;
     return { planId: p.planId, aligned: a, reach: p.reach || null, scoredMonths: p.scoredMonths, live: !!p.alignedLive,
-      annual: p.alignedLive ? { p10: p.p10, p50: p.p50, p90: p.p90, band: p.annualBand || '', k: a ? a.k : 0, done: !!(a && a.done), pending: !!(a && a.pending),
-        legacy: p.legacyAnnual || null } : null };
+      annual: p.alignedLive && p.annualShown ? p.annualShown : null };
   } catch (e) {
     Logger.log('試しの数: ' + (e && e.message ? e.message : e));
     return null;

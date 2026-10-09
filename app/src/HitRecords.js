@@ -196,7 +196,7 @@ function appHitOps_(ctx, plan, rows, calc, by) {
  * book = B-2 を動かした後の計算用ブック（検証の表と締まった月は B-2 の後のもの）。数えられなくても B-2 の保存は止めない（エラーのログに残す）
  */
 function appHitEvalOps_(ctx, plan, book) {
-  if (!appLogReady_()) return [];
+  if (!appLogReady_('HIT_RECORDS')) return [];
   try {
     const t = {};
     APP_HIT_TABLES.forEach(n => { t[n] = appPlanSheetRows_(book.getSheetByName(n)); });

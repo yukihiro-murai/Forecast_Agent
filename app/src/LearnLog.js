@@ -71,7 +71,7 @@ function appLearnReviewScreen_(book) {
  * value = 保存の返り値（CALIBRATION.SET は appCalibrationSet_ の { changed, withdrawn }）、book = 保存の後の計算用ブック、args = 頼みの中身
  */
 function appLearnEditOps_(ctx, plan, action, actionId, value, book, args) {
-  if ((action !== 'CALIBRATION.SET' && action !== 'REVIEW.DECIDE') || !appLogReady_()) return [];
+  if ((action !== 'CALIBRATION.SET' && action !== 'REVIEW.DECIDE') || !appLogReady_('LEARNING_LOG')) return [];
   try {
     const state = appLearnState_(plan.plan_id);
     const rows = [];
@@ -114,7 +114,7 @@ function appLearnEditOps_(ctx, plan, action, actionId, value, book, args) {
  * bookOf() = 実行の後の計算用ブック（この 2 つの操作のときだけ開く）。反映したかは、データ本体（実行の前）と計算用ブック（後）の applied で比べる
  */
 function appLearnRunOps_(ctx, plan, action, bookOf) {
-  if ((action !== 'REVIEW.APPLY' && action !== 'REVIEW.GENERATE') || !appLogReady_()) return [];
+  if ((action !== 'REVIEW.APPLY' && action !== 'REVIEW.GENERATE') || !appLogReady_('LEARNING_LOG')) return [];
   try {
     const book = bookOf();
     const sc = appLearnReviewScreen_(book);
@@ -163,7 +163,7 @@ function appLearnRunOps_(ctx, plan, action, bookOf) {
  * before = 保存の前の今の値（appSettingsCurrent_ の行）。同じ値をもう一度書いても足さない（効き始めが先の日なら、同じ頼みは同じ番号で 1 行）
  */
 function appLearnSettingOps_(ctx, key, before, value, eff, note) {
-  if (APP_LEARN_SETTING_KEYS.indexOf(key) < 0 || !appLogReady_()) return [];
+  if (APP_LEARN_SETTING_KEYS.indexOf(key) < 0 || !appLogReady_('LEARNING_LOG')) return [];
   const cur = before ? String(before.value) : '';
   const isDefault = !before || !!before.isDefault;
   const today = appToday_();
