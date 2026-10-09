@@ -134,10 +134,20 @@ const journal = (label, planId, list) => env.call(`appWithLock_(() => appJournal
   assert.equal(env.call('appStableLogId_("LEF", ["R-1", "2026-04"])'), a, '同じ中身なら同じ番号');
   assert.notEqual(env.call('appStableLogId_("LEF", ["R-1", "2026-05"])'), a);
   assert.match(a, /^LEF-[0-9A-F]{24}$/);
+  // 版の印がそろう前（移行がバックアップを待っている間）でも、表があり見出しが今の列の記録の表には足す（2026-10-09: 表ごとに決める。
+  // 前は版の印だけを見て足さず、その保存の記録が失われていた）。版 11 の下書きの表は版がそろうまで足さない。表が無ければ足さない
   env.props.APP_TABLES_VERSION = '9';
-  assert.deepEqual(ops('INPUT_LOG', [inl(600)]), [], '版がそろう前は記録を足さない（本体の保存は止めない）');
+  assert.equal(ops('INPUT_LOG', [inl(600)]).length, 1, '表があって見出しが今の列なら足す（本体の保存と同じ控えで）');
+  assert.equal(env.errors().some((e) => e.where === 'LOG.SKIPPED'), false);
+  assert.deepEqual(ops('BUDGET_DRAFTS', [{ plan_id: planB, draft_id: 'BDR-T', action_id: 'PA-1', ym: '2026/04' }]), [], '版 11 の下書きは版がそろうまで足さない');
   assert.ok(env.errors().some((e) => e.where === 'LOG.SKIPPED'));
-  env.props.APP_TABLES_VERSION = '10';
+  const ss = env.data();
+  const sh = ss.getSheetByName('BACKTEST');
+  ss.deleteSheet(sh);
+  env.run('APP_STORE_CACHE_ = {}');
+  assert.deepEqual(ops('BACKTEST', [{ plan_id: planB, point_id: 'BTP-T' }]), [], '表が無ければ足さない（本体の保存は止めない）');
+  env.props.APP_TABLES_VERSION = '11';
+  assert.equal(ops('BACKTEST', [{ plan_id: planB, point_id: 'BTP-T' }]).length, 1, '版がそろっていれば足す（今までどおり。書くところで表を確かめる）');
 }
 
 console.log('app-v10-append: ok');

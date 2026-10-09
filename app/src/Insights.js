@@ -532,7 +532,9 @@ function appInsightCountMonths_(byPlan) {
 /**
  * 年度（省くと今の年度。無ければ一番新しい年度）のメーカーごとの要点。
  * 返り値: { fy, fys, plans: [計画の一覧（appPortfolioCached_）の行の項目すべて + revisions, accuracy, topics], totals, market }
- *   revisions: [{ at, p10, p50, p90 }]（新アプリで動かした予測。古い順に最近の 12 回）
+ *   revisions: [{ at, p10, p50, p90, live, p50Shown, basis }]（新アプリで動かした予測。古い順に最近の 12 回。p10・p50・p90 は記録の旧来の年度合計のまま。
+ *              本番で保存した回（live）は p50Shown = その回の月の P50 の合計（basis 'monthsum'）、ほかは旧来の年度合計（basis 'legacy'）: appInsightRevision_）
+ *   行の p10・p50・p90 と annualShown は計画の一覧のまま（本番の計画は見せる年度の値。年度の途中は着地の推定）
  *   accuracy:  { n, leaks, mape, bias, coverage, coverageN, widthScale }（Learning.js の精度。締まった月だけ。締まった後の予測の月は除く）
  *   topics:    [{ topic, rowType, direction, impact, confidence, score, position, percentile, horizon, asOf }]（AI 調査の一番新しい回）
  *   totals:    { plans, budget, budgetDraft, p50, landing, landingPlans, actualYtd, budgetPlans, p50Budgeted, landingBudgeted, ratioP50, ratioLanding, measurePlans }
@@ -556,8 +558,11 @@ function appCrossMaker_(fy) {
   const accs = appInsightAccuracies_(ids, tab);
   const research = tab('AI_RESEARCH_STRUCTURED');
   const market = {};
+  const recent = {};
+  ids.forEach(id => { recent[id] = (runs[id] || []).sort((a, b) => String(a.finished_at).localeCompare(String(b.finished_at)) || a._row - b._row).slice(-APP_INSIGHT_REVISIONS); });
+  const monthSum = appInsightLiveRunSums_([].concat.apply([], ids.map(id => recent[id])));
   const rows = plans.map(p => {
-    const rs = (runs[p.planId] || []).sort((a, b) => String(a.finished_at).localeCompare(String(b.finished_at)) || a._row - b._row).slice(-APP_INSIGHT_REVISIONS);
+    const rs = recent[p.planId] || [];
     const a = accs[p.planId] || null;
     const topics = appLatestBatch_(research[p.planId] || [], 'as_of_date').map(r => ({
       topic: String(r.topic || '').trim(), rowType: String(r.row_type || ''), direction: appInsightDir_(r.direction), impact: appNum_(r.impact_score),
@@ -582,7 +587,7 @@ function appCrossMaker_(fy) {
     });
     return Object.assign({}, p, {
       planId: p.planId, clientName: p.clientName, fy: String(p.fy),
-      revisions: rs.map(r => ({ at: r.finished_at, p10: r.annual_p10, p50: r.annual_p50, p90: r.annual_p90 })),
+      revisions: rs.map(r => appInsightRevision_(r, monthSum)),
       accuracy: a ? { n: a.n, leaks: a.leaks, mape: a.mape, bias: a.bias, coverage: a.coverage, coverageN: a.coverageN, widthScale: a.widthScale } : null,
       topics: topics
     });
@@ -605,6 +610,44 @@ function appCrossMaker_(fy) {
       meanScore: appInsightMean_(market[k].scores) })).sort((x, y) => y.makers - x.makers || x.topic.localeCompare(y.topic)),
     backtest: appBacktestCard_(pick)   // 物差し（Backtest.js。割合と点の数だけ。動かした計画が無ければ null）
   };
+}
+
+/** 予測の回が本番で保存されたか（FORECAST_RUNS.fixes_json に annual_aligned。年度を月の合計にそろえた回。Landing.js の APP_FIX_ANNUAL_ALIGNED） */
+function appInsightRunLive_(r) {
+  return appParseJsonList_(r && r.fixes_json).indexOf(APP_FIX_ANNUAL_ALIGNED) >= 0;
+}
+
+/**
+ * 本番で保存した予測の回の、月の P50 の合計（{ run_id: 合計 }。FORECAST_MONTHLY をその回の分だけ。12 か月とも数のそろう回だけ）。
+ * runs = FORECAST_RUNS の行。本番の回が無ければ表を読まない
+ */
+function appInsightLiveRunSums_(runs) {
+  const want = {};
+  (runs || []).forEach(r => { if (appInsightRunLive_(r)) want[r.run_id] = true; });
+  if (!Object.keys(want).length) return {};
+  const acc = {};
+  appReadTable_('FORECAST_MONTHLY').forEach(m => {
+    if (!want[m.run_id]) return;
+    const o = acc[m.run_id] = acc[m.run_id] || { sum: 0, n: 0, bad: false };
+    const v = appNum_(m.p50);
+    if (v === null) o.bad = true; else { o.sum += v; o.n++; }
+  });
+  const out = {};
+  Object.keys(acc).forEach(id => { if (!acc[id].bad && acc[id].n === 12) out[id] = acc[id].sum; });
+  return out;
+}
+
+/**
+ * 予測の見直しの流れの 1 回（分析の revisions。2026-10-09）: { at, p10, p50, p90（旧来の計算の年度合計。記録のまま）, live, p50Shown, basis }。
+ * live = 本番で保存した回（appInsightRunLive_）。p50Shown = 本番の回は、その回の月の P50 の合計（basis 'monthsum'。予測の画面の年度の中心の
+ * 締まった月なしの値と同じ足し方。月がそろわなければ旧来の年度合計）、ほかの回は旧来の計算の年度合計（basis 'legacy'）。
+ * monthSum = appInsightLiveRunSums_ の返り値
+ */
+function appInsightRevision_(r, monthSum) {
+  const live = appInsightRunLive_(r);
+  const sum = live && monthSum && Object.prototype.hasOwnProperty.call(monthSum, r.run_id) ? monthSum[r.run_id] : null;
+  return { at: r.finished_at, p10: r.annual_p10, p50: r.annual_p50, p90: r.annual_p90, live: live,
+    p50Shown: sum !== null ? sum : r.annual_p50, basis: sum !== null ? 'monthsum' : 'legacy' };
 }
 
 // ---- 人の学び ----

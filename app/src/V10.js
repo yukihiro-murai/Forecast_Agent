@@ -44,7 +44,8 @@ function appV10WaitRefusal_(kind, payload) {
  * 4 万字を超えるセルはハッシュと先頭だけにしてエラーのログに残す。同じキーの行が 2 つあれば止める）。止めるのは控えを置く前なので、本体も書かない
  * （呼んだ側が投げたままにすれば保存は失敗し、何も書かない。一度だけの写しは、その計画を飛ばす）。
  * キーは控えを作るときに決める（appNewLogId_・appStableLogId_）。書くときに作らない（控えの書き直しで同じ行になるように）。
- * 表の版がまだそろっていない（移行の前・途中）ときは、記録を足さずに [] を返す（本体の保存は止めない。エラーのログに残す）
+ * その表をまだ書けない（appLogReady_(table): 表が無い・列を足す前の見出し・版 11 の下書きの表で移行がまだ）ときは、記録を足さずに [] を返す
+ * （本体の保存は止めない。エラーのログに残す）
  */
 function appLogOps_(table, rows) {
   const def = APP_TABLES[table];
@@ -53,7 +54,7 @@ function appLogOps_(table, rows) {
   if (!list.length) return [];
   const out = list.map(r => appLogRow_(table, def, r));
   appLogRequireUnique_(table, out);
-  if (!appLogReady_()) {
+  if (!appLogReady_(table)) {
     appLogError_('LOG.SKIPPED', new Error('表の版がそろう前なので、記録を足しませんでした（' + table + '・' + out.length + ' 行）。'), null);
     return [];
   }
@@ -75,9 +76,23 @@ function appLogRequireUnique_(table, rows) {
   });
 }
 
-/** 記録の表を書ける版か（表の版がそろった印。appEnsureTables_ が付ける） */
-function appLogReady_() {
-  return appProps_().getProperty(APP_PROP.tablesVersion) === String(APP_SCHEMA_VERSION);
+/**
+ * 記録の表を書けるか。table を省くと、表の版がそろったか（印 APP_PROP.tablesVersion。appEnsureTables_ が付ける）だけを見る
+ * （一度だけの写し・予測の実行を断るか・年度を締めるか など、版がそろってから動くもの）。
+ * table を渡すと、その表ごとに決める（2026-10-09。前は版の印だけを見ていたので、版 11 の移行がバックアップを待っている間、もうある版 10 の
+ * 記録の表（入力の記録の自信など）にも足さず、その保存の記録が失われていた）:
+ *   版がそろっていれば書ける。そろう前は、表があり、見出しが今の列（列を足す前の見出しでない）なら書ける。
+ *   ただし版がそろうまで待つ表（APP_LOG_WAIT_TABLES。版 11 の予算の下書き）は書かない（一度だけの写しと、予測し直したときの戻しが版 11 の後の決まりで動くため）
+ */
+function appLogReady_(table) {
+  if (appProps_().getProperty(APP_PROP.tablesVersion) === String(APP_SCHEMA_VERSION)) return true;
+  if (!table || APP_LOG_WAIT_TABLES.indexOf(table) >= 0) return false;
+  try {
+    appTableSheet_(table, false);   // 無い・どの版の列でもなければ投げる
+    return !(APP_STORE_CACHE_.width && APP_STORE_CACHE_.width[table]);   // 列を足す前の見出し（移行がまだ）は書かない
+  } catch (e) {
+    return false;
+  }
 }
 
 /** 記録の 1 行を確かめ、控えに置く形にする（列の型に合わせる） */

@@ -15,8 +15,9 @@
  * どれも影で、保存している数字（予測の年度の P10/P50/P90・予算）は変えない。
  * 本番（2026-10-09 村井さん承認。決定 4・7 が済んだ計画から）: 計画の補正が自動の学びの値でなくなり（CALIBRATION_STATE の auto_update_enabled = 0・
  * note が owner-approved で始まる = 所有者が setCalibration で書いた）、見せている予測がその補正で動いた（最後の予測の FORECAST_SNAPSHOT.calibration_applied_json の
- * 係数と月ごとの補正が今の値と同じ）計画は、年度の下振れ・中心・上振れを月の合計にそろえた値で見せ、予算に届く見込みも本番にする（appLandingLiveOf_・
- * appLandingAnnualShown_。表を読むのは Portfolio.js の appPlanAlignedLive_）。旧来の計算の年度合計は記録（FORECAST_RUNS・OUTPUT の 26 行）にそのまま残す。
+ * 係数と月ごとの補正が今の値と同じ）計画は、年度の下振れ・中心・上振れを月の合計にそろえた値（年度の途中は着地の推定。2026-10-09）で見せ、
+ * 予算に届く見込みも本番にする（appLandingLiveOf_・appLandingAnnualShown_。表を読むのは Portfolio.js の appPlanAlignedLive_）。
+ * 旧来の計算の年度合計は記録（FORECAST_RUNS・OUTPUT の 26 行）にそのまま残す。
  * 空模様は着地 ÷ 年間予算で分ける。急な変化（天変地異）は、ひと月の大きな外れ・2 か月続いた同じ向きの外れ・予測の前提の大きな変化で拾う。
  *
  * 締まった月（2026-10-07 村井さん承認 D5）: 月末から APP_ACTUAL_CLOSE_LAG_DAYS 日たってから実績を取り込んだ（B-1）月だけ。
@@ -272,8 +273,10 @@ function appLandingPct5_(p) { return typeof p === 'number' && isFinite(p) ? Math
  * そこで、中心 = 最新の予測の月の P50（OUTPUT の 29〜40 行。補正を入れた値）の 12 か月の合計、幅 = 着地見込みと同じ式で締まった月が無いとき（appLandingDist_）。
  * months: appLandingMonths_ の形、tau・w: appLandingApproved_、budget: 予算以上になる確率を出す予算（無い・0 以下なら pAbove は null）。
  * opts: { k（締まった月の数。着地見込み appLandingSky_ の k）, pending（締まった月を数え直している間: 実績を取り込んだ後の当たり具合の計算待ち・実績の遅れ） }。省けば締まった月なし。
- * 締まった月がある（k > 0）ときは、幅を出さない（sd・p10・p90・pAbove は null）: 予測の締まった月は実績が入っているので、年度全体に τ の幅を
- * つけると、ぶれを大きく見せ、着地見込みの幅とも食い違う（年度の途中の幅は着地見込みの方。2026-10-08）。中心はそのまま出す。
+ * 締まった月がある（k > 0）ときは、幅を出さない（sd・p10・p90・pAbove は null）: 年度の途中の幅は着地見込みの方（締まった月の実績を入れた分布。2026-10-08）。
+ * 中心（月の P50 の合計）はそのまま出すが、年度の途中は締まった月も予測のままの合計（旧来の計算は、締まった月を実績に置き換えるのが SALES_INPUT の
+ * 範囲 = 計画の年度の前月までの月だけなので、この年度の月 29〜40 行はいつも予測。2026-10-09 に確かめた。前は「締まった月は実績が入っている」と書いていた）。
+ * そのため本番の見せる値（appLandingAnnualShown_）は、年度の途中は着地の推定を中心にする。
  * 12 か月を数えた計画は done（年度は終わった。年度を締めても 12 か月に足りなければ done にしない）。done・pending も幅を出さない。
  * 予測がそろわなければ null。返り値: { center, sd, p10, p90, budget, pAbove, tau, w, k, done, pending }
  */
@@ -530,20 +533,35 @@ function appLandingSheetObjects_(values) {
 }
 
 /**
- * 本番の計画の、年度の下振れ・中心・上振れ（見せる値。計算だけ）。aligned = appLandingAligned_ の返り値、sky = appLandingSky_ の返り値。
- * 中心 = 月の P50 の合計（補正を入れた値）。幅:
- *   締まった月が無い（aligned.k = 0）… 着地見込みと同じ式・締まった月なしの 80% の幅（aligned.p10・p90。band = 'aligned'）
- *   年度の途中（0 < k < 12）       … 着地の推定（締まった月の実績を入れた見込み）の 80% の幅（sky.landingP10・P90。band = 'landing'）
- *   12 か月を数えた（done）・締まった月を数え直している間（pending）・着地の推定が無い … 幅なし（null。band = ''）
- * 返り値: { p10, p50, p90, band, k, done, pending }。aligned が無ければ null
+ * 本番の計画の、年度の下振れ・中心・上振れ（見せる値。計算だけ）。aligned = appLandingAligned_ の返り値、sky = appLandingSky_ の返り値、
+ * legacy = 旧来の計算の年度合計 { p10, p50, p90 }（そのまま返すだけ。省けば null）。
+ * 中心と幅は、同じ分布から出す（中心が自分の 80% の幅の外に出ない。予算に届く見込み・確率で選ぶ予算の 50% の金額とも同じ中心。2026-10-09）:
+ *   締まった月が無い（aligned.k = 0）… 中心 = 月の P50 の合計（補正を入れた値）、幅 = 着地見込みと同じ式・締まった月なしの 80% の幅
+ *                                      （aligned.p10・p90。band = 'aligned'。basis = 'monthsum'。この中心は着地の推定の中心とも同じ）
+ *   年度の途中（0 < k < 12）       … 中心 = 着地の推定（締まった月の実績 + 今年の水準 × 残りの月の P50。sky.landing）、
+ *                                      幅 = その 80% の幅（sky.landingP10・P90。band = 'landing'。basis = 'landing'）。
+ *                                      月の P50 の合計は締まった月も予測のまま（旧来の計算は、この年度の締まった月を実績に置き換えない）なので、中心にしない
+ *   12 か月を数えた（done）        … 中心 = 実績の合計（sky.actualYtd）、幅なし（band = ''。basis = 'actual'）
+ *   締まった月を数え直している間（pending）・着地の推定が無い … 中心 = 月の P50 の合計、幅なし（band = ''。basis = 'monthsum'）
+ * monthSum = 月の P50 の合計（aligned.center。いつも）。
+ * 返り値: { p10, p50, p90, band, k, basis: 'monthsum' | 'landing' | 'actual', monthSum, done, pending, legacy }。aligned が無ければ null
  */
-function appLandingAnnualShown_(aligned, sky) {
+function appLandingAnnualShown_(aligned, sky, legacy) {
   const fin = v => typeof v === 'number' && isFinite(v);
   if (!aligned || !fin(aligned.center)) return null;
-  let p10 = null, p90 = null, band = '';
-  if (!aligned.done && !aligned.pending) {
-    if (!(aligned.k > 0) && fin(aligned.p10) && fin(aligned.p90)) { p10 = aligned.p10; p90 = aligned.p90; band = 'aligned'; }
-    else if (aligned.k > 0 && sky && fin(sky.landingP10) && fin(sky.landingP90)) { p10 = sky.landingP10; p90 = sky.landingP90; band = 'landing'; }
+  const k = aligned.k || 0;
+  let p10 = null, p50 = aligned.center, p90 = null, band = '', basis = 'monthsum';
+  if (aligned.done) {
+    if (sky && fin(sky.actualYtd)) { p50 = sky.actualYtd; basis = 'actual'; }
+  } else if (!aligned.pending) {
+    if (!(k > 0)) {
+      if (fin(aligned.p10) && fin(aligned.p90)) { p10 = aligned.p10; p90 = aligned.p90; band = 'aligned'; }
+    } else if (sky && fin(sky.landing)) {
+      p50 = sky.landing;
+      basis = 'landing';
+      if (fin(sky.landingP10) && fin(sky.landingP90)) { p10 = sky.landingP10; p90 = sky.landingP90; band = 'landing'; }
+    }
   }
-  return { p10: p10, p50: aligned.center, p90: p90, band: band, k: aligned.k || 0, done: !!aligned.done, pending: !!aligned.pending };
+  return { p10: p10, p50: p50, p90: p90, band: band, k: k, basis: basis, monthSum: aligned.center, done: !!aligned.done, pending: !!aligned.pending,
+    legacy: legacy || null };
 }

@@ -40,10 +40,38 @@ function appVersionRows_(planId) {
 }
 
 function appVersionOut_(v) {
+  const reach = appVersionReachOut_(v);
   return { versionId: v.version_id, no: v.version_no, state: v.state, inputHash: v.input_hash, runId: v.forecast_run_id,
     annual: { p10: v.annual_p10, p50: v.annual_p50, p90: v.annual_p90 }, budget: { adopted: v.budget_adopted, uplift: v.budget_uplift, final: v.budget_final },
     monthly: appParseJsonList_(v.monthly_json), note: v.note, submittedAt: v.submitted_at, submittedBy: v.submitted_by,
-    decidedAt: v.decided_at, decidedBy: v.decided_by, decisionNote: v.decision_note, rowVersion: v.row_version, reach: appVersionReachOut_(v) };
+    decidedAt: v.decided_at, decidedBy: v.decided_by, decisionNote: v.decision_note, rowVersion: v.row_version, reach: reach,
+    shownCenter: appVersionShownCenter_(v, reach) };
+}
+
+/**
+ * 版の「中心（年度）」として見せる値（2026-10-09）: 本番（prob_mode = LIVE）で出した版は、出したときの見せる年度の中心 = 届く見込みの分布の中心
+ * （reach.center。締まった月が無ければ月の P50 の合計、年度の途中は着地の推定。予測の画面の中心と同じ）。着地見込みが無くて中心が空なら、
+ * 出したときの月の P50 の合計（prob_basis_json.monthCenterSum）。ほかの版（試し・版 11 より前）は旧来の計算の年度合計（annual_p50）のまま
+ */
+function appVersionShownCenter_(v, reach) {
+  if (reach && reach.mode === 'LIVE') {
+    if (reach.center !== null) return reach.center;
+    let b = v.prob_basis_json;
+    if (typeof b === 'string') { try { b = JSON.parse(b || 'null'); } catch (e) { b = null; } }
+    if (b && typeof b.monthCenterSum === 'number' && isFinite(b.monthCenterSum)) return b.monthCenterSum;
+  }
+  return v.annual_p50;
+}
+
+/**
+ * 今の見せる年度の中心（公式版の画面の「今の中心」。予測の画面と同じ値。2026-10-09）: 本番の計画（計画の一覧の控え appPlanShadow_ の annual）は
+ * { p50: 見せる年度の中心, basis: 'monthsum' | 'landing' | 'actual', live: true }、ほかは旧来の計算の年度合計 { p50: nums.annual.p50, basis: 'legacy', live: false }
+ */
+function appVersionShownNow_(planId, nums) {
+  const sh = appPlanShadow_(planId);
+  const a = sh && sh.live ? sh.annual : null;
+  if (a && typeof a.p50 === 'number' && isFinite(a.p50)) return { p50: a.p50, basis: a.basis || 'monthsum', live: true };
+  return { p50: nums && nums.annual ? nums.annual.p50 : null, basis: 'legacy', live: false };
 }
 
 /**
@@ -84,7 +112,11 @@ function appVersionReachCols_(plan, nums, run) {
     tau: fin(rc.tau) ? rc.tau : null, w: fin(rc.w) ? rc.w : null, closed_months: fin(rc.k) ? rc.k : null });
 }
 
-/** 画面: 計画の版の一覧と、今の数字（出す前に見比べる）。測る専用の計画（measure）は出せない（can.submit が false） */
+/**
+ * 画面: 計画の版の一覧と、今の数字（出す前に見比べる）。測る専用の計画（measure）は出せない（can.submit が false）。
+ * current = 今の数字（appPlanNumbers_。annual は旧来の計算の年度合計のまま）+ shown（見せる年度の中心 { p50, basis, live }: appVersionShownNow_）。
+ * versions[].shownCenter = 版の中心（年度）として見せる値（appVersionShownCenter_）
+ */
 function appVersionList_(ctx, input) {
   const plan = appPlanOf_(input && input.planId);
   const versions = appVersionRows_(plan.plan_id).map(appVersionOut_);
@@ -93,7 +125,9 @@ function appVersionList_(ctx, input) {
   const inputHash = appPlanInputHash_(plan.plan_id);
   const frozen = appYearIsFrozen_(plan.fy);
   const measure = appPlanIsMeasure_(plan);
-  return { planId: plan.plan_id, frozen: frozen, measure: measure, current: appPlanNumbers_(plan.plan_id), inputHash: inputHash, versions: versions, official: official, pending: pending,
+  const current = appPlanNumbers_(plan.plan_id);
+  if (current) current.shown = appVersionShownNow_(plan.plan_id, current);
+  return { planId: plan.plan_id, frozen: frozen, measure: measure, current: current, inputHash: inputHash, versions: versions, official: official, pending: pending,
     pendingChanged: !!pending && pending.inputHash !== inputHash,
     can: { submit: appHasRole_(ctx.roles, 'PLANNER', plan.client_id) && !frozen && !measure, approve: appHasRole_(ctx.roles, 'APPROVER', plan.client_id) && !frozen }, me: ctx.actor };
 }

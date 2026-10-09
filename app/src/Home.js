@@ -57,8 +57,9 @@ function appHomeData_(ctx) {
       landing: p.landing, landingSd: p.landingSd, landingP10: p.landingP10, landingP90: p.landingP90, pAbove: p.pAbove, ratio: p.ratio,
       sky: p.sky, skyReason: p.skyReason, skyDir: p.skyDir, theta: p.theta, credibility: p.credibility, k: p.k, budgetUsed: p.budgetUsed, budgetSource: p.budgetSource,
       scoredMonths: p.scoredMonths, frozen: p.frozen, measure: !!p.measure,
-      // 年度の見込みの本番（判断 10・24。2026-10-09）: 本番の計画の p10・p50・p90 は月の合計にそろえた値（計画の一覧と同じ）。旧来の年度合計は legacyAnnual
-      alignedLive: !!p.alignedLive, annualBand: p.annualBand || '', legacyAnnual: p.legacyAnnual || null })),
+      // 年度の見込みの本番（判断 10・24。2026-10-09）: 本番の計画の p10・p50・p90 は見せる年度の値（計画の一覧と同じ。annualShown: 中心と幅は同じ分布から。
+      // 年度の途中は着地の推定）。旧来の年度合計は legacyAnnual
+      alignedLive: !!p.alignedLive, annualBand: p.annualBand || '', legacyAnnual: p.legacyAnnual || null, annualShown: p.annualShown || null })),
     totals: appHomeTotals_(plans, fy, all.prior && all.prior.used),
     approvals: approvals, mine: mine
   };

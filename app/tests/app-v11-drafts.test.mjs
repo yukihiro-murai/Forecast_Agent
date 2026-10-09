@@ -80,11 +80,13 @@ const rowsOf = (fy, adopted, uplift) => fyYms(fy).map((ym, i) => ({ row: 29 + i,
 const FY = 2027;
 const YMS = fyYms(FY);
 const P0 = YMS.map((_, i) => 1000 + 20 * i);   // 月の真ん中（合計 13,320）
-// 過去の売上: まるごとの年度は FY2025・FY2026 の 2 年（FY2024 の途中から取引が始まった: 2025/01 が最初の売上）
+// 過去の売上: まるごとの年度は FY2024・FY2025 の 2 年（FY2023 の途中から取引が始まった: 2024/01 が最初の売上）。
+// 今の年度 FY2026 は、A-2 が取り込むとおり 4〜9 月だけ（10 月からはまだ来ていない。終わっていない年度は数えない: 2026-10-09）
 const salesA = {};
-fyYms(2024).slice(9).forEach((ym) => { salesA[ym] = 500; });
-fyYms(2025).forEach((ym, i) => { salesA[ym] = 100 + 10 * i; });
-fyYms(2026).forEach((ym, i) => { salesA[ym] = i === 11 ? 800 : 200; });
+fyYms(2023).slice(9).forEach((ym) => { salesA[ym] = 500; });
+fyYms(2024).forEach((ym, i) => { salesA[ym] = 100 + 10 * i; });
+fyYms(2025).forEach((ym, i) => { salesA[ym] = i === 11 ? 800 : 200; });
+fyYms(2026).slice(0, 6).forEach((ym) => { salesA[ym] = 5000; });
 const planA = env.seedPlan(planBook('テスト製薬', FY, { p50: P0, sales: salesA }));
 
 // ==== 1. 表の定義（4-1・4-2） ====
@@ -207,10 +209,10 @@ const propose = (planId, prob, alloc) => env.call('apiBudgetProposal(__in)', { _
   assert.equal(env.runJob('FORECAST.RUN', { planId: planB }).status, 'DONE');
   const shadow = env.call('apiForecastLatest(__in)', { __in: { planId: planB } }).shadow;
   assert.equal(shadow.reach.k, 0, '先の年度は締まった月が無い');
-  // 過去の平均の形: FY2025 と FY2026 の月の割合の平均（FY2024 は取引が始まる前の月があるので使わない）
+  // 過去の平均の形: FY2024 と FY2025 の月の割合の平均（FY2023 は取引が始まる前の月があり、FY2026 は終わっていないので使わない）
   const share = (fy) => { const v = fyYms(fy).map((ym) => salesA[ym] || 0); const t = sum(v); return v.map((x) => x / t); };
-  const s25 = share(2025), s26 = share(2026);
-  const avg = s25.map((x, i) => (x + s26[i]) / 2);
+  const s24 = share(2024), s25 = share(2025);
+  const avg = s24.map((x, i) => (x + s25[i]) / 2);
   for (const prob of [50, 60, 70, 80]) {
     const p = propose(planB, prob);
     const amount = shadow.reach.amounts.find((a) => a.pct === prob).amount;
@@ -262,7 +264,7 @@ const propose = (planId, prob, alloc) => env.call('apiBudgetProposal(__in)', { _
   assert.equal(propose(planB, 60).mode, 'SHADOW');
   // まるごとの年度が 1 年しかなければ、予測の月の形にして、そう書く
   const sales1 = {};
-  fyYms(2026).forEach((ym, i) => { sales1[ym] = 300 + i; });
+  fyYms(2025).forEach((ym, i) => { sales1[ym] = 300 + i; });
   const planC = env.seedPlan(planBook('一年製薬', FY, { p50: P0, sales: sales1 }));
   const pc = propose(planC, 60);
   assert.deepEqual([pc.ok, pc.alloc, pc.fallback, pc.shapeYears], [true, 'FORECAST_SHAPE', true, 1]);

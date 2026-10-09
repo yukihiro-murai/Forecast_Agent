@@ -7,7 +7,7 @@
  *   3. 本番の計画: 計画の一覧・ホーム・分析・予測の画面の年度の下振れ・中心・上振れは月の合計にそろえた値。旧来の計算の年度合計は記録に残り
  *      （legacyAnnual・FORECAST_RUNS・OUTPUT の 26 行）、説明に出す。根拠の年度の中心も月の合計。届く見込みの「（試し）」を外す
  *   4. 補正を書き直すと（係数 1.05・自動の学びを戻す）、予測し直すまで / 旗が 1 の間は本番でない
- *   5. 年度の途中（締まった月がある）本番の計画: 中心 = 月の合計、幅 = 着地の推定の幅。ホームの中心と合計の届く見込みも本番
+ *   5. 年度の途中（締まった月がある）本番の計画: 中心と幅 = 着地の推定（同じ分布。2026-10-09。月の合計は monthSum）。ホームの中心と合計の届く見込みも本番
  * モックの上の確かめで、本物の Apps Script・ブラウザの上では動かしていない。
  *
  *   node app/tests/app-v11-live.test.mjs
@@ -63,16 +63,19 @@ const fyYms = (fy) => Array.from({ length: 12 }, (_, i) => { const m = 4 + i; re
   const F = months.reduce((s, m) => s + m.p50, 0);
   const al0 = run('appLandingAligned_(2026, __m, 0.15, 1, 1300)', { __m: months });
   const s0 = run('appLandingAnnualShown_(__a, null)', { __a: al0 });
-  assert.deepEqual([s0.p10, s0.p50, s0.p90, s0.band, s0.k, s0.done, s0.pending], [al0.p10, F, al0.p90, 'aligned', 0, false, false]);
+  assert.deepEqual([s0.p10, s0.p50, s0.p90, s0.band, s0.k, s0.done, s0.pending, s0.basis, s0.monthSum, s0.legacy], [al0.p10, F, al0.p90, 'aligned', 0, false, false, 'monthsum', F, null]);
   const acts = Object.fromEntries([95, 100, 105, 90, 110, 100].map((x, i) => [yms[i], x]));
   const sky6 = run('appLandingSky_(__in)', { __in: { fy: 2026, months, actual: acts, cutoffYm: '2026/10', todayYm: '2026/10', budget: 1300 } });
   const al6 = run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 6 })', { __m: months });
   const s6 = run('appLandingAnnualShown_(__a, __s)', { __a: al6, __s: sky6 });
-  assert.deepEqual([s6.p10, s6.p50, s6.p90, s6.band, s6.k], [sky6.landingP10, F, sky6.landingP90, 'landing', 6], '年度の途中: 中心は月の合計・幅は着地の推定の幅');
+  assert.deepEqual([s6.p10, s6.p50, s6.p90, s6.band, s6.k, s6.basis, s6.monthSum], [sky6.landingP10, sky6.landing, sky6.landingP90, 'landing', 6, 'landing', F],
+    '年度の途中: 中心と幅は着地の推定（同じ分布。2026-10-09）。月の合計は monthSum');
   const sp = run('appLandingAnnualShown_(__a, __s)', { __a: run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 0, pending: true })', { __m: months }), __s: sky6 });
-  assert.deepEqual([sp.p10, sp.p50, sp.p90, sp.band, sp.pending], [null, F, null, '', true], '締まった月を数え直している間は幅なし');
-  const sd = run('appLandingAnnualShown_(__a, __s)', { __a: run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 12 })', { __m: months }), __s: sky6 });
-  assert.deepEqual([sd.p10, sd.p90, sd.band, sd.done], [null, null, '', true], '12 か月を数えた年度は幅なし');
+  assert.deepEqual([sp.p10, sp.p50, sp.p90, sp.band, sp.pending, sp.basis], [null, F, null, '', true, 'monthsum'], '締まった月を数え直している間は幅なし（中心は月の合計）');
+  const acts12 = Object.fromEntries(yms.map((ym, i) => [ym, 100 + i]));
+  const sky12 = run('appLandingSky_(__in)', { __in: { fy: 2026, months, actual: acts12, cutoffYm: '2027/04', todayYm: '2027/04', budget: 1300 } });
+  const sd = run('appLandingAnnualShown_(__a, __s)', { __a: run('appLandingAligned_(2026, __m, 0.15, 1, 1300, { k: 12 })', { __m: months }), __s: sky12 });
+  assert.deepEqual([sd.p10, sd.p50, sd.p90, sd.band, sd.done, sd.basis, sd.monthSum], [null, 1266, null, '', true, 'actual', F], '12 か月を数えた年度は実績の合計で幅なし');
   assert.deepEqual([run('appLandingAnnualShown_(null, null)'), run('appLandingAnnualShown_(__a, null)', { __a: al6 }).band], [null, ''], '着地の推定が無ければ幅なし');
   assert.equal(pure.run('APP_FIX_ANNUAL_ALIGNED'), 'annual_aligned');
 }
@@ -341,8 +344,9 @@ let r1, r2;
   const F = mm.reduce((s, m) => s + m.p50, 0);
   const L = ps[idLive];
   assert.deepEqual([L.alignedLive, L.k, L.annualBand, L.aligned.k], [true, 6, 'landing', 6]);
-  near(L.p50, F, 1e-9, '中心は月の合計');
+  near(L.p50, L.landing, 1e-9, '年度の途中の中心は着地の推定（幅と同じ分布。2026-10-09）');
   assert.deepEqual([L.p10, L.p90], [L.landingP10, L.landingP90], '年度の途中の幅は着地の推定の幅');
+  assert.deepEqual([L.annualShown.basis, L.annualShown.p50, L.annualShown.monthSum], ['landing', L.p50, F], '月の合計は monthSum に');
   assert.deepEqual(L.legacyAnnual, { p10: 1100, p50: 1150, p90: 1200 }, '旧来の年度合計（予測の記録が無いので OUTPUT の 26 行）');
   assert.deepEqual([ps[idOld].alignedLive, ps[idOld].p50, ps[idAuto].alignedLive, ps[idAuto].p50], [false, 1150, false, 1150], '本番でない計画は旧来の年度合計');
   assert.deepEqual([e.run('appPlanAlignedLive_(__p)', { __p: idLive }), e.run('appPlanAlignedLive_(__p)', { __p: idOld }), e.run('appPlanAlignedLive_(__p)', { __p: idAuto })],

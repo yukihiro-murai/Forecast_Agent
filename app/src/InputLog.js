@@ -429,10 +429,10 @@ function appInputLogJson_(v) {
  * 予算策定担当以上でない人には、本人と分かる行だけを送り、その中の担当者の名前と保存した人は送らない。ほかは種類ごとの件数（counts）だけ。
  * その人に送る跡は、今の担当者の間の分だけ（appInputLogSamePerson_。担当者を変えた行の跡は前の担当者の記録までたどるが、
  * 前の担当者だった本人に、今はほかの人の行の跡と自信を出さない）。
- * 版がそろう前・読めないときは null（画面はそのまま出す）
+ * 入力の記録の表がまだ使えない（appLogReady_('INPUT_LOG'): 表が無い・列を足す前）・読めないときは null（画面はそのまま出す）
  */
 function appInputLogView_(ctx, plan) {
-  if (!appLogReady_()) return null;
+  if (!appLogReady_('INPUT_LOG')) return null;
   try {
     const viewer = appLogViewer_(ctx, plan.client_id);
     const log = appInputLogRead_(plan.plan_id);
