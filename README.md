@@ -1,7 +1,7 @@
-# Trends2Targets（旧 Forecast_Agent）
+# Trends2Targets 売上予測と予算策定
 
 売上予測と予算策定は、新しいアプリ **Trends2Targets**（[`app/`](./app/README.md)）だけで行います。
-2026-10-06 にリポジトリ名を `Forecast_Agent` から `Trends2Targets` に改めました（旧来の計算のファイル名 `Forecast_Agent.js` はそのまま）。
+2026-10-06 にリポジトリ名を `Forecast_Agent` から `Trends2Targets` に改め、GitHub の説明文もアプリ名にそろえました（旧来の計算のファイル名 `Forecast_Agent.js` はそのまま）。
 構成・公開・テストの手順は [`app/README.md`](./app/README.md)、これからの計画は [`app/DESIGN_evolution_JA.md`](./app/DESIGN_evolution_JA.md) にあります。
 
 ## このリポジトリにあるもの
