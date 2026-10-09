@@ -337,7 +337,7 @@ const NEW_TABLES = ['INPUT_LOG', 'AI_RESEARCH_LOG', 'LAYER_EFFECTS', 'HIT_RECORD
     const v9 = JSON.parse(__v9); Object.keys(v9).forEach(n => { APP_TABLES[n].columns = v9[n]; });`, { __nt: JSON.stringify(NEW_TABLES), __v9: JSON.stringify(V9) });
   env.as(OWNER);
   env.call('apiSetup()');
-  env.props.APP_TABLES_VERSION = '10';
+  env.props.APP_TABLES_VERSION = String(env.run('APP_SCHEMA_VERSION'));
   const fy = env.run('appFy_(new Date())');
   const planId = env.seedPlan(inputBook(env, '移行製薬', fy, [['鷹野', '製品A', D(fy, 5), '+5%', 'a']]));
   // 版 10 のコードに戻す。バックアップが取れない（アーカイブのフォルダが無い）
@@ -346,7 +346,7 @@ const NEW_TABLES = ['INPUT_LOG', 'AI_RESEARCH_LOG', 'LAYER_EFFECTS', 'HIT_RECORD
   const archiveId = env.props.APP_ARCHIVE_FOLDER_ID;
   delete env.props.APP_ARCHIVE_FOLDER_ID;
   const start = (kind, payload) => () => env.call('apiStartJob(__in)', { __in: { kind, payload } });
-  assert.throws(start('FORECAST.RUN', { planId }), /表の版 10 の移行（列を足す）がまだ済んでいないので、予測の実行は始めません/, '長い計算の前に断る');
+  assert.throws(start('FORECAST.RUN', { planId }), /表の版 \d+ の移行（列を足す）がまだ済んでいないので、予測の実行は始めません/, '長い計算の前に断る');
   assert.throws(start('PLAN.CREATE', { clientName: '新しい製薬', fy, peopleCsv: '鷹野' }), /計画の作成は始めません/);
   assert.throws(start('PLAN.EDIT', { planId, action: 'SETUP.PEOPLE', args: { peopleCsv: '鷹野,佐藤' }, inputHash: 'x' }), /担当者の保存は始めません/);
   assert.equal(env.props.APP_TABLES_VERSION, '9', '前提: 移行はまだ');
@@ -373,7 +373,7 @@ const NEW_TABLES = ['INPUT_LOG', 'AI_RESEARCH_LOG', 'LAYER_EFFECTS', 'HIT_RECORD
   env.props.APP_ARCHIVE_FOLDER_ID = archiveId;
   delete env.props.APP_MIGRATE_BACKUP_FAILED_AT;
   env.call('apiListPlans()');
-  assert.equal(env.props.APP_TABLES_VERSION, '10');
+  assert.equal(env.props.APP_TABLES_VERSION, String(env.run('APP_SCHEMA_VERSION')));
   assert.equal(env.call(`appV10WaitRefusal_('FORECAST.RUN', {})`), '');
   assert.deepEqual(env.call('apiHealth()').tables.filter((t) => !t.ok).map((t) => t.name), []);
 }
@@ -444,7 +444,8 @@ const NEW_TABLES = ['INPUT_LOG', 'AI_RESEARCH_LOG', 'LAYER_EFFECTS', 'HIT_RECORD
       return { more: true, rows: 0 };
     };
     appV10BackfillAiResearchLog_ = function () { throw new Error('Lock timeout'); };
-    appV10BackfillHitRecords_ = function () { return { rows: 0 }; };`);
+    appV10BackfillHitRecords_ = function () { return { rows: 0 }; };
+    appBackfillNames_ = function () { return APP_V10_BACKFILLS.slice(); };`);   // ここでは版 10 の写しの控えだけを見る（版 11 の写しは app-v11-drafts-migrate.test.mjs）
   E.props.APP_BACKFILLS = JSON.stringify({ done: {}, failed: {} });
   E.run(`appRunBackfills_(${CTX})`);
   const stt = JSON.parse(E.props.APP_BACKFILLS);

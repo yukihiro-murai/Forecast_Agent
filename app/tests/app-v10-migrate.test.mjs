@@ -42,7 +42,7 @@ function v9Env({ closePast = false } = {}) {
     Object.keys(v9).forEach(n => { APP_TABLES[n].columns = v9[n]; });`, { __newTables: JSON.stringify(NEW_TABLES), __v9: JSON.stringify(V9) });
   env.as(OWNER);
   env.call('apiSetup()');
-  env.props.APP_TABLES_VERSION = '10';
+  env.props.APP_TABLES_VERSION = String(env.run('APP_SCHEMA_VERSION'));   // 版 9 の姿の間は、最初の操作の移行を動かさない
   // _SCHEMA の版の欄も版 9 のころの姿にする（列のハッシュは版 9 の列のもの）
   const schema = env.data().getSheetByName('_SCHEMA');
   schema.rows.slice(1).forEach((r) => { if (r && r[0]) r[1] = '9'; });
@@ -82,7 +82,7 @@ const migrateAudits = (env) => env.audit().filter((a) => a.action === 'SCHEMA.MI
 
 /** 移行の後の姿: 見出し・_SCHEMA・新しい表・前の値が 1 文字も変わっていない（変わってよいのは _SCHEMA の移した表の行の版と記録だけ） */
 function checkMigrated(env, before) {
-  assert.equal(env.props.APP_TABLES_VERSION, '10');
+  assert.equal(env.props.APP_TABLES_VERSION, String(env.run('APP_SCHEMA_VERSION')));
   for (const n of Object.keys(V9)) {
     assert.deepEqual([...env.data().getSheetByName(n).rows[0]], V9[n].concat(ADDED[n]), '後ろに列を足した: ' + n);
     assert.deepEqual(cols(env, n), V9[n].concat(ADDED[n]), '定義の終わりが足した列: ' + n);
@@ -91,7 +91,7 @@ function checkMigrated(env, before) {
   const schema = env.table('_SCHEMA');
   for (const n of Object.keys(V9)) {
     const s = schema.find((r) => r.table === n);
-    assert.equal(s.schema_version, '10', n);
+    assert.equal(s.schema_version, String(env.run('APP_SCHEMA_VERSION')), n);
     assert.equal(s.columns_hash, sha(V9[n].concat(ADDED[n]).join('|')), n);
   }
   for (const n of NEW_TABLES) assert.ok(schema.some((r) => r.table === n && r.columns_hash === sha(cols(env, n).join('|'))), '_SCHEMA に新しい表: ' + n);

@@ -167,6 +167,17 @@ function apiAiLearning() {
       research: appHitResearchView_(ctx) }));
 }
 
+/**
+ * 確率で選ぶ予算の案（版 11。決定 25・27。読むだけ）。input: { planId, prob（50・60・70・80）, alloc（省けば PAST_SHAPE 過去の平均の形・FORECAST_SHAPE） }。
+ * 返り値 { prob, annual, months: [{ ym, adopted, closed }], alloc, basisText, ok, mode, … }（BudgetDrafts.js の appBudgetProposal_）。
+ * 画面はこの月の値を、ふつうの予算の保存（BUDGET.SAVE）で basis: 'PROB'・prob・alloc を添えて保存する。閲覧は社内全員（着地見込みと予算に届く見込みと同じ）。
+ * 中身は「今日」でも変わる（着地見込み）ので、控えの鍵に日付も入れる
+ */
+function apiBudgetProposal(input) {
+  return api_('BUDGET.PROPOSAL', { minRole: 'VIEWER', audit: false }, () => appCachedRead_('BPROP\u0001' + String(input && input.planId || '') + '\u0001' +
+    String(input && input.prob) + '\u0001' + String(input && input.alloc || '') + '\u0001' + appToday_(), () => appBudgetProposal_(input)));
+}
+
 /** 計画の公式版の一覧と、今の数字 */
 function apiVersionList(input) {
   return api_('VERSION.LIST', { minRole: 'VIEWER', audit: false }, ctx => appCachedRead_('VERSIONS\u0001' + ctx.actor + '\u0001' + (input && input.planId), () => appVersionList_(ctx, input)));

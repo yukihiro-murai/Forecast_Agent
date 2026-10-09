@@ -257,7 +257,10 @@ const redactedBasis = (full) => {
     return k[0].slice('APP_JOB_RESULT_'.length);
   };
   const shared = (env, kind) => J(env.run(`appJobGetResult_('${keyOf(env, kind)}')`)).value;
-  assert.deepEqual(shared(a.env, 'VIEW').boot, aFull[0].boot, '画面の中身の控えは全部の中身のまま');
+  // 予算の下書き（boot.budgetDraft。版 11）は皆で使う控えに入れず、開くたびに足す
+  const noDraft = (b) => { const c = Object.assign({}, b); delete c.budgetDraft; return c; };
+  assert.equal(aFull[0].boot.budgetDraft, null, '下書きが無ければ null');
+  assert.deepEqual(shared(a.env, 'VIEW').boot, noDraft(aFull[0].boot), '画面の中身の控えは全部の中身のまま');
   assert.deepEqual(shared(a.env, 'BASIS'), aFull[1], '根拠の控えも全部の中身のまま');
   // 写しを直す: 渡したものは変えない。予算策定担当以上には、渡したものをそのまま返す
   const r = J(a.env.run(`(() => {

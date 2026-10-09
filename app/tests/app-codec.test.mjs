@@ -213,7 +213,7 @@ function legacySpec() {
   old.getRange(1, 1, 2, 2).setNumberFormat('@').setValues([['batch_id', 'plan_id'], ['IB-1', 'PL-1']]);
   env.props.APP_TABLES_VERSION = '7';   // 版を上げる前のデータ本体
   env.call('apiHealth()');   // 最初の操作で表をそろえる
-  assert.equal(env.props.APP_TABLES_VERSION, '10');
+  assert.equal(env.props.APP_TABLES_VERSION, String(env.run('APP_SCHEMA_VERSION')));
   assert.equal(old.isSheetHidden(), true, '隠す');
   assert.deepEqual(old.getRange(2, 1, 1, 2).getValues(), [['IB-1', 'PL-1']], '中身はそのまま');
   assert.ok(env.call('apiHealth()').tables.every((t) => t.ok));

@@ -205,12 +205,12 @@ function appAutoEnsureTables_(ctx) {
   appRunBackfills_(ctx);
 }
 
-// ---- 版ごとの一度だけの写し（版 10: V10.js の APP_V10_BACKFILLS）----
+// ---- 版ごとの一度だけの写し（版 10: V10.js の APP_V10_BACKFILLS・版 11: V11.js の APP_V11_BACKFILLS。版の順に動かす）----
 const APP_BACKFILL_PROP = 'APP_BACKFILLS';   // 済み・失敗の控え: { done: { 名前: { at, v, rows } }, failed: { 名前: { at, error, tries } } }
 const APP_BACKFILL_RETRY_MS = 10 * 60 * 1000;
 
 function appBackfillNames_() {
-  return APP_V10_BACKFILLS.slice();
+  return APP_V10_BACKFILLS.concat(APP_V11_BACKFILLS);
 }
 
 function appBackfillState_() {

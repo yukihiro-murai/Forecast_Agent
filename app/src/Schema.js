@@ -11,8 +11,10 @@
  * LAYER_EFFECTS・HIT_RECORDS・LEARNING_LOG・PERSON_LINKS・BACKTEST）を足し、今ある表の後ろに列を足した（FORECAST_RUNS・PLANS。APP_ADDED_COLUMNS）。
  * 記録の表（appendOnly）は追記だけ: 行は消さず書き換えない（足すのは V10.js の appLogOps_ → 控えの書き方 append）。PERSON_LINKS だけは ROLES と同じく無効の印を変える。
  * 記録は計算に使わない。
+ * 版 11（2026-10-09 村井さん承認「推奨する対応を継続」。SCHEMA_PLAN_v10-12_JA.md の 4 章）で、予算の下書き（BUDGET_DRAFTS。追記だけ）を足し、
+ * 公式版（PLAN_VERSIONS）の後ろに、出したときの届く見込みと前提の列を足した（APP_ADDED_COLUMNS。出した後は変えない）。中身は BudgetDrafts.js・V11.js・Versions.js
  */
-const APP_SCHEMA_VERSION = 10;
+const APP_SCHEMA_VERSION = 11;
 
 /**
  * 版を上げて、今ある表の後ろに足した列（古い順）。データ本体の 1 行目が足す前の列なら、版を上げた後の最初の操作で後ろに列の名前を書き足す
@@ -20,7 +22,8 @@ const APP_SCHEMA_VERSION = 10;
  */
 const APP_ADDED_COLUMNS = {
   FORECAST_RUNS: [{ version: 10, columns: ['app_version', 'seed_rule', 'fixes_json'] }],
-  PLANS: [{ version: 10, columns: ['purpose'] }]
+  PLANS: [{ version: 10, columns: ['purpose'] }],
+  PLAN_VERSIONS: [{ version: 11, columns: ['reach_final', 'reach_adopted', 'center', 'sd', 'tau', 'w', 'closed_months', 'prob_mode', 'prob_basis_json'] }]
 };
 
 /**
@@ -107,11 +110,17 @@ const APP_TABLES = {
   PLAN_VERSIONS: {
     // 公式版: 計画のある時点の予測と予算を確定した版。出したら中身は変えない（状態と判断だけが変わる）。
     // 状態: SUBMITTED（承認待ち）→ APPROVED（公式版。前の公式版は SUPERSEDED）/ REJECTED。出し直すと前の承認待ちは WITHDRAWN
+    // 版 11 の列（4-2。出したときに書き、後から変えない。前の版の行は空のまま）: reach_final・reach_adopted = 最終予算・採用予測に届く見込み（0〜1）、
+    // center・sd = そのとき使った着地の分布の中心と幅（締まった月が無ければ center は月の真ん中の合計）、tau・w = 今年の水準のぶれと帯の倍率、
+    // closed_months = 締まった月の数、prob_mode = SHADOW（試し）・LIVE（本番）、prob_basis_json = 式の版・締まった月の実績の合計・使った予測の回
+    // closed_months は数（num）: 前の版の空の行を 0 と読まない（int だと 0 と読める）
     key: ['version_id'],
     columns: ['version_id', 'plan_id', 'version_no', 'state', 'input_hash', 'forecast_run_id', 'annual_p10', 'annual_p50', 'annual_p90',
       'budget_adopted', 'budget_uplift', 'budget_final', 'monthly_json', 'note', 'submitted_at', 'submitted_by', 'decided_at', 'decided_by',
-      'decision_note', 'updated_at', 'updated_by', 'row_version'],
-    types: { version_no: 'int', annual_p10: 'num', annual_p50: 'num', annual_p90: 'num', budget_adopted: 'num', budget_uplift: 'num', budget_final: 'num' }
+      'decision_note', 'updated_at', 'updated_by', 'row_version',
+      'reach_final', 'reach_adopted', 'center', 'sd', 'tau', 'w', 'closed_months', 'prob_mode', 'prob_basis_json'],
+    types: { version_no: 'int', annual_p10: 'num', annual_p50: 'num', annual_p90: 'num', budget_adopted: 'num', budget_uplift: 'num', budget_final: 'num',
+      reach_final: 'num', reach_adopted: 'num', center: 'num', sd: 'num', tau: 'num', w: 'num', closed_months: 'num' }
   },
   FORECAST_MONTHLY: {
     // 予測 1 回の月ごとの P10/P50/P90（混合と、過去売上のみ）。旧来の OUTPUT の行から取る
@@ -173,6 +182,16 @@ const APP_TABLES = {
     columns: ['plan_id', 'point_id', 'bt_id', 'cutoff_ym', 'target_ym', 'horizon', 'method', 'p10', 'p50', 'p90', 'actual',
       'real_months', 'counted', 'engine_sha256', 'seed', 'calc_version', 'computed_at', 'computed_by'],
     types: { horizon: 'int', p10: 'num', p50: 'num', p90: 'num', actual: 'num', real_months: 'int', counted: 'bool' }
+  },
+  // ---- 版 11 の表（追記だけ。1 列目が plan_id: 締めた年度の行は書けず、年度の控えに入る）----
+  BUDGET_DRAFTS: {
+    // 予算の下書き（4-1）: 予算の保存 1 回で 12 か月分の 12 行。今の下書き = 計画 × 月の一番新しい行。予測し直しても、これで採用予測と上乗せを戻す。
+    // basis = CENTER（真ん中のまま）・PROB（確率で選んだ）・MANUAL（手で直した）・BASELINE（版 11 の移行で今の予算を 1 回写した）、
+    // prob = 確率で選んだときの値（50・60・70・80）、alloc = 月への割り振り（PAST_SHAPE 過去の平均の形・FORECAST_SHAPE 予測の月の形・MANUAL）、
+    // run_id = 下書きを作ったときの予測の回、center = そのときの月の真ん中。prob は数（num）: 空を 0 と書かない
+    key: ['draft_id'], appendOnly: true,
+    columns: ['plan_id', 'draft_id', 'action_id', 'ym', 'adopted', 'uplift', 'basis', 'prob', 'alloc', 'run_id', 'center', 'actor_email', 'saved_at'],
+    types: { adopted: 'num', uplift: 'num', prob: 'num', center: 'num' }
   }
 };
 

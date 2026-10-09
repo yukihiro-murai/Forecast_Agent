@@ -22,7 +22,7 @@ function planBook(client, fy) {
 {
   const env = setUpEnv();
   const T = env.call('APP_TABLES');
-  assert.equal(env.call('APP_SCHEMA_VERSION'), 10);
+  assert.ok(env.call('APP_SCHEMA_VERSION') >= 10, '版 10 以上（版 11 で予算の下書きを足した: app-v11-drafts.test.mjs）');
   const want = {
     INPUT_LOG: [['log_id'], ['plan_id', 'log_id', 'action_id', 'action', 'kind', 'change', 'row_key', 'person', 'before_json', 'after_json', 'self_conf', 'reason', 'signal_id', 'actor_email', 'saved_at']],
     AI_RESEARCH_LOG: [['research_id'], ['plan_id', 'research_id', 'action_id', 'started_by', 'as_of_date', 'topic', 'row_type', 'direction', 'impact_score', 'confidence', 'event_score', 'benchmark_score', 'blended_score', 'time_horizon', 'row_json', 'recorded_at']],
@@ -47,7 +47,7 @@ function planBook(client, fy) {
   assert.equal(type('PERSON_LINKS', 'is_active'), 'bool');
   // 足した列: 定義の終わりと同じ並び。前の版の列はその前まで
   const added = env.call('APP_ADDED_COLUMNS');
-  assert.deepEqual(Object.keys(added).sort(), ['FORECAST_RUNS', 'PLANS']);
+  assert.deepEqual(Object.keys(added).filter((k) => k !== 'PLAN_VERSIONS').sort(), ['FORECAST_RUNS', 'PLANS']);   // PLAN_VERSIONS は版 11（app-v11-drafts.test.mjs）
   assert.deepEqual(T.FORECAST_RUNS.columns.slice(-3), ['app_version', 'seed_rule', 'fixes_json']);
   assert.deepEqual(T.PLANS.columns.slice(-1), ['purpose']);
   for (const [name, list] of Object.entries(added)) {
@@ -67,6 +67,7 @@ function planBook(client, fy) {
   assert.deepEqual(env.call('APP_V10_BACKFILLS'), ['appV10BackfillInputLog_', 'appV10BackfillAiResearchLog_', 'appV10BackfillHitRecords_']);
   // 写しの中身は各表のテスト（app-v10-input・app-v10-ai-research-log・app-v10-hits）で確かめる。ここでは仮のものに差し替えて、記録の決まりだけを見る
   for (const n of env.call('APP_V10_BACKFILLS')) env.run(n + ' = function(ctx) { return { skipped: true }; };');
+  env.run('appBackfillNames_ = function () { return APP_V10_BACKFILLS.slice(); };');   // ここでは版 10 の写しの決まりだけを見る（版 11 の写しは app-v11-drafts-migrate.test.mjs）
   for (const n of env.call('APP_V10_BACKFILLS')) assert.deepEqual(env.call(n + '({})'), { skipped: true }, n + ' は仮のもの');
   env.call('apiListPlans()');
   assert.equal(env.props.APP_BACKFILLS, undefined, '仮のものは記録しない');
