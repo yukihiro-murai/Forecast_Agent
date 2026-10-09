@@ -250,14 +250,15 @@ const propose = (planId, prob, alloc) => env.call('apiBudgetProposal(__in)', { _
   assert.deepEqual(nums(planB).monthly.map((m) => m.adopted), p70.months.map((m) => m.adopted));
   assert.equal(nums(planB).budget.adopted, p70.annual);
   assert.deepEqual([view(planB).boot.budgetDraft.basis, view(planB).boot.budgetDraft.prob, view(planB).boot.budgetDraft.alloc], ['PROB', 70, 'PAST_SHAPE']);
-  // 本番になった計画（決定 4・7 の後。appPlanAlignedLive_ はほかの担当が作る）は試しと書かない
+  // 本番になった計画（決定 4・7 の後。appPlanAlignedLive_ は Portfolio.js）は試しと書かない
   // 本物では、本番にする記録を書くとデータ本体の版の印が変わり、読んだ結果の控えも変わる。ここでは印を変えて同じにする
-  env.run('appPlanAlignedLive_ = function (plan) { return plan.plan_id === __id; }; appBumpGen_();', { __id: planB });
+  // 本物の appPlanAlignedLive_（Portfolio.js）を控えて差し替え、後で戻す（関数の宣言は delete では消せない）
+  env.run('globalThis.__liveOrig = appPlanAlignedLive_; appPlanAlignedLive_ = function (plan) { return plan.plan_id === __id; }; appBumpGen_();', { __id: planB });
   const live = propose(planB, 60);
   assert.equal(live.mode, 'LIVE');
   assert.doesNotMatch(live.basisText, /試し/);
   assert.equal(propose(planA, 60).mode, 'SHADOW', 'ほかの計画は試しのまま');
-  env.run('delete globalThis.appPlanAlignedLive_; appBumpGen_();');
+  env.run('appPlanAlignedLive_ = globalThis.__liveOrig; appBumpGen_();');
   assert.equal(propose(planB, 60).mode, 'SHADOW');
   // まるごとの年度が 1 年しかなければ、予測の月の形にして、そう書く
   const sales1 = {};
@@ -332,10 +333,10 @@ const propose = (planId, prob, alloc) => env.call('apiBudgetProposal(__in)', { _
   assert.deepEqual(v1.reach, rc);
   assert.equal(list.versions.find((v) => v.versionId === 'VER-OLD').reach, null);
   // 本番の計画（appPlanAlignedLive_ が真）は LIVE
-  env.run('appPlanAlignedLive_ = function () { return true; }; appBumpGen_();');
+  env.run('globalThis.__liveOrig = appPlanAlignedLive_; appPlanAlignedLive_ = function () { return true; }; appBumpGen_();');
   const sub2 = env.call('apiVersionSubmit(__in)', { __in: { planId: planB } });
   assert.equal(sub2.version.reach.mode, 'LIVE');
-  env.run('delete globalThis.appPlanAlignedLive_; appBumpGen_();');
+  env.run('appPlanAlignedLive_ = globalThis.__liveOrig; appBumpGen_();');
   // 着地見込みが出ていない計画（今の年度で、実績を取り込んでいない = 実績の遅れ）も出せる（数は空で、理由を残す）
   const stale = env.seedPlan(env.makeBook('遅れ製薬', { CONFIG: { values: [['項目', '値'], ['[必須] メーカー名（外部集計キー）', '遅れ製薬'], ['[必須] 予測年度FY（YYYY）', 2026], ['[必須] 担当者（カンマ区切り）', '鷹野']] },
     OUTPUT: { values: (() => { const o = [['FY2026']]; for (let r = 2; r <= 25; r++) o.push([]); o.push(['年度合計（予測）', 1, 2, 3], [], []); fyYms(2026).forEach((ym) => o.push([ym, 1, 2, 3, '', '', '', 2, ''])); return o; })(), formats: { A: '@' } } }));
